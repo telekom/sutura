@@ -260,4 +260,8 @@
          <loc>https://telekom.github.io/sutura/main/api/sutura-sql/</loc>
          <lastmod>2026-09-14</lastmod>
     </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-tls/</loc>
+         <lastmod>2026-09-14</lastmod>
+    </url>
 </urlset>

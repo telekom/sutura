@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Short answers to the questions this design provokes first.">
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/qa/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-tls/">
       
       
-        <link rel="prev" href="../getting-started/">
+        <link rel="prev" href="../sutura-exec-postgres/">
       
       
-        <link rel="next" href="../agent-prompt/">
+        <link rel="next" href="../sutura-app/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Questions and answers - sutura</title>
+        <title>sutura-tls - sutura</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#questions-and-answers" class="md-skip">
+        <a href="#sutura-tls" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Questions and answers
+              sutura-tls
             
           </span>
         </div>
@@ -241,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="../assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -270,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -294,10 +294,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -318,11 +316,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -343,7 +341,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -361,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -389,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -414,37 +412,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Questions and answers
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -460,136 +431,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why not just give the agent a database connection and let it write SQL?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-is-a-refusal-not-an-error" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why is a refusal not an error?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-does-the-tool-surface-take-no-table-name" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why does the tool surface take no table name?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-is-there-no-result-cache" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why is there no result cache?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-can-a-question-not-span-two-data-systems" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why can a question not span two data systems?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-are-definitions-not-editable-here" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why are definitions not editable here?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-happens-if-the-agent-asking-is-manipulated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What happens if the agent asking is manipulated?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-do-the-musl-builds-swap-the-allocator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why do the musl builds swap the allocator?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#can-i-use-it-today" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Can I use it today?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-do-i-work-on-it" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How do I work on it?
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -602,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -697,7 +538,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -725,7 +566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../verifying-a-release/" class="md-nav__link">
+      <a href="../../verifying-a-release/" class="md-nav__link">
         
   
   
@@ -753,7 +594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../demo/" class="md-nav__link">
+      <a href="../../demo/" class="md-nav__link">
         
   
   
@@ -785,8 +626,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -809,11 +652,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -834,7 +677,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -852,7 +695,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -880,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../where-identity-is-proven/" class="md-nav__link">
+      <a href="../../where-identity-is-proven/" class="md-nav__link">
         
   
   
@@ -908,7 +751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rdbms-catalog-guidance/" class="md-nav__link">
+      <a href="../../rdbms-catalog-guidance/" class="md-nav__link">
         
   
   
@@ -1049,7 +892,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -1077,7 +920,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -1105,7 +948,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
         
   
   
@@ -1133,7 +976,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
         
   
   
@@ -1161,7 +1004,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
         
   
   
@@ -1189,7 +1032,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+      <a href="../../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
         
   
   
@@ -1217,7 +1060,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+      <a href="../../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
         
   
   
@@ -1245,7 +1088,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+      <a href="../../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
         
   
   
@@ -1273,7 +1116,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+      <a href="../../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
         
   
   
@@ -1301,7 +1144,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+      <a href="../../adr/0010-transport-security-for-a-source/" class="md-nav__link">
         
   
   
@@ -1329,7 +1172,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+      <a href="../../adr/0011-pluggable-by-declaration/" class="md-nav__link">
         
   
   
@@ -1357,7 +1200,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+      <a href="../../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
         
   
   
@@ -1385,7 +1228,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+      <a href="../../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
         
   
   
@@ -1413,7 +1256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+      <a href="../../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
         
   
   
@@ -1441,7 +1284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+      <a href="../../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
         
   
   
@@ -1469,7 +1312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+      <a href="../../adr/0016-what-datahub-can-carry/" class="md-nav__link">
         
   
   
@@ -1497,7 +1340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+      <a href="../../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
         
   
   
@@ -1525,7 +1368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
         
   
   
@@ -1553,7 +1396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
         
   
   
@@ -1581,7 +1424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
         
   
   
@@ -1609,7 +1452,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+      <a href="../../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
         
   
   
@@ -1637,7 +1480,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0022-untrusted-content-marking/" class="md-nav__link">
+      <a href="../../adr/0022-untrusted-content-marking/" class="md-nav__link">
         
   
   
@@ -1665,7 +1508,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
+      <a href="../../adr/0023-how-the-agent-surface-learns-who-is-asking/" class="md-nav__link">
         
   
   
@@ -1693,7 +1536,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
+      <a href="../../adr/0024-three-oss-readiness-scans-and-what-each-discloses/" class="md-nav__link">
         
   
   
@@ -1721,7 +1564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
+      <a href="../../adr/0025-what-a-scorecard-zero-says-about-this-repository/" class="md-nav__link">
         
   
   
@@ -1749,7 +1592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
+      <a href="../../adr/0026-no-third-party-binary-cache/" class="md-nav__link">
         
   
   
@@ -1777,7 +1620,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
+      <a href="../../adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths/" class="md-nav__link">
         
   
   
@@ -1805,7 +1648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0028-who-may-see-a-metric/" class="md-nav__link">
+      <a href="../../adr/0028-who-may-see-a-metric/" class="md-nav__link">
         
   
   
@@ -1833,7 +1676,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0029-where-a-deadline-lives/" class="md-nav__link">
+      <a href="../../adr/0029-where-a-deadline-lives/" class="md-nav__link">
         
   
   
@@ -1861,7 +1704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0030-where-a-budget-lives/" class="md-nav__link">
+      <a href="../../adr/0030-where-a-budget-lives/" class="md-nav__link">
         
   
   
@@ -1889,7 +1732,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0031-caching-an-exchanged-credential/" class="md-nav__link">
+      <a href="../../adr/0031-caching-an-exchanged-credential/" class="md-nav__link">
         
   
   
@@ -1922,6 +1765,8 @@
                 
   
   
+    
+  
   
   
     
@@ -1973,15 +1818,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -2005,7 +1850,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2025,7 +1870,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-domain/" class="md-nav__link">
+      <a href="../sutura-domain/" class="md-nav__link">
         
   
   
@@ -2053,7 +1898,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -2081,7 +1926,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-datahub/" class="md-nav__link">
+      <a href="../sutura-catalog-datahub/" class="md-nav__link">
         
   
   
@@ -2109,7 +1954,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-catalog-rdbms/" class="md-nav__link">
+      <a href="../sutura-catalog-rdbms/" class="md-nav__link">
         
   
   
@@ -2137,7 +1982,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-semantic/" class="md-nav__link">
+      <a href="../sutura-semantic/" class="md-nav__link">
         
   
   
@@ -2165,7 +2010,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-sql/" class="md-nav__link">
+      <a href="../sutura-sql/" class="md-nav__link">
         
   
   
@@ -2193,7 +2038,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -2221,7 +2066,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -2249,7 +2094,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -2277,7 +2122,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
         
   
   
@@ -2302,10 +2147,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../api/sutura-tls/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2321,6 +2175,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -2333,7 +2188,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-app/" class="md-nav__link">
+      <a href="../sutura-app/" class="md-nav__link">
         
   
   
@@ -2361,7 +2216,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-config/" class="md-nav__link">
+      <a href="../sutura-config/" class="md-nav__link">
         
   
   
@@ -2389,7 +2244,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-runtime/" class="md-nav__link">
+      <a href="../sutura-runtime/" class="md-nav__link">
         
   
   
@@ -2417,7 +2272,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-http/" class="md-nav__link">
+      <a href="../sutura-http/" class="md-nav__link">
         
   
   
@@ -2445,7 +2300,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-mcp/" class="md-nav__link">
+      <a href="../sutura-mcp/" class="md-nav__link">
         
   
   
@@ -2473,7 +2328,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-conformance/" class="md-nav__link">
+      <a href="../sutura-conformance/" class="md-nav__link">
         
   
   
@@ -2501,7 +2356,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/sutura-dev/" class="md-nav__link">
+      <a href="../sutura-dev/" class="md-nav__link">
         
   
   
@@ -2606,7 +2461,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -2634,7 +2489,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -2662,7 +2517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -2690,7 +2545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -2725,7 +2580,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -2765,124 +2620,6 @@
     
   
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why not just give the agent a database connection and let it write SQL?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-is-a-refusal-not-an-error" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why is a refusal not an error?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-does-the-tool-surface-take-no-table-name" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why does the tool surface take no table name?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-is-there-no-result-cache" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why is there no result cache?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-can-a-question-not-span-two-data-systems" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why can a question not span two data systems?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-are-definitions-not-editable-here" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why are definitions not editable here?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-happens-if-the-agent-asking-is-manipulated" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What happens if the agent asking is manipulated?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-do-the-musl-builds-swap-the-allocator" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why do the musl builds swap the allocator?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#can-i-use-it-today" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Can I use it today?
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-do-i-work-on-it" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How do I work on it?
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
 </nav>
                   </div>
                 </div>
@@ -2901,136 +2638,154 @@
   
 
 
-<h1 id="questions-and-answers">Questions and answers<a class="headerlink" href="#questions-and-answers" title="Permanent link">&para;</a></h1>
-<p>Where another page says it better, this one links rather than restates.</p>
-<h2 id="why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql">Why not just give the agent a database connection and let it write SQL?<a class="headerlink" href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" title="Permanent link">&para;</a></h2>
-<p>Two things go wrong at once, and only one of them is obvious. An agent that invents SQL invents a
-definition with it, so nobody can say whether "revenue" means what finance means by it. The rows
-come back according to what the <em>service</em> may read rather than what the <em>caller</em> may read, which
-is how a row-level security policy becomes decorative.</p>
-<p>sutura fixes the first by construction today: definitions arrive certified and pinned, the tool
-surface has no field an invented query could arrive in, and every value a question carries binds
-as a parameter rather than reaching the statement as text.</p>
-<p>The second is <strong>half built, and the missing half is the one that matters.</strong> "Every query runs as
-the caller" needs a credential minted per request. That now exists: a request context reaches the
-query path, a credential broker mints once per answer for every source a plan reads, and the
-execution port has no signature that runs without the result - so a subject with no credential at
-a source is refused rather than answered as this process. What is absent is a data system that
-evaluates the asking subject: no adapter in this build can carry a per-subject credential. Against
-a local file the property is trivially true and worth nothing, because a file has no login.
-Against a warehouse it is still a target - what changed is that no <em>question</em> has a code path for
-a warehouse to be read as this process through. The boot path does, by design: it re-executes
-every anchor before a listener is bound, there is no caller then, and <code>Warehouse::verify_anchor</code>
-takes no credential.</p>
-<p><strong>What bounds that path is placement made checkable, not its input type - a correction a second
-review forced.</strong> <code>verify_anchor</code> takes an <code>AnchorPlan</code>, a plan the pinned bundle itself agrees is
-a declared anchor's own: the metric must be defined and anchored, the range the one the bundle
-certifies, the grain the coarsest that metric declares, and there may be no group-by key and no
-predicate a question asked for. Every one of those facts is read off the bundle, so the check
-catches a boot path that compiled the wrong question. It does <strong>not</strong> stop code that wants to
-reach the method: the constructor is public, every value it reads is publicly constructible, and
-Rust has no cross-crate friend visibility. So the mechanism that makes the credential-free path
-boot-only is a lint - <code>clippy.toml</code> bans the method and the boot path holds the single
-expectation, so a second call site is a build error until somebody writes a second one a reviewer
-sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
-stated on the type as well.</p>
-<h2 id="why-is-a-refusal-not-an-error">Why is a refusal not an error?<a class="headerlink" href="#why-is-a-refusal-not-an-error" title="Permanent link">&para;</a></h2>
-<p>An error invites a retry. A refusal is a variant of the result type with a typed reason, so a
-caller cannot mistake "you may not ask this" for a transport hiccup and loop until something
-answers. That part is enforced today, and the golden suite provokes every variant a question can
-reach.</p>
-<p>Recording each refusal with the whole principal chain is <strong>built</strong>: an <code>AuditSink</code> takes every
-outcome, refusal and answer alike, before it is returned, and <code>sutura-runtime</code> ships the
-structured writer a deployment that attaches nothing else gets. Two limits, both deliberate.
-sutura <strong>retains nothing</strong> - what a record is worth is what the deployment's sink is worth. And
-the subject in the chain is only as strong as what established it: behind the shared bearer token
-alone the record names the <em>deployment</em>, because that is who asked as far as anything can tell; a
-deployment that declares <code>security.inbound</code> names the caller, from a signature. Still a design
-target is a refusal attributable to a subject whose own <strong>access</strong> decided it - the record can say
-which identity each leg ran under, and on this build that is never the asking subject.</p>
-<h2 id="why-does-the-tool-surface-take-no-table-name">Why does the tool surface take no table name?<a class="headerlink" href="#why-does-the-tool-surface-take-no-table-name" title="Permanent link">&para;</a></h2>
-<p>Because a refusal can be retried, reworded and eventually satisfied, and an absent field cannot.
-<code>Query</code> carries no SQL, no table, no filter expression and no row ids, so an uncertified question
-does not compile. That is enforced today, and <code>deny_unknown_fields</code> means a question carrying
-<code>sql:</code> is an error naming the field rather than one silently dropped.</p>
-<p>The intended backstop - widening the surface changes a dumped schema, so the widening lands in the
-diff of the review that did it - is a <strong>design target</strong>. The schema dump is not written yet, so
-today the only thing catching a widened surface is review.</p>
-<h2 id="why-is-there-no-result-cache">Why is there no result cache?<a class="headerlink" href="#why-is-there-no-result-cache" title="Permanent link">&para;</a></h2>
-<p>Under row-level security, two callers asking the same question are entitled to different rows. A
-cache keyed on the query text serves the first caller's rows to the second: a cross-user leak with
-a hit rate. The same reasoning rules out a materialised copy refreshed on a schedule, which is
-read under whoever refreshed it.</p>
-<p>No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
-rows is an architecture change, keyed on subject first or not at all.</p>
-<h2 id="why-can-a-question-not-span-two-data-systems">Why can a question not span two data systems?<a class="headerlink" href="#why-can-a-question-not-span-two-data-systems" title="Permanent link">&para;</a></h2>
-<p>A second data system is a second identity to satisfy, not a bigger version of the same query. The
-one-source rule is enforced today: the plan stage collects every source the plan reaches into a
-set and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to
-provoke the refusal.</p>
-<p>The <em>identity</em> half of that reasoning is a design target. There is no per-leg credential, so
-nothing asserts that two subjects get different rows, and nothing can until one exists.</p>
-<p>Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed
-into ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows
-never enter this process.
-<a href="../architecture/#where-the-parts-come-from">Where the parts come from</a> names the projects that
-already do that part well.</p>
-<h2 id="why-are-definitions-not-editable-here">Why are definitions not editable here?<a class="headerlink" href="#why-are-definitions-not-editable-here" title="Permanent link">&para;</a></h2>
-<p>Editing a certified statement forks the definition from the number it certifies, which was the
-only thing certifying it bought. Definitions are authored in the semantic layer that renders them
-and arrive pinned and hashed. A wrong definition is wrong upstream.</p>
-<h2 id="what-happens-if-the-agent-asking-is-manipulated">What happens if the agent asking is manipulated?<a class="headerlink" href="#what-happens-if-the-agent-asking-is-manipulated" title="Permanent link">&para;</a></h2>
-<p>For a system whose input is natural language from wherever the user found it, a manipulated agent
-is the expected case rather than the disaster case, and the defence is not detecting it. The most
-an attacker can make the agent emit is a different certified question over the same pinned
-definitions - that much is enforced today by the shape of <code>Query</code>. The blast radius of a fully
-manipulated agent is the set of questions its caller could already ask.</p>
-<p>The clause "asked as the same caller, against the same authorization" is <strong>half built.</strong> The
-credential broker exists and <code>Warehouse::execute</code> has no signature that runs without what it
-minted, so there is no code path a question reaches a data system through as an unnamed identity.
-What is still absent is an adapter that can carry a per-subject credential, so nothing today makes
-a statement about <strong>whose rows</strong> come back: the bound on a manipulated agent is the tool surface
-plus, where a deployment declares <code>security.inbound</code>, the scopes that caller was granted - which
-decide which operations it may invoke and not which rows an answer contains.</p>
-<h2 id="why-do-the-musl-builds-swap-the-allocator">Why do the musl builds swap the allocator?<a class="headerlink" href="#why-do-the-musl-builds-swap-the-allocator" title="Permanent link">&para;</a></h2>
-<p>musl's <code>mallocng</code> serialises the whole process on one lock word. With one binary and only
-threading toggled, a 48-core run takes 4.45s on glibc and 92.16s on musl, slower than musl's own
-single-core run; linking mimalloc brings it to 3.83s.
-<a href="../architecture/#what-ships">What ships</a> has the details, including the cost of <code>MI_SECURE=4</code>.</p>
-<h2 id="can-i-use-it-today">Can I use it today?<a class="headerlink" href="#can-i-use-it-today" title="Permanent link">&para;</a></h2>
-<p>For single-player work over local files, yes. <code>sutura compile</code> renders the statement for a
-question and <code>sutura query</code> answers it, over a catalogue of documents in git and the CSV or
-Parquet files in a directory you name. That is the honest description: <strong>a governed single-player
-semantic compiler and executor over local files</strong>, served either from the command line or
-<a href="../serving/">over HTTP</a>.</p>
-<p>Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
-specific than it used to be. There <strong>is</strong> a request context, a credential broker port with a
-static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
-<code>security.inbound</code> - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. What there is <strong>not</strong> is leg 2: no adapter in this build has
-anywhere for a per-subject credential to arrive, both declare so, and the broker that ships mints
-what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
-subject it holds no credential for - and still read every row as one identity. There is no Arrow
-result envelope. The one data system the shipped binary opens is the in-process engine over those
-files - <code>sutura-exec-duckdb</code> renders and pushes down, and is a development dependency rather than
-something the binary links. So the governance that decides <strong>which rows</strong> is still the narrow tool
-surface and the pinned bundle, not identity.
-<a href="../architecture/#what-exists-today">What exists today</a> is the inventory.</p>
-<p>The environment, the gates and the release pipeline do work, because a mechanism is cheaper to
-build before there is code to retrofit it onto.</p>
-<h2 id="how-do-i-work-on-it">How do I work on it?<a class="headerlink" href="#how-do-i-work-on-it" title="Permanent link">&para;</a></h2>
-<p><a href="../contributing/">Contributing</a> covers the three routes to an environment, the two toolchains and
-which gates run when. On a network with no direct egress, read
-<a href="../enterprise-mirrors/">Building without direct egress</a> first.</p>
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-tls">sutura-tls<a class="headerlink" href="#sutura-tls" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-tls</code>, rendered from rustdoc JSON.</p>
+<p>Reading a declared outbound trust anchor and client identity into loadable <code>rustls</code> material.</p>
+<p><strong>Extracted out of <code>sutura-exec-postgres/src/tls.rs</code></strong>, which is where this logic first landed
+and where its own header used to record why it stayed there: <em>"The two crates do not share a
+dependency, so this module's input is the RESOLVED material a composition root extracted from the
+declaration."</em> That argument is about <code>sutura-config</code> - a settings crate parses a path and never
+reads it, so the file read belongs to whichever adapter opens the connection - and it says nothing
+about two <em>adapters</em> sharing the read. <code>github.com/telekom/sutura#125</code>'s remaining half needs the
+same bundle-or-system-store read a second time, for the <code>BigQuery</code> wire, and copying
+<code>bundle_roots</code>/<code>system_roots</code>/the identity loaders a second time is exactly the duplication
+<code>AGENTS.md</code> asks not to hold twice.</p>
+<h1 id="what-is-shared-and-what-deliberately-is-not">What is shared, and what deliberately is not<a class="headerlink" href="#what-is-shared-and-what-deliberately-is-not" title="Permanent link">&para;</a></h1>
+<p>This crate reads bytes and returns <code>rustls_pki_types::CertificateDer</code> /
+<code>rustls_pki_types::PrivateKeyDer</code> - the DER material every rustls-based consumer starts from,
+and the exact type a <code>rustls</code>-depending caller already has: <code>rustls</code> itself re-exports this crate
+verbatim as <code>rustls::pki_types</code> (<code>pub use pki_types::*;</code>), so nothing converts at the seam. This
+crate builds no <code>RootCertStore</code> and installs no crypto provider, because neither is shared:</p>
+<ul>
+<li><code>sutura-exec-postgres::tls</code> folds the returned certificates into a <code>RootCertStore</code> (the step
+  that also catches a certificate rustls itself cannot use as a root) and builds a
+  <code>rustls::ClientConfig</code> with the <code>ring</code> provider IT already depends on, for
+  <code>tokio-postgres-rustls</code>.</li>
+<li>A <code>ureq</code>-based adapter turns the same <code>CertificateDer</code> bytes into <code>ureq::tls::Certificate</code> (via
+  <code>Certificate::from_der(der.as_ref()).to_owned()</code>) and hands <code>RootCerts::Specific</code> to
+  <code>ureq::tls::TlsConfig</code> - the workspace's own pinned <code>ureq</code> takes that shape directly, so no new
+  outbound HTTP client enters the graph for this.</li>
+</ul>
+<p>So the crate this loader lives in depends on <code>rustls-pki-types</code> (not <code>rustls</code> itself - that pulls
+the <code>ring</code> provider on this workspace's feature pin, and this crate must not) and
+<code>rustls-native-certs</code>, and nothing that names a network client or a crypto provider - a data
+system's own outbound wire chooses those, not this. <code>cargo tree -p sutura-tls -e normal -i ring</code>
+prints nothing, held by <code>xtask/src/boundaries.rs</code>'s <code>FORBIDDEN_EDGES</code> entry naming this pair.</p>
+<h1 id="what-refuses-here-and-why-it-is-fail-closed-the-same-way-twice">What refuses here, and why it is fail-closed the same way twice<a class="headerlink" href="#what-refuses-here-and-why-it-is-fail-closed-the-same-way-twice" title="Permanent link">&para;</a></h1>
+<ul>
+<li>A bundle path that cannot be read, or reads to no certificates at all: a store of nothing
+  verifies nothing.</li>
+<li>The host store (<code>transport_anchors: system</code> / <code>security.outbound.transport_anchors: system</code>)
+  read with any reported error, or with no certificates: the upstream reader reports a PARTIAL
+  read as certificates plus errors, and accepting the certificates alone would make <code>system</code> mean
+  a silently reduced store.</li>
+<li>A client identity certificate that cannot be read or holds no certificate, or a key that cannot
+  be read or does not parse as a private key this build can present.</li>
+</ul>
+<p>An untrusted-issuer chain is never refused here - verification is the handshake's job, and a
+caller that folds these bytes into its own verifier is exactly the thing that refuses it.</p>
+<h2 id="enum-anchors"><code>enum Anchors</code><a class="headerlink" href="#enum-anchors" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Anchors</span>
+</span></code></pre></div>
+<p>Where a declared trust anchor bundle is read from.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Bundle</code> - A PEM bundle at this absolute path.</li>
+<li><code>System</code> - The host's own trust store, read once.</li>
+</ul>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="struct-identity"><code>struct Identity</code><a class="headerlink" href="#struct-identity" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Identity</span>
+</span></code></pre></div>
+<p>The client certificate and key a <code>mutual</code> channel presents, as paths to read.</p>
+<p>A pair - a caller has already refused a partial one before reaching this crate (both
+<code>sutura_config::sources::transport::ClientIdentity</code> and any deployment-wide equivalent are pairs
+by construction), so this type carries no partial state either.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The declared client certificate path.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The declared client key path.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A client identity from its declared paths.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="enum-loaderror"><code>enum LoadError</code><a class="headerlink" href="#enum-loaderror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LoadError</span>
+</span></code></pre></div>
+<p>Why a declared anchor or identity could not be loaded.</p>
+<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AnchorsRead</code> - The declared trust anchors could not be read or parsed.</li>
+<li><code>AnchorsEmpty</code> - The declared trust anchors parsed to no certificates.</li>
+<li><code>SystemStoreRead</code> - The explicitly selected host trust store could not be read completely.</li>
+<li><code>SystemStoreEmpty</code> - The explicitly selected host trust store held no roots.</li>
+<li><code>IdentityRead</code> - The declared client identity could not be read.</li>
+<li><code>IdentityIncomplete</code> - The declared client certificate parsed to no certificate, or the key to no key.</li>
+<li><code>IdentityKey</code> - The client key was not an RSA/EC key this build can present.</li>
+</ul>
+<h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-loadedanchors"><code>struct LoadedAnchors</code><a class="headerlink" href="#struct-loadedanchors" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LoadedAnchors</span>
+</span></code></pre></div>
+<p>A loaded trust-anchor set - never empty, by construction.</p>
+<p>The property <code>load_anchors</code> promises is now a type rather than a comment at the call site: a
+store of nothing verifies nothing, and <code>LoadedAnchors::parse</code> is the only constructor, refusing
+an empty list with the caller's own refusal (<code>AnchorsEmpty</code> for a bundle, <code>SystemStoreEmpty</code> for
+the host store) rather than letting each source repeat the check.</p>
+<h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>IntoIterator</code></p>
+<h2 id="struct-loadedidentity"><code>struct LoadedIdentity</code><a class="headerlink" href="#struct-loadedidentity" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LoadedIdentity</span>
+</span></code></pre></div>
+<p>A loaded client identity: the certificate chain, and the private key for it.</p>
+<p>Private fields behind named accessors, not a tuple and not <code>pub</code> fields - a struct literal built
+from outside this crate could pair any chain with any key, which is exactly the invariant
+<code>load_identity</code> exists to hold (each half read from the SAME declared <code>Identity</code>).</p>
+<h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">chain</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">CertificateDer</span><span class="o">&lt;'</span><span class="nb">static</span><span class="o">&gt;</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The certificate chain, for inspection without giving up the key.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">CertificateDer</span><span class="o">&lt;'</span><span class="nb">static</span><span class="o">&gt;&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">PrivateKeyDer</span><span class="o">&lt;'</span><span class="nb">static</span><span class="o">&gt;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The chain and the key, consumed together - <code>PrivateKeyDer</code> implements no <code>Clone</code>, so there is
+no <code>&amp;self</code> accessor for it that would not lie about ownership.</p>
+<h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code></p>
+<h2 id="fn-load_anchors"><code>fn load_anchors</code><a class="headerlink" href="#fn-load_anchors" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_anchors</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Anchors</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Loads the declared trust anchors as raw certificate DER, refusing an empty or unreadable store.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>LoadError::AnchorsRead</code> for a bundle that cannot be read or parsed;
+<code>LoadError::AnchorsEmpty</code> for a bundle that parses to no certificates;
+<code>LoadError::SystemStoreRead</code>/<code>LoadError::SystemStoreEmpty</code> for a host store that cannot
+supply a complete, non-empty set.</p>
+<h2 id="fn-load_identity"><code>fn load_identity</code><a class="headerlink" href="#fn-load_identity" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_identity</span><span class="p">(</span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Identity</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedIdentity</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Loads the declared client identity, refusing a half that cannot be read or does not hold its
+kind.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>LoadError::IdentityRead</code> for a half that cannot be read; <code>LoadError::IdentityIncomplete</code> for
+a certificate file with no certificate; <code>LoadError::IdentityKey</code> for a key file that does not
+parse as a private key.</p>
 
 
 
 
 
 
-
-  
-  
 
 
 
@@ -3096,10 +2851,10 @@ which gates run when. On a network with no direct egress, read
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

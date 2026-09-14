@@ -16,7 +16,7 @@
         <link rel="prev" href="../sutura-exec-bigquery/">
       
       
-        <link rel="next" href="../sutura-app/">
+        <link rel="next" href="../sutura-tls/">
       
       
         
@@ -1810,6 +1810,8 @@
       
         
       
+        
+      
     
     
     
@@ -2367,6 +2369,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3305,6 +3335,16 @@ declared file.</p>
 exercises every refusal above in-crate against <code>rcgen</code>-generated material, and <code>tests/tls.rs</code>
 drives the same construction against the tier's real server - where the two cells are that the
 declared anchor verifies and an issuer it does not name is refused.</p>
+<p><strong>The READ itself lives in <code>sutura-tls</code></strong>, a leaf crate with no dependency on a crypto provider,
+a network client, or <code>sutura-config</code> - extracted here because <code>github.com/telekom/sutura#125</code>'s
+remainder needs the identical bundle-or-system-store read a second time, for a <code>ureq</code>-based
+outbound adapter, and copying <code>bundle_roots</code>/<code>system_roots</code>/the identity loaders a second time
+is exactly the duplication <code>AGENTS.md</code> asks not to hold twice. What stays HERE, and is this
+crate's own, is folding the read bytes into a <code>RootCertStore</code> (the step that also catches a
+certificate rustls itself cannot use as a root - <code>PostgresError::AnchorsRead</code> for a bundle
+entry, <code>PostgresError::SystemStoreCertificate</code> for a system-store one, unchanged from before
+the extraction) and building the <code>ring</code>-backed <code>rustls::ClientConfig</code> <code>tokio-postgres-rustls</code>
+wants. Every error variant this module can produce is unchanged; only where the read happens did.</p>
 <h3 id="enum-tlsanchors"><code>enum TlsAnchors</code><a class="headerlink" href="#enum-tlsanchors" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsAnchors</span>
 </span></code></pre></div>

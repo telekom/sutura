@@ -1901,6 +1901,8 @@
       
         
       
+        
+      
     
     
     
@@ -2219,6 +2221,34 @@
     
   
     sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
   
 
     
@@ -2927,6 +2957,71 @@ authenticated.</p>
 <p><strong>What is still not this record.</strong> Rotation (rule 3) has no client-side implementation - the pool
   drain it needs is unbuilt. The HTTP adapters do not honour the declaration, so
   <code>sutura-exec-bigquery</code>'s wire still verifies against whatever <code>ureq</code> is configured to trust.</p>
+<ul>
+<li><strong>Amendment, <code>github.com/telekom/sutura#125</code>'s remainder, split across two PRs: a shared read first,
+  then a second declaration and the adapter that reads it.</strong></li>
+</ul>
+<p>A per-source <code>transport_anchors</code> only means something when the source's own entry names the host
+  it dials - Postgres, and a <code>datahub</code> catalog reader whenever one is built. The BigQuery wire and the
+  STS token exchange dial a host that is a COMPILE-TIME CONSTANT (<code>wire.rs</code>'s <code>HOST</code>), shared by every
+  <code>bigquery</code> entry a deployment writes, so a per-entry anchor would be exactly the "a declaration that
+  does nothing" failure this issue opened against - <code>transport_*</code> STAYS refused on <code>bigquery</code> and
+  <code>files</code> entries; it is not lifted. What covers a fixed-host client instead is a deployment-wide
+  <code>security.outbound.transport_anchors</code> - staged, not yet landed; see below.</p>
+<p><strong>PR 1 lands the shared read and one refusal, with one consumer.</strong> The bundle-or-system-store read
+  and the client-identity read moved out of <code>sutura-exec-postgres::tls</code> into <code>sutura-tls</code>, a new leaf
+  crate with no dependency on a crypto provider, a network client, or <code>sutura-config</code>. It returns raw
+  <code>CertificateDer</code>/<code>PrivateKeyDer</code>, never a <code>RootCertStore</code> or a <code>rustls::ClientConfig</code>: which
+  certificates a client trusts and how it builds its connector stays each adapter's own decision.
+  <code>sutura-exec-postgres::tls</code> is migrated onto it in the same PR - its <code>client_config</code> keeps its exact
+  signature and every <code>PostgresError</code> variant it can produce, and only WHERE the bytes are read moved;
+  the three tests that exercised the removed private loader functions directly moved to <code>sutura-tls</code>'s
+  own suite, and the tests that exercise <code>client_config</code> end to end stayed, because they are this
+  crate's own claim that a refusal still comes back as <code>PostgresError</code>. <strong>This is deliberate, not
+  incidental</strong>: landing a crate with no consumer would itself be an unread declaration -
+  <code>cargo xtask unused-deps</code> and a dead-code lint would both say so - so the migration is the same PR as
+  the extraction rather than a promise for later. <code>sutura-tls</code> has exactly one consumer until PR 2.
+  The <code>InvalidSourceRegistry::TlsOverUnixSocket</code> parse-time refusal for a <code>verified</code>/<code>mutual</code> transport
+  declared over a <code>unix_socket</code> dial lands in this PR too - unrelated to the shared crate, but the same
+  "a declaration that does nothing" argument in the other direction: today it fails only at
+  <code>PostgresWarehouse::connect_secured</code>'s own connect-time error, which names neither key.</p>
+<p><strong>PR 2 lands the second declaration together with its only reader</strong>, for the identical reason PR 1's
+  migration is not deferred: <code>security.outbound.transport_anchors</code> (<code>sutura_config::security::
+  OutboundAnchors</code>) - a PEM bundle path or <code>system</code>, deployment-wide, anchors only, no client identity,
+  because every endpoint it covers takes a bearer token and not a certificate - lands WITH the
+  BigQuery wire's <code>WireAgent::secured</code> reader, the composition-root wiring (<code>sutura-serve</code>,
+  <code>sutura-cli</code>), and the hermetic fake-TLS cells, so nothing merges that a deployment could write and
+  have silently do nothing. A <code>ureq</code>-based adapter turns <code>sutura-tls</code>'s loaded certificates into
+  <code>ureq::tls::Certificate</code> for <code>RootCerts::Specific</code> - checked against the workspace's own pinned
+  <code>ureq</code>: <code>TlsConfig</code>/<code>RootCerts</code>/<code>ClientCert</code> already exist, so this needs no new HTTP client and no
+  <code>deny.toml</code> change. Absent <code>security.outbound</code> is not a refusal (these clients always speak TLS
+  regardless, and absence means "verify against the compiled-in roots", unchanged from every prior
+  release); a PRESENT block naming no anchors is, the same argument <code>security.inbound</code> with no <code>mode</code>
+  already makes.</p>
+<p><code>sutura-runtime</code> was considered and rejected as the loader's home: no <code>sutura-exec-*</code> crate depends
+  on it today (<code>grep -l sutura-runtime crates/*/Cargo.toml</code> names only <code>sutura-app</code>, <code>sutura-mcp</code>,
+  <code>sutura-cli</code>, <code>sutura-http</code>, <code>sutura-serve</code> - transports and composition roots, never a data-system
+  adapter), and its own module header frames it as process-<em>global</em> machinery "a composition root
+  calls deliberately" - the subscriber, the panic hook, the shutdown signal, the banner, the audit
+  sink. A PEM/system-store read for one adapter's own outbound connection is not that, and giving a
+  leaf adapter a dependency on <code>tracing-subscriber</code>/<code>tokio</code>'s signal handling to reach a loader would
+  be a new, backwards edge for a five-function module. <code>xtask/src/boundaries.rs</code>'s <code>FORBIDDEN_EDGES</code>
+  and <code>adapters.rs</code>'s "data systems" class name no rule against <code>sutura-tls</code> joining the graph: it is a
+  leaf no <code>-exec-*</code>/<code>-catalog-*</code>/<code>-domain</code> prefix claims, so it starts in no forbidden class.</p>
+<p><strong>The inbound JWKS/discovery fetch does not exist to bring under this, and <code>security.outbound</code>'s
+  generic shape is the reuse case for whenever it does.</strong> <code>crates/sutura-http/src/inbound/keys.rs</code>'s
+  own header: <em>"[<code>FileKeySet</code>] is the only source that ships. There is no HTTPS fetcher, and that is
+  stated here rather than left to be discovered: an outbound HTTP client is a supply-chain change with
+  its own review, and <code>docs/adr/0014</code> says plainly that the authorization server then becomes a hard
+  runtime dependency whose outage must stay distinguishable from a dead data system. None of that is
+  built."</em> <code>router.rs</code>'s and <code>protected_resource.rs</code>'s own "discovery" hits are this deployment
+  PUBLISHING RFC 9728 metadata, not fetching anything. So an enterprise IdP behind a private CA is a
+  real product case for <code>security.outbound</code>, and there is no client for it to govern yet - building the
+  fetcher itself is ADR 0014's unbuilt half and a larger, separate change than #125's scope of "make an
+  EXISTING client honour the declaration". <code>security.outbound</code>'s key stays generic (a plain anchors
+  declaration, not named or scoped to BigQuery) for exactly this reuse: a JWKS/discovery fetcher, when
+  built, reads it with no second mechanism. No hermetic cell is added against it here, since there is
+  no client yet to point one at - that would be coverage for code that does not exist.</p>
 
 
 

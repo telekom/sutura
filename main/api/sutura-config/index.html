@@ -1810,6 +1810,8 @@
       
         
       
+        
+      
     
     
     
@@ -2128,6 +2130,34 @@
     
   
     sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-tls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-tls
   
 
     
@@ -5492,7 +5522,11 @@ convenience, and nothing needs to clone a startup refusal.</p>
   absence of a setting: a unix socket or a loopback host may declare it, and anything reachable
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is <code>transport_mode</code>, because declaring a TLS
-  mode and its anchors is the remedy.</p>
+  mode and its anchors is the remedy.
+- <code>TlsOverUnixSocket</code> - A <code>verified</code> or <code>mutual</code> transport declared on a <code>unix_socket</code> dial.</p>
+<p>A parse-time refusal rather than the connect-time one the driver would otherwise give: the
+  driver has no TLS handshake to perform over a local socket, so the failure it produces there
+  is a confusing one that names neither key. Refusing here says which two keys disagree.</p>
 <h4 id="implements_61">Implements<a class="headerlink" href="#implements_61" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-sourceregistry"><code>struct SourceRegistry</code><a class="headerlink" href="#struct-sourceregistry" title="Permanent link">&para;</a></h3>
