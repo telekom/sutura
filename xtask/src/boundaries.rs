@@ -328,6 +328,19 @@ impl Edges {
                 .is_none_or(|kinds| kinds.iter().any(is_normal_kind)),
         }
     }
+
+    /// The `cargo tree -e` value that reproduces this same walk, for a refusal's own remedy line.
+    ///
+    /// A fixed `normal` printed for every entry (as `forbidden_edges`'s refusal used to) is wrong
+    /// for an `Edges::Every` entry whose forbidden crate is reachable only through a dev or build
+    /// edge - `sutura-tls -> ring` is exactly that shape, and `cargo tree -e normal --invert ring`
+    /// prints nothing for it while the gate correctly refuses.
+    const fn tree_flag(self) -> &'static str {
+        match self {
+            Self::Every => "normal,build,dev",
+            Self::Normal => "normal",
+        }
+    }
 }
 
 /// Is this one `dep_kinds` entry a normal dependency? `null` is normal; the other two are
@@ -616,10 +629,10 @@ fn forbidden_edges() -> Verdict {
 
     let mut failed = false;
     for edge in FORBIDDEN_EDGES {
-        // Walked per entry rather than once, because `from` differs per rule and a missing
-        // `from` has to be an error rather than a vacuous pass: a renamed crate would
-        // otherwise silently switch the rule off. `edge.edges` and not a fixed `Edges::Every`,
-        // because the entries make genuinely different claims - see [`ForbiddenEdge::edges`].
+        // The count for the `ok` line is a second walk of the same tree `reaches` already took -
+        // cheap here (one gate, run once) and it keeps `reaches` itself a one-question function a
+        // fixture can call directly, rather than one that also has to hand back a count nothing
+        // else needs.
         let tree = match transitive_names(&meta, edge.from, edge.edges) {
             Ok(names) => names,
             Err(message) => {
@@ -628,7 +641,15 @@ fn forbidden_edges() -> Verdict {
                 continue;
             }
         };
-        if !tree.contains(edge.forbidden) {
+        let found = match reaches(&meta, edge) {
+            Ok(found) => found,
+            Err(message) => {
+                eprintln!("xtask check-boundaries: {message}");
+                failed = true;
+                continue;
+            }
+        };
+        if !found {
             println!(
                 "xtask check-boundaries: ok - {} does not reach {} ({} crate(s) in its tree)",
                 edge.from,
@@ -647,8 +668,10 @@ fn forbidden_edges() -> Verdict {
         eprintln!("  Do:  {}", edge.instead);
         eprintln!();
         eprintln!(
-            "  `cargo tree -p {} -e normal --invert {}` names the edge.",
-            edge.from, edge.forbidden
+            "  `cargo tree -p {} -e {} --invert {}` names the edge.",
+            edge.from,
+            edge.edges.tree_flag(),
+            edge.forbidden
         );
         eprintln!("  If the edge genuinely belongs, the entry in FORBIDDEN_EDGES is what has to");
         eprintln!("  go, and that is an architecture decision: it should be a visible diff with");
@@ -656,6 +679,19 @@ fn forbidden_edges() -> Verdict {
         eprintln!();
     }
     if failed { Verdict::Fail } else { Verdict::Pass }
+}
+
+/// Whether `edge.forbidden` is reachable from `edge.from`, over the edge kinds `edge.edges` names.
+///
+/// Factored out of [`forbidden_edges`] so a fixture can drive ONE entry's scoping directly: a
+/// `dep_kinds: [{"kind": "dev"}]` route from `from` to `forbidden` must answer `true` for an
+/// `Edges::Every` entry and `false` for an `Edges::Normal` one, which is the property the per-entry
+/// `edges` field exists to hold and which `just lint` alone does not exercise both ways - the live
+/// resolve graph only happens to make `Edges::Every` fail-visible today (`sutura-tls`'s `rcgen` dev
+/// edge to `ring`), and nothing in the graph currently makes `Edges::Normal` fail-visible at all.
+fn reaches(meta: &serde_json::Value, edge: &ForbiddenEdge) -> Result<bool, String> {
+    let tree = transitive_names(meta, edge.from, edge.edges)?;
+    Ok(tree.contains(edge.forbidden))
 }
 
 /// Which way dependencies point: nothing framework-shaped is reachable from the domain.
@@ -776,7 +812,7 @@ fn typed_surface() -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, transitive_names, violations};
+    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, ForbiddenEdge, reaches, transitive_names, violations};
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|n| String::from(*n)).collect()
@@ -880,6 +916,53 @@ mod tests {
         for edge in FORBIDDEN_EDGES {
             assert!(tree.contains(edge.forbidden), "{} was not seen in the tree", edge.forbidden);
         }
+    }
+
+    #[test]
+    fn a_forbidden_edges_kind_scoping_is_held_by_a_fixture() {
+        // `reaches` is the per-entry question `forbidden_edges` asks, and the field it reads
+        // (`edge.edges`) had no test of its own before this one: the fixture above always walks a
+        // hardcoded `Edges::Every` from a hardcoded root, so it proves a NAME is reachable and
+        // never that one entry's OWN `edges` choice is respected. One DEV-only route from `from`
+        // to `forbidden` (the shape `boundaries::adapters`'s own fixtures build) answers both
+        // directions at once: an `Edges::Every` entry must still catch it, and an `Edges::Normal`
+        // entry - `sutura-tls`'s own claim, since its `rcgen` dev-dependency reaching `ring` is
+        // exactly the route that must NOT trip a claim about what a shipped binary links - must not.
+        let meta: serde_json::Value = serde_json::from_str(
+            r#"{
+                "packages": [
+                    {"id": "from-id", "name": "from"},
+                    {"id": "forbidden-id", "name": "forbidden"}
+                ],
+                "resolve": {"nodes": [
+                    {"id": "from-id", "deps": [{"pkg": "forbidden-id", "dep_kinds": [{"kind": "dev"}]}]},
+                    {"id": "forbidden-id", "deps": []}
+                ]}
+            }"#,
+        )
+        .expect("fixture parses");
+        let every = ForbiddenEdge {
+            from: "from",
+            forbidden: "forbidden",
+            why: "test fixture",
+            instead: "test fixture",
+            edges: Edges::Every,
+        };
+        let normal = ForbiddenEdge {
+            from: "from",
+            forbidden: "forbidden",
+            why: "test fixture",
+            instead: "test fixture",
+            edges: Edges::Normal,
+        };
+        assert!(
+            reaches(&meta, &every).expect("walk succeeds"),
+            "an Edges::Every entry must still catch a dev-only route"
+        );
+        assert!(
+            !reaches(&meta, &normal).expect("walk succeeds"),
+            "an Edges::Normal entry must not be tripped by a dev-only route"
+        );
     }
 
     #[test]

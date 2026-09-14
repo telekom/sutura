@@ -52,9 +52,10 @@ members = [
   "crates/sutura-exec-postgres",
   # The one place either outbound TLS adapter reads a declared bundle or the host store: no
   # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
-  # folds in. `sutura-exec-postgres` and `sutura-exec-bigquery` both depend on it; neither may depend
-  # on the other (`xtask/src/boundaries/adapters.rs`'s "data systems" class), so the read that both
-  # need moved here rather than into either.
+  # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
+  # (`github.com/telekom/sutura#125`'s second PR) is the second - neither may depend on the other
+  # (`xtask/src/boundaries/adapters.rs`'s "data systems" class), so the read that both need moved
+  # here rather than into either.
   "crates/sutura-tls",
   "crates/sutura-cli",
   # The service runtime. Four crates rather than one, and the split is the dependency direction:

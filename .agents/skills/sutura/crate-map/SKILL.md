@@ -17,9 +17,10 @@ data system and speaks no wire protocol), not a transport, not settings. It exis
 the SAME forbidden-edge class (`sutura-exec-postgres`, and a `ureq`-based outbound adapter under
 `github.com/telekom/sutura#125`) can share one read without one becoming the other's library, which
 `xtask/src/boundaries.rs`'s "data systems" class already forbids directly. A crate in this shape - a
-small, dependency-free read or computation two same-class adapters both need - joins no existing
-prefix's rules and starts in no forbidden class by construction; `sutura-sql` is the precedent for a
-shared, adapter-facing library with its own prefix, and this is the same shape one size smaller.
+small read or computation two same-class adapters both need, with no crypto provider, no network
+client and no `sutura-config` - joins no existing prefix's rules and starts in no forbidden class by
+construction; `sutura-sql` is the precedent for a shared, adapter-facing library with its own prefix,
+and this is the same shape one size smaller.
 
 Rules that are not visible from a manifest:
 
