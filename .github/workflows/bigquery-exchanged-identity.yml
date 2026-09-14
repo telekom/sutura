@@ -1,0 +1,151 @@
+# The exchanged-identity cell (telekom/sutura#376) - `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`.
+#
+# `workflow_dispatch` ONLY, deliberately not on `push`/`pull_request` the way `bigquery-acceptance`
+# is in `ci.yml`. Wiring this cell into every push before the maintainer's `iamcredentials`/
+# `roles/iam.workloadIdentityUser` binding lands (telekom/sutura#376's plan) would make it red on
+# every push forever, since the shipped exchange resolves to a federated pool subject rather than
+# either principal's account until that binding exists - the mistake telekom/sutura#287 was held in
+# draft to avoid. A person dispatches this by hand once the binding is applied; `docs/where-identity-is-proven.md`
+# moves this venue from `wired` to `yes` only after that run is observed and reported, never before.
+#
+# `cargo xtask check-venues`'s invocation scan reads this file for the `nix run .#bigquery-exchanged-identity`
+# line below regardless of trigger type, which is what moves the venue off `unrun` - see that page's
+# own closed vocabulary for why `wired` (not `yes`) is the honest state of this file's own arrival.
+#
+# No input here comes from a GitHub event body (an issue, a PR title, a commit message, a comment):
+# every `${{ }}` expression below reads `secrets.*`, `vars.*` or `runner.temp`, none of which a
+# forker or commenter controls, so there is no injection surface a `run:` quoting rule would close.
+name: bigquery-exchanged-identity
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  bigquery-exchanged-identity:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    # Same reason `bigquery-acceptance` names this environment: GitHub does not expose an
+    # environment's secrets to a fork's `pull_request` run, and `workflow_dispatch` from a fork
+    # cannot reach a push-protected environment either - naming it here is the mechanism, not
+    # decoration.
+    environment: bq-test
+    concurrency:
+      group: bigquery-exchanged-identity-${{ vars.SUTURA_BQ_DATASET }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # The CI credential - the deployment's own identity, read by the control leg
+      # (`the_deployments_own_identity_is_neither_principal`). Same three-reason placement
+      # `ci.yml`'s `bigquery-acceptance` job states: outside the checkout, never through `${{ }}` in
+      # a shell body, removed at the end regardless of outcome.
+      - name: Place the CI credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-ci-key.json"
+          echo "CI credential placed, $(wc -c < "$RUNNER_TEMP/bq-ci-key.json") bytes, outside the checkout"
+
+      # The two principals' own keys - held only long enough to mint an assertion from each, never
+      # read by the cell itself. Same placement discipline as the CI credential above.
+      - name: Place the principal keys outside the checkout
+        env:
+          SUTURA_BQ_PRINCIPAL_A_KEY: ${{ secrets.svc_suturua_bq_principal_a }}
+          SUTURA_BQ_PRINCIPAL_B_KEY: ${{ secrets.svc_suturua_bq_principal_b }}
+        run: |
+          set -eu
+          for tag in A B; do
+            var="SUTURA_BQ_PRINCIPAL_${tag}_KEY"
+            if [ -z "$(printenv "$var" || true)" ]; then
+              echo "the bq-test environment holds no svc_suturua_bq_principal_${tag,,} secret" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          printenv SUTURA_BQ_PRINCIPAL_A_KEY > "$RUNNER_TEMP/principal-a-key.json"
+          printenv SUTURA_BQ_PRINCIPAL_B_KEY > "$RUNNER_TEMP/principal-b-key.json"
+          echo "two principal keys placed outside the checkout"
+
+      # Mints one Google-issued ID token per principal from its own key - telekom/sutura#376's "no
+      # new long-lived secret" design. `target_audience` is set to the pool's own exported audience
+      # (`SUTURA_BQ_WORKLOAD_AUDIENCE`), the self-referential convention this cell's plan recommends
+      # as the cheapest form of `workload_allowed_audiences` to configure; if the stack's real value
+      # differs, this line is what to repoint, not the example binary.
+      #
+      # `just bigquery-mint-subject-assertion` never receives the key's or the token's own content
+      # through `${{ }}` - only paths and the (non-secret) audience string, all safe to appear in a
+      # runner's pre-execution `env:` dump.
+      - name: Mint the two subject assertions
+        env:
+          SUTURA_BQ_WORKLOAD_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+        run: |
+          set -eu
+          umask 077
+          just bigquery-mint-subject-assertion "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
+          just bigquery-mint-subject-assertion "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
+          # The raw keys are spent once minted; removed promptly rather than held for the rest of
+          # the job, narrowing the window either sits in cleartext on this runner.
+          rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
+
+      # Same mechanism `ci.yml`'s `bigquery-acceptance` job uses, over this job's own three resource
+      # names - masking is per-job, so a second job needs its own copy rather than inheriting the
+      # first's.
+      # Only `SUTURA_BQ_DATASET`, not `_TABLE`: `tests/support/support.rs`'s own header records that
+      # `SUTURA_BQ_TABLE` is read by `acceptance.rs` alone - this leg's `SESSION_USER()` statement
+      # names no table, and `Connection::required()` never asks for one either. Masking a variable
+      # this leg does not read would be a second, unread copy of `bigquery-acceptance`'s own step.
+      - name: Mask the resource names
+        env:
+          K: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
+            2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "the bq-test environment defines no SUTURA_BQ_DATASET - it names a resource this leg has to be pointed at" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+          echo "two resource names masked for the rest of this job"
+
+      # The cell itself: `nix run .#bigquery-exchanged-identity` is `check-venues`' anchor for this
+      # venue - see this file's own header. Both assertion values reach the cell as FILE PATHS, never
+      # as `${{ }}`-resolved values, for the reason `tests/support/support.rs`'s `named_file` exists.
+      - name: Exchanged-identity leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_WORKLOAD_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+          SUTURA_BQ_PRINCIPAL_A_EMAIL: ${{ secrets.SUTURA_BQ_PRINCIPAL_A_EMAIL }}
+          SUTURA_BQ_PRINCIPAL_B_EMAIL: ${{ secrets.SUTURA_BQ_PRINCIPAL_B_EMAIL }}
+          SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE: ${{ runner.temp }}/assertion-a.txt
+          SUTURA_BQ_PRINCIPAL_B_ASSERTION_FILE: ${{ runner.temp }}/assertion-b.txt
+        run: |
+          set -eu
+          nix run .#bigquery-exchanged-identity -- --no-capture
+
+      - name: Remove the credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json" \
+                "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt"

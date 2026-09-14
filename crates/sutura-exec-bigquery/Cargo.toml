@@ -108,6 +108,15 @@ name = "exchanged_identity"
 path = "tests/exchanged_identity.rs"
 required-features = ["wire"]
 
+# CI-only tooling, not a shipped binary - telekom/sutura#376. Mints the two subject assertions the
+# exchanged-identity cell needs from the per-principal service-account keys `bq-test` already holds,
+# at job time, so no third long-lived secret is added. An `[[example]]` rather than a `[[bin]]`: this
+# crate ships no binary of its own (`nix/shipped.nix`), and an example is unambiguously dev/CI tooling.
+[[example]]
+name = "mint_subject_assertion"
+path = "examples/mint_subject_assertion.rs"
+required-features = ["wire"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 # Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this

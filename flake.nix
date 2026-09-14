@@ -807,7 +807,9 @@
         # withdrawn on telekom/sutura#123: sutura does not re-verify a source's row-level security.
 
         # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
-        # leg holding no principal's key. **No workflow invokes it**, and its own header says why.
+        # leg holding no principal's key. `.github/workflows/bigquery-exchanged-identity.yml` invokes
+        # this on `workflow_dispatch` only - not on every push, until the maintainer's `iamcredentials`
+        # binding lands and one manual run is green (the mistake telekom/sutura#287 was held to avoid).
         apps.bigquery-exchanged-identity = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-exchanged-identity" ''

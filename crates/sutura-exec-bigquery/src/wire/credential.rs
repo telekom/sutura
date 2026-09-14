@@ -439,6 +439,12 @@ pub enum TokenUnavailable {
     /// `ring` reports this opaquely on purpose, so there is nothing to carry beyond the fact.
     #[error("the assertion's signature could not be computed")]
     NotSigned,
+    /// [`Credential::mint_id_token`] was asked of an `authorized_user` credential.
+    ///
+    /// Trading a refresh token for an ID token is a different grant this crate does not build - only
+    /// `mint_id_token`'s CI-only caller reaches this, never [`AccessTokens::bearer`].
+    #[error("only a service-account credential can mint an ID token; this one is a developer login")]
+    NotAServiceAccount,
 }
 
 /// The token endpoint's answer.
@@ -778,6 +784,20 @@ impl Credential {
         }
         Ok(Bearer::of(Secret::new(token), not_after))
     }
+
+    /// Trades this service account's own key for a Google-issued OIDC ID token, for
+    /// `examples/mint_subject_assertion.rs` to mint a subject assertion at job time -
+    /// telekom/sutura#376. The one line `id_token` adds to this type's public surface; everything
+    /// else lives in that submodule, which `clippy::multiple_inherent_impl` (denied
+    /// workspace-wide) is why this stays one line here rather than a second `impl Credential`.
+    pub fn mint_id_token(
+        &self,
+        target_audience: &str,
+        now_unix_seconds: u64,
+        within: CallDeadline,
+    ) -> Result<Secret, TokenUnavailable> {
+        id_token::mint_id_token(self, target_audience, now_unix_seconds, within)
+    }
 }
 
 impl AccessTokens for Credential {
@@ -921,6 +941,12 @@ const fn deadline(expires_in: Option<u64>, now_unix_seconds: u64) -> Expiry {
         },
     }
 }
+
+// `Credential::mint_id_token` and everything it alone needs - split out so this file stays under
+// the 1000-line cap, and its own doc comment says why it is a submodule and not a sibling: it
+// reaches `Kind`, `TOKEN_ENDPOINT` and `MAX_ANSWER_BYTES`, none of which are `pub`, which a
+// DESCENDANT module can still see under ordinary Rust privacy while a sibling could not.
+mod id_token;
 
 #[cfg(test)]
 mod tests;

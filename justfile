@@ -605,7 +605,7 @@ bigquery-exchanged-identity:
     set -euo pipefail
     echo "bigquery-exchanged-identity: scope sutura-exec-bigquery - one workload identity, exchanged per subject."
     echo "bigquery-exchanged-identity: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
-    echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
+    echo "bigquery-exchanged-identity: CI runs it through \`nix run .#bigquery-exchanged-identity\`, manually dispatched."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
 
 # The one cell that needs a REAL identity provider rather than the mock - a real RS256 signature
@@ -638,6 +638,12 @@ keycloak-served-test:
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-serve --run-ignored only \
       -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
+# Mints one Google-issued ID token from a service-account key file, for the exchanged-identity cell
+# above - telekom/sutura#376. `key` is a path to the key, never its content; `out` is the path the
+# token is written to, never printed. Not a gate; a CI-only step invokes this per principal.
+bigquery-mint-subject-assertion key target_audience out:
+    cargo run -q -p sutura-exec-bigquery --example mint_subject_assertion --features wire --profile ci -- \
+      "{{key}}" "{{target_audience}}" "{{out}}"
 
 # ------------------------------------------------------------------ dev flow ---
 
