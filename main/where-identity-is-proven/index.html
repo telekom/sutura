@@ -3156,6 +3156,19 @@ neither token may be used by a venue nothing reaches, the venue's own section ha
 whichever word its cell states, <strong>a venue whose <code>Reached by</code> task CI invokes may not say
 <code>unrun</code></strong>, and <strong>a venue whose <code>Reached by</code> task CI does not invoke may not say <code>wired</code></strong>. The
 last two are one rule pointing both ways, so exactly one of the two is available for any tree.</p>
+<p><strong>A <code>yes</code> cell over a venue that runs <em>a GitHub environment</em> - on demand - ties the same way,
+and it did not used to.</strong> <code>unrun</code> and <code>wired</code> each had to appear in their own venue's section;
+a cell moving to <code>yes</code> had nothing tying it to the section beside it at all, so a row could
+leave either state in the matrix while its section still read as if it had not. Two rules now
+hold that cell for an on-demand venue: its section has to <strong>name a run somebody observed</strong> -
+the word <code>observed</code> in a sentence that is not a denial (not <code>No … observed</code>, <code>not observed</code> or
+<code>never observed</code>), plus either a GitHub Actions run link (<code>actions/runs/</code> followed by digits)
+or an ISO date (<code>2026-01-01</code>) - and it may no longer say <code>unrun</code> or <code>wired</code>, because a section
+still in either word has not left that state whatever the matrix now claims. A sentence that
+only denies a run, however many dates it names, is the opposite of a held <code>yes</code> and is refused
+with the rest; what a green run <em>means</em> is still review's to judge. An <code>in process</code> venue
+answers every push, so this does not reach it; only a venue nothing but a job's own run can
+prove is held to it.</p>
 <p><strong>Why there are two of them rather than one.</strong> The change that wires a leg into a job cannot
 also produce that leg's first green run - the run happens after the push. So for one commit the
 only moves were a cell the gate refuses and a <code>yes</code> nobody had earned, which is a gate
@@ -3721,6 +3734,11 @@ about the vocabulary rather than to this row.</p>
 <code>docs/adr/0019</code> are the records, and the sentence that matters here is short: <strong>a service-account key is
 one identity for everybody who asks</strong>, so what those legs establish is <em>accepted, and correct for that
 identity</em> - and nothing whatever about per-subject execution.</p>
+<p>Not merely written - the run was observed: <code>the_endpoint_accepts_one_statement_this_repository_generated</code>
+(<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>) passed in the <code>bigquery-acceptance</code> job on
+2026-08-31, CI run <a href="https://github.com/telekom/sutura/actions/runs/33382663404/job/99464748052">33382663404</a>
+against the <code>bq-test</code> environment's real dataset - the push that landed <code>docs/adr/0017</code>'s third
+amendment, which records the same run (8 tests passed, 5 the smoke leg's and 3 the corpus leg's).</p>
 <h2 id="a-real-enterprise-identity-provider">A real enterprise identity provider<a class="headerlink" href="#a-real-enterprise-identity-provider" title="Permanent link">&para;</a></h2>
 <p>Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
 of this page.</p>
