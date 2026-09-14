@@ -9,27 +9,38 @@ repository.workspace = true
 publish = false
 description = "A SemanticCatalog adapter over DataHub's entity aspects: a DECLARING source."
 
+[features]
+# Off by default, for the reason `sutura-exec-bigquery`'s `wire` feature is: what arrives with it is
+# an outbound TLS stack, and no published binary links one it did not ask for -
+# `.agents/skills/sutura/crate-map/SKILL.md`'s "Why a networked adapter hides behind a default-off
+# feature". `dep:ureq` rather than a plain feature name, so the optional dependency below has no
+# feature of its own a caller could enable without meaning to.
+http = ["dep:ureq"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# The real `AspectReader` (`src/http.rs`), behind the `http` feature above. `ureq` rather than a
+# second client: `sutura-exec-bigquery`'s wire already resolves this version and feature set, so
+# nothing new enters `Cargo.lock` - the same argument `docs/adr/0018` makes, and
+# `cargo xtask check-shared-client` is what holds it.
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The compiler: the multi-player example test (`tests/multi_player.rs`) proves the recorded
 # DataHub catalog answers a question all the way to a plan, which is the "integration" its README
-# promises. Dev-only, so the library closure stays serde + thiserror + sutura-domain.
+# promises. Dev-only, so the library closure with the `http` feature OFF stays serde + thiserror +
+# sutura-domain.
 sutura-semantic = { workspace = true }
 
 # The provisioned-instance probe (`tests/provisioned.rs`) asks the compose tier's `datahub` profile
-# whether GMS is reachable on the port this worktree allocated. Both are DEV-ONLY and that is the
-# load-bearing part: the library still declares no HTTP client, because there is no `AspectReader`
-# over one yet - `docs/adr/0016` leaves the read path's cost open, and a transport dependency in the
-# library closure would be this crate claiming a reader it has not got.
-#
-# `ureq` rather than a second client: `sutura-exec-bigquery`'s wire already resolves this version and
-# feature set, so nothing new enters `Cargo.lock` - the same argument `docs/adr/0018` makes, and
-# `cargo xtask check-shared-client` is what holds it.
+# whether GMS is reachable on the port this worktree allocated, over its own hand-built requests -
+# it is not `src/http.rs`'s reader, and predates it. Kept as an unconditional dev-dependency rather
+# than folded into the `http` feature's optional one, so that suite still builds with the feature
+# off: the two are independent claims (the platform answers; this crate's own reader is correct)
+# and a developer running `just test` without `--features http` should still get the first.
 sutura-dev = { workspace = true }
 ureq = { workspace = true }
 

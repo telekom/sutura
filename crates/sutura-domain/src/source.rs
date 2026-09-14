@@ -58,9 +58,46 @@
 //! neighbouring source.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::IpAddr;
 
 use crate::model::SourceName;
 use crate::text::first_invisible;
+
+/// Whether a declared host is an IP loopback LITERAL - never a name, however it resolves.
+///
+/// **The one shared predicate for "this address can only be reached from this machine", held here
+/// rather than copied.** `sutura_config::sources::transport`'s Postgres `transport_mode: plaintext`
+/// rule (issue 124's fail-closed direction, `github.com/telekom/sutura#653`) and
+/// `sutura_catalog_datahub::http::Endpoint`'s `http://` rule both call this rather than each keeping
+/// its own body - a copy is recall, and recall is exactly what let one of the two drift from the
+/// other's own test table without either noticing. Both crates already depend on this one.
+///
+/// Only something that parses as [`IpAddr`] and answers `is_loopback()` counts: `localhost` does
+/// not, because a name is not an address and cannot carry a claim about what a network can reach;
+/// a wildcard bind (`0.0.0.0`, `::`) does not either, because loopback is about what CAN reach the
+/// address and a wildcard is reachable from everywhere - the opposite claim.
+#[must_use]
+pub fn host_is_loopback(host: &str) -> bool {
+    host.trim().parse::<IpAddr>().is_ok_and(|address| address.is_loopback())
+}
+
+#[cfg(test)]
+mod host_is_loopback_tests {
+    use super::host_is_loopback;
+
+    /// The config crate's own table, held here too so a divergence between the two callers is red
+    /// rather than discovered by review - see the function's own doc comment.
+    #[test]
+    fn only_a_loopback_ip_literal_is_loopback() {
+        assert!(host_is_loopback("127.0.0.1"));
+        assert!(host_is_loopback("::1"));
+        assert!(host_is_loopback("127.0.0.53"));
+        assert!(!host_is_loopback("localhost"));
+        assert!(!host_is_loopback("0.0.0.0"));
+        assert!(!host_is_loopback("10.0.0.7"));
+        assert!(!host_is_loopback("db.example.com"));
+    }
+}
 
 /// The longest operator-written reason accepted.
 ///
