@@ -167,15 +167,18 @@ rec {
       # `$lockfile` for as long as it (or whatever it `exec`s into) lives - a KERNEL-HELD lock,
       # released the instant that process ends for any reason - so this asks the kernel whether
       # anyone holds it rather than trusting a file that can go missing out from under a live
-      # server. Acquiring it here uncontested means nobody does; releasing immediately after is
-      # what keeps this a QUESTION rather than a second claimant.
+      # server. A SHARED probe (`-s`) is what keeps this a question rather than a second
+      # claimant: an exclusive probe would itself contend for the slot the real holder has, so two
+      # concurrent probes racing each other - never mind the holder - would answer RUNNING off
+      # each other's transient hold rather than off the server. `github.com/telekom/sutura#528`
+      # item 1, measured: 40 concurrent probe pairs under `-x` all answered RUNNING; `-s` gives 0.
       running() {
         # The group redirect is load-bearing, not style: `2>/dev/null` after a bare `exec` only
         # attaches once the FIRST redirect (opening `$lockfile`) has already succeeded, so on a
         # fresh worktree - `$state` not created yet, `running` legitimately answering "no" - the
         # open's own failure message reached the log unsuppressed until this was a group.
         { exec {running_fd}>"$lockfile"; } 2>/dev/null || return 1
-        if flock -n -x "$running_fd" 2>/dev/null; then
+        if flock -n -s "$running_fd" 2>/dev/null; then
           flock -u "$running_fd"
           exec {running_fd}>&-
           return 1
@@ -605,8 +608,12 @@ rec {
       # NEITHER of `start`'s healthy-path branches rewrites the pidfile - it is `stop`'s
       # bookkeeping, not `running`'s any more - so it stays gone after a heal like this one.
       # Restored here for the assertions below, which read it directly; that gap is real and
-      # stated rather than fixed: a `stop` reaching this worktree after such a heal has nothing
-      # to read and cannot signal the JVM, though `running` itself is never wrong about it again.
+      # stated rather than fixed, and it is WORSE than "cannot signal the JVM": `stop`'s kill is
+      # guarded by `[ -f "$pidfile" ]`, but its withdraw / `rm "$realmfile"` / `rm -rf "$home"`
+      # below are NOT - so a `stop` reaching this worktree after such a heal exits 0 having
+      # withdrawn the claim and deleted the realm file and home out from under a JVM it never
+      # touched, and every later `start` that then fails names this same `stop` as its remedy,
+      # which cannot perform it.
       if [ ! -f "$kc_home/tier.pid" ]; then
         echo "$lost_pid" > "$kc_home/tier.pid"
       fi

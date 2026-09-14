@@ -36,7 +36,7 @@
 //!   discards the output into the banner, and `set -euo pipefail` never sees the failure because
 //!   it happened inside the substitution's own subshell - the outer `echo` still exits 0.
 //!   `github.com/telekom/sutura#683`. Escaped (`` \` ``) and single-quoted spans are exempt - both
-//!   are already how every one of the 14 backticks in this file today says so safely.
+//!   are already how this file's own backticks say so safely today.
 //!
 //! FAIL CLOSED, in the three directions a text scan fails silently: no recipes parsed, no cargo
 //! verification line found at all, or no citation found at all - each means the SCAN broke rather
@@ -414,7 +414,7 @@ fn problems(text: &str) -> Vec<String> {
         out.push(format!(
             "justfile:{line}: an unescaped backtick runs as a command substitution rather than \
              printing - `set -euo pipefail` cannot see it fail, so the recipe continues at exit 0\n      \
-             escape it (\\`) or move it inside single quotes: {raw}"
+             escape it (\\`), move it inside single quotes, or write it as $(...) instead: {raw}"
         ));
     }
 
@@ -853,6 +853,14 @@ lint:
     #[test]
     fn a_comment_inside_a_recipe_body_is_not_scanned() {
         let ok = "banner:\n    # `git log` shows history, never run here\n    echo hi\n\nlint:\n    cargo clippy --workspace\n";
+        assert_eq!(problems(ok), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_recipe_header_backtick_is_not_scanned() {
+        // A header takes `just`'s own templating - a default value may itself be a backtick
+        // command substitution `just` evaluates, never bash - so this is unindented on purpose.
+        let ok = "banner value=`echo ok`:\n    echo \"{{value}}\"\n\nlint:\n    cargo clippy --workspace\n";
         assert_eq!(problems(ok), Vec::<String>::new());
     }
 
