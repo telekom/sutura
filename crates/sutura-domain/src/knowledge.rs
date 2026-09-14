@@ -123,7 +123,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, MetricName, identifier_newtype};
-use crate::text::{first_invisible, is_invisible};
+use crate::text::{first_altered_control, first_invisible, is_invisible};
 
 // Two splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
 // `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `check`
@@ -321,18 +321,21 @@ impl core::fmt::Display for Phrase {
 /// what was measured to choose the numbers.
 ///
 /// Newlines and tabs are content here, where [`Phrase`] refuses them: a body is a markdown block and
-/// its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
-/// the renderer, which is the one place that knows what it is rendering into - so the emptiness check
-/// is made on what the renderer will keep and a body that would draw nothing is refused rather than
-/// rendered as a heading over blank space.
+/// its paragraph breaks are the author's. **Every other control character is refused, not
+/// tolerated** - the emptiness check alone is made on what the renderer will keep, because a body
+/// made entirely of characters `sutura_app::prompt::quote` drops would render as a heading over
+/// blank space; one mixed into otherwise ordinary prose passes that check and would render one byte
+/// shorter than the text under the digest, which is [`crate::catalog::Description`]'s own argument
+/// for [`first_altered_control`](crate::text::first_altered_control) and is not a fact about that
+/// type alone.
 ///
-/// **What does NOT survive parsing is an invisible or direction-changing code point, and unlike a
-/// [`Phrase`] a body is not normalised** - it is refused, naming the character. The two types differ
-/// because what they are is different: a phrase is a key, so two spellings that read as one word have
-/// to become one value, and a body is prose a person reviewed, so silently editing it would make the
-/// rendered document differ from the text the definition digest certifies. This is the same argument
-/// [`crate::expression::InvalidFragment::InvisibleCharacter`] makes for authored SQL, at the one
-/// remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
+/// **What also does not survive parsing is an invisible or direction-changing code point, and unlike
+/// a [`Phrase`] a body is not normalised** - it is refused, naming the character. The two types
+/// differ because what they are is different: a phrase is a key, so two spellings that read as one
+/// word have to become one value, and a body is prose a person reviewed, so silently editing it would
+/// make the rendered document differ from the text the definition digest certifies. This is the same
+/// argument [`crate::expression::InvalidFragment::InvisibleCharacter`] makes for authored SQL, at the
+/// one remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
 /// `status = 'active'` in every terminal and every diff, saying something else, under a digest taken
 /// over text nobody read - CVE-2021-42574 with the fragment replaced by a paragraph.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -348,6 +351,19 @@ pub enum InvalidNoteBody {
     /// the empty string.
     #[error("a note body must not be empty")]
     Empty,
+    /// A control character other than a newline or a tab, mixed into otherwise ordinary prose.
+    ///
+    /// **The half [`Self::Empty`] cannot see.** A body made entirely of these is empty, and is
+    /// already refused above; one in the middle of a sentence passes that check and renders as a
+    /// body that is one character shorter than the text under the digest -
+    /// [`crate::catalog::Description`]'s own [`InvalidDescription::ControlCharacter`]'s argument,
+    /// applied to the second prose type held to the same renderer.
+    ///
+    /// [`InvalidDescription::ControlCharacter`]: crate::catalog::InvalidDescription::ControlCharacter
+    #[error(
+        "a note body may not contain the control character {code:#06x}; a newline and a tab are the only ones a note body may hold"
+    )]
+    ControlCharacter { code: u32 },
     /// One of them, mixed into prose. **Separate from [`Self::Empty`], because a body made ENTIRELY
     /// of these characters was already refused and a body with one in the middle of a sentence was
     /// not** - and the second is the dangerous one: the first renders as a blank heading somebody
@@ -385,7 +401,17 @@ impl NoteBody {
         if !carries_prose(trimmed) {
             return Err(InvalidNoteBody::Empty);
         }
-        // Second, and in this order deliberately: a body made of nothing but these characters is
+        // Before the invisible set, for the reason `Description::parse` gives: a control character
+        // is the more accurate thing to name when a body holds both, and reporting it as an odd
+        // invisible code point would send an author looking for something exotic rather than at
+        // their editor. `\n` and `\t` are exempt because they are content in a markdown block and are
+        // the two the renderer keeps.
+        if let Some(offending) = first_altered_control(trimmed) {
+            return Err(InvalidNoteBody::ControlCharacter {
+                code: u32::from(offending),
+            });
+        }
+        // Next, and in this order deliberately: a body made of nothing but these characters is
         // EMPTY, which is the more accurate thing to tell its author, and a body with one mixed into
         // a sentence is the defect this refusal exists for. Reversing the two would report a blank
         // note as a hidden character.

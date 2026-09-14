@@ -111,6 +111,27 @@ impl KnowledgeInput {
             Capability::Examples => self.examples.len(),
         }
     }
+
+    /// The authored bytes across every note, before any of it is indexed.
+    ///
+    /// **Read from the four vectors directly, and not from a [`Knowledge`] built first.**
+    /// [`Knowledge::assemble`] used to sum this over the assembled bundle, after building four
+    /// indices - each phrase's identity computed and cloned into a map, each referent cloned, the
+    /// claim map walked for a collision. An oversized input paid for all of that before it was
+    /// refused. Measuring the input costs one pass over `Vec`s the caller already allocated, and it
+    /// is the same number: nothing here drops a note before the cap is checked, so summing before
+    /// indexing and summing after are the same total by construction, not by the assumption
+    /// `Knowledge::assemble`'s check used to rest on.
+    fn authored_bytes(&self) -> usize {
+        let glossary = sum_bytes(self.glossary.iter().map(GlossaryEntry::authored_bytes));
+        let caveats = sum_bytes(self.caveats.iter().map(Caveat::authored_bytes));
+        let absences = sum_bytes(self.absences.iter().map(Absence::authored_bytes));
+        let examples = sum_bytes(self.examples.iter().map(Example::authored_bytes));
+        glossary
+            .saturating_add(caveats)
+            .saturating_add(absences)
+            .saturating_add(examples)
+    }
 }
 
 /// Why a set of notes does not hold together with the definitions it is about.
@@ -153,12 +174,15 @@ pub enum InconsistentKnowledge {
     /// The one that produces a wrong REFUSAL rather than a wrong number: the glossary says a phrase
     /// means a value the dimension's allowlist does not carry, so every question derived from it is
     /// declined for a reason that names the dimension and not the glossary.
-    #[error("glossary entry {term} means value {value:?} of dimension {dimension}, which metric {metric} does not permit")]
+    #[error(
+        "glossary entry {term} means value {:?} of dimension {dimension}, which metric {metric} does not permit",
+        .value.as_str()
+    )]
     GlossaryValueNotAllowed {
         term: Phrase,
         metric: MetricName,
         dimension: DimensionName,
-        value: String,
+        value: DimensionValue,
     },
     #[error("caveat {name} is about metric {metric}, which is not defined")]
     CaveatUnknownMetric { name: NoteName, metric: MetricName },
@@ -168,12 +192,15 @@ pub enum InconsistentKnowledge {
         metric: MetricName,
         dimension: DimensionName,
     },
-    #[error("caveat {name} is about value {value:?} of dimension {dimension}, which metric {metric} does not permit")]
+    #[error(
+        "caveat {name} is about value {:?} of dimension {dimension}, which metric {metric} does not permit",
+        .value.as_str()
+    )]
     CaveatValueNotAllowed {
         name: NoteName,
         metric: MetricName,
         dimension: DimensionName,
-        value: String,
+        value: DimensionValue,
     },
     /// A caveat scoped to nothing. **This is the check that removes the global text channel**: with
     /// it, every note in this module is attached to something the bundle declares, so there is no
@@ -228,13 +255,14 @@ pub enum InconsistentKnowledge {
     /// And one level down again: a phrase declared undefined that is a value the metric block prints
     /// as one a question may filter on.
     #[error(
-        "the phrase {phrase} is declared undefined, and it is the value {value:?} of dimension {dimension}, which metric {metric} permits"
+        "the phrase {phrase} is declared undefined, and it is the value {:?} of dimension {dimension}, which metric {metric} permits",
+        .value.as_str()
     )]
     AbsenceNamesADeclaredValue {
         phrase: Phrase,
         metric: MetricName,
         dimension: DimensionName,
-        value: String,
+        value: DimensionValue,
     },
     #[error("example {name} asks about metric {metric}, which is not defined")]
     ExampleUnknownMetric { name: NoteName, metric: MetricName },
@@ -254,12 +282,15 @@ pub enum InconsistentKnowledge {
     /// that permits no value at all, because [`crate::catalog::Dimension::permits`] answers `false`
     /// for one with no allowlist. Both are the same fact about the document: the question in it would
     /// be refused, so it is not an example of anything.
-    #[error("example {name} filters {dimension} to {value:?}, which metric {metric} does not permit")]
+    #[error(
+        "example {name} filters {dimension} to {:?}, which metric {metric} does not permit",
+        .value.as_str()
+    )]
     ExampleValueNotAllowed {
         name: NoteName,
         metric: MetricName,
         dimension: DimensionName,
-        value: String,
+        value: DimensionValue,
     },
     /// The example asks for a longer span of history than a request may.
     ///
@@ -480,18 +511,6 @@ impl Knowledge {
             .filter(move |note| note.about().iter().any(|referent| *referent.metric() == metric))
     }
 
-    /// The authored text across every note, in bytes. What [`MAX_KNOWLEDGE_BYTES`] bounds.
-    fn authored_bytes(&self) -> usize {
-        let glossary = sum_bytes(self.glossary.values().map(GlossaryEntry::authored_bytes));
-        let caveats = sum_bytes(self.caveats.values().map(Caveat::authored_bytes));
-        let absences = sum_bytes(self.absences.values().map(Absence::authored_bytes));
-        let examples = sum_bytes(self.examples.values().map(Example::authored_bytes));
-        glossary
-            .saturating_add(caveats)
-            .saturating_add(absences)
-            .saturating_add(examples)
-    }
-
     /// Checks a set of notes against the definitions they are about.
     ///
     /// **It TAKES the [`Definitions`], so a `Knowledge` that was never checked against a bundle cannot
@@ -517,6 +536,22 @@ impl Knowledge {
                 return Err(InconsistentKnowledge::UndeclaredContent { capability, supplied });
             }
         }
+        // **Before any of the four indices are built, and on the INPUT rather than on what indexing
+        // produces.** This used to run last, over the assembled bundle, on the argument that what the
+        // cap bounds is the size of the rendered prompt and the input is "a different thing, equal to
+        // it only for as long as indexing never drops a note." That property holds - four separate
+        // duplicate checks refuse rather than overwrite - so the two sums are the same total, and
+        // computing it first means an oversized input is refused before it pays for what indexing
+        // costs: parsing every phrase's identity, cloning every referent into a map, walking the claim
+        // index for a collision. `KnowledgeInput` owns its `Vec`s, so this reads memory the caller
+        // already allocated rather than allocating more - the check itself is not what was expensive.
+        let bytes = input.authored_bytes();
+        if bytes > MAX_KNOWLEDGE_BYTES {
+            return Err(InconsistentKnowledge::KnowledgeTooLarge {
+                bytes,
+                limit: MAX_KNOWLEDGE_BYTES,
+            });
+        }
         // One index across the glossary, the absences and the worked questions, because the
         // interesting failures are the ones that span them: a phrase cannot be given a meaning and
         // declared meaningless at once, and a phrase recorded as undefined cannot also be the way a
@@ -526,34 +561,13 @@ impl Knowledge {
         let caveats = Self::index_caveats(definitions, input.caveats)?;
         let absences = Self::index_absences(definitions, input.absences, &mut claims)?;
         let examples = Self::index_examples(definitions, input.examples, &claims)?;
-        let assembled = Self {
+        Ok(Self {
             declares: input.declares,
             glossary,
             caveats,
             absences,
             examples,
-        };
-        // **Last, and on the ASSEMBLED value rather than on the input, deliberately.** The reviewed
-        // alternative is to sum the input's bytes before the four indices are built, which would
-        // refuse an oversized bundle a little earlier. It is not free: what this cap bounds is the
-        // size of one rendered prompt, and the only value that gets rendered is the one below - so
-        // measuring the input instead would measure a different thing, equal to this one only for as
-        // long as indexing never drops a note. That property holds today, and it holds because four
-        // separate duplicate checks refuse rather than overwrite; it is not a property of the code
-        // shape, and nothing would fail if a fifth index were written the other way. Keeping the
-        // subject of the cap and the artefact that is served the same value costs one traversal of
-        // data that is already wholly in memory - `KnowledgeInput` owns its `Vec`s, so nothing is
-        // being read or allocated at this point that the caller has not already read and allocated.
-        // The order also decides which refusal an author sees for a bundle that is both oversized and
-        // inconsistent, and the inconsistency is the one that names a note and a metric to go and fix.
-        let bytes = assembled.authored_bytes();
-        if bytes > MAX_KNOWLEDGE_BYTES {
-            return Err(InconsistentKnowledge::KnowledgeTooLarge {
-                bytes,
-                limit: MAX_KNOWLEDGE_BYTES,
-            });
-        }
-        Ok(assembled)
+        })
     }
 
     fn index_glossary(
@@ -738,7 +752,7 @@ impl Knowledge {
                     name,
                     metric: metric_name,
                     dimension: filter.dimension().clone(),
-                    value: String::from(filter.value().as_str()),
+                    value: filter.value().clone(),
                 });
             }
         }
@@ -761,7 +775,7 @@ fn glossary_fault(fault: &ReferentFault<'_>, term: &Phrase, metric: &MetricName)
             term,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value.as_str()),
+            value: value.clone(),
         },
     }
 }
@@ -781,7 +795,7 @@ fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName, metric: &MetricName)
             name,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value.as_str()),
+            value: value.clone(),
         },
     }
 }
@@ -806,7 +820,7 @@ fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge 
             phrase,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value.as_str()),
+            value: value.clone(),
         },
     }
 }

@@ -8,8 +8,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_VALUES_PER_DIMENSION, Metric, Model,
-    Relationship, TIME_BUCKET_LABEL,
+    Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES,
+    MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -732,6 +732,65 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
             vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
         ))
         .expect("exactly the limit assembles"),
+    );
+}
+
+/// The aggregate cap that [`super::MAX_VALUES_PER_DIMENSION`]'s own note names as missing: nothing
+/// bounds how many metrics a catalog holds, so N of them each individually inside every per-item
+/// cap - here, [`super::MAX_DESCRIPTION_BYTES`] - are not individually a catalog nobody would read.
+#[test]
+fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
+    let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
+    let too_many: Vec<Metric> = (0..33_u32)
+        .map(|index| {
+            Metric::new(
+                metric_name(&format!("metric_{index}")),
+                model_name("orders"),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("order_date"),
+                BTreeSet::from([Grain::Month]),
+                Vec::new(),
+                None,
+                filler.clone(),
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+    let (models, relationships) = two_models();
+    let error = Definitions::assemble(models, relationships, too_many).expect_err("33 max descriptions exceed the cap");
+    match error {
+        InconsistentDefinitions::DefinitionsTooLarge { bytes, limit } => {
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
+        }
+        other => panic!("the aggregate cap must be what refuses this: {other:?}"),
+    }
+    // And the cap is not so tight that a realistic catalog trips it: 31 of the same descriptions are
+    // under 128 KiB and load.
+    let inside: Vec<Metric> = (0..31_u32)
+        .map(|index| {
+            Metric::new(
+                metric_name(&format!("metric_{index}")),
+                model_name("orders"),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("order_date"),
+                BTreeSet::from([Grain::Month]),
+                Vec::new(),
+                None,
+                filler.clone(),
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+    let (models, relationships) = two_models();
+    assert_eq!(
+        Definitions::assemble(models, relationships, inside)
+            .expect("31 max descriptions is inside the cap")
+            .metrics()
+            .len(),
+        31
     );
 }
 

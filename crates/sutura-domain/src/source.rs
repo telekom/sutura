@@ -119,7 +119,13 @@ pub enum InvalidOperatorText {
 /// category. The order is the classic one - is there anything here at all, then the character
 /// classes, then the bound - and the first check is deliberately first for the diagnostic rather
 /// than for defence: "you wrote nothing" is the more accurate thing to tell an operator than "your
-/// text has a hidden character", and the input is already bounded by the body limit above this.
+/// text has a hidden character".
+///
+/// **The limit, stated rather than assumed.** `limit` below is the only bound this text is held to.
+/// Nothing upstream of it bounds a settings file's size: the YAML layer this text is read from is
+/// not an HTTP request, so `sutura_config`'s own request body limit has no reach here, and there is
+/// no settings-file equivalent of it. An operator with write access to the file this key lives in
+/// could write megabytes under it; this parse is the first thing that would notice.
 fn parse_operator_text(name: &'static str, raw: &str, limit: usize) -> Result<String, InvalidOperatorText> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

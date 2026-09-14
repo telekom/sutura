@@ -80,7 +80,7 @@ fn a_glossary_entry_naming_a_value_the_allowlist_does_not_carry_does_not_load() 
             term: phrase("business customers"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("b2b"),
+            value: declared_value("b2b"),
         }
     );
 }
@@ -103,7 +103,7 @@ fn a_glossary_entry_naming_a_value_of_an_unfilterable_dimension_does_not_load() 
             term: phrase("the flagship tariff"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("product_name"),
-            value: String::from("Tariff L"),
+            value: declared_value("Tariff L"),
         }
     );
 }
@@ -196,7 +196,7 @@ fn a_caveat_about_a_value_the_allowlist_does_not_carry_does_not_load() {
             name: note_name("wholesale_is_not_here"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("wholesale"),
+            value: declared_value("wholesale"),
         }
     );
 }
@@ -355,7 +355,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             name: note_name("revenue_for_b2b"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("b2b"),
+            value: declared_value("b2b"),
         }
     );
     // And a filter on a dimension that permits no value at all is the same fact about the document:
@@ -373,7 +373,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             name: note_name("revenue_for_one_tariff"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("product_name"),
-            value: String::from("Tariff L"),
+            value: declared_value("Tariff L"),
         }
     );
 }
@@ -433,6 +433,30 @@ fn enough_conforming_notes_to_exceed_the_aggregate_cap_do_not_load() {
         .map(|index| Caveat::new(note_name(&format!("note_{index}")), vec![revenue()], filler.clone()))
         .collect();
     assert_eq!(accepts(only_caveats(inside)).caveats().len(), 7);
+}
+
+/// FINDING. The aggregate cap and `index_caveats`'s own checks can both refuse one input, and which
+/// one an author sees depends on which runs first. Sixteen filler caveats already exceed
+/// [`MAX_KNOWLEDGE_BYTES`]; the seventeenth also names a metric this bundle does not define, which
+/// `index_caveats` would refuse as `CaveatUnknownMetric` if it ran. It never gets there: the size
+/// check runs on the input before indexing starts, so the size is what is reported.
+#[test]
+fn an_oversized_input_is_refused_for_its_size_before_an_index_check_runs() {
+    let filler = NoteBody::parse("y".repeat(MAX_NOTE_BODY_BYTES)).expect("exactly the note cap is a body");
+    let mut notes: Vec<Caveat> = (0..16_u32)
+        .map(|index| Caveat::new(note_name(&format!("note_{index}")), vec![revenue()], filler.clone()))
+        .collect();
+    notes.push(Caveat::new(
+        note_name("note_unknown"),
+        vec![Referent::Metric {
+            metric: metric_name("no_such_metric"),
+        }],
+        filler,
+    ));
+    match refuses(only_caveats(notes)) {
+        InconsistentKnowledge::KnowledgeTooLarge { limit, .. } => assert_eq!(limit, MAX_KNOWLEDGE_BYTES),
+        other => panic!("the size check must run before the metric it never reaches is: {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------- adversarial review findings ---
@@ -587,6 +611,21 @@ fn a_body_that_renders_as_nothing_is_not_a_body() {
     );
 }
 
+/// FINDING. `first_altered_control` is `Description::parse`'s own check, refusing a control
+/// character `sutura_app::prompt::quote` would drop at render - the alteration [`InvisibleCharacter`]
+/// exists to refuse one channel over. `NoteBody::parse` never called it, so a bell mixed into
+/// otherwise ordinary prose loaded and rendered one character shorter than the text its digest
+/// certified.
+///
+/// [`InvisibleCharacter`]: super::InvalidNoteBody::InvisibleCharacter
+#[test]
+fn a_body_with_a_control_character_mixed_into_prose_is_refused() {
+    assert!(
+        NoteBody::parse("Excludes cancelled\u{7} subscriptions from the count.").is_err(),
+        "a body whose rendered text drops a character is not the text its digest certifies"
+    );
+}
+
 // ------------------------------------------------------- one test per refusal the fixes added ---
 //
 // The findings above assert only that a bundle does not load, which is the property. These name the
@@ -636,7 +675,7 @@ fn an_absence_naming_a_declared_dimension_or_value_says_which_one_it_found() {
             phrase: phrase("Business"),
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("business"),
+            value: declared_value("business"),
         }
     );
 }

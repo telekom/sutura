@@ -65,11 +65,35 @@ pub const TIME_BUCKET_LABEL: &str = "period";
 /// which is the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for notes.
 ///
 /// What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
-/// dimensions a metric declares or how many metrics a catalog holds, so the size of the whole
-/// rendered document is still a function of how much a catalog says. Those are the same shape of hole
-/// and want the same kind of fix; this is the one the review named, and the honest statement of what
-/// holds is better than a bound nobody measured.
+/// dimensions a metric declares or how many metrics a catalog holds. [`MAX_DEFINITIONS_BYTES`] is
+/// the fix for that other half.
 pub const MAX_VALUES_PER_DIMENSION: usize = 64;
+
+/// The most bytes a whole [`Definitions`] may carry of authored content beyond its own identifiers.
+///
+/// Every column a model declares, every required filter and dimension value a metric declares, and
+/// every model's and metric's description count toward it.
+///
+/// **The count [`MAX_VALUES_PER_DIMENSION`]'s own note names as missing**: that bound is one
+/// dimension's, and nothing capped how many dimensions a metric declares, how many required filters
+/// a metric declares, how many columns a model declares, or how many models and metrics a catalog
+/// holds. Per-item caps alone let N conforming declarations do what one oversized declaration
+/// cannot, the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for a bundle of notes,
+/// applied to the catalog that bundle is checked against.
+///
+/// **Measured before it was chosen.** This repository's shipped `single-player` catalog - the larger
+/// of the two example catalogs - is the reference: its widest model (`subscriptions`) declares 8
+/// columns, no metric declares more than one required filter, and its columns, required filters and
+/// dimension values together sum under 1 KiB. Descriptions are the rest of it, at about 18 KiB across
+/// eleven metrics and four models - each individually inside [`MAX_DESCRIPTION_BYTES`], and it is
+/// their COUNT that was uncapped.
+///
+/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 6.5 times that reference catalog's ~19 KiB, more
+/// headroom than [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a
+/// definitions bundle also carries the identifiers a knowledge bundle does not. Argued the way
+/// [`crate::query::MAX_RANGE_DAYS`] is: what it bounds is the size of the document, not whether what
+/// is in it is worth reading.
+pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 
 /// One physical table, and what the catalog knows about it.
 ///
