@@ -218,6 +218,7 @@ nav:
           - Who may see a metric: adr/0028-who-may-see-a-metric.md
           - Where a deadline lives: adr/0029-where-a-deadline-lives.md
           - Where a budget lives: adr/0030-where-a-budget-lives.md
+          - Caching an exchanged credential: adr/0031-caching-an-exchanged-credential.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md

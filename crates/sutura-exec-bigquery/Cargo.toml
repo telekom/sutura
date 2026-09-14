@@ -138,6 +138,11 @@ sutura-domain = { workspace = true }
 # this adapter compiles nothing.
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
+# The exchanged-credential cache's own lock (`src/sts/cache.rs`, `docs/adr/0031`) - not
+# feature-gated, unlike the wire: the cache holds no network client and no TLS stack, it is a
+# `HashMap` behind a lock, so there is no artefact-size or musl-link argument for hiding it. The
+# root manifest's entry carries why `parking_lot` rather than a denied `std::sync` type.
+parking_lot = { workspace = true }
 
 # ---------------------------------------------------------------- the wire, feature-gated ----
 # All three are `optional = true`, so the default build of this crate resolves none of them.

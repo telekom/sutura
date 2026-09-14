@@ -122,6 +122,13 @@ sutura-conformance = { path = "crates/sutura-conformance" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
+# `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
+# does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
+# across an `.await`, but the type is banned regardless of caller). Already resolved in
+# `Cargo.lock` transitively, so this adds no new package - it names an existing one as a direct
+# dependency of the one crate that now takes a lock of its own.
+parking_lot = "0.12"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }

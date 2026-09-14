@@ -283,6 +283,10 @@ pub(crate) struct RawSecurity {
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
     pub(crate) inbound: Option<RawInbound>,
+    /// The exchanged-credential cache - `docs/adr/0031`. Absent is the whole block off, the same
+    /// shape `tools:` uses: a deployment that never turns this on should never carry a line for it.
+    #[serde(default)]
+    pub(crate) credential_cache: RawCredentialCache,
     /// The credential that gates `/metrics` and nothing else.
     ///
     /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of
@@ -292,6 +296,25 @@ pub(crate) struct RawSecurity {
     /// treated as absent, like `access_token`.
     #[serde(default)]
     pub(crate) metrics_token: Option<String>,
+}
+
+/// `security.credential_cache` - `docs/adr/0031`. Every field optional and defaulted in
+/// `crate::identity_cache::CredentialCacheSettings::parse`, the same shape `RawRunSql` uses: an
+/// absent block is the whole capability off, and a present one with only `enabled: true` takes the
+/// documented defaults for the other two.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCredentialCache {
+    /// Off unless an operator writes `true`.
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    /// How many live entries the cache may hold. Absent takes the shipped default.
+    #[serde(default)]
+    pub(crate) capacity: Option<u64>,
+    /// The operator's own ceiling on how long an entry is served, in seconds. Absent takes the
+    /// shipped default.
+    #[serde(default)]
+    pub(crate) window_seconds: Option<u64>,
 }
 
 /// The inbound-identity declaration, as read.

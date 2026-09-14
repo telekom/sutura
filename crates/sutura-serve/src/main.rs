@@ -236,7 +236,11 @@ fn run() -> Result<(), String> {
             // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
             // same pinned agent and bounds the source composition already declares, so the exchange
             // and the job share one connection pool and one set of pins - see `crate::broker`.
-            let broker = broker::build_broker(settings.sources(), settings.server().request_timeout())?;
+            let broker = broker::build_broker(
+                settings.sources(),
+                settings.server().request_timeout(),
+                settings.security().credential_cache(),
+            )?;
             (
                 started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
                 None,

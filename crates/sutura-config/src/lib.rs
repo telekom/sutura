@@ -105,6 +105,7 @@ pub mod catalog;
 pub mod credentials;
 pub mod environment;
 pub mod governance;
+pub mod identity_cache;
 pub mod inbound;
 pub mod limits;
 pub mod prompt;
@@ -124,6 +125,7 @@ pub use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogS
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::governance::SpendBudget;
+pub use crate::identity_cache::{CacheWindow, CredentialCacheSettings, InvalidCredentialCacheSettings};
 pub use crate::inbound::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
     ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenRequirement, TokenType,

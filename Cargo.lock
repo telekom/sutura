@@ -3906,6 +3906,7 @@ name = "sutura-exec-bigquery"
 version = "0.5.1"
 dependencies = [
  "base64 0.23.1",
+ "parking_lot",
  "ring",
  "serde",
  "serde_json",

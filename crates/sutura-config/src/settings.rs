@@ -232,6 +232,11 @@ pub enum SettingsError {
         #[source]
         cause: UnknownTlsTermination,
     },
+    #[error("`security.credential_cache` is not usable")]
+    CredentialCache {
+        #[source]
+        cause: crate::identity_cache::InvalidCredentialCacheSettings,
+    },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
         #[source]
@@ -767,7 +772,20 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None => None,
         Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
-    Ok(SecuritySettings::new(token, termination, inbound, identity, metrics_token))
+    let credential_cache = crate::identity_cache::CredentialCacheSettings::parse(
+        raw.security.credential_cache.enabled,
+        raw.security.credential_cache.capacity,
+        raw.security.credential_cache.window_seconds,
+    )
+    .map_err(|cause| SettingsError::CredentialCache { cause })?;
+    Ok(SecuritySettings::new(
+        token,
+        termination,
+        inbound,
+        identity,
+        metrics_token,
+        credential_cache,
+    ))
 }
 
 /// The data systems this deployment declares.

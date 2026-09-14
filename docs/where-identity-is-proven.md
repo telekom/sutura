@@ -533,6 +533,20 @@ account is not built*. Until that exists, `AGENTS.md` keeps the shipped position
 
 > no source a deployment SERVES executes as the asking subject.
 
+### The exchanged-credential cache's own stated limit
+
+`docs/adr/0031` adds a per-process cache in front of `WorkloadIdentityBroker`'s exchange, off by
+default (`security.credential_cache.enabled`). It changes nothing above - a cached credential is
+still presented to the source and still re-checked against the source's own grant on every query -
+but it does change how quickly a revocation at the IDENTITY PROVIDER (an account disabled, a
+principal removed) reaches this deployment: a cached entry is served for up to
+`min(the credential's own remaining life minus the broker's floor, security.credential_cache.window_seconds)`
+after the provider would have refused to mint it again. That window is stated here because it is a
+number an operator can act on, and because per-request minting would not have done better: an
+exchanged token is typically valid for close to an hour regardless of how it was minted, so a fresh
+mint carries the same stale grant for the rest of its own life either way. What the cache adds is
+strictly bounded by the configured window on top of that, never by more.
+
 ## Keeping this page honest
 
 A venue that cannot state its limit is how *verified* drifts. So:
