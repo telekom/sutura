@@ -15,6 +15,13 @@ use crate::warehouse::Value;
 /// [`super::labels`] named, or a row narrower than its result's own columns. The [`NonFinite`](FederatedFailure::NonFinite)
 /// variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 /// value for.
+///
+/// **D6: [`AmbiguousLink`](FederatedFailure::AmbiguousLink)'s `Display` does not interpolate `key`.** A join
+/// key is exactly the kind of cell this workspace treats as caller data - the finding named a case
+/// where it could be a customer identifier - and `Display` is what every logger and every future
+/// refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
+/// from interpolating it instead, which is why this is held by review at any new call site rather
+/// than by the compiler.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FederatedFailure {
     /// A column `combine` reached for by label was absent from a leg's result.
@@ -38,12 +45,7 @@ pub enum FederatedFailure {
     FloatLinkKey { value: f64 },
     /// A link value had more than one lookup row, which would double every measure.
     ///
-    /// **D6: the message does not interpolate `key`.** A join key is exactly the kind of cell this
-    /// workspace treats as caller data - the finding named a case where it could be a customer
-    /// identifier - and `Display` is what every logger and every future refusal surface reads. The
-    /// field stays for equality in tests; nothing here stops a future arm from interpolating it
-    /// instead, which is why this is held by review at any new call site rather than by the
-    /// compiler.
+    /// D6: see this enum's own header for why `Display` does not interpolate `key`.
     #[error("a link value maps to more than one lookup row")]
     AmbiguousLink { key: String },
     /// A leaf cell that was not a number reached a re-aggregating aggregate.
@@ -118,8 +120,9 @@ pub enum FederatedFailure {
 /// runs.
 ///
 /// **Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-/// caller data this workspace never puts in a message a caller or an agent reads - see D6's note on
-/// [`FederatedFailure::AmbiguousLink`]. Every arm here is a bare discriminant.
+/// caller data this workspace never puts in a message a caller or an agent reads - see
+/// [`FederatedFailure`]'s own header for D6, the case that named it. Every arm here is a bare
+/// discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum FederatedAnswerRefusal {
     /// A division met a zero denominator the measure declared `fails` for, or its result was not a
