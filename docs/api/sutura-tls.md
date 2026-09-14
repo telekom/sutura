@@ -21,22 +21,26 @@ same bundle-or-system-store read a second time, for the `BigQuery` wire, and cop
 
 # What is shared, and what deliberately is not
 
-This crate reads bytes and returns `rustls::pki_types::CertificateDer` /
-`rustls::pki_types::PrivateKeyDer` - the DER material every rustls-based consumer starts from.
-It builds no `rustls::RootCertStore` and installs no crypto provider, because neither is shared:
+This crate reads bytes and returns `rustls_pki_types::CertificateDer` /
+`rustls_pki_types::PrivateKeyDer` - the DER material every rustls-based consumer starts from,
+and the exact type a `rustls`-depending caller already has: `rustls` itself re-exports this crate
+verbatim as `rustls::pki_types` (`pub use pki_types::*;`), so nothing converts at the seam. This
+crate builds no `RootCertStore` and installs no crypto provider, because neither is shared:
 
 - `sutura-exec-postgres::tls` folds the returned certificates into a `RootCertStore` (the step
   that also catches a certificate rustls itself cannot use as a root) and builds a
-  `rustls::ClientConfig` with the `ring` provider it already depends on, for
+  `rustls::ClientConfig` with the `ring` provider IT already depends on, for
   `tokio-postgres-rustls`.
 - A `ureq`-based adapter turns the same `CertificateDer` bytes into `ureq::tls::Certificate` (via
   `Certificate::from_der(der.as_ref()).to_owned()`) and hands `RootCerts::Specific` to
   `ureq::tls::TlsConfig` - the workspace's own pinned `ureq` takes that shape directly, so no new
   outbound HTTP client enters the graph for this.
 
-So the crate this loader lives in depends on `rustls` (for `pki_types` only) and
+So the crate this loader lives in depends on `rustls-pki-types` (not `rustls` itself - that pulls
+the `ring` provider on this workspace's feature pin, and this crate must not) and
 `rustls-native-certs`, and nothing that names a network client or a crypto provider - a data
-system's own outbound wire chooses those, not this.
+system's own outbound wire chooses those, not this. `cargo tree -p sutura-tls -e normal -i ring`
+prints nothing, held by `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` entry naming this pair.
 
 # What refuses here, and why it is fail-closed the same way twice
 
@@ -127,10 +131,58 @@ Why a declared anchor or identity could not be loaded.
 
 `Debug`, `Display`, `Error`
 
+## `struct LoadedAnchors`
+
+```rust
+pub struct LoadedAnchors
+```
+
+A loaded trust-anchor set - never empty, by construction.
+
+The property `load_anchors` promises is now a type rather than a comment at the call site: a
+store of nothing verifies nothing, and `LoadedAnchors::parse` is the only constructor, refusing
+an empty list with the caller's own refusal (`AnchorsEmpty` for a bundle, `SystemStoreEmpty` for
+the host store) rather than letting each source repeat the check.
+
+### Implements
+
+`Debug`, `IntoIterator`
+
+## `struct LoadedIdentity`
+
+```rust
+pub struct LoadedIdentity
+```
+
+A loaded client identity: the certificate chain, and the private key for it.
+
+Private fields behind named accessors, not a tuple and not `pub` fields - a struct literal built
+from outside this crate could pair any chain with any key, which is exactly the invariant
+`load_identity` exists to hold (each half read from the SAME declared `Identity`).
+
+### Methods
+
+```rust
+pub fn chain(&self) -> &[CertificateDer<'static>]
+```
+
+The certificate chain, for inspection without giving up the key.
+
+```rust
+pub fn into_parts(self) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)
+```
+
+The chain and the key, consumed together - `PrivateKeyDer` implements no `Clone`, so there is
+no `&self` accessor for it that would not lie about ownership.
+
+### Implements
+
+`Debug`
+
 ## `fn load_anchors`
 
 ```rust
-pub fn load_anchors(anchors: &Anchors) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, LoadError>
+pub fn load_anchors(anchors: &Anchors) -> Result<LoadedAnchors, LoadError>
 ```
 
 Loads the declared trust anchors as raw certificate DER, refusing an empty or unreadable store.
@@ -156,11 +208,3 @@ kind.
 `LoadError::IdentityRead` for a half that cannot be read; `LoadError::IdentityIncomplete` for
 a certificate file with no certificate; `LoadError::IdentityKey` for a key file that does not
 parse as a private key.
-
-## `type_alias LoadedIdentity`
-
-A loaded client identity: the certificate chain, and the private key for it.
-
-Named rather than left as a bare tuple - `clippy::type_complexity` is over the workspace's own
-threshold at the return position, and a name is also what a caller destructures against instead
-of a positional `.0`/`.1`.

@@ -164,6 +164,11 @@ tokio-postgres-rustls = { version = "0.14", default-features = false, features =
 # server is refused without this feature - so the pin is about making the behaviour legible rather
 # than about closing a gap.
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
+# `CertificateDer`/`PrivateKeyDer`/the `PemObject` reader, with no crypto provider and no TLS
+# implementation attached - `rustls` itself re-exports this crate verbatim as `rustls::pki_types`.
+# Already resolved at this version via `rustls-native-certs`, so `sutura-tls` depending on it adds no
+# new `Cargo.lock` entry. `std` (which implies `alloc`) is what the `pem` module needs.
+rustls-pki-types = { version = "1", default-features = false, features = ["std"] }
 # The explicit `transport_anchors: system` choice for an outbound source. This is not a default:
 # configuration has to name the host store before the adapter reads it. On Linux it probes the
 # conventional certificate bundle paths without OpenSSL; macOS and Windows use their platform

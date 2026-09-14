@@ -174,6 +174,16 @@ struct ForbiddenEdge {
     why: &'static str,
     /// What to do instead. Printed, because a gate that only says "no" gets worked around.
     instead: &'static str,
+    /// Which edges the walk follows for THIS entry.
+    ///
+    /// Named per entry rather than fixed at [`Edges::Every`] for the whole table, because the two
+    /// existing rules and the newest one make genuinely different claims: `sutura-catalog-rdbms`'s
+    /// own comment argues `Edges::Every` on purpose - a test-only compile of the SQL generator is
+    /// still the thing that rule forbids. A crate whose claim is about what a SHIPPED BINARY links
+    /// (nothing dev-only ever ships) needs [`Edges::Normal`] instead, or a test-only tool with no
+    /// bearing on the claim - `rcgen`'s own `ring` feature, needed to generate self-signed test
+    /// certificates and nowhere near a shipped artifact - would keep the rule permanently red.
+    edges: Edges,
 }
 
 /// Edges that must stay absent.
@@ -197,6 +207,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
               executes plans on the engine",
         instead: "put the rendering in `sutura-sql` and depend on THAT from the SQL adapter that \
                   needs it. `sutura-exec-duckdb` and `sutura-cli` do",
+        edges: Edges::Every,
     },
     // The re-entry path, and the reason this is two entries rather than one. Nothing stops
     // somebody adding `sutura-sql` to `sutura-semantic`'s manifest to "share" a type - and that
@@ -211,6 +222,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
                   belongs to both, it belongs in `sutura-domain`, which is where `QueryPlan` and \
                   `ParamValue` already are. A type only the renderer uses belongs in `sutura-sql`, \
                   which is where `GeneratedQuery` went",
+        edges: Edges::Every,
     },
     // The same closure argument from the metadata side, and it was nearly missed: a checkpoint
     // compiled `authored_sql:` fragments at catalog load, which needs `sutura_sql::expression` and
@@ -229,6 +241,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         instead: "store the authored fragment as `sutura_domain::expression::SqlFragment` and leave \
                   it uncompiled; the adapter that declares `Warehouse::EXECUTES_AUTHORED_SQL` is the \
                   one that compiles it, beside the renderer for its own dialect",
+        edges: Edges::Every,
     },
     // The sibling catalog adapter, and the one `docs/adr/0016` names as the next candidate to mint
     // an authored computation (`metricInfo.expression`). Same class, same reason, one line.
@@ -237,6 +250,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         forbidden: "sutura-sql",
         why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+        edges: Edges::Every,
     },
     // The rule above is about the class, not the two adapters that happened to exist when it was
     // written. `sutura-catalog-rdbms` is a DEV-dependency of `sutura-app` only - `cargo tree -e
@@ -250,6 +264,36 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         forbidden: "sutura-sql",
         why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+        edges: Edges::Every,
+    },
+    // `github.com/telekom/sutura#705` review finding 1: the crate's own doc claimed "no dependency
+    // on a crypto provider" while its manifest named `rustls` - and this workspace's `rustls` entry
+    // pins `features = ["ring", "tls12"]`, so that edge was `ring` under a different name. The
+    // sentence exists because the whole reason this crate is a THIRD crate rather than a dependency
+    // between the two adapters that need it is that it must stay usable by any future outbound
+    // adapter without dragging a TLS implementation along - `docs/adr/0010`'s `security.outbound`
+    // reuse case names a shipped `sutura-http` reader as one, and `nix/shipped.nix` bans `ring` from
+    // every published binary. A recall-held sentence is not a control; this is the control.
+    //
+    // `Edges::Normal`, not `Edges::Every`: the claim is about what a SHIPPED BINARY links, and this
+    // crate's own dev-dependency on `rcgen` (to generate self-signed certificates for its tests)
+    // reaches `ring` through `rcgen`'s own feature - measured, `cargo tree -p sutura-tls -e
+    // normal,build,dev -i ring` names exactly that edge and no other. Nothing dev-only ever ships,
+    // so `Edges::Every` here would hold a permanently-red rule over a fact this claim is not about -
+    // the same reasoning `sutura-catalog-rdbms`'s own entry gives for the opposite choice, because
+    // that rule's claim genuinely is about a test-only compile.
+    ForbiddenEdge {
+        from: "sutura-tls",
+        forbidden: "ring",
+        why: "this crate's whole reason to exist is a bundle-or-system-store READ any outbound TLS \
+              adapter can depend on without acquiring a crypto provider - a shipped reader is the \
+              reuse case `docs/adr/0010` names, and `nix/shipped.nix` refuses `ring` in every \
+              published binary",
+        instead: "read the bytes with `rustls-pki-types` (`CertificateDer`, `PrivateKeyDer`, the \
+                  `PemObject` reader) - the same types `rustls::pki_types` re-exports verbatim, so \
+                  a `rustls`-depending caller converts nothing at the seam. Building a `ClientConfig` \
+                  or a `RootCertStore` is each adapter's own job, with its own crypto provider",
+        edges: Edges::Normal,
     },
 ];
 
@@ -574,8 +618,9 @@ fn forbidden_edges() -> Verdict {
     for edge in FORBIDDEN_EDGES {
         // Walked per entry rather than once, because `from` differs per rule and a missing
         // `from` has to be an error rather than a vacuous pass: a renamed crate would
-        // otherwise silently switch the rule off.
-        let tree = match transitive_names(&meta, edge.from, Edges::Every) {
+        // otherwise silently switch the rule off. `edge.edges` and not a fixed `Edges::Every`,
+        // because the entries make genuinely different claims - see [`ForbiddenEdge::edges`].
+        let tree = match transitive_names(&meta, edge.from, edge.edges) {
             Ok(names) => names,
             Err(message) => {
                 eprintln!("xtask check-boundaries: {message}");
@@ -807,17 +852,26 @@ mod tests {
         // The case a manifest grep misses, and the one the second entry in `FORBIDDEN_EDGES`
         // exists for: `sutura-semantic` names `sutura-sql`, `sutura-sql` names the generator, and
         // no line anywhere in the core's manifest says `polyglot-sql`.
+        // One fixture asserting over every REAL entry in `FORBIDDEN_EDGES`, so a `forbidden` name
+        // this fixture's graph does not reach is a fixture gap this test itself would name rather
+        // than an edge the walk quietly missed - it is why `sutura-tls`/`ring` are wired in here
+        // too, reachable transitively (through `tls`) rather than declared directly on `sem`, which
+        // is the whole shape this test is about.
         let meta: serde_json::Value = serde_json::from_str(
             r#"{
                 "packages": [
                     {"id": "sem", "name": "sutura-semantic"},
                     {"id": "sql", "name": "sutura-sql"},
-                    {"id": "pg", "name": "polyglot-sql"}
+                    {"id": "pg", "name": "polyglot-sql"},
+                    {"id": "tls", "name": "sutura-tls"},
+                    {"id": "ring", "name": "ring"}
                 ],
                 "resolve": {"nodes": [
-                    {"id": "sem", "deps": [{"pkg": "sql"}]},
+                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}]},
                     {"id": "sql", "deps": [{"pkg": "pg"}]},
-                    {"id": "pg", "deps": []}
+                    {"id": "pg", "deps": []},
+                    {"id": "tls", "deps": [{"pkg": "ring"}]},
+                    {"id": "ring", "deps": []}
                 ]}
             }"#,
         )

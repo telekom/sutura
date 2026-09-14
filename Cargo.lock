@@ -4072,8 +4072,8 @@ name = "sutura-tls"
 version = "0.5.1"
 dependencies = [
  "rcgen",
- "rustls",
  "rustls-native-certs",
+ "rustls-pki-types",
  "thiserror 2.0.20",
 ]
 

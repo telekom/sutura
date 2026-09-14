@@ -12,22 +12,26 @@
 //!
 //! # What is shared, and what deliberately is not
 //!
-//! This crate reads bytes and returns [`rustls::pki_types::CertificateDer`] /
-//! [`rustls::pki_types::PrivateKeyDer`] - the DER material every rustls-based consumer starts from.
-//! It builds no [`rustls::RootCertStore`] and installs no crypto provider, because neither is shared:
+//! This crate reads bytes and returns [`rustls_pki_types::CertificateDer`] /
+//! [`rustls_pki_types::PrivateKeyDer`] - the DER material every rustls-based consumer starts from,
+//! and the exact type a `rustls`-depending caller already has: `rustls` itself re-exports this crate
+//! verbatim as `rustls::pki_types` (`pub use pki_types::*;`), so nothing converts at the seam. This
+//! crate builds no `RootCertStore` and installs no crypto provider, because neither is shared:
 //!
 //! - `sutura-exec-postgres::tls` folds the returned certificates into a `RootCertStore` (the step
 //!   that also catches a certificate rustls itself cannot use as a root) and builds a
-//!   `rustls::ClientConfig` with the `ring` provider it already depends on, for
+//!   `rustls::ClientConfig` with the `ring` provider IT already depends on, for
 //!   `tokio-postgres-rustls`.
 //! - A `ureq`-based adapter turns the same `CertificateDer` bytes into `ureq::tls::Certificate` (via
 //!   `Certificate::from_der(der.as_ref()).to_owned()`) and hands `RootCerts::Specific` to
 //!   `ureq::tls::TlsConfig` - the workspace's own pinned `ureq` takes that shape directly, so no new
 //!   outbound HTTP client enters the graph for this.
 //!
-//! So the crate this loader lives in depends on `rustls` (for `pki_types` only) and
+//! So the crate this loader lives in depends on `rustls-pki-types` (not `rustls` itself - that pulls
+//! the `ring` provider on this workspace's feature pin, and this crate must not) and
 //! `rustls-native-certs`, and nothing that names a network client or a crypto provider - a data
-//! system's own outbound wire chooses those, not this.
+//! system's own outbound wire chooses those, not this. `cargo tree -p sutura-tls -e normal -i ring`
+//! prints nothing, held by `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` entry naming this pair.
 //!
 //! # What refuses here, and why it is fail-closed the same way twice
 //!
@@ -45,8 +49,8 @@
 
 use std::path::{Path, PathBuf};
 
-use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls_pki_types::pem::PemObject as _;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
 /// Where a declared trust anchor bundle is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,19 +138,74 @@ pub enum LoadError {
 /// [`LoadError::AnchorsEmpty`] for a bundle that parses to no certificates;
 /// [`LoadError::SystemStoreRead`]/[`LoadError::SystemStoreEmpty`] for a host store that cannot
 /// supply a complete, non-empty set.
-pub fn load_anchors(anchors: &Anchors) -> Result<Vec<CertificateDer<'static>>, LoadError> {
+pub fn load_anchors(anchors: &Anchors) -> Result<LoadedAnchors, LoadError> {
     match anchors {
         Anchors::System => system_certificates(rustls_native_certs::load_native_certs()),
         Anchors::Bundle(path) => bundle_certificates(path),
     }
 }
 
+/// A loaded trust-anchor set - never empty, by construction.
+///
+/// The property [`load_anchors`] promises is now a type rather than a comment at the call site: a
+/// store of nothing verifies nothing, and [`LoadedAnchors::parse`] is the only constructor, refusing
+/// an empty list with the caller's own refusal (`AnchorsEmpty` for a bundle, `SystemStoreEmpty` for
+/// the host store) rather than letting each source repeat the check.
+#[derive(Debug)]
+pub struct LoadedAnchors(Vec<CertificateDer<'static>>);
+
+impl LoadedAnchors {
+    /// Wraps a certificate list, refusing an empty one with `refusal`.
+    fn parse(certificates: Vec<CertificateDer<'static>>, refusal: LoadError) -> Result<Self, LoadError> {
+        if certificates.is_empty() {
+            Err(refusal)
+        } else {
+            Ok(Self(certificates))
+        }
+    }
+
+    /// How many certificates are loaded. Test-only: production code takes the whole set via
+    /// [`IntoIterator`] and never needs the count on its own.
+    #[cfg(test)]
+    const fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl IntoIterator for LoadedAnchors {
+    type Item = CertificateDer<'static>;
+    type IntoIter = std::vec::IntoIter<CertificateDer<'static>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 /// A loaded client identity: the certificate chain, and the private key for it.
 ///
-/// Named rather than left as a bare tuple - `clippy::type_complexity` is over the workspace's own
-/// threshold at the return position, and a name is also what a caller destructures against instead
-/// of a positional `.0`/`.1`.
-pub type LoadedIdentity = (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>);
+/// Private fields behind named accessors, not a tuple and not `pub` fields - a struct literal built
+/// from outside this crate could pair any chain with any key, which is exactly the invariant
+/// `load_identity` exists to hold (each half read from the SAME declared [`Identity`]).
+#[derive(Debug)]
+pub struct LoadedIdentity {
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+}
+
+impl LoadedIdentity {
+    /// The certificate chain, for inspection without giving up the key.
+    #[must_use]
+    pub fn chain(&self) -> &[CertificateDer<'static>] {
+        &self.chain
+    }
+
+    /// The chain and the key, consumed together - `PrivateKeyDer` implements no `Clone`, so there is
+    /// no `&self` accessor for it that would not lie about ownership.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
+        (self.chain, self.key)
+    }
+}
 
 /// Loads the declared client identity, refusing a half that cannot be read or does not hold its
 /// kind.
@@ -157,14 +216,14 @@ pub type LoadedIdentity = (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)
 /// a certificate file with no certificate; [`LoadError::IdentityKey`] for a key file that does not
 /// parse as a private key.
 pub fn load_identity(identity: &Identity) -> Result<LoadedIdentity, LoadError> {
-    let certificates = load_certificate(identity.certificate())?;
+    let chain = load_certificate(identity.certificate())?;
     let key = load_private_key(identity.key())?;
-    Ok((certificates, key))
+    Ok(LoadedIdentity { chain, key })
 }
 
 /// Reads a declared PEM bundle into raw certificate DER, refusing an invalid entry rather than
 /// skipping it.
-fn bundle_certificates(anchors_path: &Path) -> Result<Vec<CertificateDer<'static>>, LoadError> {
+fn bundle_certificates(anchors_path: &Path) -> Result<LoadedAnchors, LoadError> {
     let bundle = std::fs::read(anchors_path).map_err(|cause| LoadError::AnchorsRead {
         path: anchors_path.display().to_string(),
         cause,
@@ -175,27 +234,24 @@ fn bundle_certificates(anchors_path: &Path) -> Result<Vec<CertificateDer<'static
             path: anchors_path.display().to_string(),
             cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
         })?;
-    if certificates.is_empty() {
-        return Err(LoadError::AnchorsEmpty {
+    LoadedAnchors::parse(
+        certificates,
+        LoadError::AnchorsEmpty {
             path: anchors_path.display().to_string(),
-        });
-    }
-    Ok(certificates)
+        },
+    )
 }
 
 /// Turns the host-store reader's result into the same strict certificate list a declared bundle
 /// gives, refusing a partial read rather than accepting the certificates it did recover.
-fn system_certificates(loaded: rustls_native_certs::CertificateResult) -> Result<Vec<CertificateDer<'static>>, LoadError> {
+fn system_certificates(loaded: rustls_native_certs::CertificateResult) -> Result<LoadedAnchors, LoadError> {
     if !loaded.errors.is_empty() {
         let errors = loaded.errors.len();
         let mut failures = loaded.errors.into_iter();
         let cause = failures.next().ok_or(LoadError::SystemStoreEmpty)?;
         return Err(LoadError::SystemStoreRead { errors, cause });
     }
-    if loaded.certs.is_empty() {
-        return Err(LoadError::SystemStoreEmpty);
-    }
-    Ok(loaded.certs)
+    LoadedAnchors::parse(loaded.certs, LoadError::SystemStoreEmpty)
 }
 
 /// Reads and parses the client certificate chain, refused if it holds no certificate.
@@ -340,8 +396,8 @@ mod tests {
         let scratch = Scratch::new("identity");
         let (certificate, key) = scratch.pair("client");
         let identity = Identity::new(certificate, key);
-        let (certificates, _key) = load_identity(&identity).expect("a pair loads");
-        assert_eq!(certificates.len(), 1);
+        let loaded = load_identity(&identity).expect("a pair loads");
+        assert_eq!(loaded.chain().len(), 1);
     }
 
     #[test]

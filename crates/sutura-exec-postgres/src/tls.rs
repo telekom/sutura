@@ -120,9 +120,10 @@ pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Re
     match identity {
         None => Ok(builder.with_no_client_auth()),
         Some(identity) => {
-            let (cert_der, key) = sutura_tls::load_identity(&resolved_identity(identity)).map_err(convert_load_error)?;
+            let loaded = sutura_tls::load_identity(&resolved_identity(identity)).map_err(convert_load_error)?;
+            let (chain, key) = loaded.into_parts();
             builder
-                .with_client_auth_cert(cert_der, key)
+                .with_client_auth_cert(chain, key)
                 .map_err(|_cause| PostgresError::IdentityKey {
                     path: identity.key().display().to_string(),
                     what: "not a private key this build can present",
@@ -153,8 +154,8 @@ fn certificate_roots(anchors: &TlsAnchors) -> Result<RootCertStore, PostgresErro
             },
         })?;
     }
-    // `sutura_tls::load_anchors` already refuses an empty result (`AnchorsEmpty`/`SystemStoreEmpty`),
-    // so `roots` is non-empty here whenever every `add` above succeeded - no second empty check.
+    // `sutura_tls::LoadedAnchors` cannot be empty by construction, so `roots` is non-empty here
+    // whenever every `add` above succeeded - the property is the type's, not a comment's.
     Ok(roots)
 }
 
@@ -328,6 +329,30 @@ mod tests {
         assert!(matches!(
             client_config(&TlsAnchors::Bundle(anchors), Some(&identity)),
             Err(PostgresError::IdentityKey { .. })
+        ));
+    }
+
+    #[test]
+    fn convert_load_error_maps_the_two_system_store_arms() {
+        // The two arms `an_empty_system_store_is_refused` and
+        // `a_partially_read_system_store_is_refused_naming_how_many_failed` asserted directly before
+        // the read moved into `sutura-tls` - they now assert `sutura_tls::LoadError` there instead, so
+        // this is the cell that holds THIS crate's own claim: the seam maps them onto the same
+        // `PostgresError` variants a caller already matches on, field for field.
+        assert!(matches!(
+            convert_load_error(sutura_tls::LoadError::SystemStoreEmpty),
+            PostgresError::SystemStoreEmpty
+        ));
+        let cause = rustls_native_certs::Error {
+            context: "one store entry could not be read",
+            kind: rustls_native_certs::ErrorKind::Io {
+                inner: std::io::Error::other("permission denied"),
+                path: PathBuf::from("/etc/ssl/certs/broken.pem"),
+            },
+        };
+        assert!(matches!(
+            convert_load_error(sutura_tls::LoadError::SystemStoreRead { errors: 1, cause }),
+            PostgresError::SystemStoreRead { errors: 1, .. }
         ));
     }
 }
