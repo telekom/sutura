@@ -2823,9 +2823,14 @@ crate this record specifies; <code>execute_packs!</code> binds it to three data 
 (<code>sutura-exec-duckdb</code>, <code>sutura-exec-postgres</code>, <code>sutura-exec-datafusion</code> - the engine); compile packs
 run behind the harness crate's default-off <code>compile</code> feature; and <code>cargo xtask
 check-conformance-bindings</code> (<code>xtask/src/conformance.rs</code>) is the gate the <em>Consequences</em> section
-below asks for, holding the registry and the macro invocation in step. What is still unbuilt, per
-the record's own later corrections further down: a per-pack timing aggregate, <code>cargo-insta</code>'s
-unreferenced-snapshot check, and a data adapter beyond the three bound today.</p>
+below asks for, holding the registry and the macro invocation in step. What is still unbuilt,
+named individually rather than counted because an earlier version of this sentence undercounted
+it: a per-pack timing aggregate and <code>cargo-insta</code>'s unreferenced-snapshot check, both decided as a
+plan further down rather than built; the three named corpus cases (a filter on a remote dimension
+with an orphan key, a zero-denominator ratio, a <code>CountDistinct</code> spanning two join keys), none of
+which is in the corpus yet; the corpus itself, which is code today rather than the files this
+record specifies; and a fourth data adapter, <code>sutura-exec-bigquery</code>, which IS built and is not yet
+bound to the packs.</p>
 <p><strong>The limit, next to the claim, because the shape is further along than the coverage.</strong> A case is a
 value in <code>crates/sutura-conformance/src/corpus.rs</code> rather than a file, so adding one is still a code
 change - <em>The corpus data is a file; cases are code</em> below is where that stands. <strong>None of the three

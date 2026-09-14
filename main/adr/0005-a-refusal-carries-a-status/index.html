@@ -2881,27 +2881,29 @@ to narrow the question land - <code>grain_not_supported</code>, <code>time_range
 <code>duplicate_dimension</code>, <code>resources_exhausted</code> and <code>deadline_exceeded</code> - is documented the other way
 round from the premise: clients receiving a <code>422</code> "should expect that repeating the request without
 modification will fail with the same error".</p>
-<p><strong>Corrected:</strong> this said <em>"four of the eleven refusal codes"</em>. Both numbers had gone stale - the
-codes are named rather than counted here, because nothing in this repository derives either number
-and a count nobody derives is a count that goes stale again. Where the count is still written it is
-registered rather than remembered: <code>check-guidance</code>'s contradicted-claims entry now forbids the stale
-figure and prescribes the true one, and <code>xtask/src/guidance/claims.rs</code>'s
-<code>no_live_rule_forbids_the_true_count_of_422_refusals</code> holds that no live rule forbids the sentence
-this repository can now write. <code>docs/serving.md</code> states the count; the transport's own route module
-states the status without one.</p>
-<p><strong>The residual, stated because it is not held by anything.</strong> None of the above compares the count to
-the match that decides it - the registered entry forbids the WRONG figure and the test beside it says
-in its own words that it "says nothing about the COUNT". So
-<code>crates/sutura-http/src/wire/refusal.rs</code>, which spells the number in two of its own comments, and
-<code>docs/serving.md</code>, which spells it once, are held by adjacency and review rather than by a mechanism.
-That is not hypothetical. Those sites went stale again on 2026-09-13, under two hours after the entry
-was registered: the deadline refusal arrived as another arm of the same match sending another code to
-<code>422</code>, the wire's own status table gained its row because the exhaustive match forced one, and not a
-single sentence that counts the codes moved with it. The number is deliberately not restated here -
-this paragraph is about a count nothing derives, and writing one would be the defect it describes.
-That entry could not reach <code>refusal.rs</code> in any case: <code>check-guidance</code>'s
-claim scope is <code>md</code>, <code>nix</code>, <code>yml</code>, <code>yaml</code>, <code>toml</code> and <code>sh</code>, so a count written in a Rust comment is
-outside every wording it registers.</p>
+<p><strong>Corrected twice, and the second correction is a mechanism rather than another hand-fix.</strong> This said
+<em>"four of the eleven refusal codes"</em>, was corrected to five by a <code>CONTRADICTED</code> entry that registered
+the figure as prose, and went stale AGAIN under two hours later when the deadline refusal arrived as a
+sixth arm of the same match - documented at length in <code>github.com/telekom/sutura#603</code>, <code>#670</code> and
+<code>#676</code>, the last of which measured the registered entry itself as the fourth stale site. The entry
+that registered "five" is deleted rather than corrected to "six": <code>xtask/src/guidance/claims/counts.rs</code>
+now holds a <code>Counted</code> entry that derives the number from <code>StatusCode::UNPROCESSABLE_ENTITY</code> occurrences
+in <code>refusal.rs</code>'s exhaustive match - truncated at <code>#[cfg(test)]</code> so the fixture that repeats the
+literal once per case does not inflate the count - and refuses <code>check-guidance</code> if any of four
+registered sites disagrees with it: <code>docs/serving.md</code>, <code>refusal.rs</code>'s own two comments, and
+<code>routes/v1/query.rs</code>. <code>check-guidance</code>'s claim scope is <code>md</code>, <code>nix</code>, <code>yml</code>, <code>yaml</code>, <code>toml</code> and <code>sh</code>,
+which is why the first two are read as <code>mentioned_in</code> and the two <code>.rs</code> sites need <code>also_stated_in</code> -
+an explicit, narrowly-named exception to that scope rather than a widening of it, because a <code>Counted</code>
+marker carries no forbidden sentence the way a <code>CONTRADICTED</code> wording would.</p>
+<p><strong>The residual this correction narrows rather than closes.</strong> The count is now compared to the tree
+that decides it, which the previous correction never did - <code>Evidence::stands</code> for a <code>CONTRADICTED</code>
+entry proves a comment is PRESENT, never that it is TRUE, and that gap is what let "five" stay
+registered while the code said six. It is closed for this one claim and stays open for every other
+<code>CONTRADICTED</code> entry in the table, each still keyed on a comment nothing compares to the code it
+describes - <code>github.com/telekom/sutura#603</code>'s own generalisable point. And the mechanism is a literal
+text match, not a compiler-checked count: a fifth site stating this number in different words, or a
+seventh arm reached through a macro or a re-export rather than a literal <code>StatusCode::UNPROCESSABLE_ENTITY</code>
+in this match, is not caught by it.</p>
 <p><strong>And the <code>200</code> cost something the argument never priced.</strong> A governance refusal answered <code>200</code> is
 indistinguishable from an answer to everything that reads a status and not a body:</p>
 <ul>
