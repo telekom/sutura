@@ -3011,8 +3011,13 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
   (<code>tls::client_config</code>). Which source gets which is <code>sutura_config::sources::transport</code>'s
   decision and never this adapter's, so a caller that builds no config gets a cleartext
   connection - including to a server that offers TLS.</li>
-<li>A <code>statement_timeout</code> is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.</li>
+<li><strong><code>dry_run</code> and <code>execute</code> stop at the port's deadline</strong>, with <code>SET LOCAL statement_timeout</code> -
+  <code>docs/adr/0029</code>'s Postgres row. The wait for <code>execution_lock</code> is itself outside the deadline;
+  a caller already spent once the lock is held is refused locally as <code>DeadlineSpent</code>. <code>57014
+  query_canceled</code> is also what a manual <code>pg_cancel_backend</code> produces - indistinguishable to
+  <code>deadline_exceeded</code>. The raw SQL tool's own path (<code>execute_raw</code>) carries no per-request
+  deadline; it is stopped by the connect-time <code>SET statement_timeout</code> that already existed, and
+  this record adds only classifying that stop.</li>
 </ul>
 <h2 id="enum-postgreserror"><code>enum PostgresError</code><a class="headerlink" href="#enum-postgreserror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PostgresError</span>
@@ -3038,6 +3043,8 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
 <li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
 <li><code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</li>
 <li><code>RawTransaction</code> - The raw SQL tool's own <code>BEGIN READ ONLY</code> or <code>ROLLBACK</code> did not run - sutura's own fixed text on the simple query protocol (<code>docs/adr/0013</code>), never the caller's.</li>
+<li><code>Transaction</code> - The certified path's own per-statement transaction (<code>docs/adr/0029</code>) did not open - sutura's own fixed literal text, never the caller's, the same as <code>Self::RawTransaction</code>.</li>
+<li><code>DeadlineSpent</code> - The deadline was already spent once <code>PostgresWarehouse::execution_lock</code> was acquired - refused locally, no round trip: that unbounded wait is outside <code>sutura_app</code>'s own pre-call check.</li>
 <li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
 <li><code>PresentedDisagreesWithPosture</code></li>
 <li><code>LegWithoutCombiner</code> - A leg without a combiner.</li>

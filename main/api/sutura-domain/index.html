@@ -10185,7 +10185,8 @@ One absolute deadline per answer: how long is left, read against an instant a ca
 shape applies here: <code>now</code> arrives as an argument to <code>Deadline::remaining_at</code> rather than being
 read, so the one comparison this module makes lives here and not at whichever call site happens
 to hold a clock. <code>docs/adr/0029</code> is the record; this module is its first slice, carried by the
-port and not yet enforced by any adapter this release links.</p>
+port and enforced by Postgres (<code>SET LOCAL statement_timeout</code>) - the engine and BigQuery still
+accept the parameter and ignore it.</p>
 <h4 id="struct-deadline"><code>struct Deadline</code><a class="headerlink" href="#struct-deadline" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-593-1"><a id="__codelineno-593-1" name="__codelineno-593-1" href="#__codelineno-593-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Deadline</span>
 </span></code></pre></div>

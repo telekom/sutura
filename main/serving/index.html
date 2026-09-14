@@ -3816,7 +3816,7 @@ depends on why:</p>
 <tr>
 <td><code>deadline_exceeded</code></td>
 <td><code>422</code></td>
-<td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - no adapter this release links stops mid-flight on it yet</td>
+<td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - the shipped default engine does not stop mid-flight on it yet; a deployment that enables the default-off Postgres source does, via <code>SET LOCAL statement_timeout</code></td>
 </tr>
 </tbody>
 </table>
