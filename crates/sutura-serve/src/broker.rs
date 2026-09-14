@@ -37,10 +37,21 @@ pub(crate) fn build_broker(
     // no port `Deadline` of its own to read, so this bound still opens fresh from `request_timeout`
     // directly rather than dividing it - `docs/adr/0029` retired the arithmetic that used to,
     // `within_request_timeout`, and nothing in this exchange yet carries the port's own instant).
+    //
+    // **`request_timeout.budget()` and NOT `.seconds()`.** The raw key would let this exchange's own
+    // socket window (`budget + CONNECT_MARGIN`, `crate::wire::bounds`) run a full `CONNECT_MARGIN`
+    // wider than the number the PORT's own `Deadline` derives from for the very same request - a
+    // widening a review measured (a thirty-second key giving a thirty-five-second socket, five
+    // seconds past the caller's own thirty-second wait). `.budget()` is the timeout minus the fixed
+    // one-second reply margin `sutura_config::RequestTimeout` already subtracts for the port, so this
+    // exchange's ceiling agrees with the port's own budget rather than exceeding it by that margin:
+    // a twenty-nine-second `QueryDeadline` here, a thirty-four-second socket window - still wider
+    // than the caller's own wait by `CONNECT_MARGIN`, which is `docs/adr/0029`'s own stated limit for
+    // every networked adapter's reply margin, not a new one this composition invents.
     // The ceiling is irrelevant to an STS metadata call - it is never sent to a billing endpoint - so
     // rather than invent one it is taken from the first declared `BigQuery` source, of which there is
     // always at least one here: `one_kind` has already refused a deployment with none.
-    let deadline = QueryDeadline::parse(request_timeout.seconds())
+    let deadline = QueryDeadline::parse(request_timeout.budget().seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no token-exchange deadline: {cause}"))?;
 
     let mut ceiling_source: Option<u64> = None;
