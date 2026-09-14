@@ -1143,10 +1143,9 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
 
 - **A job is bounded in TIME and in MONEY, and neither bound is a constant here.** `JobBounds`
   carries both, `WireAgent` carries the `JobBounds`, and `BigQueryWire` can only be built from
-  a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
-  is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
-  waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
-  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds it.
+  a `WireAgent`. `jobTimeoutMs` is what cancels a job (`timeoutMs` alone does NOT: it bounds the
+  client's own wait, and an expired one leaves the job running and billing); `maximumBytesBilled`
+  stops a question scanning a petabyte, which neither the row cap nor the one-page refusal does.
 - **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
   adapter, and this bullet exists because the earlier two shapes were each the second thing while
   claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
@@ -1166,7 +1165,8 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
   nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
   load or drop, the identity read) and opens a fresh window from this adapter's own configured
-  `JobBounds` instead, exactly as every call did before this record.
+  `JobBounds` instead, exactly as every call did before this record. Pinned at `call_body`;
+  that `submit` hands it the exchange's own `call` is READ, not measured (`HOST` is unreachable).
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
