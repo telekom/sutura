@@ -41,6 +41,15 @@
 //!   binary does. `crates/sutura-cli/src/sources.rs` holds such a call today - a unit test that
 //!   answers through a declared source to prove the witness the registry carries reaches the
 //!   adapter - and it is test vocabulary, like everything under `tests/`.
+//! * **A door is guarded at the crate root only; a door reachable through a `pub` module is
+//!   invisible, which is why `raw` is private.** [`names_the_door`] matches a door only immediately
+//!   after the crate root or inside a brace group - by design, so a call THROUGH the port
+//!   (`sutura_app::surface::Surface::run_sql`) is not flagged - and that design cannot tell
+//!   `sutura_app::raw::run_sql` (a second, ungated spelling, if `raw` were `pub`) from a call
+//!   through the port: both read as reaching something ELSE first, then `run_sql`. `#703`'s review
+//!   found this live - a bypass at that spelling compiled clean and the gate printed `ok` - which is
+//!   why [`RAW_MODULE`] is a third refusal rather than a documented limit: the module the door lives
+//!   in must never be `pub`, and this rule holds that rather than merely stating it.
 //! * **It reads a PATH rooted at `sutura_app`.** Three ways past that, and only one is still open.
 //!   Renaming the CRATE - `use sutura_app as app;` or `use sutura_app::{self as app};` - is
 //!   [refused](Reaches::TheRootRenamed) rather than chased, the way `boot_order` refuses a rename of
@@ -113,6 +122,21 @@ pub(super) fn raw_door() -> String {
     door_named(RUN_SQL)
 }
 
+/// The needle that would give `run_sql` a second, ungated spelling: the module it is defined in,
+/// declared `pub` at the crate root.
+///
+/// **This is `#703`'s review finding 1, as a mechanism rather than a limit.** `names_the_door`
+/// matches a door only immediately after the crate root or inside a brace group - by design, so
+/// `sutura_app::surface::Surface::run_sql` (a call THROUGH the port) is not flagged. That same
+/// design makes `sutura_app::raw::run_sql` invisible to it: `raw` completes as the root segment
+/// (`on_the_root` at depth 0), `run_sql` is then read as reaching THROUGH something, and
+/// `names_the_door` returns `false` for exactly the reason it returns `false` for
+/// `surface::Surface::answer`. A `pub mod raw` therefore hands every caller a second, ungated
+/// spelling of the same door - proven by `#703`'s G2 (a bypass at that spelling compiled clean
+/// and the gate printed `ok`). The fix this rule holds is not a smarter classifier: it is that a
+/// door is guarded at the crate root only, so a module it lives in may never be `pub`.
+pub(super) const RAW_MODULE: &str = "pub mod raw";
+
 /// What the check looked at, and what it found.
 pub(super) struct Report {
     /// The callers it read, so a rule that found none cannot report `ok`.
@@ -127,6 +151,12 @@ pub(super) struct Report {
     /// The line [`RAW_LIB`] defines [`RUN_SQL`]'s door on, and `None` if it no longer defines one.
     /// The same liveness half as [`Self::door`], for the second door.
     pub(super) raw_door: Option<usize>,
+    /// The line [`APPLICATION_LIB`] declares [`RAW_MODULE`] on, or `None` if it does not.
+    ///
+    /// **`Some` is the failure here, unlike [`Self::door`]/[`Self::raw_door`]** - this is not a
+    /// liveness check for a needle that must stay findable, it is a refusal for a needle that must
+    /// stay ABSENT: a `pub mod raw` is a second, ungated spelling of the door (`#703` finding 1).
+    pub(super) raw_module_pub: Option<usize>,
     /// Rust files examined.
     pub(super) files: usize,
     /// `sutura_app::…` paths read, test code included.
@@ -150,7 +180,9 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
             "`{APPLICATION_LIB}` could not be read, and that is where the door this rule guards is defined"
         ));
     };
-    let door = door_line(&crate::serde_parse::scan::code_lines(&defines).join("\n"), &door());
+    let application_blanked = crate::serde_parse::scan::code_lines(&defines).join("\n");
+    let door = door_line(&application_blanked, &door());
+    let raw_module_pub = raw_module_pub_line(&application_blanked);
     let Some(raw_defines) = read(RAW_LIB) else {
         return Err(format!(
             "`{RAW_LIB}` could not be read, and that is where `{RUN_SQL}`'s door is defined"
@@ -237,9 +269,26 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
         callers: callers.into_iter().map(|caller| caller.name).collect(),
         door,
         raw_door,
+        raw_module_pub,
         files: scanned,
         paths,
         problems,
+    })
+}
+
+/// Where [`APPLICATION_LIB`] declares [`RAW_MODULE`], or `None` if it does not.
+///
+/// Whole-token in both directions, the same discipline [`door_line`] uses: `pub(crate) mod raw`
+/// does not match (`(` follows `pub`, not whitespace before `mod`), and `pub mod raw_v2` does not
+/// either. `pub(crate) mod raw` is not a hole this needs to catch - visibility narrower than `pub`
+/// on a module already keeps every OTHER crate from spelling `sutura_app::raw::run_sql` at all.
+fn raw_module_pub_line(code: &str) -> Option<usize> {
+    code.match_indices(RAW_MODULE).find_map(|(at, _)| {
+        let rest = code.get(at.saturating_add(RAW_MODULE.len())..)?;
+        if rest.chars().next().is_some_and(is_ident) {
+            return None;
+        }
+        Some(code.get(..at)?.matches('\n').count().saturating_add(1))
     })
 }
 
@@ -483,7 +532,7 @@ pub(super) fn explain() {
 mod tests {
     use super::{
         APPLICATION_LIB, ApplicationPath, RAW_LIB, Reaches, application_paths, door, door_line, names_the_answer,
-        names_the_run_sql, raw_door, renames_the_root,
+        names_the_run_sql, raw_door, raw_module_pub_line, renames_the_root,
     };
     use crate::serde_parse::scan::code_lines;
 
@@ -679,18 +728,31 @@ mod tests {
         );
     }
 
-    /// Every way the door can move out from under the rule, and none of them reads as the door.
+    /// Every way the door can be renamed, narrowed or blanked out from under the rule, and none of
+    /// them reads as the door.
+    ///
+    /// **No case here is a MOVE**, and `#703`'s review is why that word is gone from this test's
+    /// name and every case comment: `door_line` is a text needle with no notion of nesting, so
+    /// wrapping a definition in a module changes nothing about whether the needle matches - only
+    /// RENAMING the identifier does, which is what every "moved" case below actually exercises (and
+    /// which the `pub mod raw` hole `#703` found proves the other way: nesting a door *without*
+    /// renaming it left the needle matching just fine).
     #[test]
-    fn a_door_that_moved_or_narrowed_is_not_found() {
+    fn a_door_that_is_renamed_narrowed_or_blanked_is_not_found() {
         for gone in [
             // Renamed.
             "pub fn ask<W, B>(\n",
-            // Moved under a module, so the crate-rooted path is one segment longer.
+            // Renamed AND nested under a module - nesting is incidental; the rename is what this
+            // case actually tests, same as the line above.
             "pub mod surface {\n    pub fn ask<W, B>(\n}\n",
             // Narrowed - which is the rule losing its reason rather than a bypass, and it is still red.
             "pub(crate) fn answer<W, B>(\n",
-            // A longer identifier is not the segment.
-            "pub(crate) fn answer_federated<W, B>(\n",
+            // A longer identifier, `pub` and un-narrowed - so this is the WHOLE-TOKEN check alone,
+            // not the narrowing above wearing a longer name. `#703` finding 2: the workspace's own
+            // `answer_federated` is `pub(crate)`, so a case spelled with it never reached this
+            // needle at all; this case is `pub fn`, and `door_line`'s trailing `is_ident` check is
+            // what refuses it.
+            "pub fn answer_federated<W, B>(\n",
             // And prose naming it is not a definition, which is what the blanking buys.
             "/// `pub fn answer` is the whole door.\n",
         ] {
@@ -699,13 +761,16 @@ mod tests {
         assert_eq!(door_line(&code_lines("pub fn answer<W, B>(\n").join("\n"), &door()), Some(1));
     }
 
-    /// [`RUN_SQL`]'s own twin of [`a_door_that_moved_or_narrowed_is_not_found`], over [`raw_door`].
+    /// [`RUN_SQL`]'s own twin of [`a_door_that_is_renamed_narrowed_or_blanked_is_not_found`], over
+    /// [`raw_door`] - see that test's own doc for why no case here is called a "move".
     #[test]
-    fn a_raw_door_that_moved_or_narrowed_is_not_found() {
+    fn a_raw_door_that_is_renamed_narrowed_or_blanked_is_not_found() {
         for gone in [
             "pub fn run_query<W>(\n",
             "pub mod raw {\n    pub fn run_query<W>(\n}\n",
             "pub(crate) fn run_sql<W>(\n",
+            // The whole-token check alone, `run_sql`'s own twin of `answer_federated` above.
+            "pub fn run_sql_unrecorded<W>(\n",
         ] {
             assert_eq!(door_line(&code_lines(gone).join("\n"), &raw_door()), None, "{gone}");
         }
@@ -713,5 +778,27 @@ mod tests {
             door_line(&code_lines("pub fn run_sql<W, B>(\n").join("\n"), &raw_door()),
             Some(1)
         );
+    }
+
+    /// The needle [`RAW_MODULE`] refuses: `pub mod raw` present in [`APPLICATION_LIB`] is `#703`'s
+    /// finding 1, held as a refusal rather than a documented limit - see [`super::raw_module_pub_line`].
+    #[test]
+    fn a_pub_raw_module_is_found_and_a_private_or_narrower_one_is_not() {
+        assert_eq!(raw_module_pub_line(&code_lines("pub mod raw;\n").join("\n")), Some(1));
+        assert_eq!(
+            raw_module_pub_line(&code_lines("// carved out\npub mod raw;\n").join("\n")),
+            Some(2)
+        );
+        for safe in [
+            "mod raw;\n",
+            "pub(crate) mod raw;\n",
+            "pub(super) mod raw;\n",
+            // Whole-token: a different module name is not this one.
+            "pub mod raw_v2;\n",
+            // Prose naming it is not a declaration, which is what the blanking buys.
+            "/// `pub mod raw` would be a second door.\n",
+        ] {
+            assert_eq!(raw_module_pub_line(&code_lines(safe).join("\n")), None, "{safe}");
+        }
     }
 }

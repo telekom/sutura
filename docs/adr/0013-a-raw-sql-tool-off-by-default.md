@@ -488,17 +488,29 @@ test already asserted did not exist, corrected rather than deleted.
 
 ## Built (2026-09-14): the demand-signal mechanism, and what stayed a limit
 
-Written by the planning lane for `#129` step 5, reading `main` at `86d699fe` (`#666` + `#686`
-merged). This section closes the ramp section's own status: **the "written, not stored" half is
-built, and it was built by `#666`, not by this step.** `CallRecord::of_raw`
-(`crates/sutura-domain/src/audit.rs`) and its two `RecordedOutcome::{RawAnswered,RawRefused}` arms
-already carry the statement (opaque, audit-only, the one accessor `CallRecord::statement()`), the
-row count, the outcome variant, the full principal chain, and the credential deadline - and
-`sutura_runtime::TracingAuditSink` already emits them as `raw_answered`/`raw_refused` log events,
-distinct from the certified `answered`/`refused` pair, with the statement text logged deliberately
-(its own doc: "this is a SINK, not a channel back to any caller"). `LocalService::run_sql`
+This section closes the ramp section's own status: **the "written" half is built, and it was built
+by `#666`, not by this step.** `CallRecord::of_raw` (`crates/sutura-domain/src/audit.rs`) and its
+two `RecordedOutcome::{RawAnswered,RawRefused}` arms already carry the statement (opaque,
+audit-only, the one accessor `CallRecord::statement()`), the row count, the outcome variant and the
+full principal chain - the credential deadline rides on `CallRecord` itself either way, but
+`TracingAuditSink`'s own rendering puts it on the log line only for `RawAnswered`, the same
+asymmetry the certified `answered`/`refused` pair already has (neither `Refused` nor `RawRefused`
+renders it) - and that sink already emits both raw arms as `raw_answered`/`raw_refused`
+log events, distinct from the certified `answered`/`refused` pair, with the statement text logged
+deliberately (its own doc: "this is a SINK, not a channel back to any caller"). `LocalService::run_sql`
 (`crates/sutura-app/src/surface.rs`) writes the record before returning, exercised through the real
 `Surface` rather than only the constructor.
+
+**"Not stored" is an absence held by review, not by a gate, and that is stated here rather than left
+implied.** No `absences` entry names it (`xtask/src/guidance/absences.rs`), because the sighting an
+entry would need - a second `impl AuditSink for` in `crates/*/src` - is written by this workspace's
+own tests today: every fixture sink in this tree (`crates/sutura-domain/src/audit.rs`'s `Recorded`,
+`crates/sutura-app/src/surface.rs`'s test sinks) is `impl AuditSink for` something, under
+`#[cfg(test)]`, in exactly the directories a naive sighting would scan - so the sighting would flag
+the tests that prove the mechanism works, and refute itself the day it is written. The honest
+statement is the limit itself: a deployment that links a second, RETAINING `AuditSink` in
+non-test `src/` is a change nothing here catches, and "sutura retains nothing" is true of the one
+implementor this workspace ships, not of every implementor a future PR could add.
 
 **No new field, port, sink or counter was needed, and none was added.** A source name was declined -
 `run_sql` "targets the sole registered data system" (`raw.rs`'s own doc), so a field naming it is a
@@ -513,17 +525,28 @@ record and names nothing that names a question, and the distinguishing signal is
 log pipeline's to read. The agent-authored-candidate-definition half of the ramp is unchanged from the
 base record and needs no further mechanism.
 
-**One gap was found and closed: `xtask check-boundaries`'s answer-path gate guarded only `answer`.**
-`sutura_app::run_sql` is a second door on the driving port, added by `#666` after the gate was written,
-and nothing mechanical stopped a caller from reaching `sutura_app::run_sql` directly - bypassing
-`LocalService::run_sql` and the audit write it makes - the same shape issue `#266`'s A1 named for
-`answer` itself. The gate (`xtask/src/boundaries/answer_path.rs`) now classifies and guards both
-doors: a second needle (`RUN_SQL`), a second liveness check against `run_sql`'s own defining file
-(`crates/sutura-app/src/raw.rs`, since `lib.rs` only re-exports it), and a new fixture cell,
-`a_direct_call_to_run_sql_is_found_with_its_line`, constructed the same way every other cell in this
-module is - directly against the classifier, not the real tree - and read against `main` before this
-change: the bypass it constructs classified as `Reaches::Elsewhere` there, and `check` reported no
-problem for it.
+**Two gaps were found in this record's own first pass, and both are closed now - `#703`'s review
+found the second one.** `xtask check-boundaries`'s answer-path gate guarded only `answer`.
+`sutura_app::run_sql` is a second door on the driving port, added by `#666` after the gate was
+written, and nothing mechanical stopped a caller from reaching `sutura_app::run_sql` directly -
+bypassing `LocalService::run_sql` and the audit write it makes - the same shape issue `#266`'s A1
+named for `answer` itself. The gate (`xtask/src/boundaries/answer_path.rs`) classifies and guards
+both doors: a needle per door (`ANSWER`, `RUN_SQL`), a liveness check against each door's own
+defining file (`crates/sutura-app/src/raw.rs` for `run_sql`, since `lib.rs` only re-exports it), and
+a fixture cell, `a_direct_call_to_run_sql_is_found_with_its_line`, constructed the same way every
+other cell in this module is - directly against the classifier, not the real tree.
+
+**That first pass still left `run_sql`'s module `pub` - `pub mod raw;` at `lib.rs` - which is a
+SECOND, ungated spelling of the same door** (`sutura_app::raw::run_sql`), invisible to the
+classifier by the same design that spares a call THROUGH the port
+(`sutura_app::surface::Surface::run_sql`): both read as reaching something else first, then
+`run_sql`. `#703`'s review proved it live - a bypass at that spelling in a caller crate compiled
+clean and the gate printed `ok` over it - exactly the A1 shape this whole gate exists to close, not
+among the limits the first pass stated. Closed by making the module private (`mod raw;`, keeping
+`pub use raw::{..., run_sql}` so no caller loses access) and by a THIRD refusal: `pub mod raw`
+present in `lib.rs` is now `Verdict::Fail` on its own, so the hole cannot be reopened silently. The
+header's own limits list is corrected to state the property this holds: a door is guarded at the
+crate root only, so the module it lives in may never be `pub`.
 
 **The two invariants rows PR1 (`#666`) deferred are landed** in
 `.agents/skills/sutura/invariants/SKILL.md`, citing the tests that already pass and have now had three
