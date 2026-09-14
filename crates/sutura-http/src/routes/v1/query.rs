@@ -187,7 +187,21 @@ const TAG: &str = "query";
                            carries the limit.",
             body = OutcomeBody
         ),
-        (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
+        (
+            status = 429,
+            description = "TWO THINGS, and `code` tells them apart - and they do not share a body \
+                           shape, so `body` below names only one of them. `rate_limited`: too many \
+                           requests from this address - that body carries no detail and is this \
+                           row's `ProblemBody`. `budget_exhausted` (`outcome: refusal`, the \
+                           `422` row's `OutcomeBody` shape instead): the asking subject has spent \
+                           this deployment's per-replica byte ceiling for the current window - \
+                           `Retry-After` names the seconds until it resets, and the SAME question \
+                           asked again after that is USUALLY answered rather than refused, unlike \
+                           every other refusal on this route - unless that question's own estimate \
+                           is itself over the ceiling, in which case it is refused every window and \
+                           narrowing it is the only remedy.",
+            body = crate::problem::ProblemBody
+        ),
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,

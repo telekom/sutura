@@ -521,6 +521,7 @@ mod tests {
                 &warehouse,
                 1 << 30,
                 deadline(),
+                &sutura_app::SpendLedger::no_budget(),
             );
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match answered.map(sutura_app::Answered::into_outcome) {

@@ -8081,6 +8081,7 @@ somebody else's input.
 - `SourceRefused` - The data system refused the executed statement because the identity it ran it as may not ask it.
 - `LegsDecideIdentityDifferently` - The legs of one answer would not all decide identity the same way.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
+- `BudgetExhausted` - The asking subject has spent more than this replica's configured byte ceiling inside the current window.
 
 #### Methods
 

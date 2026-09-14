@@ -89,6 +89,7 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
         },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+        RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
     ]
 }
 
@@ -139,7 +140,8 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
             | RefusalReason::LegsDecideIdentityDifferently { .. }
-            | RefusalReason::DeadlineExceeded { .. } => {}
+            | RefusalReason::DeadlineExceeded { .. }
+            | RefusalReason::BudgetExhausted { .. } => {}
         }
         assert_eq!(
             key,

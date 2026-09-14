@@ -23,6 +23,7 @@ use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 use crate::api::ApiSettings;
 use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
+use crate::governance::SpendBudget;
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
@@ -371,6 +372,7 @@ pub struct Settings {
     prompt: PromptSettings,
     tools: crate::tools::ToolsSettings,
     sources: SourceRegistry,
+    spend_budget: Option<SpendBudget>,
 }
 
 impl Settings {
@@ -422,6 +424,7 @@ impl Settings {
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
             tools: parse_tools(raw),
+            spend_budget: parse_spend_budget(raw)?,
             sources,
         })
     }
@@ -695,6 +698,16 @@ impl Settings {
         self.runtime
     }
 
+    /// The per-replica, in-process spend ceiling, if this deployment configured one.
+    ///
+    /// `None` is a real answer and not an unset field: `docs/adr/0030` decides that absence means
+    /// this replica counts nothing and refuses nothing on this account, which is the behaviour
+    /// every deployment had before this key existed.
+    #[inline]
+    pub const fn spend_budget(&self) -> Option<SpendBudget> {
+        self.spend_budget
+    }
+
     /// What goes into the agent-facing system prompt beyond the pinned bundle and the tool list.
     ///
     /// Read by the `prompt` command in `sutura-cli`, which renders what this deployment would hand
@@ -879,6 +892,18 @@ fn parse_runtime(raw: &RawSettings) -> Result<RuntimeSettings, SettingsError> {
         .map_err(|cause| SettingsError::Bound { cause })?;
     let grace = ShutdownGrace::parse(raw.runtime.shutdown_grace_seconds).map_err(|cause| SettingsError::Bound { cause })?;
     Ok(RuntimeSettings::new(concurrency, admission, workers, working_set, grace))
+}
+
+/// The per-replica spend ceiling, if this deployment declared one.
+///
+/// `None` when `governance.per_replica_spend_ceiling` is absent - `docs/adr/0030`'s decision that
+/// no key means no ceiling, which is every deployment's behaviour before this key existed.
+fn parse_spend_budget(raw: &RawSettings) -> Result<Option<SpendBudget>, SettingsError> {
+    raw.governance
+        .per_replica_spend_ceiling
+        .as_ref()
+        .map(|ceiling| SpendBudget::parse(ceiling.bytes, ceiling.window_seconds).map_err(|cause| SettingsError::Bound { cause }))
+        .transpose()
 }
 
 /// The two keys that shape the agent-facing prompt.

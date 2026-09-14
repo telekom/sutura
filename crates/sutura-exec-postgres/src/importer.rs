@@ -12,7 +12,16 @@ use sutura_domain::warehouse::csv::{self, FixtureType};
 enum PgType {
     Boolean,
     BigInt,
-    Numeric { scale: u8 },
+    #[cfg_attr(
+        not(feature = "fixtures"),
+        expect(
+            dead_code,
+            reason = "only `infer_fixture_schema`, behind the `fixtures` feature, constructs this"
+        )
+    )]
+    Numeric {
+        scale: u8,
+    },
     Double,
     Date,
     Text,

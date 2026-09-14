@@ -488,7 +488,7 @@ pub trait Warehouse {
     /// change behind `telekom/sutura#160`, and `docs/adr/0029`'s table says which mechanism per
     /// adapter. An adapter that ignores the deadline mid-call is not caught until its own `Result`
     /// comes back; what IS caught here, before this call is ever made, is a budget already spent -
-    /// `sutura_app::answer` and `sutura_app::federated::execute_leg` both ask before every call.
+    /// `sutura_app::answer` and `sutura_app::federated`'s leg functions both ask before every call.
     ///
     /// The call a caller who remembered `presented` but not `deadline` would actually write - the
     /// shape this parameter's own addition produced - does not compile either:

@@ -115,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -385,6 +385,24 @@ fails there first, on `declared_keys::hold`'s own refusal, rather than on this o
 separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
 or a declared key that was never touched.
 
+## `use SpendBudget`
+
+A byte ceiling and the window it resets on, already validated.
+
+A plain pair rather than a re-export of `sutura_config::SpendBudget`: this crate depends on
+nothing outside `sutura-domain`, `sutura-semantic` and `thiserror` - see this crate's own module
+documentation - and a composition root reads the validated ceiling and window out of its
+settings and hands the two primitives here, the same shape `working_set_bytes: u64` already
+uses for `RuntimeSettings::working_set`.
+
+## `use SpendLedger`
+
+The counter: one instance per process, consulted by every question this replica answers.
+
+**`&self`, not `&mut self`** - one ledger is shared by every request without a lock in this
+type's own signature, the same shape `sutura_domain::audit::AuditSink::record` uses for the same
+reason. The mutable state is inside a `Mutex` guarding the per-subject map.
+
 ## `type_alias Answering`
 
 What answering produced, or why it could not.
@@ -613,6 +631,12 @@ heterogeneous set is an architecture decision rather than a change here.
 answer mints once, for every source its plan reads, and `sutura_domain::warehouse::Warehouse`
 has no signature that runs without the result - so a service with no broker is not a service
 that answers as the process, it is a service that does not compile.
+**It also holds the spend ledger, unbounded unless a composition root opts in.** `Self::start`
+and `Self::start_composed` build one with `SpendLedger::no_budget` - today's behaviour, before
+this counter existed - and `Self::with_spend_ledger` is how a root that read a configured
+ceiling out of its settings replaces it. Not a constructor argument, unlike every other field
+here: those are what a service cannot exist without, and an unbounded ledger is a real, working
+default rather than an omission this type should refuse to start without.
 
 #### Methods
 
@@ -642,6 +666,18 @@ validates is the bundle this serves" true for N sources rather than for one.
 
 `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.
+
+```rust
+pub fn with_spend_ledger(self, spend_ledger: SpendLedger) -> Self
+```
+
+Replaces the spend ledger, for a composition root that read a configured per-replica
+ceiling out of its settings.
+
+A setter rather than a constructor argument, so every existing caller of `Self::start` and
+`Self::start_composed` - most of which configure no ceiling at all - keeps its original
+argument list. `docs/adr/0030` is the record; `governance.per_replica_spend_ceiling` absent
+is the state every one of those callers is already in.
 
 #### Implements
 
@@ -1839,6 +1875,90 @@ A named alias because `clippy::type_complexity` refuses the bare `Result` at thi
 name is the better half of that trade rather than a suppression: the split IS the decision, so a
 signature that says *boot policy* reads as the thing being returned and not as two halves a
 caller has to recombine. It stays a `Result` so `?` in a composition root keeps working.
+
+## Module `spend`
+
+The per-replica spend counter: in-process, windowed, keyed by the asking subject.
+
+`docs/adr/0030-where-a-budget-lives.md` decides every shape here; this module is the mechanism.
+Three decisions worth restating because a reader of the code alone could miss them:
+
+**Fixed windows, not sliding ones.** A subject's spend resets to zero the first time this
+ledger is consulted after the window has elapsed, rather than decaying continuously. Simpler to
+reason about - "how much has this subject spent since their window started" needs one `Instant`
+and one running total, not a queue of timestamped charges to prune - and the cost a sliding
+window would avoid (a subject who spends right at a boundary can spend up to twice the ceiling
+across the seam) is not a cost `docs/adr/0030` asked this record to close: the record's own
+scope is a per-replica counter that resets on restart in addition to its own window, so a seam
+effect inside one window is not the precision this shape is buying.
+
+**Keyed on `Subject`, never the whole `PrincipalChain`.**
+An agent acting for a subject spends that subject's own budget - see the ADR for the argument and
+its cost.
+
+**`None` configured is unlimited, not zero.** `SpendLedger::no_budget` is what every deployment
+ran before this existed, and it is a real state a caller may still choose rather than a value
+nothing constructs.
+
+### `struct SpendBudget`
+
+```rust
+pub struct SpendBudget
+```
+
+A byte ceiling and the window it resets on, already validated.
+
+A plain pair rather than a re-export of `sutura_config::SpendBudget`: this crate depends on
+nothing outside `sutura-domain`, `sutura-semantic` and `thiserror` - see this crate's own module
+documentation - and a composition root reads the validated ceiling and window out of its
+settings and hands the two primitives here, the same shape `working_set_bytes: u64` already
+uses for `RuntimeSettings::working_set`.
+
+#### Methods
+
+```rust
+pub const fn new(ceiling_bytes: u64, window: Duration) -> Self
+```
+
+**A raw constructor, not a parse - the zero fence lives one crate over.** This type takes
+whatever `ceiling_bytes` and `window` it is given, `Duration::ZERO` included: under a zero
+window every charge resets immediately, and a priced question over the ceiling mints
+`reset_after == Duration::ZERO` again. The only production caller is
+`sutura_config::SpendBudget::parse` (`crates/sutura-config/src/governance.rs`), which
+refuses a zero window (and a zero ceiling) before this constructor ever sees one - this
+type's own doc comment above states why this crate cannot depend on that one, so the fence
+sits there rather than here.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct SpendLedger`
+
+```rust
+pub struct SpendLedger
+```
+
+The counter: one instance per process, consulted by every question this replica answers.
+
+**`&self`, not `&mut self`** - one ledger is shared by every request without a lock in this
+type's own signature, the same shape `sutura_domain::audit::AuditSink::record` uses for the same
+reason. The mutable state is inside a `Mutex` guarding the per-subject map.
+
+#### Methods
+
+```rust
+pub fn new(budget: Option<SpendBudget>) -> Self
+```
+
+A ledger bounded by `budget`, or unbounded if `None`.
+
+```rust
+pub fn no_budget() -> Self
+```
+
+No ceiling configured. Every question is admitted and nothing is counted - `docs/adr/0030`'s
+"absent means no budget, which is today's behaviour" read back as a constructor.
 
 ## Module `raw`
 
