@@ -1415,11 +1415,16 @@ every other variant and `clippy::result_large_err` is on.
   fallback because the alternative is presenting a token whose deadline nothing compared.
 - `DeadlineSpent` - This call's budget was gone before the job could be submitted.
 
-  **Refused rather than sent with whatever budget was left, because there was none.** One call
-  does a token exchange and then a job against one absolute deadline - see `CallDeadline` - so an
-  exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
-  anyway would either mean an unbounded wait or a job the service keeps running after the client
-  has stopped waiting, which is the pair of failures this whole shape exists to rule out.
+  **Refused rather than sent with whatever budget was left, because there was none. Reachable
+  two ways, and the first is new with `docs/adr/0029`:** the port's own `Deadline` was already
+  spent when `submit` was asked to do anything at all - the exchange included, so a
+  caller that ran out of time before this adapter was even reached does not spend it on an
+  exchange nobody is still waiting for - and the older way, a token exchange slow enough to spend
+  what was left of it before the job could be built. Submitting anyway would either mean an
+  unbounded wait or a job the service keeps running after the client has stopped waiting, which
+  is the pair of failures this whole shape exists to rule out. `budget_seconds` is the port's own
+  configured budget where a request carried a `Deadline`, and this adapter's own configured
+  `JobBounds` at the boot path, where there is no caller's budget to name.
 - `RequestNotSerializable` - The request could not be serialized.
 
   **A defect-only path, and it is named rather than unwrapped.** Everything in the body is a
@@ -1459,6 +1464,23 @@ every other variant and `clippy::result_large_err` is on.
   instant the client stops waiting for it, so an incomplete answer is no longer a live job this
   adapter walked away from. `named` carries the endpoint's reason as a closed `ReasonCode`,
   which for a cancelled job is the useful half.
+
+  **This is the DOCUMENTED shape `crate::transport::JobTransport::deadline_exceeded` answers
+  `true` for, and it is stated as documented rather than measured because that is exactly what
+  it is.** `timeoutMs` and `jobTimeoutMs` travel as the same number by construction - see
+  `crate::wire::document::body` - so a synchronous `jobs.query` reply cannot say *the wait
+  expired* without also saying *the service was asked to cancel at the same instant*: the
+  endpoint's own documentation of `timeoutMs` is that an expired one answers `jobComplete:
+  false`, which is this variant.
+
+  **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
+  acceptance cell that raced a statement against a real deadline to reach exactly this reply was
+  tried and reverted - the corpus fixture is a handful of rows, so the round trip reliably
+  finishes before any budget short enough to matter, and a budget picked to "usually" lose that
+  race flakes against a project that bills for it. `tests/tests/deadline.rs`'s cell proves the
+  narrower claim instead - a spent port deadline refuses through the REAL wire and credential
+  before a request is sent - and leaves this variant's own shape open, closed only by a
+  statement that reliably outruns a real budget without depending on fixture size or jitter.
 - `MoreThanOnePage` - The answer is one page of more than one.
 - `NoTotal` - A complete job that stated no total.
 
@@ -1738,10 +1760,6 @@ Why a bound this adapter was handed is not usable.
 
 - `Zero` - Zero, which would refuse every question rather than bounding one.
 - `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
-
-  See `QueryDeadline::within_request_timeout`: one answer spends the budget
-  `QueryDeadline::CALLS_PER_ANSWER` times and each spend costs connection setup on top, so a
-  request timeout below that leaves nothing to bound.
 
 ##### Implements
 
