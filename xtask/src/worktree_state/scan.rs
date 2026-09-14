@@ -206,18 +206,27 @@ fn rust_root() -> String {
 /// as `/tmp` with a prefix.
 const SHARED_ROOTS: &[&str] = &["/private/tmp", "/var/tmp", "/tmp"];
 
-/// The shell spellings of the same root, plus the user's home - which two worktrees also share.
+/// The shell spellings of the same root, plus the user's home and XDG base-directory family -
+/// which two worktrees also share.
 ///
 /// `$HOME` is per USER rather than per machine, and that distinction buys nothing here: two
 /// checkouts by one person reach one `~/.cache`, which is the whole subject. Review measured it
 /// uncounted, so it is counted now; it fires on nothing this repository writes, which is what a
 /// refusal over a shape nobody writes should do.
+///
+/// `$XDG_*` is the same argument again, and it is the same distinction: `XDG_CACHE_HOME`,
+/// `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_RUNTIME_DIR` are all per USER, not
+/// per machine, so a path spelled from one is exactly as shared as `~/.cache` itself. `git grep -c
+/// XDG_ -- xtask/ dev/ nix/` returned zero hits, so the whole family was uncounted rather than
+/// absent by construction - one prefix needle covers all five without naming any of them.
 fn shell_roots() -> Vec<String> {
     let mut roots = vec![
         String::from("$TMPDIR"),
         String::from("${TMPDIR"),
         String::from("$HOME"),
         String::from("${HOME"),
+        String::from("$XDG_"),
+        String::from("${XDG_"),
     ];
     roots.extend(SHARED_ROOTS.iter().map(|root| (*root).to_owned()));
     roots
@@ -355,11 +364,18 @@ pub(super) fn covered(language: Language, text: &str) -> (usize, usize) {
 /// The root spellings a language can take.
 fn roots_of(language: Language) -> Vec<String> {
     match language {
-        // Three ways to acquire a shared root from Rust, not one. The environment reads were
+        // Four ways to acquire a shared root from Rust, not one. The environment reads were
         // measured UNCOUNTED in review: `std::env::var("TMPDIR")` reached a written shared path at
-        // exit 0, and neither is narrowed by a `join` in the same statement, so both read as
-        // unkeyed - the safe direction, and neither is written anywhere in this tree today.
-        Language::Rust => vec![rust_root(), String::from("var(\"TMPDIR\")"), String::from("var(\"HOME\")")],
+        // exit 0, and none is narrowed by a `join` in the same statement, so all three read as
+        // unkeyed - the safe direction, and none is written anywhere in this tree today. `XDG_` is
+        // a prefix rather than one of the five full names for the same reason `shell_roots` takes
+        // it as a prefix: one needle for the family.
+        Language::Rust => vec![
+            rust_root(),
+            String::from("var(\"TMPDIR\")"),
+            String::from("var(\"HOME\")"),
+            String::from("var(\"XDG_"),
+        ],
         Language::Shell => shell_roots(),
     }
 }
@@ -853,6 +869,25 @@ pg="${TMPDIR:-/tmp}/sutura-$key-pg"
 scratch="$TMPDIR/sutura-$$"
 "#;
         assert_eq!(only(Language::Shell, by_process), Keyed::Process);
+    }
+
+    #[test]
+    fn an_xdg_cache_path_with_no_key_is_shared_and_one_derived_from_the_worktree_is_not() {
+        // `telekom/sutura#405` item 7(a): the `$XDG_*` family was measured uncounted, the same
+        // shape as `$HOME` above and for the same reason - both are per USER, not per worktree.
+        let shared = r#"
+#!/usr/bin/env bash
+out="$XDG_CACHE_HOME/sutura-conformance/x.csv"
+echo hi >"$out"
+"#;
+        assert_eq!(only(Language::Shell, shared), Keyed::Shared);
+
+        let keyed = r#"
+root="$(pwd -P)"
+key="$(printf '%s' "$root" | sha256sum | cut -c1-8)"
+cache="$XDG_CACHE_HOME/sutura-$key"
+"#;
+        assert_eq!(only(Language::Shell, keyed), Keyed::Worktree);
     }
 
     #[test]
