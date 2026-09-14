@@ -401,6 +401,34 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
 }
 
 #[test]
+fn prices_dry_run_is_checked_against_this_adapters_own_dry_run_path() {
+    // BigQuery has no `execute_packs!` binding (`telekom/sutura#710`), so
+    // `sutura_conformance::execute::a_preflight_that_accepts_is_followed_by_an_answer`'s own
+    // `estimated_bytes.is_some() != W::PRICES_DRY_RUN` comparison - the one thing that reads this
+    // declaration - never runs against this adapter, only against the three the binding covers,
+    // all of which declare `false`. This is that same comparison, against the fake standing in
+    // for an endpoint that priced the dry run, so `BigQueryWarehouse`'s own `true` is not the one
+    // declaration nothing checks.
+    //
+    // **What this does NOT cover**: whether the REAL endpoint always prices one. The fake is told
+    // to here; a live endpoint that silently stopped would still agree with this cell, which is
+    // the same limit `telekom/sutura#710`'s option 1 (a credentialled venue) would close and this
+    // one does not.
+    let warehouse = open(Recording::empty().estimating(2048), shared_posture());
+    let answered = warehouse
+        .dry_run(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
+        .expect("the fake validates");
+    let PreFlight::Accepted { estimated_bytes } = answered else {
+        panic!("a fake told to price a dry run answers Accepted, got {answered:?}");
+    };
+    assert_eq!(
+        estimated_bytes.is_some(),
+        <BigQueryWarehouse<Recording> as Warehouse>::PRICES_DRY_RUN,
+        "PRICES_DRY_RUN declares true; a priced dry run must carry an estimate to agree with it"
+    );
+}
+
+#[test]
 fn a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted() {
     // The other half, so the assertion above is not passing on a transport that cannot say no.
     let warehouse = open(Broken, shared_posture());
