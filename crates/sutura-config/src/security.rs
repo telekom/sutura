@@ -348,8 +348,8 @@ impl core::fmt::Display for TlsTermination {
 /// caller as one identity. The mode is an input to the whole check rather than to an incremental view
 /// of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
 ///
-mod deployment;
-mod outbound;
+pub mod deployment;
+pub mod outbound;
 
 pub use crate::security::deployment::{DeploymentIdentity, InvalidDeploymentIdentity, UnknownDeploymentIdentity};
 pub(crate) use crate::security::outbound::parse_outbound;

@@ -953,6 +953,7 @@ mod deadline;
 // server, because `HOST` is a compile-time constant this crate's own tests cannot redirect - see
 // this file's own module header. Split out for the same reason `deadline` is: this file is close to
 // the 1000-line ceiling `cargo xtask max-lines` holds.
+#[cfg(test)]
 mod tls;
 
 #[test]
