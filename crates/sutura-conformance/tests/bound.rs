@@ -82,8 +82,11 @@ enum FakeFailure {
 ///
 /// `LEGS` is a const parameter rather than two types, because `EXECUTES_LEGS` is an associated
 /// constant and one distortion axis should not be written twice to vary it. `Fake<true>` and
-/// `Fake<false>` are what the two bindings below are instantiated at.
-struct Fake<const LEGS: bool> {
+/// `Fake<false>` are what the two bindings below are instantiated at. `PRICES` is the same move
+/// for `PRICES_DRY_RUN`, defaulted `false` so every existing `Fake<LEGS>` use site keeps compiling
+/// unchanged - only `a_missing_estimate_from_an_adapter_that_declares_it_prices_is_a_fault` below
+/// names the other value.
+struct Fake<const LEGS: bool, const PRICES: bool = false> {
     source: SourceName,
     posture: SourcePosture,
     distortion: Distortion,
@@ -93,7 +96,7 @@ struct Fake<const LEGS: bool> {
     answers_a_leg_anyway: bool,
 }
 
-impl<const LEGS: bool> Fake<LEGS> {
+impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
     /// A fake that answers the corpus faithfully, checks nothing, and honours its declaration.
     fn faithful() -> Self {
         Self {
@@ -158,11 +161,12 @@ impl<const LEGS: bool> Fake<LEGS> {
     }
 }
 
-impl<const LEGS: bool> Warehouse for Fake<LEGS> {
+impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
     type Error = FakeFailure;
 
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
     const EXECUTES_LEGS: bool = LEGS;
+    const PRICES_DRY_RUN: bool = PRICES;
 
     fn source(&self) -> &SourceName {
         &self.source
@@ -390,6 +394,21 @@ mod faults {
         let fake = Fake::<false>::checking(Check::AcceptedWithAnEstimate);
         let fault = execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake)
             .expect_err("PRICES_DRY_RUN is false and the estimate is Some");
+        assert!(matches!(fault, Fault::EstimateDisagreesWithCapability { .. }), "{fault:?}");
+    }
+
+    /// The other direction of the same contract: an adapter that declares `PRICES_DRY_RUN = true`
+    /// and answers `None` anyway is a fault too - it claimed it could price and then did not.
+    ///
+    /// Without this cell, `execute.rs:176`'s comparison against `W::PRICES_DRY_RUN` is reached only
+    /// through the `false`/`Some(_)` direction above: every adapter `execute_packs!` binds declares
+    /// `false`, so nothing here provoked the `true`/`None` half before now, and the capability side
+    /// of the comparison could be deleted with the suite still green.
+    #[test]
+    fn a_missing_estimate_from_an_adapter_that_declares_it_prices_is_a_fault() {
+        let fake = Fake::<false, true>::checking(Check::Accepted);
+        let fault = execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake)
+            .expect_err("PRICES_DRY_RUN is true and the estimate is None");
         assert!(matches!(fault, Fault::EstimateDisagreesWithCapability { .. }), "{fault:?}");
     }
 
