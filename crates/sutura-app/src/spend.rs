@@ -39,6 +39,14 @@ pub struct SpendBudget {
 }
 
 impl SpendBudget {
+    /// **A raw constructor, not a parse - the zero fence lives one crate over.** This type takes
+    /// whatever `ceiling_bytes` and `window` it is given, `Duration::ZERO` included: under a zero
+    /// window every charge resets immediately, and a priced question over the ceiling mints
+    /// `reset_after == Duration::ZERO` again. The only production caller is
+    /// `sutura_config::SpendBudget::parse` (`crates/sutura-config/src/governance.rs`), which
+    /// refuses a zero window (and a zero ceiling) before this constructor ever sees one - this
+    /// type's own doc comment above states why this crate cannot depend on that one, so the fence
+    /// sits there rather than here.
     #[must_use]
     #[inline]
     pub const fn new(ceiling_bytes: u64, window: Duration) -> Self {
@@ -54,9 +62,10 @@ struct Window {
 
 /// What one charge against the ledger decided.
 ///
-/// `pub(crate)`, not `pub`: nothing outside this crate calls [`SpendLedger::charge`] (only
-/// `crate::charge_subject` and `crate::federated::answer_federated`'s own sum do), so exporting
-/// this widened `docs/api/sutura-app.md` for nobody.
+/// `pub(crate)`, not `pub`: nothing outside this crate calls [`SpendLedger::charge`] - only
+/// `crate::charge_subject` does, which is also the one place `federated::answer_federated`'s
+/// summed charge reaches the ledger through - so exporting this widened `docs/api/sutura-app.md`
+/// for nobody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Charge {
     /// Under the ceiling, or no ceiling is configured at all.
