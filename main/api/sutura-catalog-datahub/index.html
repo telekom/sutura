@@ -2676,15 +2676,30 @@ reader back to all of them.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Read</code> - The source did not produce a snapshot.</li>
-<li><code>UnknownPlatform</code> - A model named a platform this deployment declared no <code>sources.&lt;alias&gt;</code> for.</li>
-<li><code>CardinalityUnrepresentable</code> - A relationship carries no cardinality, or one this adapter cannot represent.</li>
-<li><code>Identifier</code> - A name on a snapshot did not parse as the identifier kind it claims to be.</li>
-<li><code>Sutura</code> - The <code>sutura</code> structured property's scalar value is not the metric content it claims to be.</li>
-<li><code>Description</code> - Prose on a snapshot is not a usable description.</li>
-<li><code>Inconsistent</code> - The models, relationships and columns did not hold together.</li>
-<li><code>Knowledge</code> - The bundle's knowledge does not hold together.</li>
-<li><code>Digest</code></li>
 </ul>
+<p>An owned boxed cause, the <code>ErasedCause</code> shape this repository's boundary errors use: the
+  concrete failure belongs to whichever reader is installed, and the chain still walks.
+- <code>UnknownPlatform</code> - A model named a platform this deployment declared no <code>sources.&lt;alias&gt;</code> for.</p>
+<p>A <code>sources.&lt;alias&gt;</code> entry per platform is what lets a model's data system be opened at all -
+  <code>docs/adr/0016</code> decision 7 - and the mapping is the deployment's, not this adapter's. A model
+  on an unmapped platform is refused rather than guessed.
+- <code>CardinalityUnrepresentable</code> - A relationship carries no cardinality, or one this adapter cannot represent.</p>
+<p><code>docs/adr/0016</code> decision 5: a relationship reaches a dimension only where cardinality is
+  declared and representable, and absent or many-to-many is refused naming the relationship
+  rather than defaulted in either direction - <code>ManyToOne</code> as a default assumes the fan-out away,
+  and <code>OneToMany</code> refuses every dimension.
+- <code>Identifier</code> - A name on a snapshot did not parse as the identifier kind it claims to be.
+- <code>Sutura</code> - The <code>sutura</code> structured property's scalar value is not the metric content it claims to be.
+- <code>Description</code> - Prose on a snapshot is not a usable description.
+- <code>Inconsistent</code> - The models, relationships and columns did not hold together.
+- <code>Knowledge</code> - The bundle's knowledge does not hold together.</p>
+<p>This adapter declares no knowledge capability, so any knowledge content it were handed would
+  be refused here (the <code>UndeclaredContent</code> guard) rather than dropped or forwarded. Today no
+  snapshot produces knowledge - a <code>Snapshot</code> has no knowledge aspect to read at all - so
+  this stays the wiring for content that cannot occur in the standalone deployment. Since
+  issue #202 the reason is no longer that no metric exists for a <code>Referent</code> to name: a
+  standalone bundle carries a certified metric.
+- <code>Digest</code></p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-datahubcatalog"><code>struct DataHubCatalog</code><a class="headerlink" href="#struct-datahubcatalog" title="Permanent link">&para;</a></h2>

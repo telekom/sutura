@@ -2675,19 +2675,64 @@ an owned <code>#[source]</code>.</p>
 <li><code>Endpoint</code> - The endpoint did not answer.</li>
 <li><code>Render</code> - The plan would not render.</li>
 <li><code>LegWithoutCombiner</code> - A federated leg arrived, and there is nothing above it to combine legs.</li>
-<li><code>NoPrincipalSwitch</code> - The leg presents a principal for the data system to switch to, and there is no such mechanism here.</li>
-<li><code>PresentedDisagreesWithPosture</code> - The leg's credential and this source's declared posture do not agree.</li>
-<li><code>UnmappedType</code> - A column came back as a type this adapter does not map.</li>
-<li><code>NotAnInteger</code> - A cell declared <code>INT64</code> did not parse as one.</li>
-<li><code>NotADouble</code> - A cell declared <code>FLOAT64</code> did not parse as one.</li>
-<li><code>NotABool</code> - A cell declared <code>BOOL</code> was neither <code>true</code> nor <code>false</code>.</li>
-<li><code>NotFinite</code> - A double came back non-finite.</li>
-<li><code>NotADate</code> - A cell declared as a date did not parse as one.</li>
-<li><code>RowWidth</code> - A row had more or fewer cells than the schema had columns.</li>
-<li><code>Incomplete</code> - The endpoint delivered a page whose row count is not what it reported as total.</li>
-<li><code>NoIdentityInTheAnswer</code> - The identity read came back as something other than one row of one text cell.</li>
-<li><code>Shape</code> - The result set could not be built.</li>
 </ul>
+<p><strong>A refusal to execute rather than an execution</strong>, worded as <code>sutura-exec-duckdb</code> words it: a
+  leg run with nothing above it returns rows at a finer grouping than the question asked for,
+  which is a wrong number under a certified name.
+- <code>NoPrincipalSwitch</code> - The leg presents a principal for the data system to switch to, and there is no such mechanism here.</p>
+<p><strong>The narrow half of a refusal that used to be wholesale, and it has to stay refused.</strong> This
+  adapter declares <code>PerSubjectCredential</code> and delivers exactly one of the two subject shapes: a
+  <code>SubjectToken</code> rides as this job's bearer, so the
+  dataset evaluates the statement under whoever the token is. <code>BigQuery</code> has no proxy-user or
+  <code>SET ROLE</code> equivalent for a <code>SubjectPrincipal</code>,
+  so a leg carrying one has no material to send - and
+  <code>agrees_with</code> passes it, because the two shapes are
+  the same POSTURE. Accepting
+  it would submit the job under the credential the transport already holds while provenance,
+  read off this source's posture, reported the answer as impersonated: every row as the
+  process, recorded as the asker.
+- <code>PresentedDisagreesWithPosture</code> - The leg's credential and this source's declared posture do not agree.
+- <code>UnmappedType</code> - A column came back as a type this adapter does not map.</p>
+<p>It NAMES the type rather than answering null, which is the whole reason
+  <code>FieldType::Unmapped</code> carries the endpoint's own
+  spelling.
+- <code>NotAnInteger</code> - A cell declared <code>INT64</code> did not parse as one.</p>
+<p><strong>Two variants rather than one carrying a <code>&amp;'static str</code>, because the CAUSE differs.</strong> The
+  endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
+  two facts, and the standard-library error that says why is worth keeping on the chain.
+- <code>NotADouble</code> - A cell declared <code>FLOAT64</code> did not parse as one.
+- <code>NotABool</code> - A cell declared <code>BOOL</code> was neither <code>true</code> nor <code>false</code>.</p>
+<p>No <code>#[source]</code>: there is no parse behind it, because the check is a comparison against the two
+  spellings the endpoint documents. A variant with an invented cause would be worse than none.
+- <code>NotFinite</code> - A double came back non-finite.</p>
+<p><strong>What this arm actually guards, on THIS target, is narrower than the two SQL adapters
+  agreeing.</strong> In <code>GoogleSQL</code> the <code>/</code> operator raises on a zero divisor for every numeric type -
+  only <code>IEEE_DIVIDE</code> answers <code>inf</code>/<code>NaN</code> - so an unguarded zero-division ratio fails at the
+  service first, as <code>Self::Endpoint</code> with the same <code>503</code> as a dead data system. What reaches
+  this arm is a non-finite value STORED in a <code>FLOAT64</code> column, and the check keeps that stored
+  <code>Infinity</code> from answering a real under a certified metric name. It is <code>sutura-exec-duckdb</code>'s
+  same arm that gives <code>zero_denominator: fails</code> its meaning, because there the unguarded <code>/</code>
+  does answer <code>inf</code>; the sentence that credits this arm with the ratio case belongs to <code>DuckDB</code>.
+- <code>NotADate</code> - A cell declared as a date did not parse as one.
+- <code>RowWidth</code> - A row had more or fewer cells than the schema had columns.</p>
+<p>Distinct from <code>Self::Shape</code>: this one is the ENDPOINT disagreeing with itself, caught before
+  a row is built, so the position of the offending row is reportable.
+- <code>Incomplete</code> - The endpoint delivered a page whose row count is not what it reported as total.</p>
+<p><code>jobs.query</code> answers one page at a time, and completeness is stated as <code>totalRows</code> beside the
+  rows - never by the rows alone. A first page, or an incomplete job's empty <code>rows</code>, would read
+  to <code>answer()</code> as <em>under the cap, not truncated</em>: a wrong number under a certified name, through
+  the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
+  reported total is refused here, at the seam, rather than certified.
+- <code>NoIdentityInTheAnswer</code> - The identity read came back as something other than one row of one text cell.</p>
+<p>Its own variant rather than <code>Self::RowWidth</code> or <code>Self::Shape</code>, because what a caller does
+  about it is different: those two are a result set this adapter could not map, and this is
+  <em>the endpoint did not tell us who ran the job</em> - which for the one caller that asks
+  (<code>BigQueryWarehouse::session_user</code>) is the whole
+  answer rather than a cell of it.</p>
+<p><strong>It carries the SHAPE and never the value</strong>, deliberately. The one thing this answer can
+  contain is an account identifier, and the venue that reads it writes to a public log - so a
+  refusal that quoted what came back would be the disclosure the read exists to check for.
+- <code>Shape</code> - The result set could not be built.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-bigquerywarehouse"><code>struct BigQueryWarehouse</code><a class="headerlink" href="#struct-bigquerywarehouse" title="Permanent link">&para;</a></h2>
@@ -3047,10 +3092,39 @@ preflight decides whether it leaves a requested table unaccounted for and refuse
 <h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Unreported</code> - The document carried no total at all, so an empty listing and an empty dataset are one value.</li>
-<li><code>Unreadable</code> - It carried a total this crate could not read as a count.</li>
-<li><code>Accounted</code> - It reported a total, and carried a readable table id for every table the total claims.</li>
-<li><code>Short</code> - It reported MORE tables than the same document carried readable table ids for.</li>
 </ul>
+<p><strong>Where every boot stood before the field was decoded</strong>, and where one stands again the day
+  the service stops sending it - which is why this is a variant rather than a zero.
+- <code>Unreadable</code> - It carried a total this crate could not read as a count.</p>
+<p>Distinct from <code>Self::Unreported</code> on purpose: <em>the service said nothing</em> and <em>the service
+  said something this crate did not understand</em> are different findings, and the second is
+  itself a shape change worth being able to see. Nothing of the value is kept - a foreign
+  scalar is not something this crate carries around to print.</p>
+<p>Beside zero readable IDs, preflight returns a count-free unreadable-inventory refusal.
+  A readable ID rejected by <code>usable_table_id</code> still counts, so a legitimately dropped name
+  cannot be mistaken for an inventory from which no ID was readable.
+- <code>Accounted</code> - It reported a total, and carried a readable table id for every table the total claims.</p>
+<p><em>At least</em> every one: <code>reported</code> may be below the number of ids the document carried without
+  anything being wrong, because a total read off a dataset being written to is a moving number.
+- <code>Short</code> - It reported MORE tables than the same document carried readable table ids for.</p>
+<p><strong>On a document that carried no readable id at all this is the shape change</strong> - a dataset
+  that answered with tables the listing did not name, or with entries this crate could read no
+  id out of - which is exactly what an empty <code>tables</code> array cannot be told from an empty
+  dataset without. Where <code>Shortfall::identified</code> is non-zero it is weaker: a table created
+  between the total and the array, or a page contract this transport read differently than the
+  service meant it.</p>
+<p><strong>What it does not separate, so a decision does not read it as more:</strong> an identified count
+  of zero merges <em>the array was empty</em> with <em>no entry carried a readable id</em>, because the raw
+  entry count is not kept. Both are the same finding for the caller that has one - no ids
+  beside a non-zero total - so nothing needs the third number today, and a decision that wants
+  to tell those two apart has to add it rather than read this one harder.</p>
+<p>What a pre-flight produces from this reading is
+  <code>TablesPresent::Unaccounted</code> rather than an absence: a table the bundle names that this
+  listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
+  is wrong. A VALUE and not an <code>Err</code>, because <code>preflight_was_refused</code> puts everything that is
+  not a <code>401</code>/<code>403</code> in the warning half. <code>docs/adr/0018</code> carries the argument and
+  <code>telekom/sutura#275</code> is where it was taken. <code>Self::Unreadable</code> can also refuse, but has no
+  shortfall and does so only beside zero readable IDs. The other readings retain ordinary absence.</p>
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-shortfall"><code>struct Shortfall</code><a class="headerlink" href="#struct-shortfall" title="Permanent link">&para;</a></h3>
@@ -3123,6 +3197,8 @@ wording lives, so <code>UnusableResourceName</code>'s sentences read exactly as 
 <li><code>Empty</code> - Nothing was written, or only whitespace was.</li>
 <li><code>Character</code> - A character that could leave the part of a request this value is written into.</li>
 </ul>
+<p><strong>The position is carried and the value is not.</strong> A project id is one of the things this
+  repository does not print, so a refusal says where the problem is rather than quoting it.</p>
 <h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="enum-fieldtype"><code>enum FieldType</code><a class="headerlink" href="#enum-fieldtype" title="Permanent link">&para;</a></h3>
@@ -3471,24 +3547,76 @@ every other variant and <code>clippy::result_large_err</code> is on.</p>
 <ul>
 <li><code>Credential</code> - No token could be produced, so nothing was sent.</li>
 <li><code>Expired</code> - A token was produced and its deadline had already passed.</li>
-<li><code>NoClock</code> - This process could not read a wall clock.</li>
-<li><code>DeadlineSpent</code> - This call's budget was gone before the job could be submitted.</li>
-<li><code>RequestNotSerializable</code> - The request could not be serialized.</li>
-<li><code>Unreachable</code> - The endpoint was not reached.</li>
-<li><code>Unreadable</code> - The endpoint answered and the answer could not be read.</li>
-<li><code>Refused</code> - The endpoint refused.</li>
-<li><code>NotADocument</code> - The answer was not the document a query response is.</li>
-<li><code>NotComplete</code> - The job had not finished when the endpoint answered.</li>
-<li><code>MoreThanOnePage</code> - The answer is one page of more than one.</li>
-<li><code>NoTotal</code> - A complete job that stated no total.</li>
-<li><code>NotATotal</code> - The total was not a number.</li>
-<li><code>NotAnEstimate</code> - <code>totalBytesProcessed</code> was present and not a number.</li>
-<li><code>NoSchema</code> - A complete job with rows and no schema to read them against.</li>
-<li><code>NotAScalar</code> - A cell that is neither a string nor a null.</li>
-<li><code>NotAListing</code> - The answer to a table listing was not one. Distinct from <code>Self::NotADocument</code>, the same failure for a query answer: two documents, two shapes, and one message per request.</li>
-<li><code>UnusablePageToken</code> - The service handed back a page token this transport will not write into a URL. <strong>Refused rather than filtered</strong>, and <code>tables::usable_token</code> carries the argument; the token travels through <code>bounded</code>, which keeps a foreign string out of a log unbounded.</li>
-<li><code>ListingDidNotFinish</code> - A dataset that did not finish listing inside the page bound. <strong>A failure rather than a short listing</strong>: this feeds <em>these tables are absent</em>, so a cut-off listing reports a table that is there as missing.</li>
 </ul>
+<p><strong>Checked here rather than trusted, and it is the one check that would be pointless if
+  anything were cached.</strong> A source that hands back an expired token is a source with a clock
+  problem, and presenting it turns that into a <code>401</code> from the data system - which reads to an
+  operator as a permissions fault.
+- <code>NoClock</code> - This process could not read a wall clock.</p>
+<p>Reachable only on a machine whose clock is before the epoch. It is a variant rather than a
+  fallback because the alternative is presenting a token whose deadline nothing compared.
+- <code>DeadlineSpent</code> - This call's budget was gone before the job could be submitted.</p>
+<p><strong>Refused rather than sent with whatever budget was left, because there was none.</strong> One call
+  does a token exchange and then a job against one absolute deadline - see <code>CallDeadline</code> - so an
+  exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
+  anyway would either mean an unbounded wait or a job the service keeps running after the client
+  has stopped waiting, which is the pair of failures this whole shape exists to rule out.
+- <code>RequestNotSerializable</code> - The request could not be serialized.</p>
+<p><strong>A defect-only path, and it is named rather than unwrapped.</strong> Everything in the body is a
+  string, a bool or a number, so nothing here can fail the serializer; the variant exists
+  because <code>unwrap</code> is denied and a silent <code>unwrap_or_default</code> would send a different query.
+- <code>Unreachable</code> - The endpoint was not reached.
+- <code>Unreadable</code> - The endpoint answered and the answer could not be read.
+- <code>Refused</code> - The endpoint refused.</p>
+<p>The status, the endpoint's reason mapped to <code>ReasonCode</code> in <code>named</code>, and its MESSAGE in
+  <code>detail</code>. An absent or unrecognized reason carries a static local marker rather than provider
+  text, which is honest: the status is what is guaranteed.</p>
+<p><strong>This used to say the message was deliberately not carried, and the field beside it was
+  built from <code>error.message</code>.</strong> The wrong half mattered: <code>detail</code> is free text the endpoint
+  writes, it quotes the resource and the principal it refused, and <code>Display</code> interpolated it -
+  so anything that rendered this variant into a public log leaked both. <code>ci.yml</code>'s masking step
+  exists because of exactly that, and <code>tests/exchanged_identity.rs</code> prints <code>status</code> and <code>named</code>
+  and never <code>detail</code> for the same reason.</p>
+<p><strong><code>Display</code> does NOT render <code>detail</code>.</strong> It prints the status and the closed reason code, and
+  nothing else: a cause-chain walk that flattens every link with <code>Display</code> - which is what the
+  transports' sinks do - carries the same pair and never endpoint-owned text.
+  <code>detail</code> is an <code>EndpointMessage</code>, whose <code>Debug</code> is redacted and whose raw value is reached
+  only through an explicit accessor a caller has to opt into. Each of the three renderings
+  this error can meet is therefore one of those, and the one that leaks is the one a caller
+  cannot write by accident. <code>docs/adr/0018</code> carries this decision and its limit.
+- <code>NotADocument</code> - The answer was not the document a query response is.
+- <code>NotComplete</code> - The job had not finished when the endpoint answered.</p>
+<p><strong>Refused rather than polled.</strong> The alternative is <code>getQueryResults</code>, which needs a <code>location</code>
+  this deployment does not declare - see the module header - and a partial answer is a wrong
+  number under a certified name.</p>
+<p><strong>It should now be reachable only through a defect or a cancellation</strong>, because the request
+  carries <code>jobTimeoutMs</code> equal to the client's own wait: the service cancels the job at the same
+  instant the client stops waiting for it, so an incomplete answer is no longer a live job this
+  adapter walked away from. <code>named</code> carries the endpoint's reason as a closed <code>ReasonCode</code>,
+  which for a cancelled job is the useful half.
+- <code>MoreThanOnePage</code> - The answer is one page of more than one.
+- <code>NoTotal</code> - A complete job that stated no total.</p>
+<p><strong>Refused rather than read as zero</strong>, because zero is what a complete empty result and a
+  missing field both look like, and only one of them is an answer this adapter may certify.</p>
+<p>This is also where a FAILED job lands: the endpoint reports one as complete with no total, so
+  <code>named</code> carries the endpoint's reason as a closed <code>ReasonCode</code> and is the whole diagnostic.
+  That is why failure is derived from the shape here rather than from <code>errors</code> being non-empty -
+  see <code>reported</code>.
+- <code>NotATotal</code> - The total was not a number.</p>
+<p>It arrives as text, because the endpoint writes 64-bit integers as JSON strings.
+- <code>NotAnEstimate</code> - <code>totalBytesProcessed</code> was present and not a number.</p>
+<p>Same reason as <code>Self::NotATotal</code>: the endpoint writes this 64-bit count as a JSON string
+  too. Refused rather than read as <code>None</code> - which is reserved for the field being ABSENT -
+  because a value that arrived and did not parse is a shape this adapter does not understand,
+  not a dry run that declined to price.
+- <code>NoSchema</code> - A complete job with rows and no schema to read them against.
+- <code>NotAScalar</code> - A cell that is neither a string nor a null.</p>
+<p>Every scalar the endpoint returns is JSON text whatever its declared type; an array or an
+  object is a <code>REPEATED</code> or <code>RECORD</code> column, which is outside <code>crate::transport::FieldType</code>'s closed
+  vocabulary. It names the position rather than the value, because the value is a row.
+- <code>NotAListing</code> - The answer to a table listing was not one. Distinct from <code>Self::NotADocument</code>, the same failure for a query answer: two documents, two shapes, and one message per request.
+- <code>UnusablePageToken</code> - The service handed back a page token this transport will not write into a URL. <strong>Refused rather than filtered</strong>, and <code>tables::usable_token</code> carries the argument; the token travels through <code>bounded</code>, which keeps a foreign string out of a log unbounded.
+- <code>ListingDidNotFinish</code> - A dataset that did not finish listing inside the page bound. <strong>A failure rather than a short listing</strong>: this feeds <em>these tables are absent</em>, so a cut-off listing reports a table that is there as missing.</p>
 <h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-bigquerywire"><code>struct BigQueryWire</code><a class="headerlink" href="#struct-bigquerywire" title="Permanent link">&para;</a></h3>
@@ -3650,6 +3778,9 @@ would be silently truncated to a double by a strict reader at the far end.</p>
 <li><code>TooLarge</code> - Above what the endpoint accepts, or above what a bound is for.</li>
 <li><code>NoBudget</code> - A transport's request timeout too short to leave a job any budget at all.</li>
 </ul>
+<p>See <code>QueryDeadline::within_request_timeout</code>: one answer spends the budget
+  <code>QueryDeadline::CALLS_PER_ANSWER</code> times and each spend costs connection setup on top, so a
+  request timeout below that leaves nothing to bound.</p>
 <h5 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="struct-calldeadline"><code>struct CallDeadline</code><a class="headerlink" href="#struct-calldeadline" title="Permanent link">&para;</a></h4>
@@ -3902,12 +4033,25 @@ because a 16 KiB file can put 16 KiB of newlines there and this string reaches a
 <ul>
 <li><code>Unreadable</code> - The file could not be opened or read.</li>
 <li><code>TooLarge</code> - The file is larger than any credential document is.</li>
-<li><code>NotADocument</code> - The file is not the JSON document this expects.</li>
-<li><code>UnknownKind</code> - The file names a credential shape this build does not implement.</li>
-<li><code>Incomplete</code> - A document missing one of the fields its own kind needs.</li>
-<li><code>AnotherUniverse</code> - The credential was minted against a different service universe than the one this build talks to.</li>
-<li><code>UnreadableKey</code> - The private key is not a <code>PKCS#8</code> PEM block holding a key this build can sign with.</li>
 </ul>
+<p>Bounded before it is parsed, which is the ordering <em>secure by design</em> asks for: the cheap
+  check that stops work proportional to the input runs first. A credential file is a few
+  kilobytes at most.
+- <code>NotADocument</code> - The file is not the JSON document this expects.
+- <code>UnknownKind</code> - The file names a credential shape this build does not implement.</p>
+<p><strong>It names the shape rather than saying "unsupported"</strong>, because each named shape has a
+  different answer: the metadata server needs no file at all, and a federated credential is the
+  per-subject step. The module header lists both.
+- <code>Incomplete</code> - A document missing one of the fields its own kind needs.
+- <code>AnotherUniverse</code> - The credential was minted against a different service universe than the one this build talks to.</p>
+<p><strong>Refused rather than tried.</strong> The endpoints this crate reaches are compile-time constants in
+  the default universe, so a credential minted for another one would be presented to a service it
+  was not issued for - which is a credential sent to the wrong recipient, whatever the answer
+  turns out to be.
+- <code>UnreadableKey</code> - The private key is not a <code>PKCS#8</code> PEM block holding a key this build can sign with.</p>
+<p><strong>Nothing from the key reaches the message.</strong> The whole value is key material, so there is no
+  half of it that would be safe to quote - which is why the context is a typed <code>KeyUnusable</code>
+  naming the STAGE that refused rather than any part of the value.</p>
 <h5 id="implements_31">Implements<a class="headerlink" href="#implements_31" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-keyunusable"><code>enum KeyUnusable</code><a class="headerlink" href="#enum-keyunusable" title="Permanent link">&para;</a></h4>
@@ -3935,13 +4079,26 @@ somebody rewrote, an EC key, or a truncated DER. None of the three quotes anythi
 <li><code>Unreachable</code> - The token endpoint did not answer.</li>
 <li><code>Unreadable</code> - The token endpoint answered, and the answer could not be read.</li>
 <li><code>Refused</code> - The token endpoint refused.</li>
-<li><code>NotADocument</code> - The answer was not the JSON document a token response is.</li>
-<li><code>NoToken</code> - The answer carried no token.</li>
-<li><code>AlreadyExpired</code> - The answer's own deadline had already passed when it arrived.</li>
-<li><code>DeadlineSpent</code> - The call's budget was gone before the exchange could be attempted.</li>
-<li><code>Unsigned</code> - The assertion could not be signed.</li>
-<li><code>NotSigned</code> - The signature itself failed.</li>
 </ul>
+<p><strong>The status and the provider's own short code, and not its description.</strong> The two <code>OAuth</code>
+  fields are a fixed vocabulary - <code>invalid_grant</code>, <code>invalid_client</code> - which is what an operator
+  needs; the description is free text from another service, and this repository does not put
+  unbounded foreign text where a log will read it.
+- <code>NotADocument</code> - The answer was not the JSON document a token response is.
+- <code>NoToken</code> - The answer carried no token.
+- <code>AlreadyExpired</code> - The answer's own deadline had already passed when it arrived.</p>
+<p>A token that is expired on delivery is a clock disagreeing with a clock, and presenting it
+  anyway would turn one clear failure into a <code>401</code> from the data system.
+- <code>DeadlineSpent</code> - The call's budget was gone before the exchange could be attempted.</p>
+<p><strong>Reachable only where something before the exchange spent the whole call</strong>, which today means a
+  clock read and a signature. It is a variant rather than a send with no timeout because a zero
+  budget handed to the client underneath means <em>no timeout at all</em> - see
+  <code>CallDeadline::remaining</code>.
+- <code>Unsigned</code> - The assertion could not be signed.</p>
+<p>Only reachable for a <code>service_account</code>. The cause is kept: <code>ring</code>'s own error says whether the
+  key was rejected, and that is the difference between a bad key and a bad build.
+- <code>NotSigned</code> - The signature itself failed.</p>
+<p><code>ring</code> reports this opaquely on purpose, so there is nothing to carry beyond the fact.</p>
 <h5 id="implements_33">Implements<a class="headerlink" href="#implements_33" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="struct-credential"><code>struct Credential</code><a class="headerlink" href="#struct-credential" title="Permanent link">&para;</a></h4>

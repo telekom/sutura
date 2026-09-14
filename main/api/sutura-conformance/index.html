@@ -2708,6 +2708,9 @@ by the compiler at one end and by <code>census</code> at the other.</p>
 <li><code>PreFlight</code> - A pre-flight that accepted the plan is followed by an answer.</li>
 <li><code>Leg</code> - A leg is executed, or refused, as the adapter's declaration says.</li>
 </ul>
+<p>One behaviour and two directions rather than two behaviours: exactly one of them applies to
+  any adapter, and which one is decided by <code>EXECUTES_LEGS</code>. The direction is in the emitted
+  test's NAME, which is where a reviewer reads it.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -2738,6 +2741,9 @@ behaviour that can be declined.</p>
 <ul>
 <li><code>OffersNoPreFlight</code> - <code>dry_run</code> answered <code>NotAsked</code> for every case, so nothing was checked before the rows were read.</li>
 </ul>
+<p>The port's own default, and the honest answer for an adapter where checking costs what
+  running costs. Nothing about the check has been established, which is why this is a
+  declination and not a pass.</p>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h2 id="struct-spent"><code>struct Spent</code><a class="headerlink" href="#struct-spent" title="Permanent link">&para;</a></h2>
@@ -2802,6 +2808,8 @@ a corpus of many says which one.</p>
 <li><code>ALegWasAnswered</code> - An adapter that declares it does not execute a leg executed one.</li>
 <li><code>EmptyCorpus</code> - The corpus has no cases, so nothing could be asked.</li>
 </ul>
+<p>Reachable only from a pack that needs a case to establish the adapter is live. <code>census</code>
+  fails on the same condition for every other behaviour.</p>
 <h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-hold"><code>fn hold</code><a class="headerlink" href="#fn-hold" title="Permanent link">&para;</a></h2>

@@ -2844,12 +2844,52 @@ boundary gate bans <code>anyhow</code> for, arrived at by a different route.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Compile</code> - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.</li>
-<li><code>Warehouse</code></li>
-<li><code>Federated</code> - The federated combiner could not assemble the two legs' rows.</li>
-<li><code>Broker</code> - The credential broker could not mint. Nothing about the question was wrong.</li>
-<li><code>Posture</code> - The broker's answer does not agree with the request it was made for.</li>
-<li><code>Credentials</code></li>
 </ul>
+<p><strong>Both are our own side being wrong, which is what keeps them out of a refusal.</strong>
+  <code>telekom/sutura#338</code> is the second one's report: it used to arrive as
+  <code>RefusalReason::FederationNotExecutable</code>, which is what a build whose adapter type does not
+  declare <code>Warehouse::EXECUTES_LEGS</code> is told, so a wiring defect was indistinguishable from a
+  build that cannot run a leg. <code>sutura_semantic::CompileFailure</code> keeps them apart and keeps the
+  typed cause.
+- <code>Warehouse</code>
+- <code>Federated</code> - The federated combiner could not assemble the two legs' rows.</p>
+<p><strong>An internal defect rather than a refusal, for every arm but the two <code>answer_federated</code>
+  maps by name.</strong> A correctly split and certified question should not make the combiner fail: a
+  missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
+  it leaves as a failure the transport answers like a data-system outage. The two the answer
+  path turns into refusals are the two governance outcomes - <code>FederatedFailure::ResourcesExhausted</code>,
+  refused as <code>RefusalReason::ResourcesExhausted</code>, and the row cap, refused as
+  <code>RefusalReason::ResultTooLarge</code>.
+- <code>Broker</code> - The credential broker could not mint. Nothing about the question was wrong.</p>
+<p><strong>Its own variant rather than a refusal, and its own variant rather than sharing the one
+  above.</strong> A refusal would let a client library retry a governance decision until something
+  works, which is what <code>sutura_domain::query::ToolOutcome</code> exists to prevent. And sharing
+  <code>Warehouse</code> would collapse two causes a caller has to act on differently: <code>docs/adr/0014</code>
+  makes the point that a caller told "unavailable, retry" against an authorization-server
+  outage will retry successfully, while one told the same against a bound that fires again
+  retries forever.
+- <code>Posture</code> - The broker's answer does not agree with the request it was made for.</p>
+<p><strong>A wiring defect between the broker and the request, so an <code>Err</code> and not a refusal</strong> - the
+  question was fine. Four things can be wrong and the domain's own enum names them: the grant
+  was minted for a different subject, it covers a different set of sources, its deadline had
+  already passed, or the refusal named a source nobody asked about.</p>
+<p><strong>It used to carry one of them</strong>, a bare "nothing was granted for this source", and the other
+  three were not checked at all. Widening the cause rather than adding three variants is the
+  shape of the fix: they are one question asked once, and a transport that had to tell them
+  apart would be a transport making a judgement about our own wiring.</p>
+<p>Executing anyway is the alternative this variant exists to remove, and it is the one that
+  would have run the leg as somebody other than the asker.
+  The leg the broker minted disagrees with the posture the adapter was opened with.</p>
+<p><strong>Its own variant because the two values come from different places, and that is the whole of
+  what the comparison is worth.</strong> The broker read the settings tree; the registry holds what the
+  composition root opened. A leg that says "the deployment's own identity" against a source
+  declared <code>impersonation-at-source</code> means one of those two is wrong about this deployment, and
+  executing anyway is the case that is silent: provenance is read off the ADAPTER's posture, so
+  the answer would have been reported as impersonated while it ran as the process.</p>
+<p>Both shipped adapters make this comparison too, and this variant does not replace theirs - an
+  adapter is the last thing before a driver and may not assume who called it. What it replaces is
+  the assumption that every FUTURE adapter will remember to.
+- <code>Credentials</code></p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-answered"><code>struct Answered</code><a class="headerlink" href="#struct-answered" title="Permanent link">&para;</a></h2>
@@ -3221,10 +3261,38 @@ means rather than a field added to one.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Compile</code> - The pinned bundle would not compile this question, or the splitter built a two-source plan this workspace could not then assemble.</li>
-<li><code>Warehouse</code></li>
-<li><code>Broker</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</li>
-<li><code>Miswired</code> - Credentials came back that do not fit the request: a wiring defect on this side.</li>
 </ul>
+<p><strong>The message names neither, and that is deliberate since <code>telekom/sutura#338</code>.</strong> The three
+  sentences on this variant's path - this <code>Display</code>, the HTTP sink's log line and the MCP tool
+  result a model reads - each blamed the bundle, which was true of the only cause this could
+  carry and stopped being true when <code>sutura_semantic::CompileFailure</code> gained its second arm: an
+  assembly failure is a defect in this workspace's own wiring, not a bundle that fails to hold
+  what it names. The cause is kept as a <code>#[source]</code> and says which, so the sentence does not
+  have to guess. <strong>No sentence on this variant's path blames the pinned bundle</strong>, and that is
+  registered in <code>xtask</code>'s <code>ABSENCES</code> table rather than left to review - all three wordings are
+  scanned for across every crate's library source.</p>
+<p><strong>The limit, next to the claim:</strong> nothing drives this variant through either transport. No
+  test builds a bundle that will not compile, or a plan that will not assemble, and asks for it
+  over HTTP or MCP - so the <code>500</code> an assembly failure now gets and the sentence a caller reads
+  with it are held by the code and by no cell. What IS measured is one layer in:
+  <code>crates/sutura-app/tests/differential/federated.rs</code> sees an assembly failure as a failure
+  rather than as a refusal.
+- <code>Warehouse</code>
+- <code>Broker</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</p>
+<p><strong>Its own variant because the two outages are retried differently</strong>, which <code>docs/adr/0014</code>
+  states as a requirement rather than a preference: an authorization server that is down comes
+  back, and a caller told the same sentence for both will retry a data-system outage the same
+  way and learn nothing. A transport chooses a different code for it.
+- <code>Miswired</code> - Credentials came back that do not fit the request: a wiring defect on this side.</p>
+<p>Not a refusal - the question was fine - and not <code>Self::Broker</code> either, because a broker that
+  answered and a broker that could not be reached are different things to whoever is paged. A
+  caller can do nothing about it, so what it becomes on the wire is an internal failure.</p>
+<p><strong>What it covers grew, and the variant did not</strong>, deliberately: the grant naming another
+  subject, covering another source set, carrying a deadline that had passed, or a refusal naming
+  a source nobody asked about are one thing to a transport - this deployment is wrong about its
+  own identity wiring - and four things to whoever reads the log line, which is where the typed
+  cause is. Splitting them here would ask each transport to pick a status code for a distinction
+  that changes nothing a caller can do.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-servicenotstarted"><code>enum ServiceNotStarted</code><a class="headerlink" href="#enum-servicenotstarted" title="Permanent link">&para;</a></h3>
@@ -3237,6 +3305,9 @@ means rather than a field added to one.</p>
 <li><code>Composition</code> - The catalog contributions do not compose: two sources define one element, certify different versions, or one of them supplies a kind its declaration does not.</li>
 <li><code>NotValidated</code> - The bundle loaded and an anchor did not reproduce the number its author certified, or could not be run at all.</li>
 </ul>
+<p><strong>This is the readiness gate, and it is a startup failure rather than a degraded mode.</strong> A
+  bundle whose anchors do not hold is a set of definitions that no longer computes the numbers
+  somebody signed off on; serving it would answer questions with figures nobody certified.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-localservice"><code>struct LocalService</code><a class="headerlink" href="#struct-localservice" title="Permanent link">&para;</a></h3>
@@ -3797,9 +3868,17 @@ deterministic.</p>
 <h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>DescribeCatalog</code> - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.</li>
-<li><code>AskMetric</code> - Answer one governed question about one certified metric.</li>
-<li><code>RunSql</code> - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.</li>
 </ul>
+<p><code>crate::surface::Surface::definitions</code>. Descriptive content only - the catalog port takes no
+  request context and cannot be given one - but a listing of what a deployment measures is
+  business information even with no row of data in it, which is why it is a capability at all
+  rather than something public.
+- <code>AskMetric</code> - Answer one governed question about one certified metric.</p>
+<p><code>crate::surface::Surface::answer</code>.
+- <code>RunSql</code> - Run one literal SQL statement against the configured source, off by default and refused where the deployment cannot execute it as the asking subject or is not declared single-user.</p>
+<p><code>crate::surface::Surface::run_sql</code>. <code>docs/adr/0013</code> is the record: its result carries no
+  <code>sutura_domain::pinned::Provenance</code> and no field a definition digest could occupy, so a raw
+  answer cannot be rendered as a certified one.</p>
 <h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -3943,12 +4022,20 @@ root that composed the adapter is the one that can flatten it.</p>
 <ul>
 <li><code>Present</code> - Asked, and every table is there. Carries how many, for a line that says so.</li>
 <li><code>NotReported</code> - The adapter did not report - <code>TablesPresent::NotAsked</code>, the port's default.</li>
-<li><code>Absent</code> - Asked, and these tables are not there. A refusal, and the models to name in it.</li>
-<li><code>UnreadableInventory</code> - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.</li>
-<li><code>Unaccounted</code> - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.</li>
-<li><code>Refused</code> - The data system refused to be asked: this identity may not list it.</li>
-<li><code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</li>
 </ul>
+<p><strong>Not readable as verified</strong>, which is the property the port's own answer type exists to
+  keep: a root that printed nothing here would make the one outcome meaning <em>nothing checked
+  this</em> indistinguishable from a data system that really looked.
+- <code>Absent</code> - Asked, and these tables are not there. A refusal, and the models to name in it.
+- <code>UnreadableInventory</code> - An unreadable inventory established neither presence nor absence for these tables. A refusal without a count or model names: no catalog declaration was shown wrong.
+- <code>Unaccounted</code> - Asked, answered, and the answer did not account for every table the data system said it holds - so these tables are neither established present nor established absent.</p>
+<p><strong>It names tables and not the models behind them, which is the one place this verdict
+  deliberately says less than <code>Self::Absent</code>.</strong> A model is what an operator opens to fix a
+  <code>table:</code> that is wrong, and nothing here says a <code>table:</code> is wrong: the catalog may be
+  entirely right and the data system's own answer incomplete. Naming models would send an
+  operator to exactly the file <code>telekom/sutura#275</code> is about them being sent to wrongly.
+- <code>Refused</code> - The data system refused to be asked: this identity may not list it.
+- <code>Unverified</code> - The data system could not be asked, for a reason that is not a refusal.</p>
 <h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">boot_policy</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BootPolicy</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -4198,6 +4285,10 @@ text at all.</p>
 <li><code>Posture</code> - The presented leg disagrees with how this source was declared.</li>
 <li><code>NoAcceptingSource</code> - No data system is registered under the raw tool's configured source, or the one registered does not declare <code>Warehouse::ACCEPTS_RAW_STATEMENTS</code>.</li>
 </ul>
+<p><strong>A wiring defect, not a caller-facing refusal.</strong> <code>sutura_config</code>'s boot refusal is what is
+  supposed to make this unreachable in a running deployment - the raw tool is refused at
+  startup over an adapter that cannot honour it - so reaching this arm at all means the
+  composition root and the boot check disagreed about what this build links.</p>
 <h4 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-answeredraw"><code>struct AnsweredRaw</code><a class="headerlink" href="#struct-answeredraw" title="Permanent link">&para;</a></h3>

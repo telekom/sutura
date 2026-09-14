@@ -3237,7 +3237,7 @@ capability declaration without touching a pack body.</p>
 <li>A new dev-only workspace crate holds the packs and the macro. It is never shipped, and it depends on
   the domain's ports rather than on any adapter.</li>
 <li><strong>The harness duplication this would have extracted does not exist on this branch yet.</strong> An earlier
-  draft cited <code>crates/sutura-cli/tests/federation.rs</code> and about ninety duplicated lines "at two
+  draft cited a <code>federation.rs</code> under <code>crates/sutura-cli/tests</code> and about ninety duplicated lines "at two
   corpora, so this is the third". That file is not here - <code>crates/sutura-cli/tests</code> holds <code>example.rs</code>
   and its snapshots - and the claim came from a branch that was never merged. What is true: the golden
   and refusal corpora in <code>sutura-app/tests</code> are the first corpora, and the shared module is therefore
@@ -3254,7 +3254,7 @@ capability declaration without touching a pack body.</p>
 - The existing <code>tests/adapters</code> registry becomes the place an adapter is registered for the matrix,
   and the macro invocation is what registers it for the packs. One registration, not two - <strong>and as
   built it was two, with nothing relating them.</strong> A data system is named in
-  <code>crates/sutura-app/tests/adapters/mod.rs</code> and bound again in its own crate's
+  <code>crates/sutura-app/tests/adapters/adapters.rs</code> and bound again in its own crate's
   <code>tests/conformance.rs</code>, and no gate compared the two lists: deleting a binding left every check
   green.</p>
 <p><strong><code>cargo xtask check-conformance-bindings</code> is what relates them now</strong>, and the shape is the part

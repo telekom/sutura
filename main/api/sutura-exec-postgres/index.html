@@ -3035,29 +3035,36 @@ through <code>sutura-sql</code> (<code>Dialect::Postgres</code>); nothing here i
 <li><code>NotADate</code> - A day came back that is not a date this build can represent.</li>
 <li><code>Shape</code></li>
 <li><code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</li>
-<li><code>Render</code></li>
-<li><code>Fixture</code> - A fixture import failed.</li>
-<li><code>FixtureRead</code></li>
-<li><code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.</li>
-<li><code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.</li>
-<li><code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.</li>
-<li><code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</li>
-<li><code>RawTransaction</code> - The raw SQL tool's own <code>BEGIN READ ONLY</code> or <code>ROLLBACK</code> did not run - sutura's own fixed text on the simple query protocol (<code>docs/adr/0013</code>), never the caller's.</li>
-<li><code>Transaction</code> - The certified path's own per-statement transaction (<code>docs/adr/0029</code>) did not open - sutura's own fixed literal text, never the caller's, the same as <code>Self::RawTransaction</code>.</li>
-<li><code>DeadlineSpent</code> - The deadline was already spent once <code>PostgresWarehouse::execution_lock</code> was acquired - refused locally, no round trip: that unbounded wait is outside <code>sutura_app</code>'s own pre-call check.</li>
-<li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
-<li><code>PresentedDisagreesWithPosture</code></li>
-<li><code>LegWithoutCombiner</code> - A leg without a combiner.</li>
-<li><code>AnchorsRead</code> - The declared trust anchors could not be read or parsed.</li>
-<li><code>AnchorsEmpty</code> - The declared trust anchors parsed to no certificates.</li>
-<li><code>IdentityRead</code> - The declared client identity could not be read.</li>
-<li><code>IdentityIncomplete</code> - The declared client certificate parsed to no certificate, or the key to no key.</li>
-<li><code>IdentityKey</code> - The client key was not an RSA/EC key this build can present.</li>
-<li><code>SystemStoreRead</code> - The explicitly selected host trust store could not be read completely.</li>
-<li><code>SystemStoreEmpty</code> - The explicitly selected host trust store held no roots.</li>
-<li><code>SystemStoreCertificate</code> - A certificate returned by the host trust-store reader was not a usable root.</li>
-<li><code>TlsConfiguration</code> - The cryptographic provider could not construct a client verifier.</li>
 </ul>
+<p>A defect in the rendering or in this adapter's value mapping rather than anything about the
+  data - two aggregates over no group produce one row of two integers - and it travels as an
+  <code>Err</code> from the port, which the boot path reads as <em>this declaration went unchecked</em>.
+- <code>Render</code>
+- <code>Fixture</code> - A fixture import failed.
+- <code>FixtureRead</code>
+- <code>InvalidColumnName</code> - A CSV header named a column that is not a valid identifier. Refused, not interpolated.
+- <code>FixtureSchema</code> - The shared conformance fixture schema could not be inferred.
+- <code>InvalidSchemaName</code> - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
+- <code>InvalidStatementTimeout</code> - The dev-only <code>statement_timeout</code> tuning value is not a <code>u32</code> millisecond count.</p>
+<p>The value becomes a <code>SET statement_timeout = N</code> line verbatim, so it is parsed at the
+  boundary and refused if it is not a number or exceeds the <code>u32</code> ceiling - a value that
+  cannot be a timeout must not reach the statement as uninterpreted text. The cause
+  survives so the operator sees the number did not parse, not a plain refusal.
+- <code>RawTransaction</code> - The raw SQL tool's own <code>BEGIN READ ONLY</code> or <code>ROLLBACK</code> did not run - sutura's own fixed text on the simple query protocol (<code>docs/adr/0013</code>), never the caller's.
+- <code>Transaction</code> - The certified path's own per-statement transaction (<code>docs/adr/0029</code>) did not open - sutura's own fixed literal text, never the caller's, the same as <code>Self::RawTransaction</code>.
+- <code>DeadlineSpent</code> - The deadline was already spent once <code>PostgresWarehouse::execution_lock</code> was acquired - refused locally, no round trip: that unbounded wait is outside <code>sutura_app</code>'s own pre-call check.
+- <code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.
+- <code>PresentedDisagreesWithPosture</code>
+- <code>LegWithoutCombiner</code> - A leg without a combiner.
+- <code>AnchorsRead</code> - The declared trust anchors could not be read or parsed.
+- <code>AnchorsEmpty</code> - The declared trust anchors parsed to no certificates.
+- <code>IdentityRead</code> - The declared client identity could not be read.
+- <code>IdentityIncomplete</code> - The declared client certificate parsed to no certificate, or the key to no key.
+- <code>IdentityKey</code> - The client key was not an RSA/EC key this build can present.
+- <code>SystemStoreRead</code> - The explicitly selected host trust store could not be read completely.
+- <code>SystemStoreEmpty</code> - The explicitly selected host trust store held no roots.
+- <code>SystemStoreCertificate</code> - A certificate returned by the host trust-store reader was not a usable root.
+- <code>TlsConfiguration</code> - The cryptographic provider could not construct a client verifier.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-postgreswarehouse"><code>struct PostgresWarehouse</code><a class="headerlink" href="#struct-postgreswarehouse" title="Permanent link">&para;</a></h2>
@@ -3140,7 +3147,7 @@ makes a supplied TLS client mandatory before it dials.</p>
 <p>The fixture tier's credential - a value that cannot exist unconfigured.</p>
 <p><strong>Behind the default-off <code>fixtures</code> feature</strong>, because both callers are tests
 (<code>crates/sutura-exec-postgres/tests/conformance.rs</code> and
-<code>crates/sutura-app/tests/adapters/mod.rs</code>) and <code>nix/shipped.nix</code> builds cargo's DEFAULT set: so
+<code>crates/sutura-app/tests/adapters/adapters.rs</code>) and <code>nix/shipped.nix</code> builds cargo's DEFAULT set: so
 no artefact a release publishes contains this module or the connection config over it, which
 deletes the <em>reachable from a consumer</em> half rather than hardening it. <code>--all-features</code> compiles,
 lints and tests it on every run.

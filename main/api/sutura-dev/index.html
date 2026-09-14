@@ -2741,12 +2741,16 @@ connect to, which is the only question the file can answer once both have contri
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotProvisioned</code> - No discovery file. Nothing has provisioned this worktree, or teardown removed it.</li>
-<li><code>Unreadable</code> - The file exists and could not be read.</li>
-<li><code>Malformed</code> - The file is not the shape this module writes.</li>
-<li><code>UnknownService</code> - A service nobody provisioned.</li>
-<li><code>UnreadablePublishedAddress</code> - A published address the container runtime reported that this module cannot read.</li>
-<li><code>Unwritable</code> - The discovery file could not be written.</li>
 </ul>
+<p><strong>It names no task, and that is the fix rather than an omission.</strong> This variant carries a
+  path and nothing else - no service, no worktree - so it cannot ask which venue answers. The
+  remedy belongs to <code>provisioned::Absent</code>, which derives one; why this line used to cite
+  <code>just dev-up</code> too is recorded at <code>provisioned::Venue::advice</code>.
+- <code>Unreadable</code> - The file exists and could not be read.
+- <code>Malformed</code> - The file is not the shape this module writes.
+- <code>UnknownService</code> - A service nobody provisioned.
+- <code>UnreadablePublishedAddress</code> - A published address the container runtime reported that this module cannot read.
+- <code>Unwritable</code> - The discovery file could not be written.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-malformed"><code>enum Malformed</code><a class="headerlink" href="#enum-malformed" title="Permanent link">&para;</a></h3>
@@ -2761,8 +2765,14 @@ that has to match on prose has no contract.</p>
 <li><code>NoServices</code> - No <code>services</code> object.</li>
 <li><code>ServiceEntry</code> - A service entry without a readable <code>host</code> and <code>port</code>.</li>
 <li><code>HostNeitherLoopbackNorSocket</code> - A service host that is neither loopback nor a <code>/</code>-prefixed socket directory.</li>
-<li><code>ServiceProvisioner</code> - An entry no provisioner can be attributed to.</li>
 </ul>
+<p>The docker tier connects on loopback, the nix tier on a socket path. Anything else would
+  let a discovery file hand a harness an arbitrary host, so it is refused rather than trusted.
+- <code>ServiceProvisioner</code> - An entry no provisioner can be attributed to.</p>
+<p>Refused rather than defaulted, and the reason is <code>forget</code>: a provisioner withdraws its own
+  entries and leaves every other one alone, so an entry it cannot attribute is one it would
+  have to guess about - and both guesses are wrong. Leaving it would strand a claim over a
+  dead server; taking it would delete a live tier's address.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-path_for"><code>fn path_for</code><a class="headerlink" href="#fn-path_for" title="Permanent link">&para;</a></h3>
@@ -3110,6 +3120,8 @@ services up is <code>xtask</code>'s job. This module reads a file.</p>
 <li><code>At</code> - It is up, and this is where. Read from the discovery file, which is the only place a host port for this worktree exists.</li>
 <li><code>Skipped</code> - Nothing to connect to, on a machine class where that is not a failure.</li>
 </ul>
+<p><strong>The notice has already been written to stderr</strong> by the time this is returned. A skip a
+  reader cannot see is a green run that tested nothing, which is worse than a red one.</p>
 <h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
 </span></code></pre></div>
@@ -3233,8 +3245,10 @@ gets the failure it asked for.</p>
 <h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Required</code> - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting <code>FORCE</code>: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.</li>
-<li><code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</li>
 </ul>
+<p><strong>Not implied by <code>CI</code>.</strong> No CI job provisions the tier today, so keying on that variable made
+  a missing tier fatal in the one place it is expected - see <code>decide</code>.
+- <code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</p>
 <h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
@@ -3331,6 +3345,9 @@ host port docker chose.</p>
 <ul>
 <li><code>NotResolvable</code> - The path could not be canonicalised - it does not exist, or a component is not readable.</li>
 </ul>
+<p>Canonicalisation is not a nicety here: it resolves symlinks and returns the on-disk
+  spelling, which is what makes one directory reached two ways one worktree rather than two.
+  A scope over an unresolved path would namespace containers by how somebody typed a path.</p>
 <h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-scope"><code>struct Scope</code><a class="headerlink" href="#struct-scope" title="Permanent link">&para;</a></h3>

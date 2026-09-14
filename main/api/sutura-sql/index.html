@@ -2935,6 +2935,8 @@ adapters ATTACH, not to what this renders.</p>
 <li><code>Question</code> - <code>?</code>, positional by order of appearance. <code>DuckDB</code>, <code>ClickHouse</code> and <code>BigQuery</code>.</li>
 <li><code>Numbered</code> - <code>$1</code>, <code>$2</code>, numbered from one. Postgres.</li>
 </ul>
+<p>The numbering is why this is not cosmetic: a statement with three <code>?</code> sent to Postgres is a
+  syntax error, and one with <code>$1</code> repeated is a different query.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-identifierquote"><code>enum IdentifierQuote</code><a class="headerlink" href="#enum-identifierquote" title="Permanent link">&para;</a></h3>
@@ -2949,6 +2951,18 @@ tested against.</p>
 <li><code>Double</code> - <code>"name"</code>. <code>DuckDB</code>, Postgres and <code>ClickHouse</code>.</li>
 <li><code>Backtick</code> - <code>`name`</code>. <code>BigQuery</code>.</li>
 </ul>
+<p><strong>The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
+  dialect.</strong> For the other three a double quote is an identifier quote and a backtick is a
+  syntax error, so a mistake is loud. In <code>GoogleSQL</code> a double quote delimits a STRING, so
+  <code>SELECT "amount"</code> is not a column reference at all - it selects the constant text <code>amount</code>,
+  and the target's own lexical reference leans on this when it writes
+  <code>WHERE date_col = "2014-09-27"</code> as a string coerced to a date. A statement quoted the wrong
+  way can therefore be accepted and answer about different values.</p>
+<p>What limits the blast radius today is that the mistake is caught in CI for a different reason:
+  a qualified column makes <code>"orders"."month"</code> a literal followed by a dot, which the target's
+  parser rejects - so the golden suite's parse check does bite. That is luck about the shape we
+  generate rather than a guarantee about the quote character, which is why it is written down
+  beside the type rather than trusted.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">character</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">char</span>
 </span></code></pre></div>
@@ -2981,8 +2995,12 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
 <h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>GrainFirstAsLiteral</code> - <code>DATE_TRUNC('month', &lt;date&gt;)</code> - the grain first, as a single-quoted string literal.</li>
-<li><code>DateFirstAsKeyword</code> - <code>DATE_TRUNC(&lt;date&gt;, MONTH)</code> - the date first, the grain a bare keyword.</li>
 </ul>
+<p><code>DuckDB</code>, Postgres and <code>ClickHouse</code>. The layer rewrites the function name for <code>ClickHouse</code>
+  itself, which is a difference we do delegate.
+- <code>DateFirstAsKeyword</code> - <code>DATE_TRUNC(&lt;date&gt;, MONTH)</code> - the date first, the grain a bare keyword.</p>
+<p><code>BigQuery</code>. Both halves differ from the shape above, and neither half is optional: the
+  argument order and the grain's form are separately load-bearing.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-unknowndialect"><code>struct UnknownDialect</code><a class="headerlink" href="#struct-unknowndialect" title="Permanent link">&para;</a></h3>
@@ -3139,21 +3157,23 @@ read this file.</p>
 <li><code>Query</code> - A <code>SELECT</code>, a subquery, a set operation.</li>
 <li><code>TableReference</code> - A named table.</li>
 <li><code>SchemaStatement</code> - A schema or data statement inside an expression.</li>
-<li><code>Star</code> - <code>*</code>, either as a node or as <code>COUNT(*)</code>'s flag.</li>
-<li><code>BindParameter</code> - <code>?</code> or <code>$1</code>.</li>
-<li><code>Opaque</code> - A node the generator emits with no handling at all.</li>
-<li><code>QualifiedColumn</code> - <code>t.column</code>.</li>
-<li><code>QualifiedFunctionName</code> - A function name with a schema on it.</li>
-<li><code>DateTimeFunction</code> - Anything that reads a date or a time.</li>
-<li><code>UnknownFunction</code> - A called function whose name is not in the allowlist.</li>
-<li><code>AggregateFilter</code> - <code>FILTER (WHERE ..)</code> on an aggregate.</li>
-<li><code>Comment</code> - A comment inside the fragment.</li>
-<li><code>RowConstructor</code> - A row constructor, which is also how <code>COUNT(DISTINCT a, b)</code> parses.</li>
-<li><code>UnguardedDivision</code> - <code>/</code> whose divisor is not a <code>NULLIF</code>.</li>
-<li><code>IntegerDivision</code> - <code>//</code>, or any integer division node.</li>
-<li><code>IsTrue</code> - <code>x IS TRUE</code>, <code>x IS FALSE</code>, <code>x IS &lt;expr&gt;</code>.</li>
-<li><code>NotAggregated</code> - A fragment that aggregates nothing.</li>
 </ul>
+<p><strong>The one construct here no fragment reaches</strong>, and <code>super::dialect_layer_refusal</code> carries
+  the measurement and the argument for keeping the guard.
+- <code>Star</code> - <code>*</code>, either as a node or as <code>COUNT(*)</code>'s flag.
+- <code>BindParameter</code> - <code>?</code> or <code>$1</code>.
+- <code>Opaque</code> - A node the generator emits with no handling at all.
+- <code>QualifiedColumn</code> - <code>t.column</code>.
+- <code>QualifiedFunctionName</code> - A function name with a schema on it.
+- <code>DateTimeFunction</code> - Anything that reads a date or a time.
+- <code>UnknownFunction</code> - A called function whose name is not in the allowlist.
+- <code>AggregateFilter</code> - <code>FILTER (WHERE ..)</code> on an aggregate.
+- <code>Comment</code> - A comment inside the fragment.
+- <code>RowConstructor</code> - A row constructor, which is also how <code>COUNT(DISTINCT a, b)</code> parses.
+- <code>UnguardedDivision</code> - <code>/</code> whose divisor is not a <code>NULLIF</code>.
+- <code>IntegerDivision</code> - <code>//</code>, or any integer division node.
+- <code>IsTrue</code> - <code>x IS TRUE</code>, <code>x IS FALSE</code>, <code>x IS &lt;expr&gt;</code>.
+- <code>NotAggregated</code> - A fragment that aggregates nothing.</p>
 <h5 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -3179,6 +3199,13 @@ a habit from writing <code>SELECT</code> lists. "Not one expression" would send 
 <li><code>CarriedAlias</code> - An <code>AS name</code>.</li>
 <li><code>CarriedClause</code> - Any other clause on the wrapper's <code>SELECT</code>, which taking the projection would DISCARD.</li>
 </ul>
+<p>The one that needed measuring rather than reasoning. <code>SELECT 1 WHERE true</code> is legal in the
+  authoring dialect with no <code>FROM</code> at all, so <code>SUM(x) WHERE secret = 1</code> parses as one statement
+  with one projection and no <code>FROM</code> - it passes every other guard here - and taking
+  <code>expressions[0]</code> throws the <code>WHERE</code> away. The metric would then be certified as <code>SUM(x)</code>,
+  silently, over a predicate its author wrote and nobody removed on purpose. The same holds for
+  <code>GROUP BY</code>, <code>HAVING</code>, <code>QUALIFY</code>, <code>ORDER BY</code>, <code>LIMIT</code>, <code>WINDOW</code> and a leading <code>DISTINCT</code>, all
+  confirmed to parse and all confirmed to be dropped.</p>
 <h5 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -3213,21 +3240,87 @@ splitting a message on <code>", "</code>, which is a contract nothing checks and
 <h5 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>UnknownDialect</code> - A dialect word that is not one this build renders for. Refused rather than ignored: a <code>postgresql:</code> beside a <code>portable:</code> would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.</li>
-<li><code>NoFragment</code> - No exact fragment and no <code>portable</code> one. The refusal wren's importer does not have.</li>
-<li><code>Unparsable</code></li>
-<li><code>NotOneExpression</code></li>
-<li><code>Unrenderable</code> - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a <code>Shape</code>, because a <code>Shape</code> carries no cause and this one has one worth keeping.</li>
-<li><code>Refused</code></li>
-<li><code>NonAscii</code> - A character the pinned dialect layer's generator cannot survive.</li>
-<li><code>UnclosedParenthesis</code> - A parenthesis the fragment opens and never closes.</li>
-<li><code>UnknownColumn</code></li>
-<li><code>UnknownFunction</code> - A called function that is not one of the names a measure may call.</li>
-<li><code>TooDeep</code> - A fragment nesting deeper than the checks can walk. See the guard in <code>super::parse</code>, in the parent module.</li>
-<li><code>NotQualified</code> - A column the qualification rewrite did not reach. See <code>super::require_qualified</code>, in the parent module.</li>
-<li><code>Qualify</code> - The qualification rewrite failed.</li>
-<li><code>Render</code> - The target's generator refused the tree.</li>
-<li><code>RenderedDoesNotParse</code> - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.</li>
 </ul>
+<p><code>{:?}</code> on the word rather than <code>{}</code>, and it is the only variant that does: a tag differing
+  from a real one by a trailing space is the mistake this refusal is most often about, and
+  unquoted it reads as though the name were right.
+- <code>NoFragment</code> - No exact fragment and no <code>portable</code> one. The refusal wren's importer does not have.
+- <code>Unparsable</code>
+- <code>NotOneExpression</code>
+- <code>Unrenderable</code> - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a <code>Shape</code>, because a <code>Shape</code> carries no cause and this one has one worth keeping.</p>
+<p><strong>No fragment produces this.</strong> <code>Generator::generate</code> has exactly two failure paths in the
+  features this build compiles: the AST complexity guard, and <code>UnsupportedLevel::Raise</code> or
+  <code>Immediate</code>. The guard's limits are a million nodes and a depth of 512 or more, and
+  <code>super::parse</code> refuses anything past <code>MAX_DEPTH</code> - thirty-two - before it renders, over a
+  fragment <code>sutura_domain</code> has already capped at 1024 characters; none of the three dialect
+  configurations sets the level above <code>Warn</code>. The third path, a template re-parse inside the
+  <code>DuckDB</code> dialect, is behind the <code>transpile</code> feature and is not compiled. Measured as well as
+  argued: 300 fragments over the whole allowlist, in every argument shape this crate accepts,
+  produced none of it.
+- <code>Refused</code>
+- <code>NonAscii</code> - A character the pinned dialect layer's generator cannot survive.</p>
+<p><strong>The dialect layer panics, it does not refuse.</strong> Measured with the fuzz harness: the
+  pinned <code>polyglot-sql</code> generator byte-slices a string without respecting character
+  boundaries, so any fragment carrying a multi-byte UTF-8 character - <code>é</code>, a full-width
+  identifier, or the replacement character <code>\u{fffd}</code> a lossy decode produces - reaches a
+  <code>&amp;s[..]</code> cut through that byte and panics with <em>"start byte index N is not a char
+  boundary"</em>. There is no third-party error to map: it aborts, which under
+  <code>panic = "abort"</code> is the process dying. So this crate refuses non-ASCII text before it is
+  handed over, and the bound is the chunk this build renders for: the aggregation subset and
+  its identifiers are ASCII by construction, and a Unicode string literal is refused rather
+  than trusted to a generator that slices it by byte. If a future pin fixes the slicing, the
+  bound can widen; stated as a limit now because this is a control over what the dependency
+  can carry, not a judgement that authored SQL is ASCII.
+- <code>UnclosedParenthesis</code> - A parenthesis the fragment opens and never closes.</p>
+<p><strong>The pinned dialect layer's parser does not error on this - it does not return.</strong> Found by
+  the <code>sql_expression</code> fuzz target and reduced to six characters, <code>a.:S1(</code>: <code>.:</code> is a JSON-cast
+  operator, so an unknown word after it is read as a custom data type, and the argument loop in
+  <code>Parser::parse_data_type</code> breaks only on <code>check(TokenType::RParen)</code>. That answers <code>false</code> at
+  the end of the token stream, and <code>advance()</code> past the end returns the last token WITHOUT
+  moving the cursor - so the loop cannot terminate, and every turn of it does
+  <code>*last = format!("{} {}", last, token.text)</code>.</p>
+<p>One upstream defect, two report shapes: it reads as a <strong>timeout</strong> while that string is being
+  copied and as an <strong>out-of-memory</strong> once the string is large. There is no third-party error to
+  map and nothing to catch either - under <code>panic = "abort"</code> unbounded work on a fragment is the
+  process not coming back, which on the query surface is a denial of service rather than a slow
+  load. So what is refused is the enabling condition every such loop needs, a parenthesis with
+  no closer, and it is refused before the text is handed over.</p>
+<p><code>column</code> is 1-based <strong>in the author's own fragment</strong>: the bound reads the fragment's own
+  tokens rather than the wrapped statement's, so unlike <code>Self::Unparsable</code> there is no
+  wrapper offset to subtract. See <code>super::unclosed_parenthesis</code> for why the question is asked
+  of the TOKENS and not of the text. <strong>The defect is upstream and this does not fix it</strong> - it
+  is a control over what the dependency can be handed, not a judgement that an author cannot
+  count brackets.
+- <code>UnknownColumn</code>
+- <code>UnknownFunction</code> - A called function that is not one of the names a measure may call.</p>
+<p>Its own variant rather than a bare <code>Self::Refused</code>, because this is the one refusal whose
+  value is a <em>pair</em>: the allowed set, which <code>Construct::UnknownFunction</code> carries, and the name
+  that is not in it. A fragment may hold a dozen calls, and telling an author that one of them
+  is unlisted without saying which sends them to read this file.
+- <code>TooDeep</code> - A fragment nesting deeper than the checks can walk. See the guard in <code>super::parse</code>, in the parent module.
+- <code>NotQualified</code> - A column the qualification rewrite did not reach. See <code>super::require_qualified</code>, in the parent module.
+- <code>Qualify</code> - The qualification rewrite failed.</p>
+<p><strong>No fragment produces this, and the reason is exhaustive rather than empirical.</strong>
+  <code>traversal::transform_map</code> returns an error from two places: the closure, and three
+  <code>Error::Internal</code> checks inside the dialect layer's own explicit-stack transformer - a result
+  stack underflow, a child-restoration mismatch, and a final stack size that is not one. The
+  closure <code>super::qualify</code> passes is two arms and both return <code>Ok</code>, so every remaining path is
+  that transformer breaking its own invariant. The plumbing stays fallible because absorbing it
+  would mean substituting something for a tree that did not rewrite, which is a measure that is
+  not the one the catalog declares.
+- <code>Render</code> - The target's generator refused the tree.</p>
+<p><strong>No fragment produces this</strong>, for the reason <code>Self::Unrenderable</code> sets out - the two are
+  the same call with a different generator configuration, and <code>Unrenderable</code> runs first over
+  the same tree.
+- <code>RenderedDoesNotParse</code> - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.</p>
+<p><strong>No fragment has been found that produces this, and unlike the three above it is not ruled
+  out by construction.</strong> It fires when one dialect's generator emits text that the same
+  dialect's parser rejects, which is a round-trip defect in the dialect layer rather than
+  anything a catalog controls - and this variant is the net for it, which is why it is a check
+  at load and not a test. What was tried: 300 fragments over the whole allowlist in every
+  argument shape this crate accepts, rendered and re-parsed for all three targets. None failed.
+  A test could only assert it by shipping a hostile dialect, so what is asserted instead is the
+  wiring - the fields, and that the parser's own error survives as the source.</p>
 <h5 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="module-generate">Module <code>generate</code><a class="headerlink" href="#module-generate" title="Permanent link">&para;</a></h2>
@@ -3282,9 +3375,28 @@ differently. A plan that will not render is a bug here or upstream.</p>
 <ul>
 <li><code>Render</code></li>
 <li><code>UnquotableAlias</code> - The builder produced something that is not an alias, so its identifier could not be quoted.</li>
-<li><code>QualificationUnsupported</code> - A table path deeper than the target resolves.</li>
-<li><code>NoPredicate</code> - A plan that carries no predicate at all.</li>
 </ul>
+<p>Reported rather than ignored: silently emitting an unquoted alias is how a metric named
+  <code>order</code> becomes a syntax error at the data system instead of an error here.
+- <code>QualificationUnsupported</code> - A table path deeper than the target resolves.</p>
+<p><strong>Not a refusal, and the boundary is worth being precise about.</strong> A caller cannot cause one:
+  there is no field on a question that names a table, so what produced this is a catalog document
+  naming <code>project.dataset.table</code> for a data system with nowhere to put the project - which is
+  upstream of here, exactly as this enum's own header says.</p>
+<p><strong>An error and not a silently-dropped qualifier</strong>, which is the whole reason it exists: the
+  dialect layer renders three parts for any target, so dropping the part that does not fit would
+  read the table of that name in whatever the connection defaults to and return a plausible
+  number under a certified metric. That is the failure issue #83 reports, moved rather than
+  fixed.</p>
+<p>The path travels as text because that is the only thing a message can show, and it is safe to
+  show: every part of it is a parsed name, so it carries no quote character and no value from any
+  question.
+- <code>NoPredicate</code> - A plan that carries no predicate at all.</p>
+<p>Unreachable: a plan always carries the two bounds of its <code>TimeRange</code>, which cannot be
+  unbounded. Its own variant rather than a sentinel string inside another one, because the
+  variant is what a caller matches on - and worded exactly as <code>sutura_exec_datafusion</code>'s
+  <code>NoPredicate</code>, so the SQL path and the engine name one condition identically rather than
+  describing it twice.</p>
 <h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-generate"><code>fn generate</code><a class="headerlink" href="#fn-generate" title="Permanent link">&para;</a></h3>

@@ -3407,7 +3407,7 @@ an exact licence allowlist) belongs.</p>
 for an environment reason on somebody else's machine.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
-<li>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> gains <strong>no</strong> BigQuery entry.
+<li>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/adapters.rs</code> gains <strong>no</strong> BigQuery entry.
   That registry's own rule is that an entry is something somebody could deploy, and a cell that cannot
   execute reads as coverage. The <strong>dialect</strong> axis gains one, unconditionally.</li>
 <li>A developer who wants to try it against their own project needs the transport, which does not exist
@@ -3815,7 +3815,7 @@ rather than anything this repository can carry.</p>
   <strong>Corrected: <code>IMPERSONATION</code> is <code>PerSubjectCredential</code> now</strong> - this leg's own credential is still
   one identity for everybody who asks, so the sentence's conclusion about THIS run survives; its
   premise about the constant does not.</li>
-<li><strong>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains no entry</strong>, and
+<li><strong>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/adapters.rs</code> still gains no entry</strong>, and
   the <em>Consequences</em> below still hold on that point: a cell in that registry runs inside <code>just test</code>,
   and this cannot, because the nix sandbox has no network. The corpus leg is a second <code>#[ignore]</code>d
   integration target in the adapter's own crate, reached by the same app.</li>
@@ -3909,7 +3909,7 @@ that agreed exactly plus those 5 is the 21 above. 22 statements accepted, 9 refu
 change moved row ORDER and nothing else.</p>
 <p><strong>What it still does not claim, and it is unchanged by the measurement.</strong> <code>just validate</code>'s sandbox has
 no network, so the corpus leg compiles and is skipped there - a developer's terminal is not where this
-is decided, and the <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains no
+is decided, and the <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/adapters.rs</code> still gains no
 entry for the reason the third amendment gives. <code>ClickHouse</code> and <code>Postgres</code> null placement is still
 answered by nothing: both are rendered and parse-checked and neither has ever executed, so their arm of
 the table above is read off documented behaviour rather than measured. And identity is untouched.</p>

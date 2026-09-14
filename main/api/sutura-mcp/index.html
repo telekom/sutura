@@ -2689,8 +2689,13 @@ throw away the only description of the fault that exists.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Handshake</code> - The peer never completed the protocol handshake.</li>
-<li><code>Interrupted</code> - The task driving the session did not finish.</li>
 </ul>
+<p>Boxed, and the reason is a lint this workspace keeps on deliberately: the SDK's own
+  initialize error is nearly five hundred bytes, and <code>result_large_err</code> is denied here because
+  <em>"a service whose public surface is <code>ToolOutcome::Refusal</code> wants to know when the error half
+  of every <code>Result</code> grows"</em>. The indirection costs an allocation on a path that has already
+  failed, and <code>Box&lt;E&gt;</code> is still an <code>Error</code>, so the <code>#[source]</code> chain is unchanged.
+- <code>Interrupted</code> - The task driving the session did not finish.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
@@ -3101,8 +3106,13 @@ last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
-<li><code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain <code>crate::server</code>'s <code>invalid()</code> walks - see that type's own note. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</li>
 </ul>
+<p><strong>The one variant with no HTTP analogue</strong>, which is why it lives here rather than in
+  <code>sutura_domain::question</code>: Axum's JSON extractor rejects a body that fails to deserialize
+  before <code>TryFrom&lt;QuestionBody&gt; for Query</code> is ever reached, so <code>sutura-http</code>'s own
+  <code>MalformedQuestion</code> has no arm for this case and does not need one. MCP's own
+  <code>serde_json::from_value</code> step, in <code>crate::server</code>, is what can still fail this way here.
+- <code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain <code>crate::server</code>'s <code>invalid()</code> walks - see that type's own note. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-outcomecontent"><code>enum OutcomeContent</code><a class="headerlink" href="#enum-outcomecontent" title="Permanent link">&para;</a></h3>

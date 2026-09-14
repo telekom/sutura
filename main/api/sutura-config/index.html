@@ -3443,8 +3443,15 @@ that exists in a record rather than in a linked crate is still a word an operato
 <h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Markdown</code> - A directory of markdown documents with YAML frontmatter, read by <code>sutura-catalog-local</code>.</li>
-<li><code>Datahub</code> - A metadata service, read through the adapter <code>docs/adr/0016</code> specifies and #114 builds.</li>
 </ul>
+<p>The only kind either composition root can OPEN in this build: the markdown adapter is
+  linked by <code>sutura-serve</code> and is what <code>sutura-cli</code> puts behind its directory argument.
+- <code>Datahub</code> - A metadata service, read through the adapter <code>docs/adr/0016</code> specifies and #114 builds.</p>
+<p><strong>A declarable kind that no binary this repository ships can open yet, and that is
+  deliberate.</strong> The vocabulary of kinds is the vocabulary of adapters <em>this repository has</em>
+  in its records, and the composition root refuses this kind by name for exactly the reason
+  <code>SourceKind::BigQuery</code> is refused: an operator who writes the word must be told the truth
+  (the adapter is not linked) rather than sent looking for a typo.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -3795,6 +3802,10 @@ whether a deployment decided to accept every class of token.</p>
 <li><code>Exactly</code> - A token whose <code>typ</code> is this, compared after the signature verified.</li>
 <li><code>Any</code> - Any class of token the issuer signed for this audience.</li>
 </ul>
+<p><strong>Not a default anywhere.</strong> In the <code>direct</code> mode it is written as <code>token_type: "any"</code>; in
+  <code>behind-gateway</code> as <code>transit_token_type: "any"</code>, where it is also the only way to say "this
+  component sets no <code>typ</code>". Either way <code>InboundIdentity::type_check</code> renders a sentence the
+  startup log prints, so a deployment running with it is visible on every boot.</p>
 <h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">accepts</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TokenType</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
@@ -3865,6 +3876,12 @@ posture must not be satisfiable by silence.</p>
 <li><code>Direct</code> - This deployment is the resource server. It validates the caller's token itself: signature, issuer, expiry, and an audience matching its own resource identifier.</li>
 <li><code>BehindGateway</code> - A fronting component authenticated the caller. This deployment validates a <strong>signed identity assertion</strong> the component issued, and derives the subject from that assertion's own claims rather than from a string somebody set.</li>
 </ul>
+<p><strong>The wording used to say "a short-lived proof that the request transited that component", and
+  review showed the code did not deliver either half.</strong> The lifetime was the component's to choose
+  and nothing capped it, and nothing bound an assertion to a request - so replaying the identical
+  token worked for as long as its <code>exp</code> allowed. <code>docs/adr/0014</code> now says the same thing this doc
+  comment does; the lifetime half is fixed by <code>ProofLifetime</code>, and the binding half is a stated
+  limit rather than a claim.</p>
 <h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">accepts_any_token_class</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
@@ -4199,8 +4216,15 @@ and the crate that acts on it owns the type that acts.</p>
 <h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Quoted</code> - Quoted in, with <code>&gt;</code> at the start of every line and the trust boundary named above the block. The default.</li>
-<li><code>Omitted</code> - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.</li>
 </ul>
+<p><strong>A description is untrusted content and this is not a claim that it is safe.</strong> A per-line
+  prefix stops catalog text from reaching column zero, so it cannot emit a heading or close a
+  block; it does nothing about prose that persuades without escaping. <code>SECURITY.md</code> treats
+  catalog content as untrusted, and <code>sutura_app::prompt</code> states the residual gap.
+- <code>Omitted</code> - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.</p>
+<p>The prompt then says the descriptions exist and were not included, rather than rendering a
+  list of metric names with no meaning attached: silence is what makes an agent infer a
+  definition from a name.</p>
 <h4 id="methods_14">Methods<a class="headerlink" href="#methods_14" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -4242,6 +4266,10 @@ rather than omitting the section.</p>
 <ul>
 <li><code>EmptyPath</code> - The path was present and empty.</li>
 </ul>
+<p>Empty is not absent: an unset variable in a shell arrives as <code>""</code>, and an empty path resolves
+  to the process working directory, so this would read a <em>directory</em> as an instructions file on
+  whichever host the process happens to be on. Absent means "no operator text"; empty means
+  somebody meant to write a path.</p>
 <h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-promptsettings"><code>struct PromptSettings</code><a class="headerlink" href="#struct-promptsettings" title="Permanent link">&para;</a></h3>
@@ -4667,10 +4695,22 @@ see <code>Self::wire_grammar</code> and <code>InvalidAccessToken::NotRepresentab
 <h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>TooShort</code> - Shorter than <code>AccessToken::MIN_LENGTH</code>.</li>
-<li><code>TooLong</code> - Longer than <code>AccessToken::MAX_LENGTH</code>.</li>
-<li><code>Untrimmed</code> - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.</li>
-<li><code>NotRepresentableOnTheWire</code> - A character no <code>Authorization</code> header could carry to us.</li>
 </ul>
+<p>Carries the length and never the value. A token quoted into an error message reaches
+  stderr, a log collector and whatever reads that log, which is a longer life than the
+  operator intended for it.
+- <code>TooLong</code> - Longer than <code>AccessToken::MAX_LENGTH</code>.</p>
+<p>An unbounded configured string is an availability surface, and a bearer token has no reason
+  to reach this size. Carries the length and never the value, as <code>Self::TooShort</code> does.
+- <code>Untrimmed</code> - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.
+- <code>NotRepresentableOnTheWire</code> - A character no <code>Authorization</code> header could carry to us.</p>
+<p><strong>This is the variant that closes a service which starts and can never authenticate.</strong> The
+  gate reads the header with <code>HeaderValue::to_str</code>, which accepts visible ASCII and nothing
+  else, so a token holding anything outside that set is one no request can present: the
+  process boots, every call is a <code>401</code>, and nothing anywhere says why. Refusing it at startup
+  turns a silent outage into a message.</p>
+<p>Carries the position and never the character, for the same reason <code>Self::TooShort</code>
+  carries the length and never the value.</p>
 <h4 id="implements_38">Implements<a class="headerlink" href="#implements_38" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="enum-tlstermination"><code>enum TlsTermination</code><a class="headerlink" href="#enum-tlstermination" title="Permanent link">&para;</a></h3>
@@ -4799,6 +4839,10 @@ configuration or a subject arrives per request.</p>
 <li><code>StaticCredentials</code> - Static credentials, one user, one host - the <code>single-user</code> mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.</li>
 <li><code>SubjectPerRequest</code> - A subject per request, established by the transport - the <code>multi-user</code> mode.</li>
 </ul>
+<p><strong>Nothing establishes one today</strong> - the bearer gate authenticates the deployment - so this mode
+  is currently a statement of intent whose only mechanical effect is that every shared source has
+  to be acknowledged on its own entry. That is the honest description and it is worth having: the
+  acknowledgements are what a deployment needs in place <em>before</em> a subject arrives, not after.</p>
 <h4 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-145-1"><a id="__codelineno-145-1" name="__codelineno-145-1" href="#__codelineno-145-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -4835,9 +4879,12 @@ boolean would leave every caller to work out where the witness comes from.</p>
 <ul>
 <li><code>Unknown</code></li>
 <li><code>SingleUserWithoutAReason</code> - Single-user mode with no reason written.</li>
-<li><code>ReasonWithoutSingleUser</code> - A single-user reason on a multi-user deployment, where nothing would read it.</li>
-<li><code>Reason</code></li>
 </ul>
+<p>The reason is what makes the mode a declaration rather than a word: a single-user deployment
+  serves every source under one identity, and the operator's own sentence for why is what a
+  reviewer reads and what a shared source borrows as its acknowledgement.
+- <code>ReasonWithoutSingleUser</code> - A single-user reason on a multi-user deployment, where nothing would read it.
+- <code>Reason</code></p>
 <h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-securitysettings"><code>struct SecuritySettings</code><a class="headerlink" href="#struct-securitysettings" title="Permanent link">&para;</a></h3>
@@ -5047,8 +5094,22 @@ every in-flight answer immediately", which is a decision somebody would write di
 <li><code>Zero</code> - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.</li>
 <li><code>TooLarge</code> - Above the ceiling this type declares.</li>
 <li><code>AboveAvailableMemory</code> - Above the memory this process can actually reach.</li>
-<li><code>CannotAffordReplyMargin</code> - <code>server.request_timeout_seconds</code> does not exceed <code>RequestTimeout::REPLY_MARGIN</code>, so the port's own budget - the timeout minus that margin - would be zero or negative.</li>
 </ul>
+<p><strong>A variant of its own rather than a <code>Self::TooLarge</code> with the machine's number as the
+  limit, because the two send an operator to different places.</strong> <code>TooLarge</code> means "this type
+  does not accept a number that big"; this means "the type would, and your machine will not".
+  One is a key to change and the other is a container to resize or a key to lower, and a message
+  saying only <em>the maximum is N</em> cannot tell which of the two produced it.</p>
+<p>The reason it refuses rather than clamping is <code>panic = "abort"</code>: a ceiling above what the
+  process can reach is not a generous bound, it is the unbounded case with a number written next
+  to it, and the allocation failure it permits ends the process for every caller in flight.
+- <code>CannotAffordReplyMargin</code> - <code>server.request_timeout_seconds</code> does not exceed <code>RequestTimeout::REPLY_MARGIN</code>, so the port's own budget - the timeout minus that margin - would be zero or negative.</p>
+<p><strong>Its own variant rather than <code>Self::Zero</code>, because the arithmetic that fails is not "this
+  is zero" - one second parses today - it is "this cannot afford what is reserved out of it".</strong>
+  <code>docs/adr/0029</code> is the record: the margin covers the cancellation reaching back through the
+  driver, the audit write and the response, and it stays where the transport's own give-up
+  already is - so a timeout that cannot afford it would leave the port with nothing to open a
+  <code>Budget</code> from.</p>
 <h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-tlsmaterial"><code>struct TlsMaterial</code><a class="headerlink" href="#struct-tlsmaterial" title="Permanent link">&para;</a></h3>
@@ -5081,8 +5142,11 @@ for one mistake, and the weaker one would be the reassuring one.</p>
 <h4 id="variants_18">Variants<a class="headerlink" href="#variants_18" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>OnlyOneHalf</code> - One half was given and the other was not.</li>
-<li><code>EmptyPath</code> - A path was given as an empty string, which is not a path.</li>
 </ul>
+<p>Refused rather than half-configured: a certificate with no key cannot start a listener, and
+  the silent alternative is a service that either falls back to plaintext or fails at the
+  first handshake.
+- <code>EmptyPath</code> - A path was given as an empty string, which is not a path.</p>
 <h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-serversettings"><code>struct ServerSettings</code><a class="headerlink" href="#struct-serversettings" title="Permanent link">&para;</a></h3>
@@ -5164,8 +5228,25 @@ legitimate one.</p>
 <ul>
 <li><code>Files</code> - A directory of CSV or Parquet files, read by the in-process engine.</li>
 <li><code>BigQuery</code> - A <code>BigQuery</code> dataset, queried by rendering the plan into <code>GoogleSQL</code> and pushing it down.</li>
-<li><code>Postgres</code> - A <code>PostgreSQL</code> database, queried by rendering the plan into that dialect and pushing it down.</li>
 </ul>
+<p><strong>A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
+  oversight.</strong> The vocabulary of kinds is the vocabulary of adapters <em>this repository has</em>, and
+  <code>sutura-exec-bigquery</code> exists; what does not exist is a composition root that links it, so
+  <code>sutura-serve</code> refuses this kind by name. The alternative was to leave the word out, which
+  would refuse the same deployment with <code>kind</code> does not name a data system this build can open -
+  a message that sends an operator looking for a typo instead of telling them the truth.</p>
+<p>It is here now rather than with the impersonation step because the billing project has to be
+  declared somewhere, and putting the declaration one step early is what keeps the per-subject
+  step to one change: how a connection is authenticated.
+- <code>Postgres</code> - A <code>PostgreSQL</code> database, queried by rendering the plan into that dialect and pushing it down.</p>
+<p><strong>A declarable kind that no shipped binary opens yet, and the refusal is at startup rather
+  than at parse, naming the <code>postgres</code> feature</strong> - the same shape <code>BigQuery</code>'s entry uses the
+  other way around. The vocabulary of kinds is the vocabulary of adapters this repository has;
+  which adapter a given BUILD linked is a property of its features, so an entry for a kind whose
+  adapter is not linked is a startup refusal naming the <code>--features</code> that would link it, not a
+  spelling error.</p>
+<p>The static-credential half: one connection under the deployment's declared identity. Per-subject
+  Postgres over SASL OAUTHBEARER is <code>telekom/sutura#126</code> and is deliberately not this shape.</p>
 <h4 id="methods_35">Methods<a class="headerlink" href="#methods_35" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -5240,23 +5321,58 @@ convenience, and nothing needs to clone a startup refusal.</p>
 <ul>
 <li><code>Alias</code> - The key is not a name a model could write in its <code>source:</code> field.</li>
 <li><code>DuplicateAlias</code> - Two entries name one source.</li>
-<li><code>NoDataDirectory</code> - The entry names no file location.</li>
-<li><code>RelativeDataDirectory</code> - The path is relative, so it resolves against the process working directory.</li>
-<li><code>RelativePath</code> - A path a kind requires is relative, so it resolves against the process working directory.</li>
-<li><code>Posture</code> - The <code>posture:</code> word is not one of the two.</li>
-<li><code>Kind</code> - The <code>kind:</code> word does not name a data system this build has an adapter for.</li>
-<li><code>Text</code> - A piece of operator-written text on this entry is not usable.</li>
-<li><code>Conflict</code> - The entry's two identity declarations contradict each other.</li>
-<li><code>MissingForKind</code> - A key this kind requires was not written.</li>
-<li><code>KeyNotForKind</code> - A key was written that means nothing for this kind.</li>
-<li><code>ResourceName</code> - A declared cloud resource name is not usable.</li>
-<li><code>Host</code> - A declared <code>host</code> cannot be dialled at all - a shape refusal, not a reachability one.</li>
-<li><code>MissingWorkloadIdentity</code> - An <code>impersonation-at-source</code> source declared no token-exchange setup.</li>
-<li><code>WorkloadIdentityNotImpersonating</code> - A workload-identity block was declared on a source that is not impersonating.</li>
-<li><code>WorkloadIdentity</code> - The declared workload-identity value is not usable.</li>
-<li><code>Transport</code> - The declared transport of a source was not usable.</li>
-<li><code>RemoteWithoutTls</code> - A source a network can reach was declared with no transport security.</li>
 </ul>
+<p><strong>Reachable, and that is why the check exists.</strong> A source name is trimmed when it is parsed -
+  case is preserved, whitespace is not - so <code>local</code> and <code>" local"</code> are two distinct keys in a YAML
+  mapping and one <code>SourceName</code>. Whichever entry lost would be the one nobody opened, with the
+  deployment configured as though it had been, and nothing anywhere would say so.
+- <code>NoDataDirectory</code> - The entry names no file location.</p>
+<p>Refused rather than defaulted to <code>catalog.data_dir</code>: a source that inherited the catalog's
+  data directory would be a second source reading the first one's files, which is a
+  configuration nobody wrote and cannot see.
+- <code>RelativeDataDirectory</code> - The path is relative, so it resolves against the process working directory.</p>
+<p>A different directory on every host and never the one the operator meant. <code>catalog.data_dir</code>
+  tolerates a relative path because it is resolved beside a command somebody typed; a source in a
+  registry is read by a service whose working directory is whatever its supervisor chose.
+- <code>RelativePath</code> - A path a kind requires is relative, so it resolves against the process working directory.</p>
+<p>The same fact as <code>Self::RelativeDataDirectory</code> about a different key, and a second variant
+  rather than a widened first one: <code>data_dir</code> is the only key whose absence has a refusal of its
+  own - <code>Self::NoDataDirectory</code> - so folding them would make one message stand for two checks
+  that are not the same. This one names the key.
+- <code>Posture</code> - The <code>posture:</code> word is not one of the two.
+- <code>Kind</code> - The <code>kind:</code> word does not name a data system this build has an adapter for.</p>
+<p><strong>This is where "a source this build cannot open" is refused now</strong>, and it is a parse error
+  rather than a startup one because the vocabulary is closed: the set of kinds is the set of
+  adapters, so a word outside it is a value no build could honour rather than a value this build
+  cannot. Which adapter opens a declared kind is then an exhaustive match in the composition root,
+  so a second kind is a compile error there rather than a case that falls through.
+- <code>Text</code> - A piece of operator-written text on this entry is not usable.
+- <code>Conflict</code> - The entry's two identity declarations contradict each other.
+- <code>MissingForKind</code> - A key this kind requires was not written.
+- <code>KeyNotForKind</code> - A key was written that means nothing for this kind.</p>
+<p><strong>Refused rather than ignored</strong>, because a key an operator wrote and a deployment reads past is
+  a configuration nobody can see - see <code>parse_placement</code> for the argument in full.
+- <code>ResourceName</code> - A declared cloud resource name is not usable.
+- <code>Host</code> - A declared <code>host</code> cannot be dialled at all - a shape refusal, not a reachability one.
+- <code>MissingWorkloadIdentity</code> - An <code>impersonation-at-source</code> source declared no token-exchange setup.</p>
+<p>A source that executes as the asking subject has to say WHICH provider exchanges the subject's
+  token - there is nothing this build could guess, and a per-caller credential has to come out of
+  a declaration rather than a default that pretends one exists.
+- <code>WorkloadIdentityNotImpersonating</code> - A workload-identity block was declared on a source that is not impersonating.</p>
+<p>Refused rather than ignored, for the reason every key a kind has no use for is refused: a
+  declaration that does nothing is a configuration nobody can see.
+- <code>WorkloadIdentity</code> - The declared workload-identity value is not usable.
+- <code>Transport</code> - The declared transport of a source was not usable.</p>
+<p>The transport is the whole channel a source is reached over, so its refusals (an unknown
+  <code>transport_mode</code> word, TLS with no anchors, a key the declared mode would not read, a
+  partial client certificate, a relative path) surface here as a single parse refusal naming
+  the source. The <code>cause</code> names the key.
+- <code>RemoteWithoutTls</code> - A source a network can reach was declared with no transport security.</p>
+<p>Issue 124's fail-closed rule, and the reason <code>plaintext</code> is a written WORD rather than the
+  absence of a setting: a unix socket or a loopback host may declare it, and anything reachable
+  from another machine may not - so a deployment cannot send a password and a whole result set
+  in clear text by leaving a key out. The key named is <code>transport_mode</code>, because declaring a TLS
+  mode and its anchors is the remedy.</p>
 <h4 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-sourceregistry"><code>struct SourceRegistry</code><a class="headerlink" href="#struct-sourceregistry" title="Permanent link">&para;</a></h3>
@@ -5376,8 +5492,11 @@ places to keep one set of sentences.</p>
 <li><code>Empty</code> - Nothing was written, or only whitespace was.</li>
 <li><code>Length</code> - Outside the length the name may be.</li>
 <li><code>Character</code> - A character that is not in the accepted set.</li>
-<li><code>Boundary</code> - The first or last character is one the shape does not allow there.</li>
 </ul>
+<p><strong>The position is carried and the VALUE is not</strong>, which is this workspace's habit for a
+  refusal about operator-written text: a message that quoted the whole value would put a
+  project id into a log, and a project id is one of the things this repository does not print.
+- <code>Boundary</code> - The first or last character is one the shape does not allow there.</p>
 <h5 id="implements_62">Implements<a class="headerlink" href="#implements_62" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="struct-hostname"><code>struct HostName</code><a class="headerlink" href="#struct-hostname" title="Permanent link">&para;</a></h4>
@@ -5455,8 +5574,27 @@ be skipped" look like the same sentence and are not.</p>
 <ul>
 <li><code>Files</code> - A directory of CSV or Parquet files, read by the in-process engine.</li>
 <li><code>BigQuery</code> - A <code>BigQuery</code> dataset, plus the project its jobs are billed to.</li>
-<li><code>Postgres</code> - A <code>PostgreSQL</code> database, reached over a connection the deployment declares.</li>
 </ul>
+<p><strong>The limit, worth stating because the deployment it cannot describe is the one this file's
+  other argument names:</strong> the dataset's OWN project is unrepresentable. The endpoint's
+  <code>defaultDataset</code> resolves an omitted project in the request's project - the billing one - so
+  this placement can only describe a dataset that lives inside the project paying for the job. A
+  dataset owned by a different project than the payer is precisely the case where payer and data
+  owner are different parties because they are different projects, which is the same argument
+  <code>BillingProject</code> makes for existing. <code>location</code> is the same question one size smaller: a
+  dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
+  <code>project</code> nor a <code>location</code> field is added yet because this seam has no transport consuming
+  them; the limit is also stated in <code>docs/adr/0017</code>, and the change that adds the wire is the one
+  that decides the fields.
+- <code>Postgres</code> - A <code>PostgreSQL</code> database, reached over a connection the deployment declares.</p>
+<p><strong>The static-credential half of Postgres: one connection under the declared identity.</strong> The
+  password never appears in the settings tree - it is declared as a FILE, and there is no
+  <code>password</code> key at all: <code>crate::raw::RawSource</code> is <code>deny_unknown_fields</code>, so an inlined literal
+  is refused as an unknown key rather than read and redacted. Reading the file is the adapter's
+  job, at boot, once.</p>
+<p><code>host</code> and <code>port</code> are the network dial; when the source sits on a unix socket, <code>unix_socket</code>
+  is written instead. The two cannot both be set, and which one an operator chooses is what
+  decides whether a non-loopback host must have TLS declared - see <code>PostgresDial</code>.</p>
 <h5 id="methods_41">Methods<a class="headerlink" href="#methods_41" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-218-1"><a id="__codelineno-218-1" name="__codelineno-218-1" href="#__codelineno-218-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
 </span></code></pre></div>
@@ -5576,11 +5714,22 @@ value that would be cloned is a path, which is fine to own here.</p>
 <ul>
 <li><code>UnknownTransport</code></li>
 <li><code>KeyNotReadByMode</code> - A key was written that the declared mode does not read, so nothing would honour it.</li>
-<li><code>TlsWithoutAnchors</code> - A source declared TLS and named no trust anchors.</li>
-<li><code>MissingHalf</code> - A client certificate was written without its key, or the reverse.</li>
-<li><code>MutualWithoutIdentity</code> - A <code>mutual</code> channel declared no client identity at all.</li>
-<li><code>RelativePath</code> - A path a transport declares is relative.</li>
 </ul>
+<p><strong>One refusal for both modes that discard something, and that is the point.</strong> <code>plaintext</code>
+  reads no anchors and no client identity; <code>verified</code> verifies the source's chain and presents
+  nothing, so it reads no client identity either. The failure is identical in both: an
+  operator writes a control, the mode cannot carry it, and a deployment that reads past it
+  starts with that control silently absent. Naming the KEY rather than listing the candidates
+  is what a message reading <em>names <code>transport_anchors</code> or a client certificate</em> could not do.
+- <code>TlsWithoutAnchors</code> - A source declared TLS and named no trust anchors.</p>
+<p>Rule 2 of <code>docs/adr/0010</code>: the trust store is stated, not inherited, so there is no value to
+  fall back to. <code>TrustAnchors</code> has no <code>Default</code> for exactly this refusal's sake.
+- <code>MissingHalf</code> - A client certificate was written without its key, or the reverse.
+- <code>MutualWithoutIdentity</code> - A <code>mutual</code> channel declared no client identity at all.</p>
+<p>Distinct from <code>Self::MissingHalf</code>, which names the half a written pair left out: here
+  nothing was written, so a message that said one half was present would be false. <code>mutual</code>
+  promises this deployment presents a certificate, so the refusal says which keys to write.
+- <code>RelativePath</code> - A path a transport declares is relative.</p>
 <h5 id="implements_70">Implements<a class="headerlink" href="#implements_70" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="fn-parse"><code>fn parse</code><a class="headerlink" href="#fn-parse" title="Permanent link">&para;</a></h4>

@@ -3370,6 +3370,9 @@ the same numbers from a question as anybody else would.</p>
 <li><code>TooMany</code></li>
 <li><code>NotAScopeToken</code> - A character RFC 6749's <code>scope-token</code> production does not allow.</li>
 </ul>
+<p>The position and never the value, like every other refusal in this crate: a scope is caller
+  text, and the character classes that matter most here - a control character, an invisible one -
+  are exactly the ones that would print as nothing.</p>
 <h5 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="struct-scopes"><code>struct Scopes</code><a class="headerlink" href="#struct-scopes" title="Permanent link">&para;</a></h4>
@@ -3721,6 +3724,9 @@ id does not, and the two are different strings to whoever wrote them.</p>
 <li><code>TooLong</code></li>
 <li><code>NotPrintable</code> - Anything outside printable ASCII.</li>
 </ul>
+<p>The position and never the value, for the reason every refusal in this crate names a position:
+  a <code>kid</code> is caller-supplied, and echoing one into a message puts caller text into a log. A
+  newline in particular would append a line nobody wrote, in the record whose job is attribution.</p>
 <h5 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="enum-invalidkeyset"><code>enum InvalidKeySet</code><a class="headerlink" href="#enum-invalidkeyset" title="Permanent link">&para;</a></h4>
@@ -3732,13 +3738,33 @@ id does not, and the two are different strings to whoever wrote them.</p>
 <li><code>NotAJwkSet</code></li>
 <li><code>NoUsableKey</code></li>
 <li><code>KeyWithoutAnId</code> - A key with no <code>kid</code>.</li>
-<li><code>UnusableKeyId</code></li>
-<li><code>DuplicateKeyId</code> - Two keys under one id.</li>
-<li><code>SymmetricKey</code> - A symmetric key.</li>
-<li><code>UnsupportedKeyFamily</code></li>
-<li><code>UnusableKey</code></li>
-<li><code>NoKeyOfThePinnedFamily</code> - Not one key of the family the pinned algorithms need.</li>
 </ul>
+<p>Refused rather than skipped, and the difference matters: a key set whose keys have no ids
+  cannot be looked up by the id a token carries, so a deployment reading one would fall back to
+  "try every key" - which is what makes a rotation invisible and what makes an unknown key id
+  indistinguishable from a wrong signature.
+- <code>UnusableKeyId</code>
+- <code>DuplicateKeyId</code> - Two keys under one id.</p>
+<p><strong>Refused rather than last-wins, which is what review found here.</strong> A map insert made the last
+  entry silently displace the first, so a key set holding two keys under one <code>kid</code> decided which
+  one verifies by its position in a JSON array - and a rotation performed by <em>appending</em> the new
+  key under the old id would then work, while the same document written the other way round
+  would not. There is no reading of a JWK set in which two keys share an id on purpose.
+- <code>SymmetricKey</code> - A symmetric key.</p>
+<p><strong>The second place algorithm confusion dies, and it is here rather than only in the pinned
+  algorithms because the two guard different halves.</strong> A pinned list cannot name <code>HS256</code> - the
+  enum has no such variant - and a key set holding an <code>oct</code> key would still hand this library a
+  key of the HMAC family, whose <em>shared secret</em> is a value the issuer published. Both have to be
+  closed for the attack to be closed.
+- <code>UnsupportedKeyFamily</code>
+- <code>UnusableKey</code>
+- <code>NoKeyOfThePinnedFamily</code> - Not one key of the family the pinned algorithms need.</p>
+<p><strong>The refusal review asked for, and the failure it prevents is a deployment that starts and
+  answers <code>401</code> to everybody.</strong> The library verifies a token with one key and refuses a
+  permitted-algorithm list whose family disagrees with that key, so a key set of RSA keys under
+  <code>algorithms: ["ES256"]</code> cannot verify anything - and every request would be a <code>401</code> with
+  nothing in the log connecting the two. <code>sutura_config::InvalidAlgorithms::MixedFamilies</code>
+  refuses the same shape from the configuration side; this is the half that reads the keys.</p>
 <h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="struct-keyset"><code>struct KeySet</code><a class="headerlink" href="#struct-keyset" title="Permanent link">&para;</a></h4>
@@ -3787,9 +3813,14 @@ either a rotation this deployment has not caught up with or a caller guessing.</
 <h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>RefetchRateLimited</code> - The id is not in the set, and it is too soon to look again.</li>
-<li><code>UnknownKeyId</code> - The id is not in the set after a fresh read.</li>
-<li><code>SourceUnavailable</code></li>
 </ul>
+<p><strong>This is the rate limit firing, and it is a refusal rather than a wait.</strong> Blocking the request
+  until the window opens would make the denial-of-service primitive a slow one instead of
+  removing it: N forged key ids would hold N request tasks. The caller is told it is
+  unauthenticated, which is true, and the retry window is on the log line rather than in the
+  response - a caller does not need to know when this deployment will next talk to its issuer.
+- <code>UnknownKeyId</code> - The id is not in the set after a fresh read.
+- <code>SourceUnavailable</code></p>
 <h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-refreshed"><code>enum Refreshed</code><a class="headerlink" href="#enum-refreshed" title="Permanent link">&para;</a></h4>
@@ -3802,11 +3833,25 @@ rather than logging a rejection once per interval forever.</p>
 <h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Unchanged</code> - The document is byte-for-byte the one the last look examined.</li>
-<li><code>Unavailable</code> - <strong>The source could not be looked at</strong>, or the look did not finish.</li>
-<li><code>Rotated</code> - A new document parsed, held a key of the pinned family, and is now in use.</li>
-<li><code>Rejected</code> - A new document was read and is NOT usable. The previous key set keeps verifying.</li>
-<li><code>NotDue</code> - <strong>The source was not looked at</strong>, because the window has not opened or another caller already reserved this look.</li>
 </ul>
+<p><strong>It does not mean the keys in use came from it.</strong> A rejected candidate is recorded as
+  examined, so the look after one is <code>Unchanged</code> over bytes this deployment refused - which is
+  why the freshness stamp is decided by the candidate's own parse and not by this variant. See
+  <code>Self::Rejected</code>.
+- <code>Unavailable</code> - <strong>The source could not be looked at</strong>, or the look did not finish.</p>
+<p>A variant of its own rather than folded into <code>Self::Unchanged</code>, which is what it used to
+  be - and that fold is half of why the revocation bound excluded a failing refresh. <em>"The
+  source says these are still the keys"</em> and <em>"the source said nothing"</em> are the same fact
+  about the keys and opposite facts about freshness; only the first one stamps
+  <code>Cached::last_success</code>.
+- <code>Rotated</code> - A new document parsed, held a key of the pinned family, and is now in use.
+- <code>Rejected</code> - A new document was read and is NOT usable. The previous key set keeps verifying.
+- <code>NotDue</code> - <strong>The source was not looked at</strong>, because the window has not opened or another caller already reserved this look.</p>
+<p>A fourth variant rather than folding into <code>Self::Unchanged</code>, and the distinction is the whole
+  point of the guard it reports: "the document did not change" is a fact about the source, and
+  "nobody looked" is a fact about this deployment. Collapsing them would make the bound that
+  <code>KeySetCache::reserve</code> enforces unobservable, and a bound nothing can observe is one nothing
+  can test - which is how the concurrent case got past the first round.</p>
 <h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h4 id="struct-keysetcache"><code>struct KeySetCache</code><a class="headerlink" href="#struct-keysetcache" title="Permanent link">&para;</a></h4>
@@ -3995,22 +4040,53 @@ and an error is not a place for credential material.</p>
 <h5 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Absent</code> - No token where this deployment reads one.</li>
-<li><code>NotABearerToken</code> - A header with some other authentication scheme.</li>
-<li><code>TooLong</code></li>
-<li><code>UnreadableHeader</code> - The header is not a JWT header, or names no key.</li>
-<li><code>NoKeyId</code> - No <code>kid</code>.</li>
-<li><code>UnusableKeyId</code></li>
-<li><code>NoKey</code></li>
-<li><code>NotVerified</code> - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.</li>
-<li><code>UnusableSubject</code> - A <code>sub</code> this workspace will not write into a record.</li>
-<li><code>UnusableActor</code></li>
-<li><code>TooManyActors</code> - More nesting in <code>act</code> than <code>MAX_ACTORS</code> allows.</li>
-<li><code>UnusableScope</code></li>
-<li><code>WrongTokenType</code> - The token is of a class this deployment does not accept.</li>
-<li><code>NoIssuedAt</code> - A transit proof with no <code>iat</code>.</li>
-<li><code>LifetimeTooLong</code> - A transit proof declaring a longer life than this deployment will call short-lived.</li>
-<li><code>IssuedInTheFuture</code> - An <code>iat</code> in the future by more than the leeway.</li>
 </ul>
+<p>Its own variant rather than folded into a malformed token, because the two mean different
+  things to whoever is debugging: one is a client that has not been configured, the other is a
+  client whose token is wrong.
+- <code>NotABearerToken</code> - A header with some other authentication scheme.</p>
+<p><strong>Its own variant because it used to be <code>Self::Absent</code>, and that was the wrong diagnostic.</strong> A
+  client sending <code>Basic</code> or <code>Negotiate</code> here is a client configured for a different service, and a
+  log saying nothing was presented sends whoever reads it looking for a missing header. The scheme
+  itself is not rendered: it is caller text.
+- <code>TooLong</code>
+- <code>UnreadableHeader</code> - The header is not a JWT header, or names no key.
+- <code>NoKeyId</code> - No <code>kid</code>.</p>
+<p>Required rather than optional, and that is a decision: a token with no key id can only be
+  verified by trying every key in the set, which makes an unknown key indistinguishable from a
+  bad signature and makes rotation invisible. Every authorization server that publishes a key set
+  sets it.
+- <code>UnusableKeyId</code>
+- <code>NoKey</code>
+- <code>NotVerified</code> - The signature, the expiry, the issuer, the audience - or the claims failing to deserialize.</p>
+<p><strong>All four crypto failures in one variant, and that is deliberate rather than lazy.</strong> The
+  library reports which, and it goes to the log through the inner <code>#[source]</code>; what must not
+  happen is a <em>response</em> that distinguishes them, because "the signature is fine and the
+  audience is wrong" tells a caller which half of a forgery to fix. A caller is told it is
+  unauthenticated. The claims-not-deserializing case is split out as <code>NotVerified::Json</code>,
+  because a serde message embeds the raw claim value - see that variant for why it carries no
+  <code>#[source]</code>.
+- <code>UnusableSubject</code> - A <code>sub</code> this workspace will not write into a record.
+- <code>UnusableActor</code>
+- <code>TooManyActors</code> - More nesting in <code>act</code> than <code>MAX_ACTORS</code> allows.
+- <code>UnusableScope</code>
+- <code>WrongTokenType</code> - The token is of a class this deployment does not accept.</p>
+<p><strong>The refusal that closes cross-JWT substitution.</strong> It carries the required type - a configured
+  value, so safe to render - and the presented one only when that presented value <strong>passed
+  <code>TokenType::parse</code></strong>, which bounds its length and its character set. A <code>typ</code> is caller-adjacent
+  text, so the rule about not putting caller text in a message applies; a value that has been
+  through a parse is the workspace's own answer to that, the same way a <code>KeyId</code> is.
+- <code>NoIssuedAt</code> - A transit proof with no <code>iat</code>.</p>
+<p>Its own variant rather than folded into <code>Self::NotVerified</code>, because the library cannot
+  require <code>iat</code> - <code>required_spec_claims</code> honours <code>exp</code>, <code>nbf</code>, <code>aud</code>, <code>iss</code> and <code>sub</code> and nothing
+  else - so this is a check of ours and a reader should be able to tell. Only the
+  <code>behind-gateway</code> mode requires it: without an <code>iat</code> there is no lifetime to bound, and the
+  lifetime is the only thing standing between an intercepted assertion and an unbounded replay.
+- <code>LifetimeTooLong</code> - A transit proof declaring a longer life than this deployment will call short-lived.
+- <code>IssuedInTheFuture</code> - An <code>iat</code> in the future by more than the leeway.</p>
+<p>A separate refusal from an expiry, because it says something different: a proof issued in the
+  future is a clock that disagrees or a claim somebody wrote, and either way the lifetime bound
+  above cannot be trusted to mean what it says.</p>
 <h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-notverified"><code>enum NotVerified</code><a class="headerlink" href="#enum-notverified" title="Permanent link">&para;</a></h4>
@@ -4021,8 +4097,14 @@ and an error is not a place for credential material.</p>
 <h5 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Crypto</code> - The signature, the expiry, the issuer or the audience.</li>
-<li><code>Json</code> - The claims in the presented token did not deserialize.</li>
 </ul>
+<p>The library's message for these is a fixed sentence - no claim value names itself - so it is
+  safe to let it reach an operator's log through <code>#[source]</code>.
+- <code>Json</code> - The claims in the presented token did not deserialize.</p>
+<p>Deliberately no <code>#[source]</code>: a serde message embeds the raw claim value, which is
+  caller-chosen text a log must not carry. The failure is named without the text that caused
+  it - the same rule that keeps a rejected filter value out of a message, applied to the one
+  place a claim value could have reached a log.</p>
 <h5 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-presentedtype"><code>enum PresentedType</code><a class="headerlink" href="#enum-presentedtype" title="Permanent link">&para;</a></h4>
@@ -4430,17 +4512,65 @@ come from the variant, so two handlers cannot answer the same situation with dif
 <h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Unauthorized</code> - A credential is required and was absent, malformed or wrong.</li>
-<li><code>InsufficientScope</code> - The caller is authenticated and was not granted the capability this route needs.</li>
-<li><code>ToolNotEnabled</code> - The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct from <code>Self::InsufficientScope</code>, where the caller's own credential is what is missing.</li>
-<li><code>NotAQuestion</code> - The body is not a question. Carries a message naming the field.</li>
-<li><code>TooLarge</code> - The body is larger than the configured bound.</li>
-<li><code>RateLimited</code> - Too many requests from this address, too quickly.</li>
-<li><code>Timeout</code> - The request took longer than the configured bound.</li>
-<li><code>Internal</code> - Something on our side went wrong. Carries nothing.</li>
-<li><code>Unavailable</code> - The data system did not answer. Distinguished from <code>Self::Internal</code> because it is the one failure that is worth retrying, and a caller cannot tell from a 500.</li>
-<li><code>IdentityUnavailable</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</li>
-<li><code>AtCapacity</code> - Every execution slot was taken for the whole admission window, so the question was shed.</li>
 </ul>
+<p>One variant for all three, deliberately: telling a caller which of the three they got wrong
+  is telling them whether the secret they tried was close.
+- <code>InsufficientScope</code> - The caller is authenticated and was not granted the capability this route needs.</p>
+<p><strong><code>403</code> and not <code>401</code>, and the difference is the whole point.</strong> A <code>401</code> says <em>present a
+  credential</em>; this says <em>the credential you presented is valid and does not carry this</em>. A
+  client told <code>401</code> re-authenticates and gets the same token back, forever.</p>
+<p><strong>It names the scope, which is the one place in this module a refusal is deliberately more
+  informative than the others</strong>, and RFC 6750 section 3.1 is why: <code>insufficient_scope</code> is defined
+  to carry the scope required, because the caller here is a client an operator configured and the
+  fix is a grant at an authorization server. Without it, a deployment that switched
+  <code>security.inbound</code> on before authoring scopes gets an empty tool list and a <code>403</code> with nothing
+  to act on. The scope strings are <code>sutura_app::Capability::scope</code>'s own literals - published, and
+  the same for every deployment - so this leaks a capability's existence and nothing about <em>this</em>
+  deployment.</p>
+<p><code>&amp;'static str</code> rather than a <code>String</code>: the value can only be a capability's own literal, and a
+  type that could hold caller text is a type somebody reflects caller text through.
+- <code>ToolNotEnabled</code> - The capability exists on this surface, but this DEPLOYMENT never turned it on - distinct from <code>Self::InsufficientScope</code>, where the caller's own credential is what is missing.</p>
+<p><strong><code>403</code>, the same status, a different code and sentence.</strong> <code>docs/adr/0013</code>'s off-by-default
+  raw SQL tool is the first capability this applies to: a caller told <code>insufficient_scope</code>
+  for a route no scope can turn on would go obtain a grant that could never help. Checked
+  BEFORE the scope, in <code>crate::capability::require_capability</code> - the deployment's own switch
+  is the reason a caller with every scope this surface issues still cannot reach the route.
+- <code>NotAQuestion</code> - The body is not a question. Carries a message naming the field.</p>
+<p><strong>The one <code>String</code> in this enum, two lines under the rule that warns about one</strong>, so the
+  reason is here rather than left as an exception a reader has to reconstruct. <code>detail</code> is not
+  free-form: it is <code>describe()</code>'s walk of one
+  <code>sutura_domain::question::MalformedQuestion</code>'s cause chain, and that type's own note is
+  where the property this relies on is stated and asserted - no variant of it, and no link of
+  any variant's chain, carries the caller's own value. So this holds a rendered sentence about
+  which field was wrong, never the field's contents. A cause chain that started carrying them
+  again would reach a caller through here, which is why the assertion lives beside the chain
+  and not beside this variant.
+- <code>TooLarge</code> - The body is larger than the configured bound.</p>
+<p>Separate from <code>Self::NotAQuestion</code> even though both arrive as the same extractor
+  rejection: a caller who sent something too big has a different thing to fix than one who
+  sent the wrong shape, and only the status tells them which.
+- <code>RateLimited</code> - Too many requests from this address, too quickly.
+- <code>Timeout</code> - The request took longer than the configured bound.
+- <code>Internal</code> - Something on our side went wrong. Carries nothing.
+- <code>Unavailable</code> - The data system did not answer. Distinguished from <code>Self::Internal</code> because it is the one failure that is worth retrying, and a caller cannot tell from a 500.
+- <code>IdentityUnavailable</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</p>
+<p><strong>Shares the status with <code>Self::Unavailable</code> and not the code.</strong> Both are worth retrying, and
+  the two are diagnosed in different places: one is a data system that is unwell and this is the
+  authorization server the identity path depends on. <code>docs/adr/0014</code> states the requirement that
+  the two stay distinguishable - a caller told the same sentence for both retries an outage that
+  will clear the same way it retries one that will not.</p>
+<p>Carries nothing. Which issuer this deployment talks to is not the caller's business.
+- <code>AtCapacity</code> - Every execution slot was taken for the whole admission window, so the question was shed.</p>
+<p><strong><code>503</code> and not <code>429</code>, and the two say different things.</strong> A <code>429</code> is "you personally asked
+  too often", which is a claim about the caller - and the rate limiter already makes it, keyed
+  on an address. This is "the service has no capacity right now", which is a claim about the
+  deployment and is true whoever asked. A caller inside their own rate limit can reach this,
+  and telling them to slow down would be advice they cannot act on.</p>
+<p>Shares the status with <code>Self::Unavailable</code> and not the code, because the two are retried
+  the same way and diagnosed differently: one is a data system that is unwell, the other is
+  this service being full. <code>code</code> is what a client branches on, and the pair of them is why
+  the code exists at all.</p>
+<p>Carries how long to wait, already known: the admission window just spent waiting it out.</p>
 <h4 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>IntoResponse</code></p>
 <h3 id="struct-problembody"><code>struct ProblemBody</code><a class="headerlink" href="#struct-problembody" title="Permanent link">&para;</a></h3>
@@ -4535,9 +4665,26 @@ types already ruled out or a fail-open fallback. See <code>middleware::LimiterNo
 <ul>
 <li><code>Limiter</code></li>
 <li><code>Reaper</code> - The housekeeping thread for the limiter's keyed state would not start.</li>
-<li><code>InboundIdentityNotAttached</code> - The settings declare an inbound identity and the state carries no gate to establish it.</li>
-<li><code>RouteNotGoverned</code> - A route under the version prefix that <code>crate::capability::governed</code> names no capability for.</li>
 </ul>
+<p>A refusal and not a warning, for the reason every refusal in this codebase is one: the
+  alternative is a process that runs with a keyed store nothing ever sweeps, which is a slow
+  leak that no request will ever reveal.
+- <code>InboundIdentityNotAttached</code> - The settings declare an inbound identity and the state carries no gate to establish it.</p>
+<p><strong>The mechanism that makes attaching leg 1 unforgettable.</strong> <code>crate::inbound::InboundGate</code> is
+  built by the composition root, because building it reads a key set - so there is a state in
+  which a deployment has declared <code>security.inbound</code> and nothing is verifying anything. Without
+  this refusal that deployment would serve, answer every question as
+  <code>sutura_domain::identity::Subject::TheDeploymentItself</code>, and log a startup line saying it
+  establishes a caller identity. It fails to assemble instead.
+- <code>RouteNotGoverned</code> - A route under the version prefix that <code>crate::capability::governed</code> names no capability for.</p>
+<p><strong>The mechanism that makes the capability gate unforgettable</strong>, and it is deliberately a
+  refusal to assemble rather than a refusal at request time. The gate is a layer, so a handler
+  cannot forget to call it; what is left to forget is a row in the table, and a route with no row
+  would either be refused to every caller or - if the layer fell open - be reachable by every
+  caller. Neither is something to discover from a request.</p>
+<p>It reads the generated interface description, which is generated from the handlers' own
+  <code>#[utoipa::path]</code> attributes - so it is checked against the routes the router actually mounts
+  and not against a second list somebody kept in step.</p>
 <h4 id="implements_27">Implements<a class="headerlink" href="#implements_27" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-assembled"><code>struct Assembled</code><a class="headerlink" href="#struct-assembled" title="Permanent link">&para;</a></h3>
@@ -4608,6 +4755,9 @@ socket is bound.</p>
 <li><code>Serve</code></li>
 <li><code>Tls</code> - The configured certificate and key are not usable.</li>
 </ul>
+<p>Returned before the socket is bound, which is the property that matters: TLS was asked for
+  and could not be established, so there is no listener at all rather than a plaintext one on
+  a port somebody configured to be encrypted.</p>
 <h4 id="implements_29">Implements<a class="headerlink" href="#implements_29" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-serve"><code>fn serve</code><a class="headerlink" href="#fn-serve" title="Permanent link">&para;</a></h3>
@@ -4816,11 +4966,21 @@ is bound.</p>
 <li><code>Unreadable</code> - The file could not be read at all: absent, or not readable by this process.</li>
 <li><code>NoCertificate</code> - The file was read and held no PEM certificate.</li>
 <li><code>NoKey</code> - The file was read and held no PEM private key.</li>
-<li><code>TooLarge</code> - The file is larger than any certificate chain or private key is.</li>
-<li><code>Malformed</code> - A PEM block was found and did not parse.</li>
-<li><code>KeyDoesNotMatch</code> - The key does not belong to the certificate.</li>
-<li><code>NotConfigurable</code> - The server configuration itself would not build.</li>
 </ul>
+<p>Also what a key file that is not UTF-8 is reported as, and that is not a widened meaning: PEM
+  is ASCII-armoured by definition, so bytes that are not text are not a PEM private key.
+- <code>TooLarge</code> - The file is larger than any certificate chain or private key is.</p>
+<p>See <code>MAX_MATERIAL_BYTES</code>. The refusal names the cap rather than the size found, because the
+  size found is one byte past the cap and nothing else is known about the file.
+- <code>Malformed</code> - A PEM block was found and did not parse.
+- <code>KeyDoesNotMatch</code> - The key does not belong to the certificate.</p>
+<p><strong>The variant this whole module is careful about.</strong> rustls will build a <code>ServerConfig</code> from a
+  mismatched pair without complaint; what fails is every handshake, at the client, with a
+  signature error that says nothing about a configuration file. Checked here so it is a startup
+  refusal - or, on a reload, a rejected candidate and a listener that keeps working.
+- <code>NotConfigurable</code> - The server configuration itself would not build.</p>
+<p>Unreachable from a pair that got this far, and an error rather than a panic for the reason
+  <code>crate::middleware::LimiterNotBuilt</code> is one.</p>
 <h4 id="implements_31">Implements<a class="headerlink" href="#implements_31" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-termination"><code>struct Termination</code><a class="headerlink" href="#struct-termination" title="Permanent link">&para;</a></h3>
