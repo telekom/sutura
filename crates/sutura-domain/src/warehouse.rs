@@ -205,6 +205,14 @@ pub enum PreFlight {
 /// because the same adapter is correct in either posture and only the deployment knows which one it
 /// is being asked for.
 ///
+/// **[`Self::posture`]'s limit, stated where it publishes rather than on the method alone:** it
+/// answers the value the root handed over at construction. Every adapter this workspace ships now
+/// checks a leg's [`Presented`] credential against it before running - `Presented::agrees_with`,
+/// called once per leg inside all four adapters' own `execute` - so the comparison is per LEG, not
+/// only at boot. What that proves is that the credential offered for this leg matches how the
+/// source was declared, not that the data system itself evaluated anybody's authorization: there is
+/// no round trip back from the data system confirming which identity it actually ran as.
+///
 /// **An adapter that declares no impersonation capability does not compile:**
 ///
 /// ```compile_fail
@@ -369,10 +377,13 @@ pub trait Warehouse {
     /// tree instead would report a leg as impersonated on the strength of a file, which is the one
     /// thing that field exists to stop.
     ///
-    /// The limit is worth naming with the claim: today this is still the value the root handed over,
-    /// so what it proves is that configuration reached the adapter - not that the data system
-    /// evaluated anybody's authorization. That becomes a stronger claim when the execution port takes
-    /// a credential per leg and the adapter matches exhaustively on what it received.
+    /// The limit is worth naming with the claim: this is still the value the root handed over at
+    /// construction, and every adapter this workspace ships now checks a leg's presented credential
+    /// against it before running - `Presented::agrees_with`, called once per leg inside all four
+    /// adapters' own `execute`. What that proves is that the credential offered for this leg matches
+    /// how the source was declared - not that the data system itself evaluated anybody's
+    /// authorization. There is no round trip back from the data system confirming which identity it
+    /// actually ran as; `posture()` remains a value this process asserts about itself.
     fn posture(&self) -> &SourcePosture;
 
     /// Checks the plan is executable here, without producing rows.

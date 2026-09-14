@@ -127,6 +127,12 @@ const ALPN_HTTP11: &[u8] = b"http/1.1";
 /// neither - and stops there, because that crate reads no files; everything below is a question only
 /// a TLS implementation can answer, and this is where they are all answered. Once, before the socket
 /// is bound.
+///
+/// **A path is a filesystem path, not a secret, and naming one here is safe because of where this
+/// error stops rather than because of what it names.** Every value this type is constructed from is
+/// returned before a socket is bound, or caught inside the rotation loop and only logged - both
+/// root-only. It never crosses into a request or a response, because no connection exists yet when
+/// either runs.
 #[derive(Debug, thiserror::Error)]
 pub enum TlsNotUsable {
     /// The file could not be read at all: absent, or not readable by this process.
@@ -291,6 +297,12 @@ impl Pem {
 /// that grows between the two calls is not a case this has to reason about. One byte past the cap is
 /// read on purpose - that is what distinguishes "too large" from "exactly the cap". The same shape
 /// `sutura_exec_bigquery::wire::credential::Credential::read` uses, for the same reason.
+///
+/// **The path is a filesystem path, not a secret, and it is safe to print here because of where
+/// this error stops.** [`TlsNotUsable`] is returned by [`Termination::prepare`], called before the
+/// socket is bound, or caught inside [`Renewal::reread`] and only `tracing::warn!`ed - both
+/// root-only. It never crosses into a request or a response, because no connection exists yet when
+/// either runs.
 fn read_file(what: &'static str, path: &Path) -> Result<Vec<u8>, TlsNotUsable> {
     let unreadable = |cause| TlsNotUsable::Unreadable {
         what,

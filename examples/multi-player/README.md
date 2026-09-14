@@ -26,11 +26,14 @@ Two things make a deployment multi-player, and both are configuration rather tha
   by the trusted component). Either way the deployment knows the caller's subject, and the caller
   cannot state their own identity in a request body - `docs/adr/0014`.
 
-Those are two different refusals for two different configuration mistakes. A deployment that
-*declares* an inbound mode but attaches no gate to it is refused as
-`RouterNotBuilt::InboundIdentityNotAttached` before the listener opens; a multi-user deployment whose
-`shared-service-user` source carries no acknowledgement is refused at boot as
-`SharedSourceNotAcknowledged`. The reference is `docs/serving.md`.
+Only the second of these is a configuration mistake an operator can make.
+`RouterNotBuilt::InboundIdentityNotAttached` is the composition root's own wiring guard: `sutura
+serve` always builds and attaches the gate whenever `security.inbound` is declared
+(`crates/sutura-serve/src/main.rs`'s `inbound_gate`), so no settings file reaches this refusal - it
+exists to fail a *future* root that forgot to call `ServiceState::with_inbound_identity`, not a
+deployment's own choices. A multi-user deployment whose `shared-service-user` source carries no
+acknowledgement, by contrast, genuinely is refused at boot as `SharedSourceNotAcknowledged` by
+something the operator wrote. The reference is `docs/serving.md`.
 
 The catalog is DataHub, read by `sutura-catalog-datahub` - the first **declaring** `SemanticCatalog`.
 It provides `Structure`, `Descriptions` and `Relationships` unconditionally, and the metric kinds as
@@ -50,7 +53,7 @@ example's metric arrives as this - the canonical shape `sutura-catalog-datahub` 
   "dialect": "ANSI_SQL",
   "expression": "SUM(amount_cents)",
   "sutura": {
-    "string_value": "{\"model\":\"orders\",\"description\":\"Net revenue in minor units, from active orders.\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"required_filters\":[{\"equals\":{\"column\":\"status\",\"value\":\"active\"}}],\"dimensions\":[{\"name\":\"segment\",\"column\":\"segment\",\"via\":\"orders_to_customer\",\"allowed_values\":[\"retail\",\"wholesale\"]}],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"},\"value\":\"412345\"}}"
+    "string_value": "{\"model\":\"orders\",\"description\":\"Net revenue in minor units, from active orders.\",\"measure\":{\"simple\":{\"aggregate\":\"sum\",\"column\":\"amount_cents\"}},\"time_column\":\"order_date\",\"grains\":[\"month\"],\"required_filters\":[{\"equals\":{\"column\":\"status\",\"value\":\"active\"}}],\"dimensions\":[{\"name\":\"segment\",\"column\":\"segment\",\"via\":\"orders_to_customer\",\"allowed_values\":[\"retail\",\"wholesale\"],\"description\":\"The customer's segment.\"}],\"anchor\":{\"range\":{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"},\"value\":\"412345\"}}"
   }
 }
 ```

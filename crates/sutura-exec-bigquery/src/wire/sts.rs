@@ -40,8 +40,11 @@ struct Request<'a> {
 
 /// The answer, with the two fields this adapter reads.
 ///
-/// **`expires_in` arrives as text**, because the endpoint writes 64-bit integers as JSON strings -
-/// the same shape `BigQuery`'s `totalRows` arrives in.
+/// **`expires_in` arrives as a JSON number, not text.** Google's STS discovery document types it
+/// `integer`/`int32`; that is unlike `BigQuery`'s `totalRows`, which is `string`/`uint64` and is why
+/// that field genuinely needs the text-shaped type this crate uses for it. A prior version of this
+/// comment claimed the same shape for both fields; `tests::a_bare_json_integer_is_what_deserializes`
+/// pins the real one so that claim cannot silently return.
 #[derive(serde::Deserialize)]
 struct Response {
     access_token: String,
@@ -168,8 +171,34 @@ impl StsExchange for StsOverHttp {
 
 #[cfg(test)]
 mod tests {
-    use super::{GRANT_TYPE_EXCHANGE, Request, SUBJECT_JWT};
+    use super::{GRANT_TYPE_EXCHANGE, Request, Response, SUBJECT_JWT};
     use sutura_domain::identity::Secret;
+
+    /// Pins the documented shape: Google's STS discovery document types `expires_in`
+    /// `integer`/`int32`, a bare JSON number - never quoted, unlike `BigQuery`'s `totalRows`
+    /// (`string`/`uint64`). If a future edit widened this field to accept text, to match the
+    /// claim this module's doc comment used to make, this is the cell that would catch it.
+    ///
+    /// **Not a regression test for this commit, stated plainly rather than left for `test-causality`
+    /// to answer wrong.** `Response::expires_in`'s type did not change here - only the comment above
+    /// it did, from a false claim to a correct one - so this cell is green against both the base and
+    /// the head of this diff by construction: there is no behaviour difference for it to detect yet.
+    /// It is a CONTRACT pinning the field's real shape against a future edit, not a proof that this
+    /// diff changed anything a reverted tree would lose.
+    #[test]
+    fn a_bare_json_integer_is_what_deserializes() {
+        let response: Response = serde_json::from_str(r#"{"access_token":"minted","expires_in":3599}"#)
+            .expect("the real endpoint sends a bare integer, not a quoted one");
+        assert_eq!(response.access_token, "minted");
+        assert_eq!(response.expires_in, Some(3599));
+    }
+
+    /// The shape the doc comment used to claim, shown not to be the one this type reads.
+    #[test]
+    fn a_quoted_expires_in_does_not_deserialize() {
+        let quoted = serde_json::from_str::<Response>(r#"{"access_token":"minted","expires_in":"3599"}"#);
+        assert!(quoted.is_err(), "a quoted number is not the shape the real endpoint sends");
+    }
 
     #[test]
     #[expect(

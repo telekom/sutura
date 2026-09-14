@@ -7,10 +7,14 @@
 //!
 //! Three things about this module are load-bearing rather than incidental.
 //!
-//! **No `Debug` derive, anywhere.** A raw shape holds the access token as a plain `String`, so a
-//! `{:?}` on one would print it. The redaction lives in [`sutura_domain::identity::Secret`], and
-//! the raw tree is converted into types that hold one before anything logs anything. Not deriving
-//! `Debug` is what makes that ordering impossible to get wrong: there is nothing to print.
+//! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the access token,
+//! password and key paths as plain `String`s, so a `{:?}` on it would print them; a shape that
+//! carries none of that - [`RawWorkloadIdentity`], [`RawGovernance`], [`RawSpendCeiling`] - derives
+//! `Debug` deliberately, each saying so beside the derive. The redaction lives in
+//! [`sutura_domain::identity::Secret`], and the raw tree is converted into types that hold one
+//! before anything logs anything. Not deriving `Debug` on [`RawSource`] is what makes that ordering
+//! impossible to get wrong there: there is nothing to print. **This is review discipline, not a
+//! gate** - nothing here refuses a `Debug` derive added to a secret-holding shape later.
 //!
 //! **`deny_unknown_fields` at every depth.** A misspelled key is otherwise dropped in silence and
 //! the service runs on the default the operator thought they had overridden - which is the same
