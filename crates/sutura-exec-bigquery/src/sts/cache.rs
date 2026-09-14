@@ -155,6 +155,27 @@ impl Entry {
 /// `Clone`, and a clone that got an EMPTY cache instead of the shared one would silently halve
 /// whatever composed two of them's hit rate. Sharing state across a clone is what `Arc` is for;
 /// nothing here escapes the borrow checker with it.
+///
+/// **Unreachable from outside this crate - not merely uncallable.** A doctest compiles as its own
+/// crate depending on this one as an external dependency, so it can only name what this crate
+/// exports; `sts` is a private module (`mod sts;` in `lib.rs`, nothing re-exports it), so there is
+/// no path to this type at all, let alone a constructor:
+///
+/// ```compile_fail
+/// let _ = sutura_exec_bigquery::sts::cache::CredentialCache::new(
+///     std::num::NonZeroUsize::new(1).expect("a doctest capacity is non-zero"),
+///     std::time::Duration::from_secs(60),
+/// );
+/// ```
+///
+/// The compiling twin, so the failure above is the privacy error it claims to be and not a typo
+/// elsewhere in the path: the same crate, the same style of path, one level up - where
+/// [`super::WorkloadIdentityBroker`]'s own module (`sts`) IS re-exported through, because
+/// `WorkloadIdentityBroker` itself is `pub`:
+///
+/// ```
+/// fn _reachable(_: sutura_exec_bigquery::SystemClock) {}
+/// ```
 #[derive(Debug)]
 pub(super) struct CredentialCache {
     entries: parking_lot::Mutex<HashMap<ExchangeKey, Entry>>,
