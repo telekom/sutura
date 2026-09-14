@@ -2712,9 +2712,10 @@ are escaped in <code>OutcomeContent::as_text</code>, catalog prose is quoted per
 in each render. The shared injection corpus both transports walk lives in <code>sutura_app::untrusted</code>.
 The amendment at the foot of this record extends <code>catalog_prose: omitted</code> to the HTTP catalog body,
 which this record's first version reasoned its way out of needing - see <em>Decision 1</em> and the
-amendment for why the encoder argument does not reach that question. What is decided here and NOT yet
-built is one half of Decision 3 - the raw SQL tool's failure text - because the raw tool itself
-(<code>#129</code>) does not exist yet.</p>
+amendment for why the encoder argument does not reach that question. What is decided here is now built, and the raw
+SQL tool (<code>#129</code>) honours it by a stronger mechanism than this record predicted: its refusal
+vocabulary carries no data-system text at all, so the failure-text quoting this decision asked for
+has nothing left to quote - the boundary is named instead.</p>
 <p>This record exists because <code>docs/adr/0009</code> asked for it to be <strong>decided before an envelope exists</strong>:
 retrofitting a field boundary afterwards is the expensive half, and the question "what marks a value
 as untrusted" is one you answer twice - once for the boundary you already have and once for the one
@@ -2778,8 +2779,12 @@ answer path, because the certified path never detects. If a future envelope cann
 cell structurally inoffensive, the envelope's answer is the refusal <code>docs/adr/0009</code> wants - never a
 cell silently shortened to fit.</p>
 <h2 id="decision-3-the-raw-tools-failure-text-is-untrusted-output-from-the-moment-it-exists">Decision 3: the raw tool's failure text is untrusted output from the moment it exists<a class="headerlink" href="#decision-3-the-raw-tools-failure-text-is-untrusted-output-from-the-moment-it-exists" title="Permanent link">&para;</a></h2>
-<p><code>#129</code>'s raw SQL tool is not built. Its one boundary that needs deciding in advance is what its
-failure text may carry, because <strong>whoever controls a statement controls part of the message a
+<p><code>#129</code>'s raw SQL tool is built, and it honours this decision by a stronger mechanism than this record
+predicted: its refusal vocabulary, <code>sutura_domain::raw::RawRefusalReason</code>, is a closed enum that
+carries no data-system text at all - a driver's <code>Display</code> has no field to reach - so a caller is told
+the shape of the failure (<code>refused ({code})</code>) and the boundary (<code>UNTRUSTED_RAW_NOTICE</code>), never the
+data system's own words. Its one boundary that needed deciding in advance was what its failure text
+may carry, because <strong>whoever controls a statement controls part of the message a
 database returns about it.</strong> The error channel on the certified path is closed - <code>sutura-http</code>
 logs the driver's complaint and returns a status with no message, because a driver's complaint names
 a table, a column or a file. The raw tool cannot hold that line: its entire reason to exist is that
