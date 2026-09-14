@@ -30,6 +30,16 @@
 //! recipes export [`RELAXED`], because only the ordinary dev shell they run in is the crowded one:
 //! `sutura_dev::requirement`'s own header states the parallel rule for a different variable - "only
 //! the thing that provisions ... knows that it did", so it opts in, and nothing else does.
+//!
+//! **Locally, `RELAXED` cannot be un-set either - `justfile`'s own export wins.** `just test` and
+//! `just causality` `export SUTURA_DEV_RELAXED_TOLERANCE=1` inside their own recipe body, after the
+//! shell that invokes `just` has already started, so stripping the variable from the invoking
+//! shell (`env -u SUTURA_DEV_RELAXED_TOLERANCE just test`) changes nothing - the recipe sets it
+//! again regardless. **The only lever that reaches [`decide`] first is `GITHUB_ACTIONS=true`**,
+//! which wins over `RELAXED` unconditionally (this module's own belt-and-suspenders case, and
+//! [`decide`]'s own test names it): `GITHUB_ACTIONS=true just test` is how a developer asks what CI
+//! would enforce, and there is presently no other way to. Measured, not designed in: the first
+//! attempt at exactly this ask silently ran the RELAXED path anyway.
 
 use std::time::Duration;
 
