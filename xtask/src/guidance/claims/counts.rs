@@ -94,6 +94,11 @@ pub(in crate::guidance) struct Counted {
     /// absent here - but the scope is still widened by naming exact files rather than a blanket
     /// `.rs` glob, so a new source file does not silently become a place this number may be
     /// asserted without anyone deciding that. Empty means no Rust file states it.
+    ///
+    /// The other half of that trade: a `.rs` site not named here is not read AT ALL, so a wrong
+    /// number stated in a file that never earned a place on this list passes as silently as one
+    /// that carries no number ever does. Naming a file here is what turns it into a place the
+    /// gate compares to the tree - the file listing itself decides nothing.
     pub(super) also_stated_in: &'static [&'static str],
     /// The noun phrase the number belongs to. The count is the integer IMMEDIATELY BEFORE it.
     ///
@@ -108,8 +113,7 @@ pub(in crate::guidance) struct Counted {
     pub(super) marker: &'static str,
 }
 
-/// TWO entries, and the table is short on purpose: a number is worth a gate when it carries an
-/// ARGUMENT.
+/// The table is short on purpose: a number is worth a gate when it carries an ARGUMENT.
 ///
 /// The row cap's does - it says the SQL leg is pinned across the corpus rather than in one
 /// snapshot, and `39` was written when there were 39 and read as current at 63. The `pub trait`
@@ -205,8 +209,11 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         stop_before: "#[cfg(test)]",
         granularity: Granularity::Occurrences,
         // The two Rust sites are `also_stated_in`, not here: `.rs` is outside `mentioned_in`'s
-        // scope everywhere in this gate.
-        mentioned_in: &["docs/serving.md"],
+        // scope everywhere in this gate. The doc/config side reads the same glob every sibling
+        // entry does, not just `docs/serving.md`: narrowed to one path, a fifth site stating this
+        // number in the exact registered wording anywhere else under `docs/**` would be unread,
+        // even though the claim scope already covers it.
+        mentioned_in: &[".agents/skills/**", "AGENTS.md", "docs/**", "README.md"],
         also_stated_in: &[
             "crates/sutura-http/src/wire/refusal.rs",
             "crates/sutura-http/src/routes/v1/query.rs",

@@ -437,10 +437,17 @@ panic-free.
   glob, and the check holds nothing when no page states the value. The count was in that state
   after the router rewrite carried the invariants table out of `AGENTS.md` and its `mentioned_in`
   list stayed behind. **A glob matching nothing was already a failure**; what is new is that a
-  value no page states is a failure too, so the comparison cannot run over an empty set. The other
+  value no page states is a failure too, so the comparison cannot run over an empty set. Another
   silent-green mode is granularity: an entry counting FILES over a literal that can repeat inside
   one is right only by coincidence, which is why each entry declares files or occurrences rather
-  than inheriting a default.
+  than inheriting a default. A third is scope: an entry whose `mentioned_in` names one path rather
+  than the shared doc/config glob only reads that file, so the exact registered wording restated
+  anywhere else escapes it - measured as `check-guidance: ok` against a planted duplicate before
+  the glob was widened. A fourth is the `stop_before` boundary a fixture-heavy file needs: it cuts
+  text, not tokens, so a second occurrence of the same marker earlier in the file - inside a doc
+  comment explaining the mechanism, say - truncates there instead. That one fails LOUD rather than
+  silent, which is the design's own case for it: cutting to zero trips the zero-count floor and
+  cutting mid-file trips the mismatch, so the wrong boundary is a red run, not a quiet one.
 - **THE VERSION SHAPE WAS THAT SAME CHECK AND IS GONE, because it REQUIRED the copy it was
   guarding.** One pin, the compiler, compared against every page naming `rust-toolchain.toml`
   beside a version - so its vacuity arm demanded that some page state one, and for a while SIX

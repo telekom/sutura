@@ -577,9 +577,9 @@ mod tests {
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both
         // times - `github.com/telekom/sutura#603`, `#670`, `#676`. `COUNTS`
         // (`xtask/src/guidance/claims/counts.rs`) now derives this number from the arms above and
-        // refuses `check-guidance` if this comment, `docs/serving.md`'s or
-        // `routes/v1/query.rs`'s says anything else - the limit being that it holds only those
-        // three registered sites, not every mention anywhere. A test pinning it to
+        // refuses `check-guidance` if this comment, this file's own module header, `docs/serving.md`'s
+        // or `routes/v1/query.rs`'s says anything else - the limit being that it holds only every
+        // registered site, not every mention anywhere. A test pinning it to
         // `every_reason` was written and then removed: it passed against base as well, and `just
         // causality` refuses a test that cannot go red.
         let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
