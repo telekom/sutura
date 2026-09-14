@@ -9,6 +9,13 @@
 //! #266's A1, and it is the failure mode this repository names as its worst: prose describing a
 //! control as stronger than the code.
 //!
+//! **`run_sql` is the second door, added for `#129` step 5.** `LocalService::run_sql` writes the
+//! same kind of record `answer` does (`CallRecord::of_raw`, `docs/adr/0013`'s ramp section), through
+//! the same sink, before the same `Ok` - so a caller reaching `sutura_app::run_sql` directly is
+//! exactly A1's bypass again, over the raw tool's own audit write instead of the certified one. This
+//! module now guards both doors with one classifier ([`names_the_door`]) and one liveness check
+//! ([`door_line`]) applied twice, once per door's own defining file.
+//!
 //! # Why a gate and not the compiler
 //!
 //! The fix the finding offered was to narrow `answer` to `pub(crate)`, and that would be stronger -
@@ -39,7 +46,7 @@
 //!   [refused](Reaches::TheRootRenamed) rather than chased, the way `boot_order` refuses a rename of
 //!   its own tracked name. `use sutura_app::*` is not a hole either: `clippy::wildcard_imports` is
 //!   on through `pedantic` and the gate runs with `-D warnings`. What remains is a **re-export of
-//!   `answer` through a third crate**, and a dependency renamed in a manifest
+//!   `answer` (or `run_sql`) through a third crate**, and a dependency renamed in a manifest
 //!   (`app = { package = "sutura-app" }`) - neither is in this tree, and no scan of `src/` could
 //!   see either.
 //! * Comments and multi-line string interiors are blanked first, through the serde gate's
@@ -51,7 +58,7 @@
 //!   file holding the path in one would be reported; [`explain`] holds one and is out of scope for
 //!   the same reason.
 //! * It cannot see a caller that reaches the answer path some other way - an adapter's own
-//!   `Warehouse::execute`, say. It holds the one door the application opens.
+//!   `Warehouse::execute`, say. It holds the two doors the application opens and no other.
 
 use super::ports::{callers_of_the_application, is_rust};
 use crate::causality::regions;
@@ -71,24 +78,55 @@ const ANSWER: &str = "answer";
 /// quietly finds a function of that name somewhere else.
 pub(super) const APPLICATION_LIB: &str = "crates/sutura-app/src/lib.rs";
 
-/// How the door is spelled where it is defined.
+/// The raw tool's own door on the driving port, alongside [`ANSWER`].
 ///
-/// Built from [`ANSWER`] so the needle this rule forbids in a caller and the needle it requires at
-/// the definition cannot drift apart.
+/// Added for `#129` step 5: `LocalService::run_sql` (`crates/sutura-app/src/surface.rs`) writes an
+/// audit record before returning, exactly the way `answer` does, and a caller reaching
+/// `sutura_app::run_sql` directly skips it the same way `sutura query` once skipped `answer`'s
+/// record - the shape this whole module exists to catch. Before this constant existed, that bypass
+/// compiled, ran, and this gate printed `ok` without having looked at it at all.
+const RUN_SQL: &str = "run_sql";
+
+/// Where [`RUN_SQL`]'s door is defined, relative to the repo root.
+///
+/// A different file from [`APPLICATION_LIB`]: `run_sql` is a free function defined in `raw.rs` and
+/// only RE-EXPORTED (`pub use raw::{..., run_sql};`) from `lib.rs`, so a liveness check reading
+/// [`APPLICATION_LIB`] for `pub fn run_sql` would never find it and would print `ok` for a door
+/// nobody looked at - the same dead-gate shape [`door_line`]'s own doc names for a moved [`ANSWER`].
+pub(super) const RAW_LIB: &str = "crates/sutura-app/src/raw.rs";
+
+/// How a door is spelled where it is defined.
+///
+/// Built from the door's own name so the needle this rule forbids in a caller and the needle it
+/// requires at the definition cannot drift apart.
+fn door_named(name: &str) -> String {
+    format!("pub fn {name}")
+}
+
+/// [`ANSWER`]'s own spelling, kept as a zero-argument function so existing call sites are unchanged.
 pub(super) fn door() -> String {
-    format!("pub fn {ANSWER}")
+    door_named(ANSWER)
+}
+
+/// [`RUN_SQL`]'s own spelling.
+pub(super) fn raw_door() -> String {
+    door_named(RUN_SQL)
 }
 
 /// What the check looked at, and what it found.
 pub(super) struct Report {
     /// The callers it read, so a rule that found none cannot report `ok`.
     pub(super) callers: Vec<String>,
-    /// The line [`APPLICATION_LIB`] defines the door on, and `None` if it no longer defines one.
+    /// The line [`APPLICATION_LIB`] defines [`ANSWER`]'s door on, and `None` if it no longer defines
+    /// one.
     ///
     /// **`None` is a failure, and it is the liveness half [`paths`](Report::paths) does not
     /// provide.** That one counts paths rooted at [`APPLICATION_PATH`], so it catches a rename of
     /// the CRATE and nothing else; a rename of the FUNCTION leaves it in the dozens.
     pub(super) door: Option<usize>,
+    /// The line [`RAW_LIB`] defines [`RUN_SQL`]'s door on, and `None` if it no longer defines one.
+    /// The same liveness half as [`Self::door`], for the second door.
+    pub(super) raw_door: Option<usize>,
     /// Rust files examined.
     pub(super) files: usize,
     /// `sutura_app::…` paths read, test code included.
@@ -112,7 +150,13 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
             "`{APPLICATION_LIB}` could not be read, and that is where the door this rule guards is defined"
         ));
     };
-    let door = door_line(&crate::serde_parse::scan::code_lines(&defines).join("\n"));
+    let door = door_line(&crate::serde_parse::scan::code_lines(&defines).join("\n"), &door());
+    let Some(raw_defines) = read(RAW_LIB) else {
+        return Err(format!(
+            "`{RAW_LIB}` could not be read, and that is where `{RUN_SQL}`'s door is defined"
+        ));
+    };
+    let raw_door = door_line(&crate::serde_parse::scan::code_lines(&raw_defines).join("\n"), &raw_door());
     let mut problems = Vec::new();
     let mut scanned = 0_usize;
     let mut paths = 0_usize;
@@ -123,13 +167,14 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     // the only other thing standing between it and a vacuous pass.
     //
     // The anchors are every caller's crate root, derived from `cargo metadata` with the caller set
-    // itself, plus the file that DEFINES the door. `APPLICATION_LIB` is declared because it names
-    // one specific file this rule is about rather than a member of a set.
+    // itself, plus the two files that DEFINE a door. `APPLICATION_LIB`/`RAW_LIB` are declared
+    // because each names one specific file this rule is about rather than a member of a set.
     let mut anchors: Vec<&str> = callers
         .iter()
         .flat_map(|caller| caller.roots.iter().map(String::as_str))
         .collect();
     anchors.push(APPLICATION_LIB);
+    anchors.push(RAW_LIB);
     let scope: repo::Scope = is_rust;
     census
         .inspect(&anchors, scope, |rel, bytes| {
@@ -169,6 +214,10 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
                         "{rel}:{}: `{}` names `{APPLICATION_PATH}::{ANSWER}` in its own source",
                         path.line, caller.name
                     )),
+                    Reaches::TheRawDoor => problems.push(format!(
+                        "{rel}:{}: `{}` names `{APPLICATION_PATH}::{RUN_SQL}` in its own source",
+                        path.line, caller.name
+                    )),
                     Reaches::TheRootRenamed => problems.push(format!(
                         "{rel}:{}: `{}` imports `{APPLICATION_PATH}` under another name, which makes every \
                          path through it invisible to this rule - import it as itself",
@@ -187,13 +236,14 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
     Ok(Report {
         callers: callers.into_iter().map(|caller| caller.name).collect(),
         door,
+        raw_door,
         files: scanned,
         paths,
         problems,
     })
 }
 
-/// The line [`APPLICATION_LIB`]'s code defines the door on, if it still defines one.
+/// Where a door's own defining file's code defines it on, if it still defines one.
 ///
 /// **The liveness half that was missing, and it was measured rather than argued.**
 /// [`Report::paths`] counts paths rooted at [`APPLICATION_PATH`], so `paths == 0` catches a rename
@@ -213,9 +263,11 @@ pub(super) fn check(meta: &serde_json::Value) -> Result<Report, String> {
 ///
 /// Whole-token at the end, so `pub fn answer_federated` - which is `pub(crate)` today - is not read
 /// as the door.
-fn door_line(code: &str) -> Option<usize> {
-    let needle = door();
-    code.match_indices(&needle).find_map(|(at, _)| {
+///
+/// `needle` is taken rather than derived from a fixed constant, so [`RUN_SQL`]'s door reuses this
+/// same liveness check against its own defining file instead of a second, hand-copied scan.
+fn door_line(code: &str, needle: &str) -> Option<usize> {
+    code.match_indices(needle).find_map(|(at, _)| {
         let rest = code.get(at.saturating_add(needle.len())..)?;
         if rest.chars().next().is_some_and(is_ident) {
             return None;
@@ -236,6 +288,8 @@ enum Reaches {
     Elsewhere,
     /// [`ANSWER`] itself. The bypass this rule exists for.
     TheAnswer,
+    /// [`RUN_SQL`] itself. The same bypass, over the raw tool's own door.
+    TheRawDoor,
     /// The application crate under another name.
     ///
     /// **Refused rather than followed, for the reason `boot_order` gives about its own tracked
@@ -302,6 +356,8 @@ fn reaches(rest: &str) -> Reaches {
         Reaches::TheRootRenamed
     } else if names_the_answer(rest) {
         Reaches::TheAnswer
+    } else if names_the_run_sql(rest) {
+        Reaches::TheRawDoor
     } else {
         Reaches::Elsewhere
     }
@@ -333,6 +389,21 @@ fn renames_the_root(rest: &str) -> bool {
 
 /// Does the path or `use` tree at the start of `rest` reach [`ANSWER`] itself?
 ///
+/// A thin wrapper over [`names_the_door`] kept as its own name because every existing test and doc
+/// comment already spells it, and a door this specific has earned the specific name.
+fn names_the_answer(rest: &str) -> bool {
+    names_the_door(rest, ANSWER)
+}
+
+/// Does the path or `use` tree at the start of `rest` reach [`RUN_SQL`] itself?
+///
+/// [`RUN_SQL`]'s own twin of [`names_the_answer`], over [`names_the_door`].
+fn names_the_run_sql(rest: &str) -> bool {
+    names_the_door(rest, RUN_SQL)
+}
+
+/// Does the path or `use` tree at the start of `rest` reach `door` itself?
+///
 /// **Immediately after the root, or inside a brace group - not any segment.** Any segment reported a
 /// call THROUGH the port spelled with its full path: `sutura_app::surface::Surface::answer(&service,
 /// ..)` was a violation, and [`explain`] then told the author to compose a service and call
@@ -342,13 +413,16 @@ fn renames_the_root(rest: &str) -> bool {
 /// A brace group is NOT narrowed to its first segment: `use sutura_app::{surface::answer}` reaches
 /// the same door by a longer route, and over-reporting inside a `use` tree costs an author one
 /// spelling rather than an argument.
-fn names_the_answer(rest: &str) -> bool {
+///
+/// `door` is a parameter - shared by [`names_the_answer`] and [`names_the_run_sql`] - rather than a
+/// fixed constant, so a third door reuses this same classifier instead of a hand-copied twin.
+fn names_the_door(rest: &str, door: &str) -> bool {
     let mut segment = String::new();
     let mut depth = 0_usize;
     // The root's own `::` has not been passed yet, so the first segment to complete is the one
     // written directly on the application.
     let mut on_the_root = true;
-    let reaches = |segment: &str, depth: usize, on_the_root: bool| segment == ANSWER && (depth > 0 || on_the_root);
+    let reaches = |segment: &str, depth: usize, on_the_root: bool| segment == door && (depth > 0 || on_the_root);
     for character in rest.chars() {
         if is_ident(character) {
             segment.push(character);
@@ -392,6 +466,10 @@ pub(super) fn explain() {
     eprintln!("working_set)` and then `Surface::answer`. `crates/sutura-cli/src/commands.rs`'s");
     eprintln!("`started` is that shape, and both of that binary's commands go through it.");
     eprintln!();
+    eprintln!("The same is true of `run_sql`: it writes the same kind of record `answer` does, and a");
+    eprintln!("caller of `sutura_app::run_sql` itself skips it the same way. Call `Surface::run_sql`");
+    eprintln!("on a composed `LocalService` instead.");
+    eprintln!();
     eprintln!("A unit test is exempt - `#[cfg(test)]` is skipped, and so is everything under");
     eprintln!("`tests/`, which is where the typed `ServiceError` is asserted from.");
     eprintln!();
@@ -404,7 +482,8 @@ pub(super) fn explain() {
 #[cfg(test)]
 mod tests {
     use super::{
-        APPLICATION_LIB, ApplicationPath, Reaches, application_paths, door, door_line, names_the_answer, renames_the_root,
+        APPLICATION_LIB, ApplicationPath, RAW_LIB, Reaches, application_paths, door, door_line, names_the_answer,
+        names_the_run_sql, raw_door, renames_the_root,
     };
     use crate::serde_parse::scan::code_lines;
 
@@ -418,6 +497,11 @@ mod tests {
         at(line, Reaches::TheAnswer)
     }
 
+    /// The raw tool's own door, at `line`.
+    fn runs_sql(line: usize) -> ApplicationPath {
+        at(line, Reaches::TheRawDoor)
+    }
+
     /// Some other path into the application, at `line`.
     fn elsewhere(line: usize) -> ApplicationPath {
         at(line, Reaches::Elsewhere)
@@ -427,6 +511,33 @@ mod tests {
     fn a_direct_call_to_the_answer_path_is_found_with_its_line() {
         let code = "fn a() {\n    let x = sutura_app::answer(&v, &q);\n}\n";
         assert_eq!(application_paths(code), vec![answers(2)]);
+    }
+
+    /// `#129` step 5's own RED/GREEN cell: before [`super::RUN_SQL`] existed as a needle, this exact
+    /// bypass classified as [`Reaches::Elsewhere`] and `check` reported no problem for it - the gate
+    /// printed `ok` over a caller that skips `run_sql`'s audit write the same way `sutura query` once
+    /// skipped `answer`'s. Constructed directly against [`application_paths`] rather than the real
+    /// tree, the same way every other cell in this module is - AGENTS.md's "a gate nobody has seen
+    /// fail is not known to work": this is what a caller of the raw door without the port looks like
+    /// to the classifier the whole gate is built on, and it must be seen failing before it can be
+    /// trusted to have stopped.
+    #[test]
+    fn a_direct_call_to_run_sql_is_found_with_its_line() {
+        let code = "fn a() {\n    let x = sutura_app::run_sql(&ctx, &stmt);\n}\n";
+        assert_eq!(application_paths(code), vec![runs_sql(2)]);
+    }
+
+    /// A call THROUGH the port, spelled with its full path, is not a bypass - `run_sql`'s own twin
+    /// of [`a_call_through_the_port_is_not_the_answer_path`].
+    #[test]
+    fn a_call_through_the_port_is_not_the_run_sql_path() {
+        assert_eq!(
+            application_paths("let o = sutura_app::surface::Surface::run_sql(&service, &context, &statement)?;"),
+            vec![elsewhere(1)]
+        );
+        assert!(!names_the_run_sql(
+            "::surface::Surface::run_sql(&service, &context, &statement)"
+        ));
     }
 
     #[test]
@@ -549,9 +660,22 @@ mod tests {
         let root = crate::repo::root().expect("the repo root");
         let text = std::fs::read_to_string(root.join(APPLICATION_LIB)).expect("the application's lib.rs is readable");
         assert!(
-            door_line(&code_lines(&text).join("\n")).is_some(),
+            door_line(&code_lines(&text).join("\n"), &door()).is_some(),
             "`{}` is not in {APPLICATION_LIB} - this rule now forbids a path that names nothing",
             door()
+        );
+    }
+
+    /// [`RAW_LIB`]'s own twin of [`the_door_is_still_defined_where_this_rule_reads_it`] - `run_sql`
+    /// is defined in `raw.rs`, not `lib.rs`, which only re-exports it.
+    #[test]
+    fn the_raw_door_is_still_defined_where_this_rule_reads_it() {
+        let root = crate::repo::root().expect("the repo root");
+        let text = std::fs::read_to_string(root.join(RAW_LIB)).expect("the raw module is readable");
+        assert!(
+            door_line(&code_lines(&text).join("\n"), &raw_door()).is_some(),
+            "`{}` is not in {RAW_LIB} - this rule now forbids a path that names nothing",
+            raw_door()
         );
     }
 
@@ -570,8 +694,24 @@ mod tests {
             // And prose naming it is not a definition, which is what the blanking buys.
             "/// `pub fn answer` is the whole door.\n",
         ] {
-            assert_eq!(door_line(&code_lines(gone).join("\n")), None, "{gone}");
+            assert_eq!(door_line(&code_lines(gone).join("\n"), &door()), None, "{gone}");
         }
-        assert_eq!(door_line(&code_lines("pub fn answer<W, B>(\n").join("\n")), Some(1));
+        assert_eq!(door_line(&code_lines("pub fn answer<W, B>(\n").join("\n"), &door()), Some(1));
+    }
+
+    /// [`RUN_SQL`]'s own twin of [`a_door_that_moved_or_narrowed_is_not_found`], over [`raw_door`].
+    #[test]
+    fn a_raw_door_that_moved_or_narrowed_is_not_found() {
+        for gone in [
+            "pub fn run_query<W>(\n",
+            "pub mod raw {\n    pub fn run_query<W>(\n}\n",
+            "pub(crate) fn run_sql<W>(\n",
+        ] {
+            assert_eq!(door_line(&code_lines(gone).join("\n"), &raw_door()), None, "{gone}");
+        }
+        assert_eq!(
+            door_line(&code_lines("pub fn run_sql<W, B>(\n").join("\n"), &raw_door()),
+            Some(1)
+        );
     }
 }

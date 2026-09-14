@@ -5,12 +5,14 @@ description: Why a deployment may enable a general SQL tool beside the certified
 
 # A raw SQL tool, off by default, and the ramp it exists to build
 
-Status: **accepted, scheduled LAST, and amended 2026-09-13** for the showcase's fork (which source),
-prerequisite 2's interim bound and prerequisite 4's read-only story - see the amendment at the foot of
-this record. **PR1 (`#666`) builds the mechanism this record describes** - `RawOutcome`,
-`Capability::RunSql`, the boot refusal, and the Postgres execution path below - and this record still
-does not amend an invariant: PR1's own body states which of the two drafted rows it deferred and why,
-rather than landing them alongside a still-settling mechanism.
+Status: **accepted, scheduled LAST, amended 2026-09-13, and closed 2026-09-14** - the 2026-09-13
+amendment settled the showcase's fork (which source), prerequisite 2's interim bound and
+prerequisite 4's read-only story; **PR1 (`#666`) built the mechanism this record describes** -
+`RawOutcome`, `Capability::RunSql`, the boot refusal, and the Postgres execution path below; and the
+2026-09-14 "Built" section at the foot of this record closes step 5 (`#129`) - the demand-signal
+mechanism, the two invariants rows PR1 deferred, and one mechanical gap this pass found and closed.
+This record now amends the invariants file, over a mechanism unchanged since `#666` and reviewed
+three times since.
 
 **Corrected:** this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
 `docs/implementation-plan.md` carried `feat/raw-sql-tool` as a row, 0009's order table carried
@@ -275,6 +277,9 @@ reader who cannot tell which kind of answer they are holding has the worst of bo
 
 ## What this would change in the invariants, and why the row is not written yet
 
+**Corrected 2026-09-14: the rows are written now** - see "Built (2026-09-14)" at the foot of this
+record. This section is kept as the record of why they waited, not as the current state.
+
 The row reading *"No SQL, table name, filter expression or row-id list on the tool surface"* is a
 statement about the **certified** surface, and the mechanism behind it is untouched by this record:
 `Query` declares no such field and `deny_unknown_fields` makes an attempt an error naming it. That
@@ -480,3 +485,57 @@ under the same two keys, because both carry rows. The audit record is a sibling 
 carry the caller's statement text, as an audit-only field the wire layer never reads. The capability id
 is `run_sql`, the scope `sutura:sql.run` - the literal `crates/sutura-cli/tests/mcp.rs`'s own guard
 test already asserted did not exist, corrected rather than deleted.
+
+## Built (2026-09-14): the demand-signal mechanism, and what stayed a limit
+
+Written by the planning lane for `#129` step 5, reading `main` at `86d699fe` (`#666` + `#686`
+merged). This section closes the ramp section's own status: **the "written, not stored" half is
+built, and it was built by `#666`, not by this step.** `CallRecord::of_raw`
+(`crates/sutura-domain/src/audit.rs`) and its two `RecordedOutcome::{RawAnswered,RawRefused}` arms
+already carry the statement (opaque, audit-only, the one accessor `CallRecord::statement()`), the
+row count, the outcome variant, the full principal chain, and the credential deadline - and
+`sutura_runtime::TracingAuditSink` already emits them as `raw_answered`/`raw_refused` log events,
+distinct from the certified `answered`/`refused` pair, with the statement text logged deliberately
+(its own doc: "this is a SINK, not a channel back to any caller"). `LocalService::run_sql`
+(`crates/sutura-app/src/surface.rs`) writes the record before returning, exercised through the real
+`Surface` rather than only the constructor.
+
+**No new field, port, sink or counter was needed, and none was added.** A source name was declined -
+`run_sql` "targets the sole registered data system" (`raw.rs`'s own doc), so a field naming it is a
+constant. An elapsed-time field was declined - no call in this workspace, certified or raw, records
+duration anywhere, and adding it only here would be a new, uneven mechanism rather than a gap in this
+one. A stable digest was declined - this record's own position is that coverage is a number the
+DEPLOYMENT's monitoring computes over the emitted stream, and a deployment wanting to count repeated
+demand without keeping text can already hash the logged statement string itself; sutura computing that
+hash is a step toward the "series sutura keeps" this record already refuses. A `run_sql`-specific
+series on `/metrics` was declined for the same reason: that endpoint's own doc says it writes no audit
+record and names nothing that names a question, and the distinguishing signal is the log event NAME, a
+log pipeline's to read. The agent-authored-candidate-definition half of the ramp is unchanged from the
+base record and needs no further mechanism.
+
+**One gap was found and closed: `xtask check-boundaries`'s answer-path gate guarded only `answer`.**
+`sutura_app::run_sql` is a second door on the driving port, added by `#666` after the gate was written,
+and nothing mechanical stopped a caller from reaching `sutura_app::run_sql` directly - bypassing
+`LocalService::run_sql` and the audit write it makes - the same shape issue `#266`'s A1 named for
+`answer` itself. The gate (`xtask/src/boundaries/answer_path.rs`) now classifies and guards both
+doors: a second needle (`RUN_SQL`), a second liveness check against `run_sql`'s own defining file
+(`crates/sutura-app/src/raw.rs`, since `lib.rs` only re-exports it), and a new fixture cell,
+`a_direct_call_to_run_sql_is_found_with_its_line`, constructed the same way every other cell in this
+module is - directly against the classifier, not the real tree - and read against `main` before this
+change: the bypass it constructs classified as `Reaches::Elsewhere` there, and `check` reported no
+problem for it.
+
+**The two invariants rows PR1 (`#666`) deferred are landed** in
+`.agents/skills/sutura/invariants/SKILL.md`, citing the tests that already pass and have now had three
+review rounds (`#666` rounds 1-2, `#686`): a raw answer cannot be rendered as certified, and `run_sql`
+boots only single-user or over a source that cannot answer for more than one identity. Neither row's
+mechanism changed to land it - only the wait for review scrutiny that PR1 itself asked for.
+
+**What is left, named as pre-existing limits and not as this step's scope:** the per-request deadline
+for the raw path, waiting on `#160` PR4; the raw tool sharing one lock-serialized connection with the
+certified path rather than a dedicated one; the row cap's streaming stop bounding this process's own
+heap rather than the server's work, pending a portal `max_rows` that needs `&mut Client`;
+`RunSqlEnabledInMultiUserMode` refusing by declared mode alone rather than by the linked adapter's
+actual shape (`#666`'s Finding 10); a dedicated read-only role for the development tier, documented
+but not provisioned. None of these are the demand signal - they were named as limits before this step
+and stay limits after it.
