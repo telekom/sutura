@@ -3371,7 +3371,9 @@ pull requests in three days. <strong>It resolves with the calendar and nothing e
 finds four rows explained and two silent will assume the silent two are the bad news.</p>
 <h2 id="fuzzing-0">Fuzzing = 0<a class="headerlink" href="#fuzzing-0" title="Permanent link">&para;</a></h2>
 <p>Real, and <code>#146</code> already holds it - <em>no parser that reads untrusted input is fuzzed, and
-<code>panic = abort</code> makes a panic process death</em>. Not duplicated here.</p>
+<code>panic = abort</code> makes a panic process death</em>. Not duplicated here. As of <code>#697</code> five parsers
+are fuzzed; the open half of <code>#146</code> is the panic strategy at the parsing boundary, which
+nothing here decides.</p>
 <h2 id="what-this-record-does-not-do">What this record does not do<a class="headerlink" href="#what-this-record-does-not-do" title="Permanent link">&para;</a></h2>
 <p>It does not raise the aggregate, and it would be a worse record if it did. Three of the six low rows
 were a failed measurement, a young repository and a capacity constraint; the fourth is a
