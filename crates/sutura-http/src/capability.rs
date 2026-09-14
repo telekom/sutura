@@ -56,7 +56,12 @@
 //!   ever reached a handler without one. `crate::inbound::tests::router`'s
 //!   `a_verified_caller_reaches_only_the_routes_its_scopes_name` and
 //!   `a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing` are the mechanism that
-//!   proves it: a mutation moving `establish_asked` after this layer turns both red.
+//!   proves the ORDER: a mutation moving `establish_asked` after this layer turns both red. Neither
+//!   holds the ARM inside this function on its own, since both go through a route whose handler ALSO
+//!   requires `Extension<sutura_app::Asked>` - `tests::a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability`
+//!   is the cell that holds the ARM: it builds [`require_capability`] over a route with no
+//!   `establish_asked` ahead of it at all, so the `500` it asserts can only be this function's own
+//!   refusal.
 //!
 //! # It fails closed, and the refusal is what makes that survivable
 //!
@@ -300,7 +305,7 @@ mod tests {
     use axum::http::Method;
     use sutura_app::{Capability, Permitted};
 
-    use super::{capability_of, governed};
+    use super::{capability_of, governed, require_capability};
     use crate::constants::{API_V1_PREFIX, base_paths};
 
     /// **This crate's half of `both_transports_describe_the_same_tools`.**
@@ -383,6 +388,41 @@ mod tests {
         assert_eq!(
             capability_of(&Method::POST, &format!("{API_V1_PREFIX}{}", base_paths::RUN_SQL)),
             Some(Capability::RunSql)
+        );
+    }
+
+    /// The ARM half of the module doc's second hole - the two `crate::inbound::tests::router` cells
+    /// hold the ORDER (`establish_asked` ahead of this layer), and this cell holds what happens
+    /// INSIDE this function when that order is violated so completely there is no `Asked` at all.
+    ///
+    /// Built by hand rather than through `crate::router::assemble`, because assembly always installs
+    /// `establish_asked` unconditionally - the only way to put [`require_capability`] on a route with
+    /// NO `Asked` ahead of it is to not go through assembly at all. That is deliberately the shape a
+    /// mis-ordered or dropped layer would produce.
+    #[tokio::test]
+    async fn a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability() {
+        let settings = sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+            .expect("the default settings load");
+        let service = crate::surface::LocalService::start(
+            &crate::testing::catalog_of(crate::testing::bundle()),
+            crate::testing::fake_warehouse(),
+            crate::testing::sink(),
+            crate::testing::broker(),
+            1 << 30,
+        )
+        .expect("the test bundle validates");
+        let state = crate::testing::state_over(std::sync::Arc::new(service), settings);
+        let route = format!("{API_V1_PREFIX}{}", base_paths::CATALOG);
+        // No `establish_asked` anywhere in this router - the point of the test.
+        let app = axum::Router::new()
+            .route(&route, axum::routing::get(|| async { axum::http::StatusCode::OK }))
+            .route_layer(axum::middleware::from_fn_with_state(state, require_capability));
+        let (status, body) =
+            crate::testing::call(&app, crate::testing::request("GET", &route, None, axum::body::Body::empty())).await;
+        assert_eq!(
+            status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "an absent `Asked` must never read as every capability: {body}"
         );
     }
 }

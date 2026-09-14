@@ -184,26 +184,54 @@ impl Warehouse for RecordsWhatItWasHanded {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the recording fake exists to report WHICH credential reached the adapter, which is \
-                  the property two subjects driving two credentials is measured on"
-    )]
     fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| Disagreed { cause })?;
-        // Recorded through a channel and not a lock, because `clippy.toml` bans `std::sync::Mutex` and
-        // `tokio::sync::Mutex` cannot be taken from a synchronous port method. An unbounded sender is
-        // `Send + Sync`, its `send` is not async, and what a test needs is the sequence rather than
-        // shared mutable state.
-        let material = match *presented {
-            Presented::SubjectToken { ref material } => String::from(material.expose_secret()),
-            Presented::SubjectPrincipal { ref name } => format!("principal:{name}"),
-            Presented::SharedServiceUser { .. } => String::from("the deployment's own identity"),
-        };
-        drop(self.handed.send(material));
+        drop(self.handed.send(material_of(presented)));
         Ok(self.result.clone())
+    }
+
+    /// Runs `docs/adr/0013`'s tool over the same fake, so the raw route can drive the same broker and
+    /// the same recording channel `execute` above does for the certified one - `crate::routes::v1::
+    /// run_sql::run_sql` reaches `sutura_app::answer`'s sibling `run_sql` through this exact call.
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        presented: &Presented,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some(
+            presented
+                .agrees_with(&self.posture, &self.source)
+                .map_err(|cause| Disagreed { cause })
+                .map(|()| {
+                    drop(self.handed.send(material_of(presented)));
+                    sutura_domain::warehouse::RawRows::of(
+                        vec![String::from("statement")],
+                        vec![vec![Value::Text(String::from(statement.as_str()))]],
+                    )
+                }),
+        )
+    }
+}
+
+/// What credential reached the adapter, as the one string both `execute` and `execute_raw` record -
+/// recorded through a channel and not a lock, because `clippy.toml` bans `std::sync::Mutex` and
+/// `tokio::sync::Mutex` cannot be taken from a synchronous port method. An unbounded sender is
+/// `Send + Sync`, its `send` is not async, and what a test needs is the sequence rather than shared
+/// mutable state.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the recording fake exists to report WHICH credential reached the adapter, which is the \
+              property two subjects driving two credentials is measured on"
+)]
+fn material_of(presented: &Presented) -> String {
+    match *presented {
+        Presented::SubjectToken { ref material } => String::from(material.expose_secret()),
+        Presented::SubjectPrincipal { ref name } => format!("principal:{name}"),
+        Presented::SharedServiceUser { .. } => String::from("the deployment's own identity"),
     }
 }
 
@@ -490,14 +518,21 @@ fn an_exchange() -> (
 /// A router that verifies its callers and hands them to the **shipped** exchanging broker.
 ///
 /// Through `crate::testing::serving`, so the service is started by the real `LocalService::start` and
-/// the router is the real one. The broker is a parameter because the two tests below need two: one that
-/// holds the source and one that holds nothing for it.
+/// the router is the real one. The broker is a parameter because the tests below need two: one that
+/// holds the source and one that holds nothing for it. `settings_overlay` is appended after the
+/// inbound declaration, so a caller that needs `tools.run_sql.enabled` can add it without this
+/// function growing a second way to load settings.
 fn app_over(
     broker: WorkloadIdentityBroker<EchoesWhatItWasAskedToExchange>,
     issuer: &MockIssuer,
     published: &PublishedKeySet,
+    settings_overlay: &str,
 ) -> (axum::Router, tokio::sync::mpsc::UnboundedReceiver<String>) {
-    let settings = settings_with(&direct_overlay(issuer, &published.path().to_string_lossy()));
+    let overlay = format!(
+        "{}{settings_overlay}",
+        direct_overlay(issuer, &published.path().to_string_lossy())
+    );
+    let settings = settings_with(&overlay);
     let gate = InboundGate::from_declaration(&declared_inbound(&settings)).expect("a published key set builds a gate");
     let recording = recording_warehouse();
     (
@@ -518,7 +553,7 @@ async fn the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified()
     let (exchange, mut asked) = an_exchange();
     let broker = WorkloadIdentityBroker::empty(exchange)
         .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
-    let (app, mut handed) = app_over(broker, &issuer, &published);
+    let (app, mut handed) = app_over(broker, &issuer, &published, "");
 
     let token = accepted(&issuer, "ada@example.com");
     let answered = ask(&app, Some(&token)).await;
@@ -547,6 +582,56 @@ async fn the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified()
     );
 }
 
+/// `docs/adr/0013`'s tool posts one raw statement, carrying `token` if there is one.
+async fn run_sql(app: &axum::Router, statement: &str, token: Option<&str>) -> (StatusCode, String) {
+    crate::testing::call(
+        app,
+        crate::testing::request(
+            "POST",
+            "/v1/sql/run",
+            token,
+            axum::body::Body::from(format!(r#"{{"statement":{statement:?}}}"#)),
+        ),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn the_shipped_exchanging_broker_exchanges_the_document_the_run_sql_route_verified() {
+    // `run_sql`'s own sibling of the join above - the same shipped broker, the same fake exchange,
+    // the same byte comparison - over `docs/adr/0013`'s route instead of the certified one. Both
+    // handlers read `sutura_app::Asked` rather than deriving a second context, and this is what shows
+    // the raw route is not the one nobody measured: `crate::routes::v1::run_sql::run_sql`'s own
+    // `asked.context().clone()` is what a mis-wired `establish_asked` would silently swap for the
+    // deployment's own identity, and this is the cell that would notice.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "shipped-exchange-run-sql").expect("the key set publishes");
+    let (exchange, mut asked) = an_exchange();
+    let broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    let (app, mut handed) = app_over(broker, &issuer, &published, "tools:\n  run_sql:\n    enabled: true\n");
+
+    let token = accepted(&issuer, "ada@example.com");
+    let (status, body) = run_sql(&app, "select 1", Some(&token)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let call = asked.try_recv().expect("the shipped broker performed an exchange");
+    assert_eq!(
+        call.subject_token, token,
+        "the document exchanged is not the one leg 1 verified, over the raw route"
+    );
+    assert_eq!(call.audience, POOL, "the pool the exchange was asked for");
+    assert_eq!(call.scope, SCOPE, "the scope the exchange was asked for");
+    assert!(asked.try_recv().is_err(), "one statement over one source is one exchange");
+
+    let bearer = handed.try_recv().expect("the adapter was handed a credential");
+    assert_eq!(
+        bearer,
+        format!("sts-token-for/{token}"),
+        "the raw leg did not run under what the exchange returned"
+    );
+}
+
 #[tokio::test]
 async fn a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_before_anything_is_exchanged() {
     // `credential_unavailable_is_reachable_end_to_end` above shows the request path reaches the
@@ -557,7 +642,7 @@ async fn a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_bef
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "nothing-to-exchange").expect("the key set publishes");
     let (exchange, mut asked) = an_exchange();
-    let (app, mut handed) = app_over(WorkloadIdentityBroker::empty(exchange), &issuer, &published);
+    let (app, mut handed) = app_over(WorkloadIdentityBroker::empty(exchange), &issuer, &published, "");
 
     let refused = ask(&app, Some(&accepted(&issuer, "ada@example.com"))).await;
     let body = refused.body;
