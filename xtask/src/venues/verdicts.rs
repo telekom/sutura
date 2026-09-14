@@ -149,6 +149,71 @@ pub(super) fn transition_problems(
     problems
 }
 
+/// Every `yes` cell over an on-demand venue whose section never says a run was observed, or still
+/// carries the word for a state the cell no longer states.
+///
+/// **The gap `unrun`/`wired` left, found the same way they were: a cell can move and the section
+/// can stay still.** Both un-citable verdicts tie their word to their venue's own section through
+/// [`transition_problems`], so a cell drifting from the prose beside it is refused - but `yes` had
+/// no such tie at all. A row can move from `wired` (or `unrun`) to `yes` in one edit to the matrix
+/// while its section still reads as the state the cell left, and `check-venues` had nothing that
+/// read the section for a `yes` cell to disagree with. The fixture below carries exactly that
+/// shape: a `yes` cell over a venue whose section still says `unrun`.
+///
+/// **Two rules, only for a venue that runs `a GitHub environment` - on demand.** An `in process`
+/// venue is answered on every push, so its own token already says what holds a `yes` there - see
+/// [`anchor_problems`]'s header for why that rule is not universal, and the reason repeats here
+/// unchanged. An on-demand `yes` is different in kind: nothing but a job's own run makes it true,
+/// so the section is the only place that run can be named at all.
+///
+/// 1. The section has to say a run was **observed** - the word this page already uses to say the
+///    opposite (`wired`'s own definition: *no run of it has been observed*), so adopting it for the
+///    positive case reuses a word the page's own header already carries rather than inventing a
+///    second one. What counts as satisfying this is deliberately unparsed: a date, a run id, `on
+///    a developer machine` are all accepted, because *what a green run means* is review's question
+///    and this reads only whether one is named at all - the same limit [`transition_problems`]
+///    states for `unrun` and `wired`.
+/// 2. The section may not still say `unrun` or `wired` - the two words a cell in either of those
+///    states is required to carry. A `yes` cell whose section keeps one of them is not a rewording
+///    away from that state, it is still IN it, wherever the matrix now says.
+///
+/// **The limit, stated where the claim is: this reads a WORD, not a run.** A section can say
+/// *observed on 2026-01-01* over a run nobody performed, and this passes it - exactly as `unrun`'s
+/// expiry rule cannot see a job that always skips. What is mechanical is that a `yes` cell can no
+/// longer sit over a section with nothing beside it, or over one still describing the state the
+/// cell left; that *the named run is real and answers this claim* stays review's, as it already did
+/// for every citable cell before this.
+pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -> Vec<String> {
+    let mut problems = Vec::new();
+    for venue in listed
+        .iter()
+        .filter(|venue| yes.contains(venue.name.as_str()) && venue.site() == Some(ON_DEMAND))
+    {
+        let body = section_body(text, &venue.name).unwrap_or_default();
+        if !body.contains("observed") {
+            problems.push(format!(
+                "{PAGE}: `{}` says `yes` and runs in `{}` - ON DEMAND, so nothing but a job's own \
+                 run makes that true - and its own section never says a run was OBSERVED. Either \
+                 name the run in the section (a date, a run id - what it means is review's) or the \
+                 honest cell is `unrun` or `wired`",
+                venue.name, venue.runs
+            ));
+        }
+        for word in ["unrun", "wired"] {
+            if body.contains(word) {
+                problems.push(format!(
+                    "{PAGE}: `{}` says `yes` in the matrix and its own section still says `{word}` \
+                     - a `yes` cell has left that state, and a section still describing it is the \
+                     drift this rule exists to catch: the cell moved and the prose beside it did \
+                     not",
+                    venue.name
+                ));
+            }
+        }
+    }
+    problems
+}
+
 /// Every citable or wired venue whose citation is anchored in nothing the tree runs a test with.
 ///
 /// **The gap this closes, and it was the last one on the page a false leg-2 `yes` fits through.**
