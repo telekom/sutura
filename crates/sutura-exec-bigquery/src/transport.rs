@@ -870,10 +870,11 @@ pub trait JobTransport {
     /// so the adapter above - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
     ///
     /// **The reply shape a cancelled job answers with is asserted rather than known**, and that is
-    /// stated here rather than left implicit: `docs/adr/0029` requires it be MEASURED against a real
-    /// endpoint before this predicate is trusted, and `crate::wire::BigQueryWire`'s own
-    /// implementation names the acceptance cell that does the measuring and fails loudly if the
-    /// documented shape turns out to be wrong.
+    /// stated here rather than left implicit: `docs/adr/0029` asks it be measured against a real
+    /// endpoint before this predicate is fully trusted, and `crate::wire::WireError::NotComplete`'s
+    /// own doc says why that measurement is not yet in this repository's acceptance suite - the
+    /// obvious way to reach it races a statement against a real deadline and this crate's corpus
+    /// fixture is too small to lose that race reliably.
     ///
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
     fn deadline_exceeded(&self, _error: &Self::Error) -> bool {

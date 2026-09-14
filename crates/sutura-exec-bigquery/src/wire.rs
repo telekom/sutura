@@ -548,11 +548,19 @@ where
     /// [`crate::wire::document::body`] - so a synchronous `jobs.query` reply cannot say *the wait
     /// expired* without also saying *the service was asked to cancel at the same instant*: the
     /// endpoint's own documentation of `timeoutMs` is that an expired one answers `jobComplete:
-    /// false`, which is this variant. `crates/sutura-exec-bigquery/tests/acceptance.rs`'s
-    /// `a_deliberately_slow_statement_is_stopped_at_its_jobtimeoutms` is the acceptance cell that
-    /// measures this against a real endpoint; if the reply comes back some other shape, that cell
-    /// fails loudly rather than this predicate silently answering `false` for a deadline that did
-    /// fire.
+    /// false`, which is this variant.
+    ///
+    /// **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
+    /// acceptance cell that races a statement against a real deadline to reach exactly this reply
+    /// was tried and reverted - `just bigquery-acceptance`'s own corpus fixture is a handful of rows,
+    /// so the round trip reliably finishes before any budget short enough to matter, and a budget
+    /// picked to "usually" lose that race is a flake against a project that bills for it.
+    /// `crates/sutura-exec-bigquery/tests/tests/deadline.rs`'s acceptance cell proves the narrower
+    /// claim that holds without racing anything - a spent port deadline refuses through the REAL
+    /// wire and credential before a request is sent, and `deadline_exceeded` reports it - and states
+    /// this variant's own shape as the open half. Closing it needs a statement that reliably outruns
+    /// a real budget without depending on fixture size or network jitter, which this corpus does not
+    /// yet provide.
     #[error("the job had not finished when the endpoint answered: {named}")]
     NotComplete { named: ReasonCode },
     /// The answer is one page of more than one.
@@ -891,10 +899,10 @@ where
     /// Two arms, and only the first is unconditionally true: [`WireError::DeadlineSpent`] is a fact
     /// about this adapter's own clock, checked before anything was sent, and cannot be anything else.
     /// [`WireError::NotComplete`] is the DOCUMENTED shape a job stopped at `jobTimeoutMs` answers
-    /// with, per that variant's own doc, which also names the acceptance cell that measures it
-    /// against a real endpoint rather than trusting the documentation alone. Every other variant is
-    /// `false`, exhaustively: none of them is reachable through this adapter's own clock or through
-    /// the two timeout fields it sends.
+    /// with - see that variant's own doc for the argument and for why this repository has not yet
+    /// measured it against a real endpoint. Every other variant is `false`, exhaustively: none of
+    /// them is reachable through this adapter's own clock or through the two timeout fields it
+    /// sends.
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         matches!(*error, WireError::DeadlineSpent { .. } | WireError::NotComplete { .. })
     }

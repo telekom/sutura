@@ -245,3 +245,11 @@ arrives it shortens the budget the transport opens and changes nothing on the po
   timeout was left.
 - **A cost budget is a different bound.** Time and money are not interchangeable and the BigQuery
   bytes-billed ceiling stays where it is.
+- **BigQuery's `jobTimeoutMs` reply shape is documented, not yet measured against a real endpoint.**
+  `crate::wire::WireError::NotComplete`'s own doc names the argument for treating it as
+  `deadline_exceeded` and the acceptance cell that could not close it: a statement racing a real
+  deadline needs to reliably outrun the budget, and this crate's corpus fixture is too small to lose
+  that race without flaking against a project that bills for every attempt. What ships instead is
+  the narrower, deterministic claim - a spent port deadline refuses through the real wire and
+  credential before anything is sent - and this gap stays open until a fixture exists that is slow
+  on purpose.
