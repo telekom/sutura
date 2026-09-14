@@ -38,16 +38,46 @@ impl PgType {
             Self::Text => String::from("TEXT"),
         }
     }
+}
+
+/// The kinds `infer_schema` guesses a column against, in the order it tries them.
+///
+/// **Narrower than [`PgType`] on purpose.** `PgType` also has `Numeric`, which only
+/// `infer_fixture_schema` builds - directly from the shared `FixtureType`, never by asking
+/// whether a value's text holds it - so a `Numeric` arm on [`holds`](Self::holds) would be one
+/// [`infer_schema`] never reaches: its own candidate array named the other five and skipped it
+/// already. Kept as its own type rather than a `Numeric { .. } => false` arm on `PgType` so that
+/// unreachable arm cannot exist to be measured wrong (`github.com/telekom/sutura#701`).
+#[derive(Debug, Clone, Copy)]
+enum InferredKind {
+    Boolean,
+    BigInt,
+    Double,
+    Date,
+    Text,
+}
+
+impl InferredKind {
+    const ALL: [Self; 5] = [Self::Boolean, Self::BigInt, Self::Double, Self::Date, Self::Text];
 
     fn holds(self, value: &str) -> bool {
         let value = value.trim();
         match self {
             Self::Boolean => matches!(value, "true" | "false" | "t" | "f"),
             Self::BigInt => value.parse::<i64>().is_ok(),
-            Self::Numeric { .. } => false,
             Self::Double => value.parse::<f64>().is_ok(),
             Self::Date => is_date(value),
             Self::Text => true,
+        }
+    }
+
+    const fn into_pg(self) -> PgType {
+        match self {
+            Self::Boolean => PgType::Boolean,
+            Self::BigInt => PgType::BigInt,
+            Self::Double => PgType::Double,
+            Self::Date => PgType::Date,
+            Self::Text => PgType::Text,
         }
     }
 }
@@ -157,11 +187,11 @@ pub(crate) fn infer_schema(text: &str) -> Result<Schema, InvalidIdentifier> {
         .into_iter()
         .map(|column| PgColumn {
             name: column.name,
-            kind: [PgType::Boolean, PgType::BigInt, PgType::Double, PgType::Date, PgType::Text]
+            kind: InferredKind::ALL
                 .into_iter()
                 .find(|kind| column.values.iter().all(|cell| cell.is_empty() || kind.holds(cell)))
                 .filter(|_| column.values.iter().any(|cell| !cell.is_empty()))
-                .unwrap_or(PgType::Text),
+                .map_or(PgType::Text, InferredKind::into_pg),
         })
         .collect();
     Ok(Schema { columns, body })
