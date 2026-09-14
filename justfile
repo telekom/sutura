@@ -557,7 +557,7 @@ bigquery-acceptance:
     # Keep this filter aligned with apps.bigquery-acceptance; neither derives the other (#430).
     # Identity and cross-resource venues must not run under the ordinary acceptance name.
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
-      -E 'not binary(two_principals) and not binary(exchanged_identity) and not binary(cross_resource)'
+      -E 'not binary(exchanged_identity) and not binary(cross_resource)'
 
 # One shared credential, two disposable datasets in its billing project. Not run by ordinary acceptance.
 bigquery-cross-dataset:
@@ -583,21 +583,9 @@ bigquery-cross-project:
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'binary(cross_resource) and test(join_across_projects_)'
 
-# **Its own task rather than a third leg above, for a developer's reason:** it needs five values and
-# two key documents the other legs do not, so one task demanding all of them would make the legs
-# somebody CAN run unreachable. **What a green run does NOT mean** is the first thing
-# `tests/two_principals.rs` says: both principals are service accounts whose keys this leg holds, so
-# it is leg 2's source half and not leg 2. `docs/where-identity-is-proven.md` is the map.
-# Run the two-principal BigQuery cell against the configured row-access-policied dataset.
-
-# Run the two-principal BigQuery cell against the configured row-access-policied dataset.
-bigquery-two-principals:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "bigquery-two-principals: scope sutura-exec-bigquery - two principals, one statement, one row access policy."
-    echo "bigquery-two-principals: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
-    echo "bigquery-two-principals: CI runs it through \`nix run .#bigquery-two-principals\`, in the bq-test job."
-    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(two_principals)'
+# The two-principal cell this task ran (`tests/two_principals.rs`) was withdrawn on
+# telekom/sutura#123: sutura does not re-verify a source's row-level security. `docs/where-identity-is-proven.md`
+# is the map for what remains - the exchanged-identity cell below.
 
 # The only BigQuery leg that holds no principal's key - which is what separates impersonation from
 # credential selection. NO WORKFLOW INVOKES IT: two of the five values it needs are not in the

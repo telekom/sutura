@@ -764,25 +764,11 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'not binary(two_principals) and not binary(exchanged_identity) and not binary(cross_resource)' "$@"
+              --run-ignored only -E 'not binary(exchanged_identity) and not binary(cross_resource)' "$@"
           '');
         };
-        # `nix run .#bigquery-two-principals` - the two-principal cell, `docs/adr/0017`'s eighth amendment and issue #123. Its
-        # own app for the filter reason above, and everything that app says about being an app rather than a check holds here.
-        # Beyond that app's environment it needs `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`,
-        # `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` and a key document per principal at
-        # `SUTURA_BQ_PRINCIPAL_A_KEY` / `SUTURA_BQ_PRINCIPAL_B_KEY`, failing loudly without any; `tests/two_principals.rs` names each.
-        apps.bigquery-two-principals = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-two-principals" ''
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features \
-              --run-ignored only -E 'binary(two_principals)' "$@"
-          '');
-        };
+        # The two-principal cell this used to filter out alongside (`apps.bigquery-two-principals`) was
+        # withdrawn on telekom/sutura#123: sutura does not re-verify a source's row-level security.
 
         # `nix run .#bigquery-exchanged-identity` - the exchanged-identity cell, issue #376: the only
         # leg holding no principal's key. **No workflow invokes it**, and its own header says why.

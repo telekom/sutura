@@ -107,7 +107,6 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` |
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
-| **A real dataset under two keys** | a GitHub environment, on demand | two more service-account keys, and a row access policy per principal | `just bigquery-two-principals` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
 | **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a subject assertion per principal that nothing mints, and a hop to a service account that nothing implements - **the pool itself is already provisioned** | `just bigquery-exchanged-identity` |
 
@@ -134,35 +133,35 @@ everything *around* it, and shrinks to the one job only it can do.
 
 ## Which venue answers which claim
 
-| Claim | Fake at the port | Mock issuer | Provisioned Postgres | Real dataset, shared key | Real dataset, two keys | Real provider | Real exchange |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - | - |
-| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - | - |
-| A signature verifies, and a forged one does not | - | **yes** | - | - | - | redundant | - |
-| `kid` selection, and an unknown key id | - | **yes** | - | - | - | redundant | - |
-| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | - | redundant | - |
-| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | - | redundant | - |
-| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | - | redundant | - |
-| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
-| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | - | redundant | - |
-| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
-| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - | - |
-| `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
-| Two subjects driving two different credentials to the port | - | **yes** | - | - | no - two credentials reach the port here, and neither is a subject's | - | - |
-| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | redundant |
-| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | redundant |
-| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
-| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
-| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | no | **only here** | no |
-| Whether a statement we generate is accepted by a real data system | - | - | **yes** | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
-| **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
-| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | no - a different data system | no - a different data system | no | no - a different data system |
-| Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
-| Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
+| Claim | Fake at the port | Mock issuer | Provisioned Postgres | Real dataset, shared key | Real provider | Real exchange |
+| --- | --- | --- | --- | --- | --- | --- |
+| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - |
+| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - |
+| A signature verifies, and a forged one does not | - | **yes** | - | - | redundant | - |
+| `kid` selection, and an unknown key id | - | **yes** | - | - | redundant | - |
+| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | redundant | - |
+| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | redundant | - |
+| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | redundant | - |
+| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
+| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | redundant | - |
+| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
+| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - |
+| `credential_unavailable` through the request path | - | **yes** | - | - | - | - |
+| Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - |
+| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | redundant |
+| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | redundant |
+| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - |
+| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - |
+| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | **only here** | no |
+| Whether a statement we generate is accepted by a real data system | - | - | **yes** | **yes** | - | - |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | **unrun** - the standing test is here and nothing has run it |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | no - one key is one identity | no | **unrun** - the standing test is here and nothing has run it |
+| **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | no - one key is one identity | no | no - trusted to the data system, not re-verified by sutura (telekom/sutura#123) |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | no - one key is one identity, and it is the transport's own | no | no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123) |
+| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | no - a different data system | no | no - a different data system |
+| Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - |
+| Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - |
 
 ## The fake at the port
 
@@ -357,93 +356,6 @@ about the vocabulary rather than to this row.
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
 identity* - and nothing whatever about per-subject execution.
 
-## A real dataset under two keys
-
-`just bigquery-two-principals`, against the same environment's project and a **different dataset**: the
-one whose table carries a `RowAccessPolicy` per principal, granting each of two service accounts a
-disjoint set of rows. `docs/adr/0017`'s tenth amendment is the record, and issue #123 is the cell.
-
-### What only this venue can answer
-
-**Whether the data system applies the row grant of the principal whose bearer the leg PRESENTED**, rather
-than the one the transport holds. `each_principal_reads_exactly_the_rows_its_row_access_policy_grants_and_not_the_others`
-submits one statement twice - one `QueryPlan` value, borrowed twice, so it is the same statement and not
-two that resemble each other - and asserts that each answer is made of that principal's own grouping
-value and that **neither is empty**. The second is there because two vacuous greens over an unseeded
-table is the shape this cell would otherwise pass as.
-
-**There is no disjointness assertion, and its absence is a property rather than a gap.** It could not
-fail once the two equalities passed - each answer is one grouping value, and the fixture control below
-has already refused a pair whose two values are equal - and an assertion that cannot go red reads as a
-third independent check while being none. That is why the refusal is a control with a test of its own.
-
-`the_deployments_own_identity_reads_neither_principals_rows` is the control without which those two
-greens are satisfied by a coincidence: the same statement over the same table under the DEPLOYMENT's own
-credential, which holds no row grant on that table. If the rows a principal saw were really the
-transport's, this leg would see them too. The transport's own credential is present on every leg of this
-cell and read on none of them - `BigQueryWire::submit` decides which bearer authorizes the job once, and
-a leg carrying a subject's credential never reaches the credential source.
-
-Three tests here are **not** `#[ignore]`d, because they are controls on the fixture rather than on the
-endpoint, and a fixture defect should fail in the gate every change runs:
-`one_key_document_named_twice_is_refused_before_a_socket_is_opened` and
-`one_grant_described_twice_is_refused_because_disjointness_would_be_unassertable` refuse a pair that
-describes one principal twice - two environment variables pointing at one key document is one character
-in a workflow, and it would produce two equal row sets that read as *the policies are not enforced*. And
-`the_question_this_cell_asks_projects_the_column_the_policies_filter_on` holds that the question projects
-the grouping column: without it the answer is one number per month, and two principals reading different
-rows differ only by arithmetic.
-
-### What it cannot answer - read this before citing a green run
-
-1. **That the row this venue answers has been answered.** *Nothing has run it*, which the matrix says
-   in one word: **`unrun`**, not `yes` and not `can`. The five values the leg must be pointed at - the
-   policied dataset and table, the grouping column, and the value each policy grants - are not in the
-   environment that holds the two keys. **The change that wires the job into CI is the change that
-   cannot leave this cell saying `unrun`**, and `cargo xtask check-venues` is what makes that a diff
-   rather than a promise: it resolves `just bigquery-two-principals` against every task and app the
-   workflows, the local composite actions and the shared `nix/` shell invoke, and refuses this cell
-   the moment one of them reaches it. It also refuses `unrun` from a venue nothing reaches, and an
-   `unrun` cell whose section does not use the word. Until then this venue is a capability with a
-   written test and no evidence.
-
-   **The limit, and it is the half worth reading:** what the gate resolves is an *invocation*, not a
-   green run. It cannot see a run's result - the authority for that is the GitHub API, which is
-   unreachable from the sandbox the gate runs in - so a job that always skips reddens this cell just
-   the same, and a hand-run does not redden it at all. Moving the cell to **`yes`** is therefore
-   review's judgement with the run named beside it; what is mechanical is that leaving it at `unrun`
-   once CI reaches it is no longer possible.
-2. **Whether a deployment can OBTAIN such a credential for the caller who asked.** Each bearer here is
-   minted from a service-account key *on disk*, through the crate's own `Credential`, so what a green run
-   establishes is that a source executes as the principal whose credential a leg carried. Nobody asked
-   and nothing was exchanged. **This venue is leg 2's SOURCE half and not leg 2**, and the last row of
-   the table is where the other half lives.
-3. **Anything about a subject.** A key a test holds is not an asking subject, which is why the *two
-   subjects read two different row sets* row stays `only here` on the exchange venue rather than moving
-   up to this one. Two principals is not two subjects, and eliding those is the overstatement this page
-   exists to prevent.
-4. **Whether the grant survives what a deployment would do to the table.** This leg deliberately loads
-   nothing: `BigQueryWarehouse::load_fixture` renders `CREATE OR REPLACE TABLE`, and replacing a table
-   drops its row access policies - so the one loader this crate has would disarm the grant the cell
-   asserts on, and there is no arbitrary-SQL path to reach for instead. The rows therefore belong beside
-   the policies, in the stack.
-5. **What the endpoint answers a principal no policy grants**, which decides how strong the control leg
-   is. Documented behaviour is no rows; the observable alternative is a refusal. Both are *not reading
-   either principal's rows*, so the control accepts either and prints which it got - and the first green
-   run is what narrows this to one sentence. **The accepted set is exactly those two, held by an
-   exhaustive match rather than by a wildcard:** review found the leg accepting every error the
-   adapter has, including the ones that mean *rows came back and one cell would not map* - so a
-   deployment that had just read the policied table was reported as having been refused, and the
-   control passed without looking. A new error variant is now a compile error at that line. **What a
-   refusal still cannot tell apart:** a `403` says this identity was refused, not which grant it was
-   missing, so *no row access policy grants it* and *it may not submit jobs in this project* look the
-   same here. Both satisfy the leg's assertion and neither is evidence about the policy.
-   **MEASURED, and it is why this is still open:** the
-   acceptance credential is refused `bigquery.rowAccessPolicies.create`, so a policy cannot be created,
-   replaced or inspected from a developer machine at all - the probe that would have answered this
-   returned `Access Denied ... Permission bigquery.rowAccessPolicies.create denied`. The policies are the
-   stack's, and this question has no venue but a CI run.
-
 ## A real enterprise identity provider
 
 Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
@@ -458,9 +370,10 @@ long form of everything below.
 ### What only this venue can answer, and the word for its state today
 
 **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data
-system resolves to a DIFFERENT principal.** That is the half the two-keys venue above cannot reach at
-any cost, because a key on disk is not an asking subject - and it is the half that separates
-impersonation from credential selection. The unrun test
+system resolves to a DIFFERENT principal.** A key on disk is not an asking subject, which is why the
+withdrawn two-principal cell (`tests/two_principals.rs`, telekom/sutura#123) could never have reached
+this claim even while it stood - and it is the half that separates impersonation from credential
+selection. The unrun test
 `each_principal_is_who_this_source_says_it_is_executing_as` is written to exchange a subject's own
 assertion through the composition `sutura-serve` ships and read `SESSION_USER()` back through the
 adapter, asserting the account each leg became;
@@ -505,8 +418,9 @@ more than the row above staying `not built` while the sentence sat in prose.
 ### What a green run here still would NOT establish
 
 1. **Anything about rows.** No row access policy is involved and none is asserted on. Whether the
-   data system then filters correctly for that identity is the vendor's guarantee, and the row-grant
-   claim stays with the two-keys venue.
+   data system then filters correctly for that identity is the vendor's guarantee, trusted and not
+   re-verified by sutura (telekom/sutura#123's decision, made after the two-principal cell that used
+   to carry this claim was withdrawn).
 2. **Anything about another source.** `BigQuery`'s adapter is the only one declaring
    `PerSubjectCredential`; the in-process engines execute under one identity.
 3. **That a browser-facing caller's token reaches the exchange.** That is the transport's half, and
@@ -523,11 +437,15 @@ reached **through the transport** with the caller's own verified token as the `s
 never happened is an exchange against a real endpoint, and no answer any deployment has produced was
 evaluated under an asker.
 
-Two identities whose access at the data system genuinely differs exist - the two-keys venue above is
-what they became - and a pool to exchange against exists. What is missing is a caller whose own
-verified token a broker turns into one of those two identities, which is the same gap the cell above
-fails on: no subject is bound to either grant. So *two subjects read two row sets* is still a claim
-rather than a hope, and the reason has narrowed twice - from *no differing access*, to *no subject
+Two identities whose access at the data system genuinely differed once existed as a venue's claim -
+the two-principal cell `tests/two_principals.rs` proved it over two service-account keys - and a pool
+to exchange against exists. That claim is withdrawn (telekom/sutura#123): a data system enforcing
+row-level security is trusted to do so, and sutura's claim is narrower than *two subjects read two
+row sets* was. What remains missing for THIS venue's own claim is a caller whose own verified token a
+broker turns into one of two DIFFERENT principals at all, which is the same gap the cell above fails
+on: no subject is bound to either grant. So *a deployment can obtain a different principal's
+credential per subject* is still a claim rather than a hope, and the reason has narrowed twice - from
+*no differing access*, to *no subject
 bound to either grant*, to *the shipped exchange resolves to a pool subject and the hop to a service
 account is not built*. Until that exists, `AGENTS.md` keeps the shipped position:
 

@@ -917,12 +917,7 @@ Not built.
         // page cites the two names below; the reader has to agree with all three.
         let root = crate::repo::root().expect("the repo root");
         let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
-        for task in [
-            "test",
-            "bigquery-acceptance",
-            "bigquery-two-principals",
-            "bigquery-exchanged-identity",
-        ] {
+        for task in ["test", "bigquery-acceptance", "bigquery-exchanged-identity"] {
             assert!(
                 runs_tests.contains(task),
                 "`just {task}` runs `cargo nextest run` in the justfile and the scan resolved {} \
