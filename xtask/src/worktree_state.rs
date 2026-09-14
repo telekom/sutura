@@ -56,8 +56,9 @@
 //!   dev-shell arm of ONE tier, so a second tier that takes a shared root is held by nothing here;
 //!   and it needs `bash` and `sha256sum`, which every venue that runs this suite has and a bare
 //!   host may not. `telekom/sutura#405`'s instance 5 is still not reproducible as stated - both
-//!   tiers are keyed and Postgres listens on no TCP port at all - and that dismissal no longer
-//!   rests on two unreconciled lines.
+//!   tiers are keyed, and the loopback port Postgres does run is the OS's pick per cluster, not a
+//!   value derived from a path, so neither its socket path nor a finite port range reaches a second
+//!   worktree - and that dismissal no longer rests on two unreconciled lines.
 //! * **A log path an agent chooses is outside every gate.** `telekom/sutura#405`'s instance 2 is a
 //!   `shipcheck.log` in a shared scratchpad, which is not a file in this repository. What this gate
 //!   reaches is the shell that IS: `nix/*.sh`, where such a path would be written if it were

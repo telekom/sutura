@@ -247,15 +247,29 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let mut written = 0_usize;
     let mut silent = Vec::new();
     let mut names: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                eprintln!("xtask action-shell: FAILED - cannot read an entry of {ACTIONS}: {error}");
+                eprintln!("  Fails rather than skips, for the same reason the read above does: an");
+                eprintln!("  action dropped from the walk reads as one that held.");
+                return Verdict::Fail;
+            }
+        };
         let action = entry.path();
         let label = action
             .file_name()
             .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         for candidate in ["action.yml", "action.yaml"] {
             let path = action.join(candidate);
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
+            let text = match read_candidate(&path) {
+                Ok(Some(text)) => text,
+                Ok(None) => continue,
+                Err(why) => {
+                    eprintln!("xtask action-shell: {why}");
+                    return Verdict::Fail;
+                }
             };
             actions = actions.saturating_add(1);
             names.push(label.clone());
@@ -304,9 +318,24 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     Verdict::Pass
 }
 
+/// Read one `action.*` candidate, with `NotFound` split from every other read failure.
+///
+/// **A directory has exactly one of the two spellings**, so the other spelling's read fails with
+/// `NotFound` on every action, every run - that expected absence is the only skip. A file that is
+/// PRESENT and will not be read is a real failure: the `continue` this replaces died silently,
+/// and the action count, incremented inside the same loop that dropped the file, fell by one
+/// while the gate exited 0 - `github.com/telekom/sutura#619`'s shape, one gate late.
+fn read_candidate(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(why) => Err(format!("could not read {}: {why}", path.display())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{HEADER_LINES, extract, script, strip_expressions};
+    use super::{HEADER_LINES, extract, read_candidate, script, strip_expressions};
 
     #[test]
     fn a_block_scalar_is_dedented_and_located() {
@@ -481,6 +510,37 @@ mod tests {
             );
         }
         assert!(checked >= 3, "expected at least three composite actions, found {checked}");
+    }
+
+    /// #619's fourth instance: a present-but-unreadable `action.*` was skipped by the loop's
+    /// `else { continue; }`, and the printed action count, incremented inside that same loop, fell
+    /// by one while the gate exited 0. The `NotFound` read of the OTHER spelling is expected - one
+    /// of the two is always absent - so only a file that EXISTS and will not be read is a failure.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_action_file_refuses_instead_of_shrinking_the_count() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "action-shell-sealed",
+            &[
+                ("one/action.yml", b"runs:\n  using: composite\n  steps: []\n"),
+                ("two/action.yml", b"runs:\n  using: composite\n  steps: []\n"),
+            ],
+        );
+        let control = read_candidate(&tree.root().join("one/action.yml")).expect("a readable action reads");
+        assert!(control.is_some());
+
+        if !tree.seal("two/action.yml") {
+            // Mode bits ignored for this uid; asserting a refusal here would assert nothing.
+            return;
+        }
+        let Err(why) = read_candidate(&tree.root().join("two/action.yml")) else {
+            panic!("an unreadable action.yml was skipped rather than refused");
+        };
+        assert!(why.contains("two/action.yml"), "the refusal has to name the file: {why}");
+
+        // And the absent spelling is not a failure - it is the one this directory does not use.
+        let absent = read_candidate(&tree.root().join("one/action.yaml")).expect("the absent spelling is not a read failure");
+        assert!(absent.is_none());
     }
 
     #[cfg(unix)]
