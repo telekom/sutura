@@ -14,7 +14,7 @@
 //!
 //! [`invoked`] used to scan each non-comment line of a CI source for the substring `just ` or
 //! `nix run .#`. A comment was the only prose it excluded - so
-//! `echo to run this leg locally use nix run .#bigquery-two-principals please` resolved that name,
+//! `echo to run this leg locally use nix run .#bigquery-acceptance please` resolved that name,
 //! and a venue no job runs could claim a wiring at exit 0 with a summary byte-identical to the
 //! honest one. [`starts_a_command`] reads a command instead.
 //!
@@ -61,8 +61,8 @@ pub(super) fn test_names(root: &Path, files: &[String]) -> BTreeSet<String> {
 
 /// The task or app name one invocation names, or `None` when the span is not an invocation.
 ///
-/// `just bigquery-two-principals` and `nix run .#bigquery-two-principals` both resolve to
-/// `bigquery-two-principals`, which is what makes a page citing the TASK comparable against a
+/// `just bigquery-acceptance` and `nix run .#bigquery-acceptance` both resolve to
+/// `bigquery-acceptance`, which is what makes a page citing the TASK comparable against a
 /// workflow invoking the APP. That the two names coincide is this repository's convention and not a
 /// derived fact - a task whose flake app is named differently would not be seen, and that is a
 /// false NEGATIVE, which is the direction this check can afford.
@@ -113,7 +113,7 @@ type Step = Option<(usize, bool, Quoting)>;
 /// each line on [`SEGMENTS`] and read the head of every piece, so a token inside a quoted sentence
 /// was a command boundary. Measured on the merged tree at `d5bd307`, one line appended to `ci.yml`
 /// at a time: a backticked name in a single-quoted `echo`, a `;`, an `&&`, a `(` and a `printf` of
-/// a markdown table cell each resolved `bigquery-two-principals` and each moved the count from 18
+/// a markdown table cell each resolved `bigquery-acceptance` and each moved the count from 18
 /// to 19 - which refuses the honest `unrun` cell and instructs `wired`, at exit 0.
 ///
 /// So the quoting is tracked. A `'…'` span contributes nothing; a `"…"` span separates nothing but
@@ -232,7 +232,7 @@ const WRAPPERS: &[(&str, &str)] = &[
 ///
 /// **The hole this closes, measured:** `invoked` used to scan each non-comment line for the
 /// substring `nix run .#`, so
-/// `echo to run this leg locally use nix run .#bigquery-two-principals please` resolved that name
+/// `echo to run this leg locally use nix run .#bigquery-acceptance please` resolved that name
 /// and a venue no job runs could say `wired` at exit 0, with a summary byte-identical to the honest
 /// one. A print's ARGUMENT is prose - the same distinction `acceptance::shape::emits_file` draws
 /// one file over, where reading the verb rather than the line was also the fix.
@@ -326,7 +326,7 @@ pub(super) fn invoked(root: &Path) -> Option<BTreeSet<String>> {
 /// ```yaml
 /// - run: |
 ///     cat <<'EOF'
-///     - just bigquery-two-principals (by hand)
+///     - just bigquery-acceptance (by hand)
 ///     EOF
 /// ```
 ///

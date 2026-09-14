@@ -6,8 +6,9 @@
 //! > Holding only the CI workload identity, sutura exchanges via WIF/STS for a principal, and
 //! > `BigQuery` executes the query **as that principal**. The two principals differ.
 //!
-//! The word is **exchanges**. `crates/sutura-exec-bigquery/tests/two_principals.rs` already asks a
-//! real dataset to enforce a row grant per principal, and it does so by holding each principal's own
+//! The word is **exchanges**. `two_principals.rs` (withdrawn, telekom/sutura#123 - sutura does not
+//! re-verify a source's row-level security) asked a real dataset to enforce a row grant per
+//! principal, and it did so by holding each principal's own
 //! *service-account key*: that is credential SELECTION, and this repository's own map refuses to let
 //! it be cited as impersonation - *never label static-credential acceptance as proof of different
 //! authorized rows*. Nothing here holds a principal's key. Each leg presents a bearer that came out
@@ -27,8 +28,8 @@
 //! # What a green run here would establish, and the four things it would not
 //!
 //! **Would:** that a deployment holding one workload identity can obtain, per subject, a credential
-//! the data system resolves to a DIFFERENT principal - the half `two_principals.rs` cannot reach,
-//! because nobody asked there and nothing was exchanged.
+//! the data system resolves to a DIFFERENT principal - the half `two_principals.rs` (withdrawn,
+//! telekom/sutura#123) could never reach, because nobody asked there and nothing was exchanged.
 //!
 //! **Would not:** anything about Postgres, Oracle or any other source - `BigQuery`'s adapter is the
 //! only one that can carry a per-subject credential at all. Anything about row or column filtering,
@@ -120,7 +121,8 @@
 //! just bigquery-exchanged-identity
 //! ```
 //!
-//! Its own task and its own nix app, for the reason `two_principals.rs` has its own: it needs values
+//! Its own task and its own nix app, for the reason the withdrawn `two_principals.rs`
+//! (telekom/sutura#123) had its own: it needs values
 //! the other legs do not, and one task demanding all of them would make the legs somebody CAN run
 //! unreachable. It is deliberately **not** wired into `.github/workflows/ci.yml` yet - the two
 //! assertion values do not exist, so wiring it would make `bigquery-acceptance` red on every push,
@@ -248,8 +250,8 @@ mod tests {
     /// `status` and `named` ARE printed, and that is the judgement in this function: they are
     /// `BigQuery`'s own published status and reason vocabulary - `accessDenied`, `notFound` - so
     /// they name a class of failure and never an identity. `detail` is the free text and is the one
-    /// field that can carry an account, so nothing here reads it. `two_principals.rs`'s control leg
-    /// prints exactly the same pair.
+    /// field that can carry an account, so nothing here reads it. The withdrawn `two_principals.rs`'s
+    /// (telekom/sutura#123) control leg printed exactly the same pair.
     fn identity_or_die<C>(read: IdentityRead<C>, leg: &str) -> SessionUser
     where
         C: core::error::Error + Send + Sync + 'static,
@@ -334,7 +336,8 @@ mod tests {
 
     /// Do the two expected accounts differ?
     ///
-    /// A control on the CONFIGURATION rather than on the endpoint, in `two_principals.rs`'s shape
+    /// A control on the CONFIGURATION rather than on the endpoint, in the withdrawn
+    /// `two_principals.rs`'s (telekom/sutura#123) shape
     /// and for its reason: two environment variables pointing at one account is one character in a
     /// workflow, and it would make [`who_answered`]'s first two arms unable to disagree - every
     /// answer would be `TheExpectedPrincipal` for both legs and the cell would report the strongest
@@ -484,8 +487,8 @@ mod tests {
         // regressions are refused here, by the two assertions below, and a mutation drives each:
         // restoring `.expect` reddens the first (its run really does print the account), restoring
         // `Display` reddens the second. Which rendering does which is the point - one is a
-        // disclosure, the other is only unhelpful, and the same is why `two_principals.rs`'s
-        // `{refused}` panics are safe as they stand.
+        // disclosure, the other is only unhelpful, and the same is why the withdrawn
+        // `two_principals.rs`'s (telekom/sutura#123) `{refused}` panics were safe as they stood.
         //
         // `AssertUnwindSafe` because the transport's error is not `UnwindSafe`: it carries a
         // `Box<dyn Error + Send + Sync>` from `ureq`. The assertion it makes is sound HERE - the
@@ -606,7 +609,8 @@ mod tests {
         // `build_bigquery` assemble it: one pinned agent behind the exchange and the wire, the
         // broker exchanging each subject's own token, and the adapter opened under the posture that
         // accepts the exchanged token as the job's bearer. **No principal's key is anywhere in
-        // this**, which is the whole difference from `two_principals.rs`.
+        // this**, which was the whole difference from the withdrawn `two_principals.rs`
+        // (telekom/sutura#123).
         let broker = WorkloadIdentityBroker::empty(StsOverHttp::new(WireAgent::pinned(bounds)))
             .with_floor(30)
             .impersonating(source(), WorkloadIdentity::of(audience, String::from(CLOUD_PLATFORM)));

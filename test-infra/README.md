@@ -129,7 +129,7 @@ run is still a thing somebody has to know.
 | Kind | Names |
 | --- | --- |
 | `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
-| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET` |
 
 The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values, and they are
 secrets rather than vars for a reason that is not credential material: each names the acceptance
@@ -140,13 +140,13 @@ infra-set` prints every var it sets. A workflow reading one of them must read `s
 one of these three left behind is not something this page or that gate can see - the GitHub API is
 the only authority for that.
 
-The last five `vars` are the two-principal cell's own: the row-access-policied dataset and table,
-the column the two policies filter on, and the grouping value each policy grants. The policied
-dataset is deliberately **not** the one the acceptance legs run against - those legs render `CREATE
-OR REPLACE TABLE`, which drops a table's row access policies - and the program refuses a
-configuration where the two coincide. An `infra-set` that predates them leaves the environment
-incomplete, and the consequence is a red `bigquery-acceptance` on every push rather than a skip: the
-job fails closed on an unset value deliberately.
+The last `var`, `SUTURA_BQ_RLS_DATASET`, is `cross_resource.rs`'s live fixture's own - the policied
+dataset it reads alongside `SUTURA_BQ_RLS_PROJECT`, unrelated to acceptance. It is deliberately
+**not** the dataset the acceptance legs run against - those legs render `CREATE OR REPLACE TABLE`,
+which drops a table's row access policies - and the program refuses a configuration where the two
+coincide. The four names that used to sit beside it - the policied table, the grouping column and
+each principal's grouping value - were the withdrawn two-principal cell's own (telekom/sutura#123:
+sutura does not re-verify a source's row-level security); nothing reads them now.
 
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the
