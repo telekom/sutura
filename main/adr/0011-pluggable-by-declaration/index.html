@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Every adapter is configured by a typed declaration rather than discovered - a metadata adapter declares which kinds of metadata it provides, and a data adapter declares whether it reaches a source as a shared service user or as the asking subject - so a capability nobody declared cannot be used, an answer records which mode produced it, and adding a capability is a compile error everywhere it has to be decided; plus what composing several metadata sources actually requires, which is a contribution manifest under the definition digest because today that digest covers the assembly and not the composition, and the one claim this record withdrew - a narrow source cannot contribute source-level usage prose to the prompt, because every note the knowledge layer carries is attached to a metric.">
+        <meta name="description" content="Every adapter is configured by a typed declaration rather than discovered - a metadata adapter declares which kinds of metadata it provides, and a data adapter declares whether it reaches a source as a shared service user or as the asking subject - so a capability nobody declared cannot be used, an answer records which mode produced it, and adding a capability is a compile error everywhere it has to be decided; plus what composing several metadata sources actually requires, which is a contribution manifest under the definition digest, decided here and built in the first amendment below, and the one claim this record withdrew - a narrow source cannot contribute source-level usage prose to the prompt, because every note the knowledge layer carries is attached to a metric.">
       
       
       
@@ -1371,10 +1371,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" class="md-nav__link">
+  <a href="#why-the-digest-covers-the-composition-and-not-only-the-assembly" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The digest has to be made to cover the composition, because today it does not
+        Why the digest covers the composition and not only the assembly
       
     </span>
   </a>
@@ -2942,10 +2942,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" class="md-nav__link">
+  <a href="#why-the-digest-covers-the-composition-and-not-only-the-assembly" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The digest has to be made to cover the composition, because today it does not
+        Why the digest covers the composition and not only the assembly
       
     </span>
   </a>
@@ -3022,13 +3022,19 @@
 
 
 <h1 id="pluggable-by-declaration-and-the-mode-a-data-adapter-is-in">Pluggable by declaration, and the mode a data adapter is in<a class="headerlink" href="#pluggable-by-declaration-and-the-mode-a-data-adapter-is-in" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted. The metadata half has a working precedent; the data half has LANDED; the
-composition half needs a change to what the definition digest is taken over.</strong></p>
-<p><strong>Corrected:</strong> this said <em>the data half is new</em>. It is built - <code>crates/sutura-domain/src/source.rs</code>
-holds <code>SourcePosture</code>, <code>deliverable_by</code>, <code>ImpersonationCapability</code> and <code>anchors_run_as</code>, and the boot
-check is wired in <code>crates/sutura-serve/src/main.rs</code>, where a declared source's posture is held against
-the linked adapter's capability. What is still new is the composition half, which this line already
-says.</p>
+<p>Status: <strong>accepted, and all three halves are built.</strong> <code>crates/sutura-domain/src/source.rs</code> holds
+<code>SourcePosture</code>, <code>deliverable_by</code>, <code>ImpersonationCapability</code> and <code>anchors_run_as</code>, and a declared
+source's posture is held against the linked adapter's capability at boot in both composition roots.
+The composition half landed too: <code>PinnedDefinitions::pin</code> takes the contribution manifest and
+<code>DefinitionDigest::of</code> hashes it as the third element beside the definitions and the knowledge, so
+the digest covers the composition and not only the assembly - the first amendment below is that record.</p>
+<p><strong>The limit, next to the claim.</strong> A declaration checked at boot decides which mode an adapter is
+<em>allowed</em> to be in; it is not itself a source executing as the asking subject, and no published
+adapter does that. <code>ImpersonationAtSource</code> is a posture a deployment may declare and an adapter may
+answer for, and what a green boot proves is that the two agree - not that a query ran under the
+caller's identity at the source. Which venue may be cited for which identity claim is
+<code>docs/where-identity-is-proven.md</code>'s to answer, this record included. The manifest's own limits are
+stated in the amendment, where the claims are.</p>
 <p>Pluggable metadata and pluggable data are requirements. So is a tight security focus, and the two pull
 in opposite directions unless pluggability is built one specific way: <strong>a closed set of typed
 declarations, checked exhaustively, rather than a plugin system that discovers what an adapter can
@@ -3311,7 +3317,7 @@ the ones that exist today are marked.</p>
 </tr>
 <tr>
 <td>Datahub</td>
-<td>target, and the one that has been <strong>measured</strong> rather than assumed - <a href="../0016-what-datahub-can-carry/">what DataHub can carry</a> reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source</td>
+<td><strong>built</strong> as <code>sutura-catalog-datahub</code>, and declarable - but no binary this repository ships links it, which <code>sutura_config::CatalogKind::Datahub</code> says on the variant. It is also the one that has been <strong>measured</strong> rather than assumed - <a href="../0016-what-datahub-can-carry/">what DataHub can carry</a> reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source</td>
 </tr>
 <tr>
 <td>OpenMetadata</td>
@@ -3319,7 +3325,7 @@ the ones that exist today are marked.</p>
 </tr>
 <tr>
 <td>A custom data catalog over an RDBMS</td>
-<td>target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt</td>
+<td><strong>built</strong> as <code>sutura-catalog-rdbms</code>, and NOT declarable: <code>sutura_config::CatalogKind</code> names no variant for it, so nothing can configure one yet. It is the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt</td>
 </tr>
 <tr>
 <td>BPMN</td>
@@ -3547,17 +3553,17 @@ letting configuration pick a winner would put that choice outside review.</p>
 <p><strong>Declared-and-empty stays distinct from not-declared</strong>, which the capability model already handles: a
 source that declares descriptions and has none for a particular model is fine and says nothing; a source
 that never declared them cannot contribute one.</p>
-<h3 id="the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not">The digest has to be made to cover the composition, because today it does not<a class="headerlink" href="#the-digest-has-to-be-made-to-cover-the-composition-because-today-it-does-not" title="Permanent link">&para;</a></h3>
+<h3 id="why-the-digest-covers-the-composition-and-not-only-the-assembly">Why the digest covers the composition and not only the assembly<a class="headerlink" href="#why-the-digest-covers-the-composition-and-not-only-the-assembly" title="Permanent link">&para;</a></h3>
 <p>An earlier version of this record said <em>"change which sources contribute and the digest moves, which is
 correct: it is a different bundle."</em> <strong>That is false against the code, and the correction is the
 decision this section makes.</strong> <code>PinnedDefinitions::pin</code> computes the digest from two things and stores
 them: the assembled <code>Definitions</code> and the <code>Knowledge</code>. <code>DefinitionDigest::of</code> hashes a canonical form
 over exactly that pair - a two-element JSON sequence over the parsed content - and there is no third
-element. So the digest covers the <strong>ASSEMBLY</strong>, and two different compositions that assemble to the same
-definitions and the same knowledge produce the same digest, indistinguishably. The claim was not merely
-imprecise; the whole point of it was to make a composition change visible, and it would not have been.</p>
-<p>Two ways out, and this record takes the first. The second is written down because it is the fallback if
-the first is judged too expensive, and because stating the smaller true thing is always available:</p>
+element. So the digest covered the <strong>ASSEMBLY</strong> alone, and two different compositions that assembled to
+the same definitions and the same knowledge produced the same digest, indistinguishably. The claim was
+not merely imprecise; the whole point of it was to make a composition change visible, and it would not
+have been.</p>
+<p>That is what this section decided to change, and the first amendment below is the change arriving:</p>
 <p><strong>Decided: a canonical CONTRIBUTION MANIFEST, hashed as a third element beside the definitions and the
 knowledge.</strong> Its shape, in the same style as the two things it joins:</p>
 <ul>
@@ -3595,12 +3601,6 @@ cost of that choice is that renaming is a certification event. And <strong>the m
 configured and reached, not what a source returned</strong>: it is not a content hash per source, so two
 different bundles from the same reachable sources are told apart by the assembly, exactly as they are
 today.</p>
-<p><strong>Not decided: the smaller true thing.</strong> If the manifest is judged too expensive to land with this
-connector, the sentence that replaces it is <em>"the digest covers the assembly, not the composition, and a
-re-composition that assembles identically is indistinguishable"</em> - and then the availability rules below
-lose their teeth and have to say so, because "the digest differs from the one that includes it" is a
-claim about the manifest and not about the assembly. <strong>Whichever is true has to be the one written
-here.</strong> The version this record shipped previously was neither.</p>
 <h3 id="the-assembler-is-application-code-not-an-adapter-over-adapters">The assembler is application code, not an adapter over adapters<a class="headerlink" href="#the-assembler-is-application-code-not-an-adapter-over-adapters" title="Permanent link">&para;</a></h3>
 <p><code>AGENTS.md</code>'s <em>Ports and Adapters</em> says <em>"an adapter never calls another adapter."</em> Two things have to be
 said accurately about that before it decides anything. <strong>It is not an invariant</strong>: it lives under

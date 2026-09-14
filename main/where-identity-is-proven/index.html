@@ -866,6 +866,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-provisioned-postgres-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A provisioned Postgres source
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A provisioned Postgres source">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What only this venue can answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-dataset-under-a-shared-key" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -889,7 +928,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+  <a href="#what-only-this-venue-can-answer_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         What only this venue can answer
@@ -900,7 +939,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         What it cannot answer - read this before citing a green run
@@ -2901,6 +2940,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-provisioned-postgres-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A provisioned Postgres source
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A provisioned Postgres source">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What only this venue can answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-dataset-under-a-shared-key" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2924,7 +3002,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-only-this-venue-can-answer" class="md-nav__link">
+  <a href="#what-only-this-venue-can-answer_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         What only this venue can answer
@@ -2935,7 +3013,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" class="md-nav__link">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         What it cannot answer - read this before citing a green run
@@ -3109,7 +3187,7 @@ moving its cell to <code>wired</code> passed at exit 0; and setting an on-demand
 with no run ever performed passed at exit 0, because only <code>unrun</code> and <code>wired</code> read the
 invocation set at all. Both are refused now.</p>
 <p><strong>Why the second rule is not universal, measured rather than assumed.</strong> Requiring an invocation
-everywhere refused the two <code>in process</code> venues, whose claims are answered on every push: this
+everywhere refused every <code>in process</code> venue, whose claims are answered on every push: this
 workspace's suite runs in CI as a nix <strong>check</strong>, and what the gate resolves is <code>just &lt;task&gt;</code> and
 <code>nix run .#&lt;app&gt;</code> - so <code>just test</code> is genuinely run by CI and is invisible to that reader. A
 gate that reddens correct work gets disabled, and the run-site token already states the
@@ -3164,6 +3242,12 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <td><code>just test</code>, <code>just validate</code></td>
 </tr>
 <tr>
+<td><strong>A provisioned Postgres source</strong></td>
+<td>in process, every run - against a real postmaster nix stands up in the same sandbox</td>
+<td>nothing - no secret and no docker; <code>nix/postgres-tier.nix</code> says so in its own header</td>
+<td><code>just test</code>, <code>just validate</code></td>
+</tr>
+<tr>
 <td><strong>A real dataset under a shared key</strong></td>
 <td>a GitHub environment, on demand</td>
 <td>a service-account key and a billing project</td>
@@ -3214,6 +3298,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <th>Claim</th>
 <th>Fake at the port</th>
 <th>Mock issuer</th>
+<th>Provisioned Postgres</th>
 <th>Real dataset, shared key</th>
 <th>Real dataset, two keys</th>
 <th>Real provider</th>
@@ -3229,10 +3314,12 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>A caller cannot state its own identity</td>
 <td><strong>yes</strong> (a type with no <code>Deserialize</code>)</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3245,6 +3332,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong></td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3252,6 +3340,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><code>kid</code> selection, and an unknown key id</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
@@ -3263,6 +3352,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong></td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3270,6 +3360,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Issuer, audience against this deployment's own resource identifier, expiry, <code>nbf</code></td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
@@ -3281,6 +3372,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>can</strong> - the builder takes several audiences; the standing test is at the gate</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3288,6 +3380,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Token class: an ID token where an access token is required</td>
 <td>-</td>
 <td><strong>yes</strong>, that <em>we refuse one</em></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below</td>
@@ -3299,6 +3392,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>can</strong> - the builder takes <code>iat</code> and <code>exp</code> separately for exactly this; the standing test is at the gate, over in-crate fixtures</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3306,6 +3400,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Key rotation: a removed key stops verifying within the bound</td>
 <td>-</td>
 <td><strong>yes</strong>, and it is the only venue where a rotation is scriptable</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant - painful to script there, and the mock issuer is the only scriptable venue</td>
@@ -3319,11 +3414,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td><code>credential_unavailable</code> through the request path</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3334,6 +3431,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td><strong>yes</strong></td>
 <td>-</td>
+<td>-</td>
 <td>no - two credentials reach the port here, and neither is a subject's</td>
 <td>-</td>
 <td>-</td>
@@ -3341,6 +3439,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <tr>
 <td>The RFC 8693 request document a broker sends</td>
 <td><strong>yes</strong>, against a fake exchange</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3354,12 +3453,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 </tr>
 <tr>
 <td>A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3371,6 +3472,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong>, on the spawned binary</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3378,6 +3480,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>The caller a signature established reaches the answer's own record</td>
 <td>-</td>
 <td><strong>yes</strong>, on the spawned binary - the only venue that can see it</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
@@ -3389,6 +3492,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>no - and a mock answers <em>yes</em> by construction, which is worse than no test</strong></td>
 <td>no</td>
 <td>no</td>
+<td>no</td>
 <td><strong>only here</strong></td>
 <td>no</td>
 </tr>
@@ -3397,12 +3501,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
 <td>redundant - the same endpoint, and the standing test is the shared-key leg</td>
 <td>-</td>
 <td>-</td>
 </tr>
 <tr>
 <td>Whether a token exchange endpoint accepts what we send it</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3414,6 +3520,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal</strong></td>
 <td>no</td>
 <td>no</td>
+<td>no - the adapter is <code>NoPlaceForASubject</code>, so there is no per-subject credential to obtain</td>
 <td>no - one key is one identity</td>
 <td>no - two keys is two credentials nobody asked for</td>
 <td>no</td>
@@ -3423,6 +3530,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>Whether two subjects read two different row sets</strong></td>
 <td>no</td>
 <td>no</td>
+<td>no - one database role is one identity</td>
 <td>no - one key is one identity</td>
 <td>no - a key on disk is not an asking subject, which is this venue's whole exclusion</td>
 <td>no</td>
@@ -3432,10 +3540,41 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets</strong></td>
 <td>no</td>
 <td>no</td>
+<td>no - the connection presents a password or a certificate, never a subject's bearer</td>
 <td>no - one key is one identity, and it is the transport's own</td>
 <td><strong>unrun</strong> - the only venue that could, and nothing has run it</td>
 <td>no</td>
 <td>redundant</td>
+</tr>
+<tr>
+<td><strong>Whether the shipped Postgres source executes as the asking subject</strong></td>
+<td>no - the adapter declares <code>ImpersonationCapability::NoPlaceForASubject</code> and <code>deliverable_by</code> holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove</td>
+<td>no</td>
+<td>no - the same boot refusal applies before this venue is ever reached</td>
+<td>no - a different data system</td>
+<td>no - a different data system</td>
+<td>no</td>
+<td>no - a different data system</td>
+</tr>
+<tr>
+<td>Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection</td>
+<td>-</td>
+<td>-</td>
+<td><strong>only here</strong></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none</td>
+<td>-</td>
+<td>-</td>
+<td><strong>only here</strong></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
 </tr>
 </tbody>
 </table>
@@ -3564,6 +3703,49 @@ it worth having: <strong>every token it mints is one an issuer could have minted
    forged key id does not make the deployment look, and after the window it does.</li>
 <li><strong>Anything about what a subject can see.</strong> No data system is involved.</li>
 </ol>
+<h2 id="a-provisioned-postgres-source">A provisioned Postgres source<a class="headerlink" href="#a-provisioned-postgres-source" title="Permanent link">&para;</a></h2>
+<p><code>nix/postgres-tier.nix</code> stands up a real PostgreSQL server - a unix socket, a loopback TCP listener,
+a generated server certificate and a generated client pair - and every venue that runs this
+workspace's suite provisions it, so nothing has to demand a run here. <code>just test</code> reaches it through
+<code>nix/with-tier.sh</code>, and <code>just validate</code> runs the cells as <code>checks.nextest</code> - its
+<code>checks.postgres-tier</code> leg proves the tier itself comes up and asserts nothing about the adapter.</p>
+<p>Its <code>Where it runs</code> cell says <code>in process, every run</code> because that is the closed vocabulary's
+nearest token and the cells really do run in the suite's own process; what they run <strong>against</strong> is a
+separate postmaster, which is the whole reason this row exists and is why the cell says so beside
+the token. The vocabulary has no token for a provisioned tier, and inventing one belongs to a change
+about the vocabulary rather than to this row.</p>
+<h3 id="what-only-this-venue-can-answer">What only this venue can answer<a class="headerlink" href="#what-only-this-venue-can-answer" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>That a chain is actually VERIFIED.</strong> <code>crates/sutura-exec-postgres/src/tls.rs</code> proves the
+   <code>rustls::ClientConfig</code> construction refuses what a closed type refuses, and nothing there
+   connects - so nothing there shows a handshake failing.
+   <code>a_source_chain_from_the_declared_anchor_is_verified_and_answers</code> and
+   <code>a_source_chain_from_an_untrusted_issuer_is_refused</code> are the two directions against a real
+   server, and the second is the one that matters.</li>
+<li><strong>That a source accepts the certificate this DEPLOYMENT presents, and refuses a client that
+   presents none.</strong> <code>a_mutual_source_presents_the_identity_the_server_demands</code> and
+   <code>a_mutual_role_refuses_a_client_that_presents_no_certificate</code>, against the tier's mutual-only
+   role. A <code>verified</code> entry that named a client certificate used to reach neither cell, because it
+   was discarded at parse time and nothing refused it - <code>github.com/telekom/sutura#659</code>, now a load
+   refusal in <code>sutura_config::sources::transport</code>.</li>
+<li><strong>That a statement this workspace generates is accepted by a real data system</strong>, over the
+   conformance packs in <code>crates/sutura-exec-postgres/tests/conformance.rs</code>. The shared-key BigQuery
+   venue answers the same claim for a different dialect, which is why that one row reads <strong>yes</strong> in
+   two columns.</li>
+</ol>
+<h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run_1">What it cannot answer - read this before citing a green run<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Anything about a calling subject.</strong> The adapter is <code>NoPlaceForASubject</code>: one connection is one
+   static database role, established by a password or by the client certificate above. A client
+   certificate is an identity - <strong>this deployment's</strong>, not an asker's - so a green mutual-TLS cell is
+   evidence for leg 1's channel and for nothing in leg 2.</li>
+<li><strong>Two subjects reading two row sets.</strong> That needs two real grants and a subject bound to each,
+   and there is one role here. The tier could carry two roles; nothing would bind either to who
+   asked.</li>
+<li><strong>Whether the anchors an OPERATOR names are the right ones.</strong> The tier generates its own issuer
+   and the test declares it, so what is proved is that a declared store decides the outcome - never
+   that a deployment's store names the authority it meant.</li>
+</ol>
 <h2 id="a-real-dataset-under-a-shared-key">A real dataset under a shared key<a class="headerlink" href="#a-real-dataset-under-a-shared-key" title="Permanent link">&para;</a></h2>
 <p><code>just bigquery-acceptance</code>, against a GitHub environment's own dataset. <code>docs/adr/0017</code> and
 <code>docs/adr/0019</code> are the records, and the sentence that matters here is short: <strong>a service-account key is
@@ -3573,7 +3755,7 @@ identity</em> - and nothing whatever about per-subject execution.</p>
 <p><code>just bigquery-two-principals</code>, against the same environment's project and a <strong>different dataset</strong>: the
 one whose table carries a <code>RowAccessPolicy</code> per principal, granting each of two service accounts a
 disjoint set of rows. <code>docs/adr/0017</code>'s tenth amendment is the record, and issue #123 is the cell.</p>
-<h3 id="what-only-this-venue-can-answer">What only this venue can answer<a class="headerlink" href="#what-only-this-venue-can-answer" title="Permanent link">&para;</a></h3>
+<h3 id="what-only-this-venue-can-answer_1">What only this venue can answer<a class="headerlink" href="#what-only-this-venue-can-answer_1" title="Permanent link">&para;</a></h3>
 <p><strong>Whether the data system applies the row grant of the principal whose bearer the leg PRESENTED</strong>, rather
 than the one the transport holds. <code>each_principal_reads_exactly_the_rows_its_row_access_policy_grants_and_not_the_others</code>
 submits one statement twice - one <code>QueryPlan</code> value, borrowed twice, so it is the same statement and not
@@ -3599,7 +3781,7 @@ in a workflow, and it would produce two equal row sets that read as <em>the poli
 <code>the_question_this_cell_asks_projects_the_column_the_policies_filter_on</code> holds that the question projects
 the grouping column: without it the answer is one number per month, and two principals reading different
 rows differ only by arithmetic.</p>
-<h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run_1">What it cannot answer - read this before citing a green run<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run_1" title="Permanent link">&para;</a></h3>
+<h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run_2">What it cannot answer - read this before citing a green run<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run_2" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong>That the row this venue answers has been answered.</strong> <em>Nothing has run it</em>, which the matrix says
    in one word: <strong><code>unrun</code></strong>, not <code>yes</code> and not <code>can</code>. The five values the leg must be pointed at - the

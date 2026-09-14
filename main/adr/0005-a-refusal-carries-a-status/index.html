@@ -2870,15 +2870,31 @@ checked against the current documentation of four:</p>
 <p>Nothing mainstream retries a <code>4xx</code> by default. The two statuses retried by convention are <code>429</code> and
 <code>408</code>, and no refusal maps to either. <code>422</code>, where the refusals that ask a caller to narrow the
 question land - <code>grain_not_supported</code>, <code>time_range_too_long</code>, <code>too_many_dimensions</code>,
-<code>duplicate_dimension</code> and <code>resources_exhausted</code> - is documented the other way round from the premise:
+<code>duplicate_dimension</code>, <code>resources_exhausted</code> and <code>deadline_exceeded</code> - is documented the other way
+round from the premise:
 clients receiving a <code>422</code> "should expect that repeating the request without modification will fail
 with the same error".</p>
 <p><strong>Corrected:</strong> this said <em>"four of the eleven refusal codes"</em>. Both numbers had gone stale - the
-codes are named rather than counted now, because nothing in this repository derives either number
-and a count nobody derives is a count that goes stale again. <code>crates/sutura-http/src/wire/refusal.rs</code>
-still carries the same stale figure in two of its own comments; correcting them is held against the
-entry in <code>check-guidance</code>'s contradicted-claims table that currently keys on one of them, so the two
-have to move in the same change as that table and did not move here.</p>
+codes are named rather than counted here, because nothing in this repository derives either number
+and a count nobody derives is a count that goes stale again. Where the count is still written it is
+registered rather than remembered: <code>check-guidance</code>'s contradicted-claims entry now forbids the stale
+figure and prescribes the true one, and <code>xtask/src/guidance/claims.rs</code>'s
+<code>no_live_rule_forbids_the_true_count_of_422_refusals</code> holds that no live rule forbids the sentence
+this repository can now write. <code>docs/serving.md</code> states the count; the transport's own route module
+states the status without one.</p>
+<p><strong>The residual, stated because it is not held by anything.</strong> None of the above compares the count to
+the match that decides it - the registered entry forbids the WRONG figure and the test beside it says
+in its own words that it "says nothing about the COUNT". So
+<code>crates/sutura-http/src/wire/refusal.rs</code>, which spells the number in two of its own comments, and
+<code>docs/serving.md</code>, which spells it once, are held by adjacency and review rather than by a mechanism.
+That is not hypothetical. Those sites went stale again on 2026-09-13, under two hours after the entry
+was registered: the deadline refusal arrived as another arm of the same match sending another code to
+<code>422</code>, the wire's own status table gained its row because the exhaustive match forced one, and not a
+single sentence that counts the codes moved with it. The number is deliberately not restated here -
+this paragraph is about a count nothing derives, and writing one would be the defect it describes.
+That entry could not reach <code>refusal.rs</code> in any case: <code>check-guidance</code>'s
+claim scope is <code>md</code>, <code>nix</code>, <code>yml</code>, <code>yaml</code>, <code>toml</code> and <code>sh</code>, so a count written in a Rust comment is
+outside every wording it registers.</p>
 <p><strong>And the <code>200</code> cost something the argument never priced.</strong> A governance refusal answered <code>200</code> is
 indistinguishable from an answer to everything that reads a status and not a body:</p>
 <ul>
@@ -2979,7 +2995,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <tr>
 <td><code>ResultTooLarge</code></td>
 <td><code>413</code></td>
-<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not. <strong>Amended after this record was accepted:</strong> the variant now carries a <code>ResultBound</code> and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because <em>too much data</em> is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as <code>503</code>, which this record calls <em>the one refusal where retrying is reasonable</em> - and a retry returned the same reply. <strong>Amended again, <code>telekom/sutura#639</code>:</strong> a third arm, <code>Encoded</code>, covers a result inside every other bound that is still wider than this deployment will spend encoding into a response - a caller's own grouped column can be arbitrary text a data system returns, which no type here bounds the length of. Unlike the volume arm this one carries a number, because it is this deployment's own configured ceiling and not one it was never told</td>
+<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not. <strong>Amended after this record was accepted:</strong> the variant now carries a <code>ResultBound</code> and covers a second bound - a data system that will not hand the result back in one piece - at the same status and the same code, because <em>too much data</em> is one answer and one remedy to a caller. Only the sentence differs, from a nested exhaustive match, and the second bound's carries no number: the bound belongs to the data system and is not reported to us. The widening exists because that case used to arrive as <code>503</code>, which this record calls <em>the one refusal where retrying is reasonable</em> - and a retry returned the same reply. <strong>Amended again, <code>telekom/sutura#639</code>:</strong> a third arm, <code>Encoded</code>, covers a result inside every other bound that is still wider than this deployment will spend encoding into a response - a caller's own grouped column can be arbitrary text a data system returns, which no type here bounds the length of. Unlike the volume arm this one carries a number, because it is this build's own ceiling and not one it was never told - a constant, deliberately not described as configured: nothing reads it from a settings file yet</td>
 </tr>
 <tr>
 <td><code>SourceUnavailable</code></td>

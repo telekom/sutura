@@ -3101,7 +3101,7 @@ last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
-<li><code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</li>
+<li><code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain <code>crate::server</code>'s <code>invalid()</code> walks - see that type's own note. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</li>
 </ul>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>

@@ -5426,6 +5426,11 @@ sent to an impostor.</p>
 <p>There is deliberately no <code>Verified</code>-without-anchors shape: a source asking for TLS and naming no
 trust store is a refusal at load, naming the source (ADR 0010 rule 2). <code>TrustAnchors</code> has no
 default, so there is no value the loader could have filled in on the operator's behalf.</p>
+<p>And <code>Verified</code> deliberately has no client identity either, which makes a written one a refusal
+rather than a field: <code>verified</code> verifies the source's chain and presents nothing, so a
+<code>client_certificate</code> on it is a control the mode cannot carry. Giving <code>Verified</code> the fields
+instead would collapse the distinction the block above is drawn on - the mode that presents a
+certificate is <code>Mutual</code>, and a superset would leave two spellings for one state.</p>
 <p>And there is deliberately no way to ask for TLS without verification. Every library in this
 space offers the escape hatch - <code>danger_accept_invalid_certs</code>, <code>sslmode=require</code> - and each one
 is an encrypted channel with an unknown peer. A <code>bool</code> named <code>verify</code> would make that reachable
@@ -5464,8 +5469,10 @@ host's own anchors says so - and the startup line then prints that it was chosen
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-215-1"><a id="__codelineno-215-1" name="__codelineno-215-1" href="#__codelineno-215-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ClientIdentity</span>
 </span></code></pre></div>
 <p>The client certificate and key this deployment presents to a source.</p>
-<p>A pair - a certificate with no key, or a key with no certificate, is refused at load naming the
-missing half. The paths are read by the adapter at boot; only the paths live in configuration.</p>
+<p>A pair - in a <code>mutual</code> declaration, a certificate with no key or a key with no certificate is
+refused at load naming the missing half. Only <code>mutual</code> builds one: on any other mode a written
+half is refused for being unread, before this type is reached. The paths are read by the adapter
+at boot; only the paths live in configuration.</p>
 <h5 id="methods_41">Methods<a class="headerlink" href="#methods_41" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-216-1"><a id="__codelineno-216-1" name="__codelineno-216-1" href="#__codelineno-216-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PathBuf</span>
 </span></code></pre></div>
@@ -5510,7 +5517,7 @@ value that would be cloned is a path, which is fine to own here.</p>
 <h5 id="variants_27">Variants<a class="headerlink" href="#variants_27" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>UnknownTransport</code></li>
-<li><code>PlaintextWithMaterial</code> - A <code>plaintext</code> channel also named anchors or a client identity, which nothing would read.</li>
+<li><code>KeyNotReadByMode</code> - A key was written that the declared mode does not read, so nothing would honour it.</li>
 <li><code>TlsWithoutAnchors</code> - A source declared TLS and named no trust anchors.</li>
 <li><code>MissingHalf</code> - A client certificate was written without its key, or the reverse.</li>
 <li><code>MutualWithoutIdentity</code> - A <code>mutual</code> channel declared no client identity at all.</li>
@@ -5525,7 +5532,11 @@ value that would be cloned is a path, which is fine to own here.</p>
 a closed type must refuse.</p>
 <p><code>mode</code> is the <code>transport_mode</code> word. <code>anchors</code> is the written <code>transport_anchors</code> value (a path or
 the word <code>system</code>). <code>client_certificate</code>/<code>client_key</code> are the optional identity pair. <code>plaintext</code>
-is the one way to declare no TLS; a <code>plaintext</code> declaration that also names material is refused.</p>
+is the one way to declare no TLS.</p>
+<p><strong>A mode is refused a key it would not read, and the two modes that discard something share one
+refusal.</strong> <code>plaintext</code> reads no anchors and no client identity; <code>verified</code> verifies the source's
+chain and presents nothing, so it reads no client identity either. <code>mutual</code> is the only mode
+that reads all three, so it is the only one nothing is refused on for being unread.</p>
 <h4 id="fn-host_is_loopback"><code>fn host_is_loopback</code><a class="headerlink" href="#fn-host_is_loopback" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-223-1"><a id="__codelineno-223-1" name="__codelineno-223-1" href="#__codelineno-223-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">host_is_loopback</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>

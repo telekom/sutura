@@ -2812,7 +2812,12 @@
 
 
 <h1 id="conformance-packs-for-inputs-and-adapters">Conformance packs for inputs and adapters<a class="headerlink" href="#conformance-packs-for-inputs-and-adapters" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as the shape. None of it is built.</strong></p>
+<p>Status: <strong>accepted, and built in part.</strong> This line read <em>"accepted as the shape. None of it is
+built."</em> until the code caught up with it, and the old sentence is quoted rather than dropped because
+<code>check-guidance</code> exempts this page from the rule that forbids it - an exemption over a page that no
+longer holds the quote is a rule registered against a sentence nobody wrote. <em>Corrected</em> directly
+below is what is built and what holds it; the paragraph after that is the limit, and it is the one to
+read before citing this record.</p>
 <p><strong>Corrected: most of it is built now.</strong> <code>crates/sutura-conformance</code> exists as the dev-only packs
 crate this record specifies; <code>execute_packs!</code> binds it to three data systems
 (<code>sutura-exec-duckdb</code>, <code>sutura-exec-postgres</code>, <code>sutura-exec-datafusion</code> - the engine); compile packs
@@ -2821,6 +2826,16 @@ check-conformance-bindings</code> (<code>xtask/src/conformance.rs</code>) is the
 below asks for, holding the registry and the macro invocation in step. What is still unbuilt, per
 the record's own later corrections further down: a per-pack timing aggregate, <code>cargo-insta</code>'s
 unreferenced-snapshot check, and a data adapter beyond the three bound today.</p>
+<p><strong>The limit, next to the claim, because the shape is further along than the coverage.</strong> A case is a
+value in <code>crates/sutura-conformance/src/corpus.rs</code> rather than a file, so adding one is still a code
+change - <em>The corpus data is a file; cases are code</em> below is where that stands. <strong>None of the three
+cases under <em>Cases the corpus must contain by name</em> is written</strong>, and that module's own header says
+so. The packs call <code>execute</code> and <code>dry_run</code> and no other <code>Warehouse</code> method, so <em>held to the same test
+bodies</em> is a statement about two methods. And <strong>no pack exercises impersonation in any form</strong> -
+<code>corpus::posture()</code> returns <code>SourcePosture::SharedServiceUser</code> - which is the one to read before
+citing this record as evidence that a source executed as the asking subject. It is not. What a green
+conformance run does NOT establish is enumerated in that crate's own module header; this paragraph is
+not a substitute for it.</p>
 <p>The requirement is that every metadata input and every data adapter conforms to the <strong>same tests and
 functions</strong>, so a new connector proves itself by registering and declaring rather than by anyone
 editing a test. This record is the construction.</p>

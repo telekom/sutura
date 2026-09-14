@@ -4426,7 +4426,10 @@ are mutually exclusive.</p>
 <li><code>plaintext</code> uses no TLS. It is accepted only with an absolute unix-socket directory or a loopback
   IP literal; a hostname or non-loopback address is a startup refusal.</li>
 <li><code>verified</code> requires <code>transport_anchors</code> and requires the TLS handshake. <code>system</code> means the host's
-  trust store because the operator wrote it; an absolute path means that PEM bundle alone.</li>
+  trust store because the operator wrote it; an absolute path means that PEM bundle alone. It
+  presents nothing, so a <code>client_certificate</code> or <code>client_key</code> written on a <code>verified</code> entry is a
+  <strong>startup refusal naming the key</strong>, never a setting read past - the mode that presents a
+  certificate is <code>mutual</code>.</li>
 <li><code>mutual</code> adds <code>client_certificate</code> and <code>client_key</code>, both absolute and both required. The source
   still verifies the server against <code>transport_anchors</code>. The client certificate identifies this
   deployment, not the caller, so it does not change the <code>shared-service-user</code> posture.</li>
