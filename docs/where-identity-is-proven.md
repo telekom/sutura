@@ -168,7 +168,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
-| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **wired** | - | - | - |
+| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **unrun** - the standing test is here and nothing has run it |
@@ -384,7 +384,9 @@ document through the composed binary. `crates/sutura-serve/tests/served.rs`'s
 the cell: a password-grant token for one provisioned subject is accepted with the right rows and a
 `verified` audit record, a token for the OTHER subject names a different subject in that record, and
 the same valid token is refused at a deployment declaring a different audience. So this row says
-**wired**: a job now reaches that cell and no run of it has been observed.
+**yes**, moved from `wired` on 2026-09-15 by the hosted run of PR #751, whose `keycloak-served-test`
+job concluded `success` (run
+https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042).
 
 ### What it cannot answer - read this before citing a green run, and this is the row that matters
 
