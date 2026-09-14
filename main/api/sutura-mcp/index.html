@@ -2667,10 +2667,11 @@ not deviate.</p>
   That byte-compare is a mechanism <code>AGENTS.md</code> describes as owed rather than standing; this crate
   is what owes it.</li>
 <li><strong>A tool a caller may not invoke is neither advertised nor answered.</strong>
-  <code>AgentSurface::new</code> requires a <code>sutura_app::Permitted</code>, <code>tools/list</code> filters on it and
-  <code>tools/call</code> refuses on it. The filtering is presentation and the refusal is the control - see
-  <code>server</code>, which says so in a table, and says plainly that nothing over standard input and
-  output narrows the set today.</li>
+  <code>AgentSurface::new</code> requires an <code>Asking</code>, which resolves to a <code>sutura_app::Permitted</code> either
+  once at construction (<code>TheProcessOwner</code>) or fresh per call (<code>PerRequest</code>); <code>tools/list</code> filters
+  on it and <code>tools/call</code> refuses on it. The filtering is presentation and the refusal is the
+  control - see <code>server</code>, which says so in a table, and says plainly that nothing over standard
+  input and output narrows the set today.</li>
 <li><strong>A refusal is a RESULT.</strong> It comes back inside a tool result with the error flag unset, not as
   a JSON-RPC error and not as <code>isError</code>. See <code>server</code> for the three channels and why they are
   three.</li>
@@ -2719,16 +2720,20 @@ this crate, and the handler is three methods written by hand.</p>
   it. Nothing here can bound it: the reader is the SDK's, and the boundary is the process - a
   peer that can write to this pipe can already launch the process. It stays named rather than
   claimed as covered.</li>
-<li><strong>Any notion of who is asking.</strong> <code>crate::principal</code> still answers
-  <code>sutura_domain::identity::Subject::TheDeploymentItself</code>, truthfully: this transport speaks over a
-  pipe, where there is no header a token could arrive in. <code>sutura_http::inbound</code> is where leg 1
-  lives and it is unreachable from here - an adapter never calls another adapter - so a caller
-  identity on this surface needs the two decisions <code>docs/adr/0014</code>'s closing section names: how it
-  is reached at all, and which crate the validator moves to.</li>
+<li><strong>A caller identity reaching this surface over the pipe.</strong> <code>Asking</code> has a <code>PerRequest</code> arm -
+  <code>telekom/sutura#378</code> PR2 - but <code>serve_stdio</code> still only ever builds <code>Asking::TheProcessOwner</code>,
+  and that is not a placeholder: over standard input and output there is no header a token could
+  arrive in, so <code>crate::principal::established()</code> (still
+  <code>sutura_domain::identity::Subject::TheDeploymentItself</code>) is the honest chain for this transport
+  regardless of what the type can now express. <code>sutura_http::inbound</code> is where leg 1 lives and it
+  is unreachable from here - an adapter never calls another adapter - so <code>Asking::PerRequest</code> is
+  read but never produced by anything in this crate; PR3 adds the feature that mounts an HTTP
+  transport capable of carrying one, and PR4 is the composition root that chooses to.</li>
 </ul>
 <p><strong>The consequence for what a scope gates here is stated rather than left implicit:</strong> the
   capability set this surface offers is narrowable, and over standard input and output nothing
-  narrows it. <code>server</code> carries that limit beside the mechanism.
+  narrows it - <code>serve_stdio</code> always builds <code>Asking::TheProcessOwner</code> from one <code>Permitted</code> fixed at
+  startup. <code>server</code> carries that limit beside the mechanism.
 * <strong>Resources and prompts.</strong> A gateway of the shape this product runs behind surfaces tools and
   ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
   where they are - in <code>sutura_app::prompt</code>, advisory, for a cooperative client.
@@ -2736,8 +2741,37 @@ this crate, and the handler is three methods written by hand.</p>
   calls it is <code>sutura</code>'s <code>mcp</code> subcommand - the single-player answer to <em>which binary gets it</em>,
   composed in <code>sutura-cli</code> the way <code>query</code> is. This crate deliberately does not decide that; it
   is the transport a composition root calls.</p>
+<h2 id="enum-asking"><code>enum Asking</code><a class="headerlink" href="#enum-asking" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Asking</span>
+</span></code></pre></div>
+<p>How <code>AgentSurface</code> learns who is asking, for one call.</p>
+<p><strong>Not an <code>Option&lt;Permitted&gt;</code>, and that is the whole point of the type.</strong> An absent value inside
+<code>PerRequest</code> is a REFUSAL - see <code>server</code> - and folding "no identity" and "the deployment's own
+identity" into the two sides of one <code>Option</code> would make the compiler unable to tell them apart at
+the one call site that matters: an exhaustive match over this enum with no wildcard arm is what
+stops a later edit from quietly substituting one for the other, the way <code>serve_stdio</code>'s own
+unconditional <code>principal::established()</code> call used to before this type existed.</p>
+<h1 id="why-the-identity-is-not-a-field-on-agentsurface-itself">Why the identity is not a field on <code>AgentSurface</code> itself<a class="headerlink" href="#why-the-identity-is-not-a-field-on-agentsurface-itself" title="Permanent link">&para;</a></h1>
+<p>A field would be set once, when the surface is constructed, and read on every call after - which
+is exactly right for <code>TheProcessOwner</code> and exactly wrong the moment a caller identity can vary
+per request. <code>docs/adr/0023</code> names this trap by its mechanism: the pinned MCP SDK builds a
+session's handler ONCE (<code>service_factory</code>), so an identity cached anywhere on <code>self</code> is
+per-session by construction and looks correct in every single-caller test. <code>PerRequest</code> instead
+names a MODE, and the value itself is read fresh out of the request's own
+<code>rmcp::service::RequestContext::extensions</code> on every call - see <code>server</code> for where.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>TheProcessOwner</code> - The launching identity is the subject, for the whole life of this surface. The pipe's own shape and a decision rather than a gap - see <code>serve_stdio</code> and the module documentation's <em>what is deliberately absent</em> section.</li>
+<li><code>PerRequest</code> - Established fresh from each request's own carried <code>sutura_app::Asked</code>. An absent value is a refusal, never <code>TheProcessOwner</code>'s fallback - see <code>rmcp::ServerHandler::call_tool</code>.</li>
+</ul>
+<p>Nothing in this crate produces an <code>Asked</code> today: over standard input and output there is no
+  request to read one from. The arm exists so the exhaustive match in <code>server</code> is already
+  total the day an HTTP transport starts producing one, rather than growing a second match
+  somebody has to remember to make exhaustive under <code>-D warnings</code> later.</p>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code></p>
 <h2 id="enum-notserved"><code>enum NotServed</code><a class="headerlink" href="#enum-notserved" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotServed</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotServed</span>
 </span></code></pre></div>
 <p>Why the agent surface stopped, when it was not the peer going away.</p>
 <p><strong>Both variants re-export a third-party error type as a <code>#[source]</code>, and that is a deliberate
@@ -2746,7 +2780,7 @@ across a crate boundary and records that a variant carrying somebody else's type
 question rather than a gate. It is carried here because the alternative is worse: the handshake
 failure is the SDK's own account of what the peer sent, and flattening it to a sentence would
 throw away the only description of the fault that exists.</p>
-<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<h3 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Handshake</code> - The peer never completed the protocol handshake.</li>
 </ul>
@@ -2756,10 +2790,10 @@ throw away the only description of the fault that exists.</p>
   of every <code>Result</code> grows"</em>. The indirection costs an allocation on a path that has already
   failed, and <code>Box&lt;E&gt;</code> is still an <code>Error</code>, so the <code>#[source]</code> chain is unchanged.
 - <code>Interrupted</code> - The task driving the session did not finish.</p>
-<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_runtime</span><span class="p">::</span><span class="n">Admission</span><span class="p">,</span><span class="w"> </span><span class="n">reply</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">RequestTimeout</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_runtime</span><span class="p">::</span><span class="n">Admission</span><span class="p">,</span><span class="w"> </span><span class="n">reply</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">RequestTimeout</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Serves the agent surface over standard input and output, until the client disconnects.</p>
 <p>The transport an agent client launches a server over: it spawns the process and speaks the
@@ -2773,11 +2807,12 @@ normally that state. What would still abort is releasing the engine in the middl
 while its runtime is inside a <code>block_on</code> on a pool thread and this process aborts on a panic. The
 composition root's outer handle defers that release until its own <code>shutdown_timeout</code> has let the
 in-flight answer finish.</p>
-<p><strong><code>permitted</code> is required for the same reason it is on <code>AgentSurface::new</code>: a pipe has no
-header a token could arrive in, so this transport alone cannot choose who the peer is. The
-composition root decides</strong> - <code>sutura</code>'s <code>mcp</code> subcommand passes <code>Permitted::every_capability</code>
-and prints that at startup - so the value lives next to the notice that states it rather than
-hidden in this function.</p>
+<p><strong><code>permitted</code> is required for the same reason <code>AgentSurface::new</code> requires an <code>Asking</code>: a pipe
+has no header a token could arrive in, so this transport alone cannot choose who the peer is. The
+composition root decides</strong> - <code>sutura</code>'s <code>mcp</code> subcommand passes <code>Permitted::every_capability</code> and
+prints that at startup - so the value lives next to the notice that states it rather than hidden
+in this function. This function wraps it as <code>Asking::TheProcessOwner</code> before handing it to the
+surface; there is no path through <code>serve_stdio</code> to <code>Asking::PerRequest</code> at all.</p>
 <p><strong><code>admission</code> is required for the same reason and answers a different question.</strong> rmcp serves
 requests concurrently - one task per request, and the SDK caps nothing - so without a bound every
 question a peer sends is executing at once. The surface has no state a question mutates, so the
@@ -2958,9 +2993,11 @@ cancellation drops the future waiting on the blocking task, never the task or th
   <code>deny_unknown_fields</code>.</li>
 </ul>
 <h1 id="what-a-scope-gates-here-and-where-the-control-actually-is">What a scope gates here, and where the control actually is<a class="headerlink" href="#what-a-scope-gates-here-and-where-the-control-actually-is" title="Permanent link">&para;</a></h1>
-<p><code>AgentSurface::new</code> <strong>requires</strong> a <code>Permitted</code>, so a composition root cannot forget to say what
-the peer may do - the same reason <code>sutura_app::surface::LocalService::start</code> requires an audit
-sink. Given one, this handler does two things with it and only the second is a control:</p>
+<p><code>AgentSurface::new</code> <strong>requires</strong> an <code>Asking</code>, so a composition root cannot forget to say who
+may ask and what they may do - the same reason <code>sutura_app::surface::LocalService::start</code> requires
+an audit sink. Given one, <code>AgentSurface::asked</code> resolves it to a
+<code>sutura_app::Asked</code> for THIS call - once per <code>TheProcessOwner</code> construction, fresh per request
+under <code>PerRequest</code> - and this handler does two things with the result, only the second a control:</p>
 <table>
 <thead>
 <tr>
@@ -2982,33 +3019,45 @@ sink. Given one, this handler does two things with it and only the second is a c
 </tr>
 </tbody>
 </table>
-<p>Both read the same set, so they cannot disagree - <code>sutura_app::capability</code> holds that argument and
-the test for it. A caller that guessed <code>ask_metric</code> without ever being shown it is refused by the
-second row, which is why the first is described as presentation rather than as security.</p>
+<p>Both read the same <code>sutura_app::Asked</code> for the call, so they cannot disagree -
+<code>sutura_app::capability</code> holds that argument and the test for it. A caller that guessed
+<code>ask_metric</code> without ever being shown it is refused by the second row, which is why the first is
+described as presentation rather than as security.</p>
+<p><strong>A third case exists only under <code>Asking::PerRequest</code>, and it is neither row above: no
+established caller at all.</strong> That is refused before either row is reached -
+<code>AgentSurface::asked</code> returns the error and neither <code>tools/list</code> nor <code>tools/call</code> gets as far as
+asking <code>Permitted::includes</code> anything. See <code>crate::Asking</code> for why this is an enum with no
+<code>Option</code> anywhere in it: the alternative reading of "nothing established" is "the deployment's own
+identity," and that reading is exactly what this shape exists to make unrepresentable.</p>
 <p><strong>And the honest limit, which is not small:</strong> nothing that ships narrows the set here.
-<code>crate::serve_stdio</code> passes <code>Permitted::every_capability</code>, because this transport speaks over
-standard input and output and there is no header a token could arrive in - <code>docs/adr/0014</code>'s
-closing section says as much, and says that deciding how this surface is reached at all is an
-architecture decision rather than a refactor. So the narrowing here is exercised by this module's
-own tests and by no request path, and the parameter is in place so that the decision arrives as a
-composition change rather than as a redesign of this handler.</p>
+<code>crate::serve_stdio</code> always builds <code>Asking::TheProcessOwner { permitted: Permitted::every_capability() }</code>,
+because this transport speaks over standard input and output and there is no header a token could
+arrive in - <code>docs/adr/0014</code>'s closing section says as much, and says that deciding how this
+surface is reached at all is an architecture decision rather than a refactor.
+<code>Asking::PerRequest</code> exists on the type and is exercised by this module's own tests, with hand-
+built <code>RequestContext</code> values reusing a <code>Peer</code> a real handshake produced - <code>rmcp::service::Peer::new</code>
+is <code>pub(crate)</code> in the pinned SDK, so nothing outside <code>rmcp</code> can mint one from nothing. Nothing in
+this crate produces the value over any real request path yet: <code>telekom/sutura#378</code>'s PR3 is the
+HTTP transport feature that would, and PR4 is the composition root that chooses to mount it.</p>
 <h3 id="struct-agentsurface"><code>struct AgentSurface</code><a class="headerlink" href="#struct-agentsurface" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AgentSurface</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AgentSurface</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The agent-facing surface over one <code>Surface</code>.</p>
 <p>Holds the service behind an <code>Arc</code> because a tool call is answered on the blocking pool, so the
 port has to outlive the future that started the call.</p>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">Admission</span><span class="p">,</span><span class="w"> </span><span class="n">reply</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestTimeout</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">asking</span><span class="p">:</span><span class="w"> </span><span class="nc">Asking</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">prompt</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">admission</span><span class="p">:</span><span class="w"> </span><span class="nc">Admission</span><span class="p">,</span><span class="w"> </span><span class="n">reply</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestTimeout</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Wraps a service, and states what the peer may do and how catalog prose is treated.</p>
 <p>Takes the <code>Arc</code> rather than making one, so a composition root serving two transports shares
 one bundle and one data system rather than opening a second of each.</p>
-<p><strong><code>permitted</code> is required rather than defaulted, and that is the point of the signature.</strong> A
+<p><strong><code>asking</code> is required rather than defaulted, and that is the point of the signature.</strong> A
 default here would be a posture chosen by this file for every deployment that ever links it;
-<code>Permitted::every_capability</code> is the right answer over standard input and output and would be
-the wrong answer the moment this surface is reachable over a network, and only a composition
-root knows which it is building. See the module documentation for what the value then gates.</p>
+<code>Asking::TheProcessOwner { permitted: Permitted::every_capability() }</code> is the right answer
+over standard input and output and would be the wrong answer the moment this surface is
+reachable over a network, and only a composition root knows which it is building. See the
+module documentation and <code>crate::Asking</code> for what the value then gates and why it is a mode
+rather than a bare grant.</p>
 <p><strong><code>prose</code> is required for the same reason, and it is a composition-root value.</strong> <code>sutura</code>'s
 <code>mcp</code> subcommand passes what this deployment renders; a <code>CatalogProse</code> with no default keeps
 <code>quoted</code> from being a posture chosen here for a deployment that meant something else.</p>
@@ -3025,7 +3074,7 @@ rather than a misplaced one</strong> - <code>telekom/sutura#339</code>. It is
 no counterpart here a peer that got an execution slot waited for as long as the data system
 took. The module documentation carries why this key rather than one of this transport's own,
 and what the deadline does not stop.</p>
-<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>ServerHandler</code></p>
 <h2 id="module-tool">Module <code>tool</code><a class="headerlink" href="#module-tool" title="Permanent link">&para;</a></h2>
 <p>The tools this surface advertises, and the schemas they are described by.</p>
@@ -3062,7 +3111,7 @@ property rather than the bytes: a field named <code>sql</code>, <code>table</cod
 merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
 one cannot.</p>
 <h3 id="fn-input_schema"><code>fn input_schema</code><a class="headerlink" href="#fn-input_schema" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">input_schema</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">JsonObject</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">input_schema</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">JsonObject</span>
 </span></code></pre></div>
 <p>One capability's input schema, generated from its wire type.</p>
 <p>Built on demand rather than cached: it is computed once per <code>tools/list</code>, which is once per session
@@ -3071,11 +3120,11 @@ nobody can see the value of in a test.</p>
 <p><strong>The match is what ties a capability to a wire type</strong>, and it is exhaustive: a capability with no
 arguments type does not compile.</p>
 <h3 id="fn-tool"><code>fn tool</code><a class="headerlink" href="#fn-tool" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tool</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tool</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span>
 </span></code></pre></div>
 <p>One capability, as <code>tools/list</code> returns it.</p>
 <h3 id="fn-every"><code>fn every</code><a class="headerlink" href="#fn-every" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">(</span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">(</span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The tools this caller is advertised, in capability order.</p>
 <p><strong>Presentation, and the module documentation says so plainly.</strong> A caller that names a tool absent
@@ -3083,7 +3132,7 @@ from this list is refused by <code>crate::server::AgentSurface::call_tool</code>
 <code>Permitted::includes</code> again, so filtering here is what a cooperative client is <em>shown</em> and not
 what stops an uncooperative one.</p>
 <h3 id="fn-named"><code>fn named</code><a class="headerlink" href="#fn-named" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The capability a tool name refers to, if this surface has one under that name.</p>
 <p><strong>Independent of what was advertised</strong>, which is the point: this answers <em>does this deployment
@@ -3137,33 +3186,33 @@ is what keeps that true on the way in.</p>
 and the enforcement come from the same attribute rather than from two decisions that could
 disagree.</p>
 <h3 id="struct-askargs"><code>struct AskArgs</code><a class="headerlink" href="#struct-askargs" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AskArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AskArgs</span>
 </span></code></pre></div>
 <p>One governed question, as a tool call carries it.</p>
 <p>The five fields are the whole input surface of this deployment. There is no field for SQL, a
 table, a filter expression or a row-id list, and an argument naming one is a parse error rather
 than a key that gets ignored.</p>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h3 id="struct-rangeargs"><code>struct RangeArgs</code><a class="headerlink" href="#struct-rangeargs" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
 </span></code></pre></div>
 <p>A half-open period: <code>start</code> is included, <code>end</code> is not.</p>
 <p>Half-open at every grain, which is what makes a month <code>[2026-06-01, 2026-07-01)</code> rather than a
 last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
-<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
-<h3 id="struct-filterargs"><code>struct FilterArgs</code><a class="headerlink" href="#struct-filterargs" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterArgs</span>
-</span></code></pre></div>
-<p>One equality filter.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h3 id="struct-filterargs"><code>struct FilterArgs</code><a class="headerlink" href="#struct-filterargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterArgs</span>
+</span></code></pre></div>
+<p>One equality filter.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h3 id="enum-malformedquestion"><code>enum MalformedQuestion</code><a class="headerlink" href="#enum-malformedquestion" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
 </span></code></pre></div>
 <p>Why an arguments object is not a question.</p>
-<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
 </ul>
@@ -3173,10 +3222,10 @@ last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
   <code>MalformedQuestion</code> has no arm for this case and does not need one. MCP's own
   <code>serde_json::from_value</code> step, in <code>crate::server</code>, is what can still fail this way here.
 - <code>Question</code> - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain <code>crate::server</code>'s <code>invalid()</code> walks - see that type's own note. Shared with <code>sutura-http</code>, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.</p>
-<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-outcomecontent"><code>enum OutcomeContent</code><a class="headerlink" href="#enum-outcomecontent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeContent</span>
 </span></code></pre></div>
 <p>What a question produced, as the tool's structured content.</p>
 <p><strong>One shape, and the rows are IN it.</strong> A handle-plus-fetch result was considered and withdrawn:
@@ -3186,24 +3235,24 @@ have cost an agent the ability to answer a question about a number without a sec
 <p>The <code>outcome</code> discriminator is what a client branches on, and it is the same tag and the same
 <code>reason</code> object the HTTP surface serializes - deliberately, so the two transports describe one
 answer even though the types are separate.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Answer</code> - The question was answered.</li>
 <li><code>Refusal</code> - The question was refused. <strong>Still an <code>Ok</code>, and still a tool RESULT</strong> - see <code>crate::server::AgentSurface::call_tool</code>.</li>
 </ul>
-<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="struct-provenancecontent"><code>struct ProvenanceContent</code><a class="headerlink" href="#struct-provenancecontent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceContent</span>
 </span></code></pre></div>
 <p>Which definitions produced this answer.</p>
 <p>Always present on an answer, and it is the reason an answer can be trusted at all: the version
 names the snapshot and the digest is over its canonical form, so the same question against a
 different bundle is visibly a different answer.</p>
-<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="struct-legcontent"><code>struct LegContent</code><a class="headerlink" href="#struct-legcontent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegContent</span>
 </span></code></pre></div>
 <p>One leg of an answer: which source it ran on, and which identity it ran as.</p>
 <p><strong>The posture is a word, and the operator's acknowledgement reason is not here.</strong> The reason is
@@ -3211,10 +3260,10 @@ prose an operator wrote for a reviewer and the startup log prints it; sending it
 every answer would be a channel from a configuration file into a model's context that nobody asked
 for. What an agent needs is which of the two postures produced the rows.</p>
 <p>Reading it is not a control: it reaches the agent after the rows did.</p>
-<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="struct-refusalcontent"><code>struct RefusalContent</code><a class="headerlink" href="#struct-refusalcontent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalContent</span>
 </span></code></pre></div>
 <p>Why a question was refused: a stable code a caller branches on, and a sentence a person reads.</p>
 <p><strong>Nothing here echoes a value the caller sent.</strong> The domain's refusal variants already stop short
@@ -3222,13 +3271,13 @@ of that - a rejected filter value names the dimension and not the value, because
 caller text into a message that reaches a log and a model's context is how a rejected value
 becomes somebody else's input.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The code, for a test that asserts on the contract rather than on the prose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
-<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="use-catalogcontent"><code>use CatalogContent</code><a class="headerlink" href="#use-catalogcontent" title="Permanent link">&para;</a></h3>
 <p>What this deployment measures, as the catalog tool's structured content.</p>
@@ -3276,14 +3325,14 @@ nothing but <code>prose</code>, which is where the <code>Option</code> behind a 
 plain comment rather than a doc comment, are both stated at <code>DescribeCatalogArgs</code> - <code>schemars</code>
 puts a root doc comment into the schema's <code>description</code>, which is text a MODEL reads.</p>
 <h4 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
 </span></code></pre></div>
 <p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
 nothing to filter or select: send an empty object.</p>
-<h5 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h5>
+<h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
 </span></code></pre></div>
 <p>What this deployment measures, as the catalog tool's structured content.</p>
 <p><strong>A second wire type beside <code>sutura_http::wire::CatalogBody</code>, with the same fields, and that is
@@ -3295,7 +3344,7 @@ missing field would show up as a missing call rather than as a silent divergence
 and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
 returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
 <h5 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of a pinned bundle, under the prose setting this deployment was started
 with.</p>
@@ -3307,19 +3356,19 @@ here. A second argument cannot be left out.</p>
 crate's only two readers of it, so this builder cannot fill a <code>description</code> or pick a notice
 without the operator's decision, and a third <code>CatalogProse</code> spelling is a compile error in
 both rather than an <code>else</code> arm here.</p>
-<h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
-<p><code>Debug</code>, <code>Serialize</code></p>
-<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
-</span></code></pre></div>
-<p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <h5 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+</span></code></pre></div>
+<p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
 <h4 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
+<h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
 <p>The raw SQL tool's wire shape: what <code>run_sql</code> takes, and what it answers.</p>
@@ -3335,27 +3384,27 @@ neither shares is the VALUE at <code>outcome</code> - that type tags with <code>
 neither raw variant carries a <code>provenance</code> or a <code>definition_digest</code> key at any depth, which is
 the property that actually keeps a raw result from being rendered as certified.</p>
 <h4 id="struct-runsqlargs"><code>struct RunSqlArgs</code><a class="headerlink" href="#struct-runsqlargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
 </span></code></pre></div>
 <p>One raw statement, as a tool call carries it.</p>
 <p>One field, bounded by <code>RawStatement::parse</code> on the way in - <code>deny_unknown_fields</code> is what keeps
 this tool from ever growing a second field a caller could smuggle a table name or a row-id list
 through, the same governance boundary <code>super::AskArgs</code> holds for the certified tool.</p>
-<h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
+<h5 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
-<h5 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h5>
+<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>NotAnObject</code></li>
 <li><code>Statement</code></li>
 </ul>
-<h5 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h5>
+<h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-rawcontent"><code>enum RawContent</code><a class="headerlink" href="#enum-rawcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
 </span></code></pre></div>
 <p>What the raw SQL tool produced, as the tool's structured content.</p>
 <p><strong>The load-bearing shape.</strong> No field here is named <code>provenance</code>, <code>definition_version</code> or
@@ -3366,12 +3415,12 @@ over the type's own already-<code>Raw</code>-prefixed name) - only their SERIALI
 explicit <code>#[serde(rename)]</code> on each rather than derived from the Rust identifier: <code>Rows</code> would
 otherwise serialize <code>outcome: "rows"</code> and <code>Refusal</code> would serialize exactly the certified path's
 own <code>outcome: "refusal"</code> - the one collision <code>docs/adr/0013</code> forbids.</p>
-<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Rows</code> - The statement executed.</li>
 <li><code>Refusal</code> - The statement was refused. Still an <code>Ok</code> and still a tool result, for <code>ServerHandler::call_tool</code>'s reason: a governance outcome is not a fault.</li>
 </ul>
-<h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
+<h5 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 
 
