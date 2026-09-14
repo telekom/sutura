@@ -124,7 +124,7 @@ pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod sts;
 pub use sts::{StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
 
-use crate::transport::{DatasetId, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{DatasetId, JobDeadline, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -387,7 +387,7 @@ where
         &'job self,
         query: &'job GeneratedQuery,
         subject_bearer: Option<&'job sutura_domain::identity::Secret>,
-        deadline: Option<Deadline>,
+        deadline: JobDeadline,
     ) -> JobRequest<'job> {
         JobRequest::new(
             query.sql(),
@@ -439,7 +439,14 @@ where
         // identity this transport already holds does to its own dataset, so handing it a subject's
         // exchanged token would run a write under whoever last asked a question. And no port
         // `Deadline`: a fixture load has no caller and no request timeout - the boot path's own shape.
-        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None, None);
+        let request = JobRequest::new(
+            &statement,
+            &[],
+            &self.billing_project,
+            &self.default_dataset,
+            None,
+            JobDeadline::Boot,
+        );
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
@@ -464,7 +471,14 @@ where
         // No parameters and no subject bearer, exactly as the load: a DROP is a thing the identity
         // this transport already holds does to its own dataset, like the `CREATE` that built it. And
         // no port `Deadline`, for the same reason `load_fixture` carries none.
-        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None, None);
+        let request = JobRequest::new(
+            &statement,
+            &[],
+            &self.billing_project,
+            &self.default_dataset,
+            None,
+            JobDeadline::Boot,
+        );
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
@@ -576,7 +590,7 @@ where
         let query = Self::render(executable)?;
         let estimated_bytes = self
             .transport
-            .validate(&self.request(&query, Self::subject_bearer(presented), Some(deadline)))
+            .validate(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Ok(PreFlight::Accepted { estimated_bytes })
     }
@@ -588,7 +602,7 @@ where
         let query = Self::render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(&query, Self::subject_bearer(presented), Some(deadline)))
+            .run(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered)
     }
@@ -610,7 +624,7 @@ where
         let query = generate(plan.plan(), Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })?;
         let answered = self
             .transport
-            .run(&self.request(&query, None, None))
+            .run(&self.request(&query, None, JobDeadline::Boot))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered).map(AnchorRows::of)
     }

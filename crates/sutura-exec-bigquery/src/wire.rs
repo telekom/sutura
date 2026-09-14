@@ -36,30 +36,27 @@
 //!   a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
 //!   is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
 //!   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
-//!   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
-//!   scanned.
+//!   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds it.
 //! - **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
 //!   adapter, and this bullet exists because the earlier two shapes were each the second thing while
 //!   claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
-//!   of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and two
-//!   jobs - at four independent budgets against a transport whose own request timeout is thirty
-//!   seconds. [`CallDeadline`], opened once per CALL, fixed that leak - and then could not fix the
-//!   next one, because neither `Warehouse` nor [`JobTransport`] took a deadline, so the two calls one
-//!   answer makes still could not share one; a composition root's own configured job bounds
-//!   substituted an arithmetic that divided the request timeout by how many calls one answer makes,
-//!   checked by nothing outside this crate. **`docs/adr/0029` is what carries a
-//!   `sutura_domain::warehouse::deadline::Deadline` across the port itself** - one absolute instant,
-//!   opened by the transport at the answer's arrival and shared by every leg. `submit` reads
-//!   what it says is left via [`crate::transport::JobRequest::deadline`] and opens a [`CallDeadline`]
-//!   FROM that via [`CallDeadline::opened_at_for`], so a slow token exchange shortens the job that
+//!   of its own, so a review measured one ANSWER at four independent budgets against a transport
+//!   whose own request timeout is thirty seconds. [`CallDeadline`], opened once per CALL, fixed that
+//!   leak - and then could not fix the next one, because neither `Warehouse` nor [`JobTransport`]
+//!   took a deadline, so the two calls one answer makes still could not share one; a composition
+//!   root's own configured job bounds substituted an arithmetic that divided the request timeout by
+//!   how many calls one answer makes, checked by nothing outside this crate. **`docs/adr/0029` now
+//!   carries a `Deadline` across the port itself** - one absolute instant,
+//!   opened by the transport at the answer's arrival and shared by every leg. `submit` reads what it
+//!   says is left via [`crate::transport::JobRequest::deadline`] and opens a [`CallDeadline`] FROM
+//!   that via [`CallDeadline::opened_at_for`], so a slow token exchange shortens the job that
 //!   follows it rather than being followed by one with a full budget of its own, and `timeoutMs`/
 //!   `jobTimeoutMs` are what is left of THAT rather than of this adapter's own configured job bounds.
 //!   A budget spent before the job is [`WireError::DeadlineSpent`] rather than a send - checked
-//!   BEFORE the credential exchange too, since a caller that ran out of time before this adapter was
-//!   even reached should not spend it on an exchange nobody is still waiting for. **The boot path has
-//!   no port `Deadline` to read** (`verify_anchor`, a fixture load or drop, the identity read - no
-//!   caller, no request timeout) and keeps opening a fresh window from this adapter's own configured
-//!   [`JobBounds`], exactly as every call did before this record.
+//!   BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
+//!   nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
+//!   load or drop, the identity read) and opens a fresh window from this adapter's own configured
+//!   [`JobBounds`] instead, exactly as every call did before this record.
 //! - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
 //!   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
 //!   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
@@ -123,9 +120,7 @@
 //!   ever seen is a dependency decision this change does not take. Stated because a dropped warning
 //!   is exactly the kind of absence that reads as "there were none".
 //!
-use sutura_domain::warehouse::deadline::Deadline;
-
-use crate::transport::{Cell, DatasetAddress, HeldTables, JobRequest, JobRows, JobTransport};
+use crate::transport::{Cell, DatasetAddress, HeldTables, JobDeadline, JobRequest, JobRows, JobTransport};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 
 // The bounds are re-exported flat, so `wire::JobBounds` stays the path every call site reads:
@@ -149,7 +144,7 @@ mod tests;
 // read - the split is a file boundary rather than an API one.
 #[cfg(feature = "fixtures")]
 use crate::wire::document::applied;
-use crate::wire::document::{QueryAnswer, body, complete, estimated_bytes, refusal, url};
+use crate::wire::document::{QueryAnswer, QueryBody, body, complete, estimated_bytes, refusal, url};
 
 /// The API this module speaks to. A compile-time constant: there is no configuration key for it, so
 /// no deployment can choose which service receives the credential. What a deployment CAN choose is
@@ -552,15 +547,14 @@ where
     ///
     /// **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
     /// acceptance cell that races a statement against a real deadline to reach exactly this reply
-    /// was tried and reverted - `just bigquery-acceptance`'s own corpus fixture is a handful of rows,
-    /// so the round trip reliably finishes before any budget short enough to matter, and a budget
-    /// picked to "usually" lose that race is a flake against a project that bills for it.
-    /// `crates/sutura-exec-bigquery/tests/tests/deadline.rs`'s acceptance cell proves the narrower
-    /// claim that holds without racing anything - a spent port deadline refuses through the REAL
-    /// wire and credential before a request is sent, and `deadline_exceeded` reports it - and states
-    /// this variant's own shape as the open half. Closing it needs a statement that reliably outruns
-    /// a real budget without depending on fixture size or network jitter, which this corpus does not
-    /// yet provide.
+    /// was tried and reverted - the corpus fixture `just bigquery-acceptance` runs against is a
+    /// handful of rows, so the round trip reliably finishes before any budget short enough to
+    /// matter, and a budget picked to "usually" lose that race flakes against a project that bills
+    /// for it. `tests/tests/deadline.rs`'s acceptance cell proves the narrower claim that holds
+    /// without racing anything instead - a spent port deadline refuses through the REAL wire and
+    /// credential before a request is sent - and states this variant's own shape as the open half,
+    /// closed only by a statement that reliably outruns a real budget without depending on fixture
+    /// size or network jitter, which this corpus does not yet provide.
     #[error("the job had not finished when the endpoint answered: {named}")]
     NotComplete { named: ReasonCode },
     /// The answer is one page of more than one.
@@ -665,25 +659,55 @@ pub struct BigQueryWire<C> {
 ///
 /// **A free function of neither `self` nor the credential source, taking `now` as a parameter rather
 /// than reading a clock**, so a test can ask what two calls sharing one `Deadline` see at two
-/// different instants without sleeping through a real one - [`Deadline`] will not hand out its own
+/// different instants without sleeping through a real one - `Deadline` will not hand out its own
 /// opening instant, by design, which is why `now` has to arrive as an argument here exactly as it
-/// does at [`Deadline::remaining_at`] itself.
+/// does at `Deadline::remaining_at` itself.
 fn remaining_of_the_ports_deadline(
-    deadline: Option<Deadline>,
+    clock: JobDeadline,
     bounds: JobBounds,
     now: std::time::Instant,
 ) -> Option<core::time::Duration> {
-    deadline.map_or_else(|| Some(bounds.deadline().budget()), |deadline| deadline.remaining_at(now))
+    match clock {
+        JobDeadline::Port(deadline) => deadline.remaining_at(now),
+        JobDeadline::Boot => Some(bounds.deadline().budget()),
+    }
 }
 
 /// What a [`WireError::DeadlineSpent`] this call produces names: the port's own configured budget
 /// where the request carries a `Deadline`, and this transport's own configured [`JobBounds`] at the
 /// boot path, which has no caller's budget to name.
-fn configured_budget_seconds(deadline: Option<Deadline>, bounds: JobBounds) -> u64 {
-    deadline.map_or_else(
-        || bounds.deadline().budget().as_secs(),
-        |deadline| deadline.budget().seconds(),
-    )
+const fn configured_budget_seconds(clock: JobDeadline, bounds: JobBounds) -> u64 {
+    match clock {
+        JobDeadline::Port(deadline) => deadline.budget().seconds(),
+        JobDeadline::Boot => bounds.deadline().budget().as_secs(),
+    }
+}
+
+/// The request body for one call, built from what is LEFT of `call`'s own budget - never the whole
+/// of it.
+///
+/// **A pure function, split out of `submit` so a test can pin `call` at a chosen instant and read the
+/// two timeout fields directly, with no socket.** `call` is opened already; this reads only
+/// `call.remaining()`, never `Instant::now()` itself, so a past `CallDeadline::opened_at` is a
+/// fixture rather than a race - the recorded `timeoutMs`/`jobTimeoutMs` is PROVABLY the remainder,
+/// not the configured ceiling `body` would carry if handed the whole budget instead.
+///
+/// `budget_seconds`, for the refusal, still asks `request.deadline()` rather than `call` alone: a
+/// `CallDeadline` is a started instant and a duration, and does not say which of the port's own
+/// budget or this transport's configured one it was opened from - `configured_budget_seconds` does.
+fn call_body<'job, C>(
+    request: &'job JobRequest<'job>,
+    dry_run: DryRun,
+    bounds: JobBounds,
+    call: CallDeadline,
+) -> Wired<QueryBody<'job>, C>
+where
+    C: core::error::Error + 'static,
+{
+    let left = call.remaining().ok_or(WireError::DeadlineSpent {
+        budget_seconds: configured_budget_seconds(request.deadline(), bounds),
+    })?;
+    Ok(body(request, dry_run, bounds, left))
 }
 
 impl<C> BigQueryWire<C>
@@ -774,7 +798,10 @@ where
         // What the exchange left. Every number below reads THIS rather than the whole budget: the two
         // timeout fields in the request body and the socket the answer is waited for on.
         let left = call.remaining().ok_or(WireError::DeadlineSpent { budget_seconds })?;
-        let document = serde_json::to_vec(&body(request, dry_run, self.agent.bounds(), left))
+        // Lifted into `call_body`, a pure function of `call` alone, so a test can pin `call` at a
+        // chosen instant and assert the two timeout fields carry what is LEFT rather than the
+        // configured ceiling, without a socket.
+        let serialized = serde_json::to_vec(&call_body(request, dry_run, self.agent.bounds(), call)?)
             .map_err(|cause| WireError::RequestNotSerializable { cause })?;
         // `Secret::expose_secret` is the one greppable call that lets the token out, and it lets it out into
         // a header value the client parses rather than into a string it concatenates - so a token
@@ -811,7 +838,7 @@ where
             QuotaProject::FromTheCredential => {}
         }
         let mut answer = sending
-            .send(&document)
+            .send(&serialized)
             .map_err(|cause| WireError::Unreachable { cause: Box::new(cause) })?;
         let status = answer.status();
         let text = answer

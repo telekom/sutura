@@ -43,6 +43,25 @@ pub enum ParameterMode {
     Positional,
 }
 
+/// Which clock one job answers to: the port's own `Deadline`, or the boot path's fresh window.
+///
+/// **A two-variant type rather than `Option<Deadline>`, so the boot arm cannot be spelled by
+/// accident.** `None` reads the same whether it means *forgot to pass the deadline* or *this is
+/// deliberately the boot path* - indistinguishable at a call site and in review. `Boot` is a name a
+/// reader has to notice, and an `execute` or `dry_run` call site that wrote it instead of `Port(..)`
+/// reads as exactly the regression it would be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobDeadline {
+    /// A request-time call's own `Deadline`, opened by the transport at the answer's arrival.
+    /// `Warehouse::dry_run`/`execute` build this arm, and only this arm - see
+    /// [`JobRequest::new`]'s own doc.
+    Port(Deadline),
+    /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
+    /// the identity read build this arm; [`crate::wire::BigQueryWire::submit`] opens a fresh window
+    /// from this transport's own configured [`crate::wire::JobBounds`] instead.
+    Boot,
+}
+
 /// One query job, as this adapter asks for it.
 ///
 /// Borrowed rather than owned throughout: it is built per call, handed to one transport, and dropped.
@@ -54,7 +73,7 @@ pub struct JobRequest<'job> {
     billing_project: &'job ProjectId,
     default_dataset: &'job DatasetId,
     subject_bearer: Option<&'job Secret>,
-    deadline: Option<Deadline>,
+    deadline: JobDeadline,
 }
 
 impl<'job> JobRequest<'job> {
@@ -64,22 +83,21 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` is `None` at the boot path and `Some` everywhere else, and that is the whole of
-    /// what tells [`crate::wire::BigQueryWire::submit`] which clock this call answers to.** A leg
-    /// `Warehouse::dry_run`/`execute` builds carries the port's own `Deadline` - opened by the
-    /// transport at the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really
-    /// left rather than from this adapter's own configured job bounds. `verify_anchor`, a fixture
-    /// load or drop, and the identity read have no caller and no request timeout to read one from -
-    /// `docs/adr/0029` calls that the boot path - so they pass `None`, and `submit` opens a fresh
-    /// window from this transport's own [`crate::wire::JobBounds`] instead, exactly as every call
-    /// did before this parameter existed.
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg
+    /// `Warehouse::dry_run`/`execute` builds carries `JobDeadline::Port`, opened by the transport at
+    /// the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really left rather
+    /// than from this adapter's own configured job bounds. `verify_anchor`, a fixture load or drop,
+    /// and the identity read have no caller and no request timeout to read one from - `docs/adr/0029`
+    /// calls that the boot path - so they pass `JobDeadline::Boot`, and `submit` opens a fresh window
+    /// from this transport's own [`crate::wire::JobBounds`] instead, exactly as every call did before
+    /// this parameter existed.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
         default_dataset: &'job DatasetId,
         subject_bearer: Option<&'job Secret>,
-        deadline: Option<Deadline>,
+        deadline: JobDeadline,
     ) -> Self {
         Self {
             statement,
@@ -122,11 +140,11 @@ impl<'job> JobRequest<'job> {
         self.subject_bearer
     }
 
-    /// The port's own `Deadline` for this call, or `None` at the boot path. See the constructor's
-    /// own doc for what each means to [`crate::wire::BigQueryWire::submit`].
+    /// Which clock this call answers to. See [`JobDeadline`] and the constructor's own doc for what
+    /// each arm means to [`crate::wire::BigQueryWire::submit`].
     #[inline]
     #[must_use]
-    pub const fn deadline(&self) -> Option<Deadline> {
+    pub const fn deadline(&self) -> JobDeadline {
         self.deadline
     }
 
@@ -904,95 +922,4 @@ pub trait JobTransport {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{DatasetId, NamedResource, ProjectId, UnusableResourceName};
-
-    #[test]
-    fn a_project_id_that_could_leave_a_url_path_segment_is_refused() {
-        // The reason this type re-checks a value the settings tree already refused: THIS crate is the
-        // one whose transport writes it into a request path.
-        for hostile in [
-            "acme/../other",
-            "acme?alt=json",
-            "acme#f",
-            "acme%2f",
-            "a b",
-            "ACME",
-            "acm\u{00e9}",
-        ] {
-            assert!(ProjectId::parse(hostile).is_err(), "{hostile:?} was accepted as a project id");
-        }
-        assert_eq!(
-            ProjectId::parse("acme-analytics").expect("a plain id parses").as_str(),
-            "acme-analytics"
-        );
-    }
-
-    #[test]
-    fn a_refusal_names_a_position_and_not_the_value() {
-        let err = ProjectId::parse("acme/one").expect_err("a slash is refused");
-        assert!(!err.to_string().contains("acme"), "{err}");
-        assert_eq!(
-            err,
-            UnusableResourceName::Character {
-                what: NamedResource::Project,
-                at: 4
-            }
-        );
-        // The wording an operator reads is the Display impl's, in one place, rather than a literal
-        // repeated at each construction site - so this is what a rename would have to move.
-        assert_eq!(err.to_string(), "the character at position 4 is not allowed in a project id");
-        assert_eq!(
-            DatasetId::parse("  ").expect_err("whitespace is empty").to_string(),
-            "a dataset id cannot be empty"
-        );
-    }
-
-    #[test]
-    fn a_dataset_id_keeps_its_case_and_refuses_a_hyphen() {
-        // Case-sensitive, so folding would name a dataset that does not exist. A hyphen is legal in a
-        // project id and not in a dataset id, which is why the two are not one type.
-        assert_eq!(
-            DatasetId::parse("Analytics_Prod").expect("mixed case parses").as_str(),
-            "Analytics_Prod"
-        );
-        assert_eq!(
-            DatasetId::parse("analytics-prod"),
-            Err(UnusableResourceName::Character {
-                what: NamedResource::Dataset,
-                at: 9
-            })
-        );
-        assert_eq!(
-            ProjectId::parse("analytics-prod")
-                .expect("a hyphen IS in a project id")
-                .as_str(),
-            "analytics-prod"
-        );
-    }
-
-    #[test]
-    fn a_type_name_the_endpoint_sends_decodes_to_the_vocabulary_this_adapter_maps() {
-        // A query response spells the legacy names; the closed vocabulary is named after the modern
-        // forms. Decoding belongs HERE so a transport written from the variant names cannot map
-        // `INTEGER` to `Unmapped` and hand a live answer a type nobody mapped.
-        use super::FieldType;
-        for (wire, expected) in [
-            ("INTEGER", FieldType::Int64),
-            ("INT64", FieldType::Int64),
-            ("FLOAT", FieldType::Float64),
-            ("FLOAT64", FieldType::Float64),
-            ("BOOLEAN", FieldType::Bool),
-            ("BOOL", FieldType::Bool),
-            ("NUMERIC", FieldType::Numeric),
-            ("BIGNUMERIC", FieldType::Numeric),
-            ("STRING", FieldType::String),
-            ("DATE", FieldType::Date),
-        ] {
-            assert_eq!(FieldType::parse(wire), expected, "{wire}");
-        }
-        // The limit the crate documentation names: a time column is a time the endpoint has and this
-        // adapter does not, so it stays named rather than becoming a column that answers.
-        assert_eq!(FieldType::parse("TIMESTAMP"), FieldType::Unmapped(String::from("TIMESTAMP")));
-    }
-}
+mod tests;

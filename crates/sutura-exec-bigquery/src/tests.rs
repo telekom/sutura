@@ -23,7 +23,7 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobRows, ListingTotal, NotShort, Shortfall};
+use crate::transport::{Cell, Field, FieldType, JobDeadline, JobRows, ListingTotal, NotShort, Shortfall};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
@@ -54,9 +54,10 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
     // this asserts the call site does not build one by hand.
     let warehouse = open(Recording::empty(), shared_posture());
     let plan = plan();
+    let deadline = test_deadline();
     drop(
         warehouse
-            .execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+            .execute(Executable::Query(&plan), &leg_of(&shared_posture()), deadline)
             .expect("the fake answers"),
     );
     let seen = warehouse.transport.seen.borrow();
@@ -72,6 +73,12 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
     // And the request carries where it is billed and where a bare table resolves.
     assert_eq!(asked.project, "acme-analytics");
     assert_eq!(asked.dataset, "warehouse");
+    // **F1: the port's own `Deadline` has to cross into `JobRequest` unmangled.** `execute` builds
+    // `JobDeadline::Port(deadline)` and nothing else - a call site that silently handed the boot
+    // path's `JobDeadline::Boot` instead (the exact regression `docs/adr/0029`'s BigQuery slice
+    // exists to close) would read as `execute` still working, since `submit` opens a fresh window
+    // from the configured bound either way, and only this assertion would catch it.
+    assert_eq!(asked.deadline, JobDeadline::Port(deadline));
 }
 
 #[test]
@@ -192,6 +199,13 @@ fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
     assert_eq!(who.as_str(), "ci@example.com");
     let seen = warehouse.transport.seen.borrow();
     assert_eq!(seen.first().and_then(|asked| asked.subject.clone()), None);
+    // **The boot-path control F1 asks for, on the one inherent method it is cheap to reach.** The
+    // identity read is not part of the `Warehouse` port and has no caller's `Deadline` to carry, so
+    // it hard-codes `JobDeadline::Boot` at its own call site (`identity_read.rs`) exactly as
+    // `verify_anchor` does - and the seam that matters, `request.deadline()` crossing into
+    // `JobRequest` unmangled, is the same one `dry_run`/`execute`'s own cells below prove for the
+    // `Port` arm.
+    assert_eq!(seen.first().map(|asked| asked.deadline), Some(JobDeadline::Boot));
 }
 
 #[test]
@@ -366,8 +380,9 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
     // `validated`; this fixture value is what tells them apart.
     let warehouse = open(Recording::empty().estimating(2048), shared_posture());
     let plan = plan();
+    let deadline = test_deadline();
     let answered = warehouse
-        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), deadline)
         .expect("the fake validates");
     assert_eq!(
         answered,
@@ -376,6 +391,13 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
         }
     );
     assert_eq!(*warehouse.transport.validated.borrow(), 1);
+    // F1's other half: `dry_run` builds `JobDeadline::Port(deadline)` too, and a pre-flight that
+    // silently reopened a fresh window (the boot path's shape) instead of carrying the port's own
+    // `Deadline` would still pass every other assertion in this file.
+    assert_eq!(
+        warehouse.transport.seen.borrow().first().map(|asked| asked.deadline),
+        Some(JobDeadline::Port(deadline))
+    );
 }
 
 #[test]

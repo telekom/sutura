@@ -32,7 +32,8 @@ use sutura_domain::warehouse::{ParamValue, Value};
 
 use crate::BigQueryWarehouse;
 use crate::transport::{
-    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobRequest, JobRows, JobTransport, ListingTotal, ProjectId,
+    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobDeadline, JobRequest, JobRows, JobTransport, ListingTotal,
+    ProjectId,
 };
 
 // ------------------------------------------------------------------------------ the fake ----
@@ -52,6 +53,11 @@ pub(super) struct Asked {
     pub(super) project: String,
     pub(super) dataset: String,
     pub(super) subject: Option<String>,
+    /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
+    /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
+    /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
+    /// call site that silently swapped one arm for the other.
+    pub(super) deadline: JobDeadline,
 }
 
 /// A transport that records what it was asked and answers with what a test handed it.
@@ -152,6 +158,7 @@ impl Recording {
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
             subject: request.subject_bearer().map(|secret| String::from(secret.expose_secret())),
+            deadline: request.deadline(),
         });
     }
 }
