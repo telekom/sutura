@@ -9859,6 +9859,26 @@ The posture labels this answer would have combined, in name order.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `fn host_is_loopback`
+
+```rust
+pub fn host_is_loopback(host: &str) -> bool
+```
+
+Whether a declared host is an IP loopback LITERAL - never a name, however it resolves.
+
+**The one shared predicate for "this address can only be reached from this machine", held here
+rather than copied.** `sutura_config::sources::transport`'s Postgres `transport_mode: plaintext`
+rule (issue 124's fail-closed direction, `github.com/telekom/sutura#653`) and
+`sutura_catalog_datahub::http::Endpoint`'s `http://` rule both call this rather than each keeping
+its own body - a copy is recall, and recall is exactly what let one of the two drift from the
+other's own test table without either noticing. Both crates already depend on this one.
+
+Only something that parses as `IpAddr` and answers `is_loopback()` counts: `localhost` does
+not, because a name is not an address and cannot carry a claim about what a network can reach;
+a wildcard bind (`0.0.0.0`, `::`) does not either, because loopback is about what CAN reach the
+address and a wildcard is reachable from everywhere - the opposite claim.
+
 ## Module `warehouse`
 
 The execution port: the plan that goes out, and the rows that come back.

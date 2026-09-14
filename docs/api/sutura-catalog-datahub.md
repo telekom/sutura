@@ -39,14 +39,16 @@ property this adapter does not recognise rather than guessing.
 
 This crate contains everything `DataHubCatalog` DECIDES about the aspects it reads, and it is
 tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
-HTTP. What it does not contain is an HTTP client: `AspectReader` is the seam a real reader over
-`DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-bearer). Until that lands, the only implementor of the port outside a test is the recorded
-fixture source in `fixture` - the other two are doubles, `tests::Stub` and the acceptance
-suite's `Composed` - so no code here shapes a request or maps a response. **And nothing serves it:** no
-composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
-`sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
-what is not is the reader itself and a served composition - the *Built and not wired* register in
+HTTP. `AspectReader` is the seam a real reader over `DataHub`'s versioned `OpenAPI` v3 entity
+surface implements, and since issue #202's HTTP reader, one now does: `http::HttpAspectReader`,
+behind this crate's default-off `http` feature, with a personal access token as a bearer. Its own
+module header states what is measured against a live `DataHub` and what is not - only the
+`metric` entity's wire shape is, today. The recorded fixture source in `fixture` and the two
+test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
+this crate reads against. **And nothing serves the new reader yet:** no composition root links
+this crate (its only dependant is `sutura-app`, as a dev-dependency), and `sutura-serve` refuses
+`catalog.kind: datahub` by name - that half is a separate, stacked change. Everything here is
+decided and tested; what is not is a served composition - the *Built and not wired* register in
 `.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
 may be read from - it is not an invariant.
 
@@ -100,9 +102,12 @@ Where a snapshot's aspects come from.
 
 **The fake seam.** Everything above this trait is decided and tested against recorded documents;
 a real implementor speaks to `DataHub`'s versioned `OpenAPI` v3 entity surface, decodes into
-`document::Snapshot`, and maps its own failures into `DataHubError::Read`. The only
-implementor today is the recorded source in `fixture`. The RESPONSE SHAPE that implementor has
-to map, and the surface's consistency, are measured rather than guessed - see the crate header.
+`document::Snapshot`, and maps its own failures into `DataHubError::Read`. Since issue #202
+one does: `http::HttpAspectReader`, behind the `http` feature. Every other test in this crate
+still reads against the recorded source in `fixture` - the RESPONSE SHAPE a real implementor has
+to map, and the surface's consistency, were measured rather than guessed before it was written -
+see the crate header, and `http`'s own module header for which of the three entity shapes that
+measurement actually covers.
 
 A port rather than a method on `DataHubCatalog` for the same reason the warehouse port exists:
 a catalog that could be swapped for a live source without the conversion changing is the point.
@@ -692,3 +697,301 @@ The source mapping answers the one platform the corpus names - `bigquery` - with
 declared source, which is what lets a model on that platform be opened. This is the constructor
 the conformance registry uses to register the adapter; it is `pub` because an integration suite is
 a separate crate and cannot reach a `#[cfg(test)]` item.
+
+## Module `http`
+
+The real `crate::AspectReader`: three paged reads over `DataHub`'s versioned `OpenAPI` v3
+entity surface, assembled into one `Snapshot`.
+
+Behind the crate's default-off `http` feature - see `Cargo.toml`'s own comment on why - so a
+build that does not ask for this reader links no outbound TLS stack.
+
+# What is measured, and what is not - stated here because it decides how this module is written
+
+**The `metric` entity's wire shape is confirmed against a live instance.**
+`tests/provisioned.rs`'s *Revision, 2026-09-04* round-tripped the recorded fixture's own document
+through a real `DataHub` 1.7.0 and compared what came back against the fixture byte-for-byte, so
+`harvest_metric` maps exactly the envelope that suite measured: `entities[]`, each carrying
+`metricInfo.value` and `structuredProperties.value.properties[]`.
+
+**The `dataset` and `semanticModel` entities are NOT measured against a live instance.** Their
+field lists come from `docs/adr/0016`'s "Field by field" table, which was read from the platform's
+own `.pdl` schema sources rather than from a served response. This is stated once here and
+repeated at each mapping function, because the two facts have different consequences: a wrong
+guess about `metric`'s envelope would be a regression against a proven round trip, and a wrong
+guess about the other two would be the FIRST claim this crate has made about them. So both
+mapping functions refuse an unexpected shape as a typed `HttpReaderError::UnexpectedShape`
+naming the entity and the field, rather than reading past a missing or mistyped key with a
+default - a guess that happened to be wrong would otherwise certify a bundle silently missing a
+model or a relationship. **Do not cite this reader as proof the structural half works against a
+real `DataHub` until an acceptance leg like `tests/provisioned.rs`'s measures it.**
+
+# What every read is bounded by
+
+`ReadBounds` carries a request timeout and a response-size cap, both **settings with defaults,
+not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are the values a
+composition root's settings default to, following `sutura-config`'s own convention of a default
+function per optional key, not a value baked into this type. `read` makes
+up to three requests and shares ONE deadline across them - opened once, and what is left after
+the first two requests is what the third gets - the same shape `sutura-exec-bigquery`'s
+`CallDeadline` holds for a job's token exchange and its query, and for the same reason: a budget
+opened per request lets three independent timeouts sum to three times what a deployment declared.
+
+# Auth
+
+A personal access token as a `Secret`, sent as `Authorization: Bearer <token>` on every
+request. The token is a constructor argument here; a composition root reads it from a settings-
+declared file at boot (`token_file`, the naming convention `credential_file`/`password_file`
+already hold), never inline in a settings document.
+
+# Paging
+
+One page per entity type, at a generous count. A page that SIGNALS more results exist - a
+`scrollId`, or a returned count below a reported `total` - is refused
+(`HttpReaderError::MorePages`) rather than silently read as complete: the same "one page or a
+refusal" shape `sutura-exec-bigquery`'s wire holds for `jobs.query`, because a caller must not
+certify a bundle built from a `Snapshot` that silently dropped a model, a relationship or a
+metric. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own.** If it
+does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+`tests/provisioned.rs`) has to measure this before PR2 wires the composition - the `scrollId` arm
+is a defensible guess against the platform's own "there is more" convention, not something this
+crate has watched a real GMS answer.
+
+# TLS and the endpoint
+
+`Endpoint::parse` is the ONLY way to obtain an `Endpoint`, and `HttpAspectReader::new` takes one rather than a
+`String` - a caller cannot dial an endpoint this module has not validated. What `Endpoint::parse` accepts, exactly:
+`scheme://host[:port]`, scheme `http` or `https` (case-folded), on a `Uri` (`ureq`'s own re-export of the `http` crate's
+parser, the SAME type `ureq` itself parses a request URL into before dialling), an OPTIONAL nonzero valid `:port`, an
+OPTIONAL trailing `/`, and NOTHING else: a path, query or fragment is `InvalidEndpoint::PathBeyondRoot` (fragment
+checked on the RAW text, because `http::Uri` silently discards a `#`), a bad port is `InvalidEndpoint::NotAnHttpUrl`,
+and a `user[:pass]@` prefix is `InvalidEndpoint::CredentialsInUrl`. `https://` is accepted for any host; `http://` only
+for an IP loopback LITERAL - `sutura_domain::source::host_is_loopback`, the ONE predicate
+`sutura_config::sources::transport` also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
+`github.com/telekom/sutura#653`): a hostname is not an address, so `localhost` does not count either, and only something
+that parses as `IpAddr` and answers `is_loopback()` does - the same function both crates call, so a divergence between
+them is a compile error, not a review's job to notice.
+
+**This section has been wrong twice, and both corrections are worth keeping visible rather than
+silently fixed - the second because the first one's OWN reasoning had a gap in it.**
+
+The first draft removed `https_only(true)` (`BigQuery`'s own pin) entirely, arguing from this
+record's own measurement tier reaching its `DataHub` over loopback plaintext "by construction" -
+true, but an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might
+type. With no parse at all, a bearer was dialled in clear text to
+`http://datahub.example.internal` exactly as readily as to `http://127.0.0.1`, refused only by a
+connection timeout. The first fix was `Endpoint`, parsed by splitting the string by hand.
+
+**The hand-split parse was itself the second gap, and a second review measured it.** For
+`http://[::1]:1@localhost:<port>`, the hand-rolled host extraction took the text before the
+LAST `:` in the authority - `::1` for the bracketed case - so the endpoint parsed as loopback
+while the REAL host, `localhost` (everything after the userinfo's `@`), is exactly the name
+`Endpoint::parse` is supposed to refuse in plaintext. A reader built from that string dialled
+`localhost` with the bearer prepared. Parsing with `Uri` - the SAME parser `ureq` itself uses -
+closes this the way it should have been closed the first time: `Authority::host` already
+resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any `user[:pass]@`
+prefix outright rather than trusting that resolution to stay correct.
+
+`ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
+proxy left on (`Proxy::try_from_env()`) are the other three pins
+`sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **Follow-up, not built
+here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
+deployment's own CA, for the endpoints that do use TLS.
+
+### `enum InvalidReadBounds`
+
+```rust
+pub enum InvalidReadBounds
+```
+
+Why a declared bound is not usable.
+
+#### Variants
+
+- `Zero` - Zero would refuse every read rather than bounding one.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct ReadBounds`
+
+```rust
+pub struct ReadBounds
+```
+
+What one `HttpAspectReader::read` call may spend: a request timeout and a response-size cap.
+
+A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
+`sutura_exec_bigquery::wire::JobBounds`'s own shape, minus the money bound this read has no use
+for (a metadata read is not billed).
+
+#### Methods
+
+```rust
+pub const fn max_response_bytes(&self) -> u64
+```
+
+```rust
+pub const fn parse(timeout_seconds: u64, max_response_bytes: u64) -> Result<Self, InvalidReadBounds>
+```
+
+Parses a declared timeout and cap, refusing either at zero.
+
+```rust
+pub const fn timeout(&self) -> Duration
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
+### `struct EndpointMessage`
+
+```rust
+pub struct EndpointMessage
+```
+
+`DataHub`'s own message on a refusal.
+
+Redacted the way `sutura_exec_bigquery::wire::EndpointMessage` is: bounded, filtered, and
+reachable only through `Self::as_str` - never through `Debug`, which is the rendering a
+cause-chain walk uses.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The message itself, for a caller that has decided it may render it.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum HttpReaderError`
+
+```rust
+pub enum HttpReaderError
+```
+
+Why one of the three entity reads did not produce the aspects it names.
+
+Reaches `crate::DataHubCatalog` boxed inside `DataHubError::Read` - the port's own coarse
+variant - so this stays inspectable by a caller that knows to downcast, the `ErasedCause` shape
+`.agents/skills/sutura/secure-by-design/SKILL.md` argues for at a boundary.
+
+#### Variants
+
+- `DeadlineSpent` - The shared budget was gone before this entity's page could be requested.
+- `Unreachable` - The entity's page was not reached.
+- `Unreadable` - The entity's page was reached and its answer could not be read.
+- `Refused` - `DataHub` refused the request. `Display` renders the status and never `detail` - the same rule `sutura_exec_bigquery::wire::WireError::Refused` holds, and for the same reason: a cause-chain walk that flattens every link with `Display` must not carry endpoint-owned text.
+- `TooLarge` - The page was larger than the cap this reader will read.
+- `NotADocument` - The page was not a JSON document.
+- `UnexpectedShape` - One entity's aspect did not carry a field this reader expects, or carried it in a shape it does not recognise.
+
+  **Refused rather than guessed** - see the module header on which of the three entity shapes
+  this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
+  refusal names exactly where the document stopped matching this reader's expectation.
+- `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
+- `MorePages` - The page stated or implied more results exist than the one page this reader will read.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `enum InvalidEndpoint`
+
+```rust
+pub enum InvalidEndpoint
+```
+
+Why a declared endpoint is not usable.
+
+#### Variants
+
+- `NotAnHttpUrl` - Not a parseable URL, or a parseable URL naming neither `http` nor `https`, or one naming no authority at all.
+- `CredentialsInUrl` - The authority carries `user[:pass]@` - refused outright. **This is not merely defence in depth against a spoofed host**: the round-2 review measured a reader built from `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with `Uri` closes that specific bypass on its own - `Authority::host` resolves to the text AFTER the last `@`, which is `localhost` here, so the loopback check below already sees the real target - but a declared endpoint has no legitimate use for embedded credentials, so this refuses the shape by name rather than relying on that resolution being correct forever.
+- `PathBeyondRoot` - A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real shape, not yet supported, a stated limit. The fragment is checked on RAW text in `Endpoint::parse`: `http::Uri` silently discards a `#`.
+- `PlaintextBeyondLoopback` - `http://` to a host that is not an IP loopback literal - see `sutura_domain::source::host_is_loopback`.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Endpoint`
+
+```rust
+pub struct Endpoint
+```
+
+A validated `DataHub` endpoint, obtainable only through `Self::parse` - see the module
+header's "TLS and the endpoint" section for the accepted grammar and each refusal.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
+```
+
+Parses and validates against `Uri` - the SAME parser `ureq` itself dials with, rather
+than a hand-rolled split, which is what let the round-2 review's userinfo form
+(`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
+form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct HttpAspectReader`
+
+```rust
+pub struct HttpAspectReader
+```
+
+A `DataHub` GMS, reached over HTTP.
+
+Not generic over its credential the way `sutura-exec-bigquery`'s transport is: there is exactly
+one credential shape here, a personal access token, so a type parameter would buy nothing a
+second constructor would not.
+
+#### Methods
+
+```rust
+pub fn new(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds) -> Self
+```
+
+Opens a reader. `endpoint` is already validated - a caller reaches one only through
+`Endpoint::parse`, so a reader cannot be built pointed at a plaintext non-loopback host.
+`property` is the deployment's; `token` is read from a settings-declared file at boot by the
+composition root, never inline; `bounds` is `ReadBounds::parse`'s output, so a reader
+cannot be built with an unchecked pair either.
+
+#### Implements
+
+`AspectReader`, `Clone`, `Debug`
+
+### `constant DEFAULT_TIMEOUT_SECONDS`
+
+The recommended default request timeout, in seconds, for a composition root's settings default.
+
+Matches `server.request_timeout_seconds`'s own shipped default: a metadata read that outlives the
+request timeout in front of it cannot answer inside the budget the caller was promised anyway.
+**Not read by anything in this module** - a caller passes the number it resolved, through
+`ReadBounds::parse`, the same single-owner shape `BytesBilledCeiling::parse` holds for
+`BigQuery`'s ceiling: this crate owns the range, a settings tree owns that the key was written.
+
+### `constant DEFAULT_MAX_RESPONSE_BYTES`
+
+The recommended default response-size cap, in bytes, for a composition root's settings default.
+
+One quarter of `sutura_exec_bigquery::wire::MAX_ANSWER_BYTES`: a metadata page is descriptions,
+column names and one metric document, not query rows, and what this defends against is the same
+case that constant does - something that is not the endpoint answering - rather than a
+realistic upper bound on a legitimate page.

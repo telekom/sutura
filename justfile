@@ -564,8 +564,6 @@ bigquery-cross-dataset:
     #!/usr/bin/env bash
     set -euo pipefail
     bash nix/mask-bigquery-resources.sh
-    # shellcheck source=nix/stable-env.sh
-    source nix/stable-env.sh
     echo "bigquery-cross-dataset: explicit writable fixture venue; not a local gate or identity proof."
     echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
@@ -576,8 +574,6 @@ bigquery-cross-project:
     #!/usr/bin/env bash
     set -euo pipefail
     bash nix/mask-bigquery-resources.sh
-    # shellcheck source=nix/stable-env.sh
-    source nix/stable-env.sh
     echo "bigquery-cross-project: explicit read-only mirror venue; not provisioning or identity proof."
     echo 'scope: sutura-exec-bigquery; run `just test` for the whole workspace.'
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \

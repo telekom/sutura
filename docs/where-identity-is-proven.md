@@ -24,6 +24,20 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     `unrun`**, and **a venue whose `Reached by` task CI does not invoke may not say `wired`**. The
     last two are one rule pointing both ways, so exactly one of the two is available for any tree.
 
+    **A `yes` cell over a venue that runs *a GitHub environment* - on demand - ties the same way,
+    and it did not used to.** `unrun` and `wired` each had to appear in their own venue's section;
+    a cell moving to `yes` had nothing tying it to the section beside it at all, so a row could
+    leave either state in the matrix while its section still read as if it had not. Two rules now
+    hold that cell for an on-demand venue: its section has to **name a run somebody observed** -
+    the word `observed` in a sentence that is not a denial (not `No … observed`, `not observed` or
+    `never observed`), plus either a GitHub Actions run link (`actions/runs/` followed by digits)
+    or an ISO date (`2026-01-01`) - and it may no longer say `unrun` or `wired`, because a section
+    still in either word has not left that state whatever the matrix now claims. A sentence that
+    only denies a run, however many dates it names, is the opposite of a held `yes` and is refused
+    with the rest; what a green run *means* is still review's to judge. An `in process` venue
+    answers every push, so this does not reach it; only a venue nothing but a job's own run can
+    prove is held to it.
+
     **Why there are two of them rather than one.** The change that wires a leg into a job cannot
     also produce that leg's first green run - the run happens after the push. So for one commit the
     only moves were a cell the gate refuses and a `yes` nobody had earned, which is a gate
@@ -355,6 +369,12 @@ about the vocabulary rather than to this row.
 `docs/adr/0019` are the records, and the sentence that matters here is short: **a service-account key is
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
 identity* - and nothing whatever about per-subject execution.
+
+Not merely written - the run was observed: `the_endpoint_accepts_one_statement_this_repository_generated`
+(`crates/sutura-exec-bigquery/tests/acceptance.rs`) passed in the `bigquery-acceptance` job on
+2026-08-31, CI run [33382663404](https://github.com/telekom/sutura/actions/runs/33382663404/job/99464748052)
+against the `bq-test` environment's real dataset - the push that landed `docs/adr/0017`'s third
+amendment, which records the same run (8 tests passed, 5 the smoke leg's and 3 the corpus leg's).
 
 ## A real enterprise identity provider
 
