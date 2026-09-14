@@ -883,8 +883,8 @@ Not built.
 
         // **And the direction that gets a gate disabled, which a universal rule got wrong here.**
         // This workspace's suite runs in CI as a nix CHECK, so `just test` is genuinely run by CI
-        // and invisible to the invocation reader - requiring an invocation of it refused the two
-        // `in process` venues, whose claims are answered on every push. Their token says so, and
+        // and invisible to the invocation reader - requiring an invocation of it refused every
+        // `in process` venue, whose claims are answered on every push. Their token says so, and
         // the rule reads it: no complaint about the in-process venue with no CI at all.
         let found = problems_with_ci(MAP, &["bigquery-acceptance"]);
         assert!(

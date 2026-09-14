@@ -6,8 +6,14 @@
 # order and the classifications below deliberately skip work a diff cannot affect. Release-profile
 # builds and images belong to the tag-triggered release workflow.
 #
-# Steps AND the graph roots that realise them are gated on the classification, which fails open.
-# Licensing, the structural gates and the secret scan never are: they judge docs too.
+# Steps AND the graph roots that realise them are gated on the classification. Licensing, the
+# structural gates and the secret scan carry no classification condition, because they judge docs
+# too - but read that as "not classification-gated", never as "always reports": a failed step ends
+# the job, so REACHABILITY is a separate property, and only a condition on the step holds it.
+# `Secrets` carries `always()` and `Licensing` `!cancelled()` - the two forms differ on a
+# cancellation, and `cargo xtask check-workflows` requires each by name, so neither is a
+# convention. `Structural gates` deliberately carries neither; the `ci` job says why beside the
+# staging argument, and `xtask/src/workflows/obligations.rs` says which case each form survives.
 #
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: ci
@@ -461,10 +467,57 @@ jobs:
       # itself the long root, so it stays in stage 3 overlapping the tests and its latency is
       # unchanged. Staging cannot make a gate report sooner when that gate IS the long pole.
       #
-      # EVERY ROOT NOW CARRIES ITS OWN STEP'S CONDITION. `classify` fails open - `run_all` subsumes
-      # every area, `xtask/src/changes.rs` - so a root gated on the same expression its step
-      # carries cannot narrow coverage below what that step already had. `reuse` and `hygiene` stay
-      # unconditional because their own steps are: they judge every file in the tree.
+      # EVERY ROOT NOW CARRIES ITS OWN STEP'S CONDITION, and that is the whole of the claim: a root
+      # gated on the same expression its step carries cannot narrow coverage below what that step
+      # already had, because the two skip together. The relative property needs no premise about
+      # what the classifier guarantees, and this comment deliberately makes none - the AREA axis
+      # fails open to `run_all`, but the CATEGORY axis (`identity`, `data_source_*`) does not, and
+      # an unemitted output renders `''` rather than `false`. See `github.com/telekom/sutura#647`;
+      # it is pre-existing, reaches steps this change does not touch, and is not fixed here.
+      # `reuse` and `hygiene` stay unconditional because their own steps are: they judge every file.
+      #
+      # ONLY THE GRAPH ROOTS OF STAGE 1 ARE CLOSURE-FREE - the claim is about the roots, not about
+      # a region of the file. `Workflow static analysis` reaches `packages.xtask` (20-21 s measured
+      # on the runs that selected it) and `Supply chain` fetches an advisory database, so neither
+      # belongs in stage 1 at all: both MOVE to sit after `Clippy` - at the base this branch diffs
+      # against (#667, `70d5665f`) both sat BEFORE `Clippy`, at line 527 and 537 against 564, so this
+      # is a relocation and not a restatement of where they already were. The paragraph below says
+      # why the new placement is correct rather than a preference.
+      #
+      # **WHAT ORDER ALONE CAN COST, AUDITED RATHER THAN ASSUMED - BECAUSE A FAILED STEP ENDS THE
+      # JOB.** No step's `if:` moved here; the reorder was a pure text move, and every condition
+      # added by this change is on a graph ROOT, which is prefetch. But a step placed later than it
+      # used to be is one an earlier red can now pre-empt, so each shift was checked:
+      #
+      #   * `Secrets` is now EARLIER, ahead of the gated `Format` - see its own comment. That one
+      #     was a real hole and is closed.
+      #   * `Supply chain` and `Workflow static analysis` are back in their original position
+      #     after `Clippy`, and the word for what put them above it is not "draft". #642 HOISTED
+      #     THESE TWO INTO STAGE 1 AND MERGED, so for the time that stood on `main` a `cargo-deny`
+      #     advisory or an `actionlint` finding pre-empted `Structural gates` and `Clippy` - the
+      #     38-gate structural sweep and the workspace lint - on every pull request in this
+      #     repository. Nothing could do that before #642. This is the revert for these two, not
+      #     a draft being tidied up before it shipped. `The attribution document generates
+      #     completely` was NOT hoisted by #642 - on `main` at #667 (70d5665f) it already sat
+      #     after `Clippy`, in stage 2 - so it only moved here because it sits between the other
+      #     two in the file; the paragraph above about the cost of a later position does not
+      #     apply to it.
+      #   * `Structural gates` DOES now report after `Format`, and this is a TRADE TAKEN
+      #     DELIBERATELY rather than something forced. `hygiene` takes `inheritedArtifacts
+      #     ciArtifacts` while `fmt` needs none, so hygiene cannot precede the closure - but
+      #     `if: ${{ !cancelled() }}` on it would buy always-reporting, exactly as it does for
+      #     `Secrets` above. The price is the fail-fast path this whole change exists for: hygiene
+      #     would then build the dependency closure on a run whose `fmt` red should have cost 97 s.
+      #     That is the trade, and it is taken knowingly.
+      #
+      #     WHAT MAKES IT DEFENSIBLE IS NOT THAT THE SWEEP IS TIDINESS - it is not. The 38 gates
+      #     include `check-pins`, `check-workflows` and `check-hook-tiers`, which are supply-chain
+      #     rules. It is that their value is MERGE-BLOCKING: a red branch cannot merge whatever
+      #     they would have said, so deferring them to the next push costs a round trip and not a
+      #     guarantee. `Secrets` is the case where that argument fails, because a committed
+      #     credential is already disclosed - which is why that one got the line and this did not.
+      #   * `CRAP score` and `Test causality` now follow the two shipped-feature-set steps, which
+      #     is the order #639 asked for: behaviour before the metrics about the behaviour.
       #
       # NO GATE PAIRS A ROOT WITH ITS STEP, and the reason that is tolerable is the blast radius,
       # stated rather than assumed. If someone narrows a step's `if:` and forgets its root, or the
@@ -510,41 +563,80 @@ jobs:
       # its root is in stage 1 and hygiene's is not - there is nothing to save by skipping it and
       # nothing to wait for before running it.
       - name: Licensing
+        if: ${{ !cancelled() }}
         run: nix build .#checks.x86_64-linux.reuse -L
+
+      # The authoritative secret scan. The pre-commit hook is best-effort - it can be
+      # bypassed, and it cannot run on a host without the tool - so the enforcement point has
+      # to be here. Never gated on classification: a credential can be committed in any file.
+      #
+      # `if:` IS THE MECHANISM AND THE POSITION IS NOT - AND THAT SENTENCE IS ONLY TRUE BECAUSE A
+      # GATE NOW REQUIRES THE LINE (#639 slice I). `cargo xtask check-workflows` holds this step's
+      # condition by name; before that rule existed the comment asserted a mechanism nothing
+      # checked, which is one edit from gone and worse than the reorder it was preferred to. The
+      # form each step needs, and the runs it was measured over, are in that rule's header.
+      #
+      # "Never gated on classification" was true of this step's `if:` and false of the thing that
+      # matters, which is REACHABILITY: a failed step ends the job, so behind the `rust`-gated
+      # `Format` this scan was exactly as unconditional as fmt was green, and a `fmt`-broken pull
+      # request got no secret scan at all. That was equally true before this branch.
+      #
+      # `always()` AND NOT `!cancelled()`, WHICH IS A CORRECTION: this step carried `!cancelled()`
+      # first, on the strength of it being the idiom elsewhere in this file. The two forms differ
+      # only on a CANCELLATION, and that difference was then measured rather than assumed. Over
+      # this repository's runs: `!cancelled()` survives a preceding RED - `pr-cache` carries it and
+      # ran in all twelve runs where `ci` concluded `failure`, never skipped - but in the five runs
+      # where the `ci` JOB itself was cancelled, the one step carrying `always()` ran in all five
+      # while every unconditional step was skipped in two of them. There is no step-level
+      # `!cancelled()` witness inside this job either way, because until now no step here carried a
+      # reachability condition at all.
+      #
+      # So the question is whether a cancelled run still owes this scan, and it does: for a
+      # committed credential the disclosure has ALREADY HAPPENED by the time any gate runs, so
+      # there is nothing to defer to the next push. The usual argument against `always()` does not
+      # reach here - `pr-cache` prefers `!cancelled()` because it takes a PAID RUNNER and
+      # `always()` would start it after somebody pressed cancel, whereas this is a two-second step
+      # inside a runner already held. `Licensing` above keeps `!cancelled()` for that same reason
+      # inverted: it is a `nix build`, and its value is merge-blocking rather than already-spent.
+      #
+      # NOT A CONTAINMENT CLAIM, and the distinction is why this one was worth fixing while the
+      # `Structural gates` ordering below was not: a red branch cannot merge either way, so nothing
+      # was ever exposed by the old order. A scan that calls itself authoritative should not be
+      # skippable by an unrelated formatting error. Two seconds, measured.
+      #
+      # THE LIMIT `always()` DOES NOT COVER: the whole `ci` job carries its own `if:` above, the
+      # `chore(release):` skip - so on that one commit this step does not run either, `always()`
+      # or not. That gap is accepted deliberately (see the job-level comment) and is not something
+      # this step's condition closes.
+      - name: Secrets
+        if: ${{ always() }}
+        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       - name: Format
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.fmt -L
 
-      # The authoritative secret scan. The pre-commit hook is best-effort - it can be
-      # bypassed, and it cannot run on a host without the tool - so the enforcement point has
-      # to be here. Never gated on classification: a credential can be committed in any file.
-      - name: Secrets
-        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
-
-      # An app, not a check: it fetches the advisory database and a build sandbox has no
-      # network. The app also supplies the pinned cargo.
-      - name: Supply chain
-        if: steps.classify.outputs.deps == 'true'
-        run: nix run .#deny
-
-      # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
-      # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
-      # how the two come to check different things. That script's header carries what each tool
-      # covers, including the one gap none of them reached: the shell inside a composite action,
-      # which `actionlint` cannot read at all. It also records the line-cap measurement that
-      # decided WHEN to split, which is a fact about the trunk and not about this file here.
-      - name: Workflow static analysis
-        if: steps.classify.outputs.run_all == 'true'
-        run: bash nix/lint-workflows.sh
-
-      # >>> STAGE 2: THE GATES THAT NEED THE DEPENDENCY CLOSURE BUT NOT THE TESTS. <<<
+      # >>> STAGE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND THE TESTS ARE NOT YET RUN. <<<
       #
       # `hygiene` compiles the xtask binary and `clippy` the workspace, both on top of
       # `ciArtifacts`, so this is the stage that pays for `sutura-deps` and stage 3 reuses it from
       # the local store - which is how the shared dependency artifact survives the split. The
       # stage-1 header above carries why the cut is here and what the lost cross-stage overlap
       # costs.
+      #
+      # THE HEADING NAMES WHAT THE STAGE'S GRAPH ROOT REALISES, NOT A PROPERTY OF EVERY STEP IN
+      # IT. It used to read "the gates that need the dependency closure", which this change made
+      # false of a step it moved: `apps.deny` is a `writeShellScript` that puts the toolchain and
+      # `cargo-deny` on `PATH` and runs `cargo deny check` (`flake.nix`), so `Supply chain` builds
+      # nothing from this tree and needs no closure at all - what it needs is a NETWORK for the
+      # advisory database. `The attribution document generates completely` is not the same case and
+      # is not claimed as one: `nix run .#xtask` does need the closure, and a resolvable registry
+      # as well.
+      #
+      # `Supply chain` sits here anyway, and deliberately: ahead of `Clippy` a `cargo-deny`
+      # advisory or an `actionlint` finding would pre-empt the structural sweep and the workspace
+      # lint, which nothing could do before the staging work and which #642 shipped. Placement is
+      # about what may pre-empt what, not about the closure.
       - name: Realise the xtask and lint gates in one graph
         continue-on-error: true
         uses: ./.github/actions/measure-host
@@ -565,12 +657,36 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.clippy -L
 
+      # An app, not a check: it fetches the advisory database and a build sandbox has no
+      # network. The app also supplies the pinned cargo.
+      - name: Supply chain
+        if: steps.classify.outputs.deps == 'true'
+        run: nix run .#deny
+
       # NOT gated on classification: a licence value can move without `Cargo.lock` moving. The
       # document is generated and not committed, so there is nothing to byte-compare - this
       # generates one and refuses an incomplete result, which needs a resolvable registry. The
       # hygiene half holds the ABSENCE of a committed copy and needs nothing.
       - name: The attribution document generates completely
         run: nix run .#xtask -- check-attribution
+
+      # `nix/lint-workflows.sh` rather than inline, because the composite-action pass below it had
+      # TWO callers and was written twice - here and in the justfile - and two copies of a gate are
+      # how the two come to check different things. That script's header carries what each tool
+      # covers, including the one gap none of them reached: the shell inside a composite action,
+      # which `actionlint` cannot read at all. It also records the line-cap measurement that
+      # decided WHEN to split, which is a fact about the trunk and not about this file here.
+      #
+      # THE `run_all` GATE ON THIS STEP'S OWN REACHABILITY STAYS, A DECISION AND NOT AN OVERSIGHT:
+      # `Secrets` earned `always()` because a committed credential is already disclosed by the
+      # time any gate runs, so there is nothing later to defer to. A workflow-lint finding is not
+      # that - it is MERGE-BLOCKING like `Structural gates`, so a run this step skips is one a red
+      # elsewhere in the same PR still stops from merging, and a green PR that skipped it gets
+      # caught the next time a workflow file changes. The "already disclosed" argument stops at
+      # credentials; it does not extend here.
+      - name: Workflow static analysis
+        if: steps.classify.outputs.run_all == 'true'
+        run: bash nix/lint-workflows.sh
 
       # >>> STAGE 3: THE TEST ROOTS, WHICH A RED IN STAGE 1 OR 2 NO LONGER LAUNCHES. <<<
       #
@@ -583,8 +699,21 @@ jobs:
       # it and buy nothing - see the stage-1 header on the failure it is most often the cause of.
       #
       # AN EMPTY SELECTION IS A LEGITIMATE DOCS-ONLY RUN and not a misconfiguration, so it is
-      # answered before the array is expanded - `set -u` refuses an empty `"${checks[@]}"` on bash
-      # older than 4.4, and the runner's bash is not the only shell this has to survive.
+      # answered before the array is expanded - `set -u` makes an empty `"${checks[@]}"` an error on
+      # older bash releases, and the runner's bash is not the only shell this has to survive. No
+      # release number here on purpose: nothing in this repository compares one, so it would be a
+      # second copy of a fact with no home to rot against.
+      #
+      # THAT `exit 0` ENDS THE BODY AND NOT THE STEP, which is a property of `measure-host` running
+      # the body under `bash -c` rather than `eval` - see that action, where the `eval` it replaced
+      # also made every body's `set -eu` inert. Under the old wrapper this branch would have exited
+      # the step's own shell and skipped the report, so the "one label per stage" claim above would
+      # have been false on exactly the run that most needs it.
+      #
+      # **AND THIS BRANCH HAS EXECUTED IN NO VENUE.** The docs-only probe measured for #639 slice I
+      # still selected both service tiers, because a docs-only diff flips the CATEGORY axis to
+      # `core`; reaching an empty selection needs `rust`, both tier conditions and `api` all false
+      # at once. So it is reasoned and linted, not observed - cite it as such.
       - name: Realise the test graph in one invocation
         continue-on-error: true
         uses: ./.github/actions/measure-host
@@ -700,6 +829,20 @@ jobs:
       # NARROWING it was considered and refused: the entry already holds exactly one directory
       # (`paths: target/causality-target`, `nix: false`), and the three apps SHARE that directory
       # by design, so there is no per-app subset to restore. The lever here is when, not how much.
+      #
+      # **THE LIMIT OF MOVING IT, STATED BESIDE THE CLAIM: THE SAVE IS A POST STEP, AND A STEP THAT
+      # NEVER EXECUTES REGISTERS NO POST STEP.** While this sat at the top of the job its save was
+      # reached by every run that got past the installer; from here, a `main` push that reddens
+      # anywhere above no longer refreshes the entry, so the generation on `main` ages until a green
+      # push renews it. That is the cost side of the saving two paragraphs up, and it is a real
+      # change rather than a relabelling.
+      #
+      # AND NO GATE HOLDS EITHER HALF. `cargo xtask check-workflows` reports this cache as "restored
+      # on every event", which is now true only of the runs that reach this step - its rule
+      # (`cache_scope::tests::a_caller_that_gates_the_store_restore_is_refused`) refuses an `if:` on
+      # the caller and CANNOT SEE POSITION. So the gate is satisfied while the property its own
+      # message names is weaker than it reads. Written down rather than fixed here: teaching it
+      # position is a change to that gate, not to this file.
       - uses: ./.github/actions/causality-target-cache
         with:
           scope: ci
@@ -1572,12 +1715,29 @@ jobs:
     # will produce, not one a link check gates. So the condition names the events this job serves
     # instead of the refs it does not: a ref shape nobody has seen cannot make it wrong.
     #
-    # THE TWO EVENTS, AND THE MATRIX DIFFERS BY THEM. `pull_request` runs the aarch64 pair (the
-    # cross surface the native job never compiles); a push runs ALL FOUR targets - the all-4 link
-    # gate AND the binary-cache-priming run every PR restores from. The `push` branch is safe:
-    # `ci.yml`'s `on.push` is `branches: [main]`. `cross-link.yml` reads the caller's
-    # `github.event_name` (a called workflow's `github` context reflects the CALLER's event, not
-    # `workflow_call`) to select the same two-vs-four split.
+    # THE TWO EVENTS THIS JOB SERVES - AND THE MATRIX DOES NOT DIFFER BY THEM. This paragraph used
+    # to say that `pull_request` runs the aarch64 pair while a push runs ALL FOUR, and that
+    # `cross-link.yml` reads the caller's `github.event_name` to select that split. **All three
+    # halves are false**, corrected here as #639 slice I:
+    #
+    #   * `cross-link.yml` runs ONE REDUCED SET on every ordinary-CI event, with the full four only
+    #     where a release is built. Its own header states that the absence of event scoping IS the
+    #     decision - "a ternary that cannot change what runs is worse than none".
+    #   * the pair is not the aarch64 pair: it is `aarch64-unknown-linux-gnu` and
+    #     `x86_64-unknown-linux-musl`, one cell per failure axis - libc on the host arch, and arch
+    #     on the libc the host already exercises.
+    #   * that file names `github.event_name` in exactly ONE place, a comment explaining why it is
+    #     not used for target selection.
+    #
+    # The binary-cache-priming half is dead with it: `x86_64-unknown-linux-gnu` was the cell
+    # dropped, and its only unique role was priming an Actions-cache entry that was itself part of
+    # an eviction problem. `cargo xtask check-workflows` pins the list in that file, refuses an
+    # expression there, and refuses a `cachix-push.yml` or `release.yml` matrix that has drifted -
+    # which is the mechanism this paragraph is not, and is why it was able to rot.
+    #
+    # The condition below is right as it stands and is left alone: it names the events this job
+    # serves rather than the refs it does not, so a ref shape nobody has seen cannot make it wrong.
+    # The `push` branch is safe because `ci.yml`'s `on.push` is `branches: [main]`.
     if: needs.ci.outputs.build == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
     # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
     # omitting it leaves this workflow's own `contents: read`, which is what the job declared.

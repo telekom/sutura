@@ -88,9 +88,17 @@ use report::{AllowEntry, Entry, POLICY_FILE, Report, offenders, parse_policy, re
 ///
 /// The workspace row is a lower bound because that run never reached a test: `DataFusion`, Arrow
 /// and `DuckDB` have to be recompiled with `-C instrument-coverage`, which shares nothing with
-/// the cached ordinary profile. On a four-vCPU runner that is twenty minutes and up, added to a
-/// `ci` job whose cap was already raised from 60 to 120 minutes. It is not affordable, and a
-/// gate nobody can afford gets deleted.
+/// the cached ordinary profile. The extrapolation that stood here is void and is not replaced
+/// with a guess: it read "on a four-vCPU runner that is twenty minutes and up", and the `ci` job
+/// declares no such runner - `.github/workflows/ci.yml` names `rust-mcp-16core`. What the cost
+/// would be on the runner that actually runs it was never measured, so no figure replaces it.
+/// Its companion claim - that the `ci` cap "was already raised from 60 to 120 minutes" - was
+/// false too: that file declares `timeout-minutes: 75`, and its own comment records 120 as the
+/// value this setting REPLACED rather than reached. Either way the conclusion is unchanged: it
+/// is not affordable, and a gate nobody can afford gets deleted.
+///
+/// Nothing pairs these numbers with the workflow that owns them, which is how a stale cap and a
+/// voided extrapolation survived here while the same two claims were corrected elsewhere.
 ///
 /// THE OTHER HALF OF THE DECISION, and it is not about cost. Coverage scoped to one package sees
 /// only THAT package's tests. For `sutura-domain` that is the whole truth: its 120 unit tests are

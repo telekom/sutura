@@ -275,6 +275,7 @@ class DemoBehavior(unittest.TestCase):
         key: str,
         webui_mode: str = "webui",
         sutura_mode: str = "sutura",
+        probes: int = 1,
     ):
         healthcheck = load_healthcheck()
         with (
@@ -299,7 +300,8 @@ class DemoBehavior(unittest.TestCase):
             stdout = io.StringIO()
             try:
                 with contextlib.redirect_stdout(stdout):
-                    healthcheck.main()
+                    for _ in range(probes):
+                        healthcheck.main()
             finally:
                 os.environ.clear()
                 os.environ.update(old)
@@ -505,6 +507,107 @@ class DemoBehavior(unittest.TestCase):
                 if key:
                     self.assertNotIn(key, result.stdout)
                     self.assertNotIn(key, result.stderr)
+
+    def test_repeated_probes_present_a_credential_exactly_once(self) -> None:
+        # THE COUNT IS THE TEST, never the stamp file: a test asserting only that the stamp exists
+        # passes with the pump still running. Compose probes this container every three seconds, so
+        # a probe that re-signed in and re-sent the operator's model key on each one put that key
+        # on the wire roughly twelve hundred times an hour for as long as the demo ran.
+        _output, authorization, sutura_paths, webui_paths, webui_authorization = (
+            self._run_healthcheck("model", "test-key", probes=3)
+        )
+        self.assertEqual(authorization, ["Bearer test-key"])
+        self.assertEqual(webui_authorization, ["Bearer demo-session"])
+        self.assertEqual(webui_paths.count("/api/v1/auths/signin"), 1)
+        self.assertEqual(webui_paths.count("/api/v1/tools/"), 1)
+        # What the latch does NOT give up, and so is still counted per probe: the server's own
+        # liveness and the shape of the document the chat client reads.
+        self.assertEqual(sutura_paths.count("/health"), 3)
+        self.assertEqual(sutura_paths.count("/openapi.json"), 3)
+
+    def test_an_empty_deployment_token_refuses_readiness_and_is_never_presented(
+        self,
+    ) -> None:
+        # A zero-byte token file reads back as "", the server reads `access_token: ""` as ABSENT
+        # and serves this loopback development bind ungated by design - so nothing downstream
+        # refuses, and the probe reported the demo READY while it held no credential at all.
+        healthcheck = load_healthcheck()
+        with (
+            server("sutura") as (sutura_port, sutura_server),
+            server("webui") as (webui_port, _),
+            server("model") as (model_port, model_server),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            token_file = pathlib.Path(directory, "token")
+            token_file.write_text("", encoding="utf-8")
+            self.assertEqual(token_file.stat().st_size, 0)
+            old = os.environ.copy()
+            os.environ.update(
+                {
+                    "SUTURA_DEMO_SUTURA_PORT": str(sutura_port),
+                    "SUTURA_DEMO_WEBUI_PORT": str(webui_port),
+                    "SUTURA_DEMO_MODEL_ENDPOINT": f"http://127.0.0.1:{model_port}",
+                    "SUTURA_DEMO_MODEL_API_KEY": "test-key",
+                    "SUTURA_DEMO_RUN_DIR": directory,
+                }
+            )
+            stderr = io.StringIO()
+            try:
+                with (
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    healthcheck.main()
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            self.assertEqual(raised.exception.code, 1)
+            self.assertIn("holds no credential", stderr.getvalue())
+            # The empty bearer never reached the served document, and the probe did not go on to
+            # present the operator's model key on behalf of a demo that authenticates nobody.
+            self.assertNotIn("/openapi.json", sutura_server.paths)
+            self.assertEqual(model_server.authorization, [])
+
+    def test_a_token_generator_that_produces_nothing_refuses_to_serve(self) -> None:
+        # The guard this holds rested on `set -e` alone: it called a `fail` this script never
+        # defines, so the refusal was a `command not found` whose 127 only `-e` turned into an
+        # exit. With `-e` removed the same guard wrote a zero-byte token file AND `access_token:
+        # ""` into the deployment. Neither file may be produced, and the reason must be the one
+        # the operator can act on.
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            silent = fake_bin / "python3"
+            silent.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            silent.chmod(0o755)
+            run_dir = root / "run"
+            result = subprocess.run(
+                ["bash", str(ROOT / "demo/run.sh")],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "SUTURA_DEMO_MODEL_ENDPOINT": "https://host.docker.internal:11434/v1",
+                    "SUTURA_DEMO_MODEL": "test-model",
+                    "SUTURA_DEMO_MODEL_API_KEY": "test-key",
+                    "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
+                    "SUTURA_DEMO_RUN_DIR": str(run_dir),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((run_dir / "token").exists())
+            self.assertFalse((run_dir / "base.yaml").exists())
+            self.assertIn("token generator produced nothing", output)
+            # Locale-independent: bash names the missing command as `fail:` in every locale, so
+            # this is the assertion that fails if the guard goes back to calling one.
+            self.assertNotIn("fail:", output)
+            self.assertNotIn("test-key", output)
 
 
 if __name__ == "__main__":

@@ -199,8 +199,10 @@ bound that will fire again. `ResourcesExhausted` appears nowhere in the workspac
 
 **Corrected: both verified absences above are now present, so the precondition this section waits on
 is met and the series are still unshipped.** `crates/sutura-exec-datafusion/src/pool.rs` builds a
-`RuntimeEnv` with a `GreedyMemoryPool` sized from the configured ceiling - that file's own module doc
-states the same fact in the past tense, correctly. `ResourcesExhausted` exists as a `RefusalReason`
+`RuntimeEnv` with a `GreedyMemoryPool` sized from the configured ceiling, and both `SessionContext`
+sites construct with `new_with_config_rt` - so the two functions named above are no longer the
+construction sites either. That file's own module doc states the same facts in the past tense,
+correctly. `ResourcesExhausted` exists as a `RefusalReason`
 variant, is raised on the federated path and maps to `422`, so exhaustion is no longer
 indistinguishable from a dead data system. **What this does NOT change is the decision**: the series
 are still specified and still must not ship, and *absent, not zero* still holds, because the reason

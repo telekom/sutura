@@ -22,8 +22,13 @@ through `sutura-sql` (`Dialect::Postgres`); nothing here is compiled or translat
   (`tls::client_config`). Which source gets which is `sutura_config::sources::transport`'s
   decision and never this adapter's, so a caller that builds no config gets a cleartext
   connection - including to a server that offers TLS.
-- A `statement_timeout` is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.
+- **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+  `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
+  a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
+  query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
+  `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
+  deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
+  this record adds only classifying that stop.
 
 ## `enum PostgresError`
 
@@ -62,6 +67,8 @@ Why this data system could not answer.
   cannot be a timeout must not reach the statement as uninterpreted text. The cause
   survives so the operator sees the number did not parse, not a plain refusal.
 - `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
+- `Transaction` - The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's own fixed literal text, never the caller's, the same as `Self::RawTransaction`.
+- `DeadlineSpent` - The deadline was already spent once `PostgresWarehouse::execution_lock` was acquired - refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `LegWithoutCombiner` - A leg without a combiner.

@@ -38,6 +38,8 @@ mod postgres;
 pub(crate) mod reading;
 
 #[cfg(feature = "postgres")]
+pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
+#[cfg(feature = "postgres")]
 pub(crate) use postgres::settings as postgres_settings;
 
 use core::fmt::Write as _;

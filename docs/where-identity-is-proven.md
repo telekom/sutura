@@ -64,7 +64,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     invocation set at all. Both are refused now.
 
     **Why the second rule is not universal, measured rather than assumed.** Requiring an invocation
-    everywhere refused the two `in process` venues, whose claims are answered on every push: this
+    everywhere refused every `in process` venue, whose claims are answered on every push: this
     workspace's suite runs in CI as a nix **check**, and what the gate resolves is `just <task>` and
     `nix run .#<app>` - so `just test` is genuinely run by CI and is invisible to that reader. A
     gate that reddens correct work gets disabled, and the run-site token already states the
@@ -105,6 +105,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | --- | --- | --- | --- |
 | **A fake at the port** | in process, every run | nothing | `just test`, `just validate` |
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
+| **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` |
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
 | **A real dataset under two keys** | a GitHub environment, on demand | two more service-account keys, and a row access policy per principal | `just bigquery-two-principals` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
@@ -133,32 +134,35 @@ everything *around* it, and shrinks to the one job only it can do.
 
 ## Which venue answers which claim
 
-| Claim | Fake at the port | Mock issuer | Real dataset, shared key | Real dataset, two keys | Real provider | Real exchange |
-| --- | --- | --- | --- | --- | --- | --- |
-| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - |
-| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - |
-| A signature verifies, and a forged one does not | - | **yes** | - | - | redundant | - |
-| `kid` selection, and an unknown key id | - | **yes** | - | - | redundant | - |
-| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | redundant | - |
-| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | redundant | - |
-| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | redundant | - |
-| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
-| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | redundant | - |
-| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
-| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - |
-| `credential_unavailable` through the request path | - | **yes** | - | - | - | - |
-| Two subjects driving two different credentials to the port | - | **yes** | - | no - two credentials reach the port here, and neither is a subject's | - | - |
-| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | redundant |
-| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | redundant |
-| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - |
-| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - |
-| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | **only here** | no |
-| Whether a statement we generate is accepted by a real data system | - | - | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
-| **Whether two subjects read two different row sets** | no | no | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
+| Claim | Fake at the port | Mock issuer | Provisioned Postgres | Real dataset, shared key | Real dataset, two keys | Real provider | Real exchange |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - | - |
+| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - | - |
+| A signature verifies, and a forged one does not | - | **yes** | - | - | - | redundant | - |
+| `kid` selection, and an unknown key id | - | **yes** | - | - | - | redundant | - |
+| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | - | redundant | - |
+| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | - | redundant | - |
+| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | - | redundant | - |
+| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
+| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | - | redundant | - |
+| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
+| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - | - |
+| `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
+| Two subjects driving two different credentials to the port | - | **yes** | - | - | no - two credentials reach the port here, and neither is a subject's | - | - |
+| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | redundant |
+| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | redundant |
+| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
+| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
+| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no | no | **only here** | no |
+| Whether a statement we generate is accepted by a real data system | - | - | **yes** | **yes** | redundant - the same endpoint, and the standing test is the shared-key leg | - | - |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | - | no | - | **unrun** - the standing test is here and nothing has run it |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | no - one key is one identity | no - two keys is two credentials nobody asked for | no | **unrun** - the standing test is here and nothing has run it |
+| **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | no - one key is one identity | no - a key on disk is not an asking subject, which is this venue's whole exclusion | no | **only here** |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | no - one key is one identity, and it is the transport's own | **unrun** - the only venue that could, and nothing has run it | no | redundant |
+| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | no - a different data system | no - a different data system | no | no - a different data system |
+| Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
+| Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
 
 ## The fake at the port
 
@@ -299,6 +303,52 @@ it worth having: **every token it mints is one an issuer could have minted.**
    source that counts its own calls. The mock issuer venue asserts the *observable* half instead: a
    forged key id does not make the deployment look, and after the window it does.
 3. **Anything about what a subject can see.** No data system is involved.
+
+## A provisioned Postgres source
+
+`nix/postgres-tier.nix` stands up a real PostgreSQL server - a unix socket, a loopback TCP listener,
+a generated server certificate and a generated client pair - and every venue that runs this
+workspace's suite provisions it, so nothing has to demand a run here. `just test` reaches it through
+`nix/with-tier.sh`, and `just validate` runs the cells as `checks.nextest` - its
+`checks.postgres-tier` leg proves the tier itself comes up and asserts nothing about the adapter.
+
+Its `Where it runs` cell says `in process, every run` because that is the closed vocabulary's
+nearest token and the cells really do run in the suite's own process; what they run **against** is a
+separate postmaster, which is the whole reason this row exists and is why the cell says so beside
+the token. The vocabulary has no token for a provisioned tier, and inventing one belongs to a change
+about the vocabulary rather than to this row.
+
+### What only this venue can answer
+
+1. **That a chain is actually VERIFIED.** `crates/sutura-exec-postgres/src/tls.rs` proves the
+   `rustls::ClientConfig` construction refuses what a closed type refuses, and nothing there
+   connects - so nothing there shows a handshake failing.
+   `a_source_chain_from_the_declared_anchor_is_verified_and_answers` and
+   `a_source_chain_from_an_untrusted_issuer_is_refused` are the two directions against a real
+   server, and the second is the one that matters.
+2. **That a source accepts the certificate this DEPLOYMENT presents, and refuses a client that
+   presents none.** `a_mutual_source_presents_the_identity_the_server_demands` and
+   `a_mutual_role_refuses_a_client_that_presents_no_certificate`, against the tier's mutual-only
+   role. A `verified` entry that named a client certificate used to reach neither cell, because it
+   was discarded at parse time and nothing refused it - `github.com/telekom/sutura#659`, now a load
+   refusal in `sutura_config::sources::transport`.
+3. **That a statement this workspace generates is accepted by a real data system**, over the
+   conformance packs in `crates/sutura-exec-postgres/tests/conformance.rs`. The shared-key BigQuery
+   venue answers the same claim for a different dialect, which is why that one row reads **yes** in
+   two columns.
+
+### What it cannot answer - read this before citing a green run
+
+1. **Anything about a calling subject.** The adapter is `NoPlaceForASubject`: one connection is one
+   static database role, established by a password or by the client certificate above. A client
+   certificate is an identity - **this deployment's**, not an asker's - so a green mutual-TLS cell is
+   evidence for leg 1's channel and for nothing in leg 2.
+2. **Two subjects reading two row sets.** That needs two real grants and a subject bound to each,
+   and there is one role here. The tier could carry two roles; nothing would bind either to who
+   asked.
+3. **Whether the anchors an OPERATOR names are the right ones.** The tier generates its own issuer
+   and the test declares it, so what is proved is that a declared store decides the outcome - never
+   that a deployment's store names the authority it meant.
 
 ## A real dataset under a shared key
 

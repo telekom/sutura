@@ -65,8 +65,34 @@ runs:
         # The measured command's failure must NOT skip the report: a build that died is exactly
         # when its utilisation is worth reading. Its status is carried to the end of the step so
         # the step still fails, after reporting, rather than instead of it.
+        #
+        # `bash -c` AND NOT `eval`, BECAUSE THE LEFT OPERAND OF `||` SUPPRESSES `errexit` FOR
+        # EVERYTHING INSIDE IT (#639 slice I). Under `eval`, a body's own `set -eu` was INERT: the
+        # body ran in this shell, as the left operand, so a failing command mid-body neither
+        # stopped it nor was reported - only the LAST command's status reached `status`. Measured:
+        # a body of `set -eu; false; echo LAST_COMMAND_OK` printed the echo and reported 0. A
+        # separate `bash -c` makes the body its own shell, so its `set -eu` is live and its exit
+        # status is the one carried out.
+        #
+        # AND THE REPORT-SKIPPING WAS NOT LIMITED TO `exit 0`, which is how it was first written
+        # up. Any explicit `exit` in the body ended THIS shell, because under `eval` the body IS
+        # this shell. Measured on the same harness: `exit 7` skipped the report and the step ended
+        # at 7, while `exit 0` skipped it and reported success - so the silent case was the
+        # zero. Under `bash -c` both reach the report and carry 7 and 0 out correctly, which is
+        # what lets a stage with no selected root still print its label.
+        #
+        # WHAT THIS COSTS, BECAUSE `bash -c` IS NOT STRICTLY BETTER: a fresh shell does not inherit
+        # this one's `set -o pipefail` or `set -u`, only whatever the body sets for itself.
+        # Measured: `false | cat` reports 1 under `eval` and 0 under `bash -c`, and a body reading
+        # an unset variable fails under `eval` and prints an empty string at 0 under `bash -c`.
+        # That is LATENT rather than live: every body this wraps opens with its own `set -eu`, and
+        # none of them contains a pipe. The trap it leaves is a FUTURE body with a pipe, whose
+        # failure would be swallowed - a body that needs one has to write its own `pipefail`.
+        #
+        # Harmless on the bodies this wrapped when it was written, and not harmless now: it wraps
+        # two VERDICT steps and three staged graphs, the most complex bodies it has carried.
         status=0
-        eval "$MEASURE_RUN" || status=$?
+        bash -c "$MEASURE_RUN" || status=$?
 
         kill "$SAMPLER" 2>/dev/null || true
         wait "$SAMPLER" 2>/dev/null || true
