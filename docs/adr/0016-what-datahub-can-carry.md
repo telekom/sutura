@@ -975,8 +975,10 @@ crate's default-off `http` feature. What it does and does not change:
   also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
   `github.com/telekom/sutura#653`), not a copy each crate holds. Any authority carrying
   `user[:pass]@` is refused outright, and so is anything past the bare root (no path, query or
-  fragment - a reverse-proxy path prefix is not supported in this revision, a stated limit rather
-  than an oversight).
+  fragment - the fragment is checked on the raw text before the `Uri` parse, because `http::Uri`
+  silently discards a `#`; a reverse-proxy path prefix is not supported in this revision, a stated
+  limit rather than an oversight). A declared port must be a valid nonzero `u16` (an empty `:`,
+  `:0` or out-of-range `:65536` is refused at construction, not left to fail at the first read).
   **This corrects a defect a review found in this same PR, and then a second review found the fix's
   OWN reasoning had a gap - both worth recording rather than silently fixed.** The first draft
   removed BigQuery's `https_only(true)` pin entirely, arguing from this repository's own

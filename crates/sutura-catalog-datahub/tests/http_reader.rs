@@ -575,20 +575,16 @@ mod tests {
         );
     }
 
-    /// **The round-2 review's own dial probe, re-run as a cell.** A real loopback listener - one
-    /// that WOULD receive a request if this reader dialled it, not an imaginary target - stands in
-    /// for the review's `http://[::1]:1@localhost:<port>` shape. `Endpoint::parse` refuses it before
-    /// any `HttpAspectReader` can be built, so there is no later call that could reach the listener:
-    /// the listener is dropped having accepted nothing, which is the point rather than something
-    /// this test has to poll for - no `HttpAspectReader` exists to make the call.
+    /// A userinfo endpoint is refused at PARSE - [`Endpoint::parse`] returns
+    /// [`InvalidEndpoint::CredentialsInUrl`] before any `HttpAspectReader` can be built, so no
+    /// `HttpAspectReader` exists to make a call. This is a parse-refusal cell, not a dial probe:
+    /// nothing here opens a socket, and no listener stands by to observe a connection that is
+    /// never made (the round-2 review's dial probe that motivated the `CredentialsInUrl` refusal
+    /// is held by the round-2 unit cell `a_userinfo_prefix_naming_a_loopback_ip_...` instead).
     #[test]
-    fn a_userinfo_endpoint_pointing_past_a_real_loopback_listener_is_refused_before_any_dial() {
-        let server = FakeServer::start(vec![Scripted::ok(&dataset_page())]);
-        let malicious = format!("http://[::1]:1@{}", server.addr);
+    fn a_userinfo_endpoint_is_a_parse_refusal_rather_than_a_dial_probe() {
+        let malicious = String::from("http://[::1]:1@127.0.0.1:9002");
         let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
         assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
-        // Dropped without ever being asked to `finish()` - the accept loop never runs at all,
-        // because nothing here could have connected to it.
-        drop(server);
     }
 }

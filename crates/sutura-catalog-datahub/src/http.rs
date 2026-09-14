@@ -57,19 +57,18 @@
 //!
 //! # TLS and the endpoint
 //!
-//! [`Endpoint::parse`] is the ONLY way to obtain an [`Endpoint`], and [`HttpAspectReader::new`] takes
-//! one rather than a `String` - a caller cannot dial an endpoint this module has not validated. What
-//! [`Endpoint::parse`] accepts, exactly: a [`Uri`] (`ureq`'s own re-export of the `http` crate's
-//! parser, `ureq::http::Uri` - the SAME type `ureq` itself parses a request URL into before
-//! dialling) naming `http` or `https` as its scheme, an authority with no `user[:pass]@` prefix, and
-//! nothing past the bare root - no path, no query, no fragment. `https://` is accepted for any host;
-//! `http://` is accepted ONLY when the host is an IP loopback LITERAL -
-//! [`sutura_domain::source::host_is_loopback`], the ONE predicate `sutura_config::sources::transport`
-//! also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
-//! `github.com/telekom/sutura#653`): a hostname is not an address, so `localhost` does not count
-//! either, and only something that parses as `IpAddr` and answers `is_loopback()` does. Both crates
-//! call the same function - not a copy each holds - so a divergence between the two is a compile
-//! error, not something a review has to notice.
+//! [`Endpoint::parse`] is the ONLY way to obtain an [`Endpoint`], and [`HttpAspectReader::new`] takes one rather than a
+//! `String` - a caller cannot dial an endpoint this module has not validated. What [`Endpoint::parse`] accepts, exactly:
+//! `scheme://host[:port]`, scheme `http` or `https` (case-folded), on a [`Uri`] (`ureq`'s own re-export of the `http` crate's
+//! parser, the SAME type `ureq` itself parses a request URL into before dialling), an OPTIONAL nonzero valid `:port`, an
+//! OPTIONAL trailing `/`, and NOTHING else: a path, query or fragment is [`InvalidEndpoint::PathBeyondRoot`] (fragment
+//! checked on the RAW text, because `http::Uri` silently discards a `#`), a bad port is [`InvalidEndpoint::NotAnHttpUrl`],
+//! and a `user[:pass]@` prefix is [`InvalidEndpoint::CredentialsInUrl`]. `https://` is accepted for any host; `http://` only
+//! for an IP loopback LITERAL - [`sutura_domain::source::host_is_loopback`], the ONE predicate
+//! `sutura_config::sources::transport` also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
+//! `github.com/telekom/sutura#653`): a hostname is not an address, so `localhost` does not count either, and only something
+//! that parses as `IpAddr` and answers `is_loopback()` does - the same function both crates call, so a divergence between
+//! them is a compile error, not a review's job to notice.
 //!
 //! **This section has been wrong twice, and both corrections are worth keeping visible rather than
 //! silently fixed - the second because the first one's OWN reasoning had a gap in it.**
@@ -327,10 +326,9 @@ pub enum InvalidEndpoint {
     /// this refuses the shape by name rather than relying on that resolution being correct forever.
     #[error("{given} carries credentials in the URL (a user[:pass]@ prefix), which is refused")]
     CredentialsInUrl { given: String },
-    /// A path, a query or a fragment beyond the bare root. **Not supported in this revision, and
-    /// that is a stated limit rather than an oversight:** a GMS behind a reverse proxy with a path
-    /// prefix is a real deployment shape this crate has not measured a use case for, so the
-    /// grammar stays exactly `scheme://host[:port]` until one is.
+    /// A path, a query or a fragment beyond the bare root - a reverse-proxy path prefix is a real
+    /// shape, not yet supported, a stated limit. The fragment is checked on RAW text in
+    /// [`Endpoint::parse`]: `http::Uri` silently discards a `#`.
     #[error("{given} carries a path, query or fragment beyond the root, which this reader does not support")]
     PathBeyondRoot { given: String },
     /// `http://` to a host that is not an IP loopback literal - see
@@ -342,27 +340,22 @@ pub enum InvalidEndpoint {
     PlaintextBeyondLoopback { host: String },
 }
 
-/// A validated `DataHub` endpoint: `scheme://host[:port]`, and NOTHING past the authority - no
-/// path, query or fragment (see [`InvalidEndpoint::PathBeyondRoot`]).
-///
-/// `https://` is accepted for any host; `http://` is accepted only for an IP loopback literal
-/// ([`sutura_domain::source::host_is_loopback`]); an authority carrying `user[:pass]@` is refused
-/// outright. [`Self::parse`] is the only constructor - see the module header's "TLS and the
-/// endpoint" section for the rule and why an earlier draft did not hold it.
+/// A validated `DataHub` endpoint, obtainable only through [`Self::parse`] - see the module
+/// header's "TLS and the endpoint" section for the accepted grammar and each refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint(String);
 
 impl Endpoint {
-    /// Parses and validates a declared endpoint against [`Uri`] - the SAME parser `ureq` itself
-    /// uses to dial, re-exported as `ureq::http::Uri` - rather than a hand-rolled split, which is
-    /// what let the round-2 review's userinfo form (`http://[::1]:1@localhost`) reach
-    /// `host_is_loopback` with the wrong string. Refuses a scheme other than `http`/`https`, an
-    /// authority carrying `user[:pass]@`, anything past the bare root, and `http://` to a
-    /// non-loopback host. The stored form is rebuilt from the parsed `scheme` and `authority`
-    /// rather than kept as the trimmed input, so a trailing slash (or any other root spelling)
-    /// normalises to the same string.
+    /// Parses and validates against [`Uri`] - the SAME parser `ureq` itself dials with, rather
+    /// than a hand-rolled split, which is what let the round-2 review's userinfo form
+    /// (`http://[::1]:1@localhost`) reach `host_is_loopback` with the wrong string. The stored
+    /// form is rebuilt from the parsed `scheme`/`authority`, so any root spelling normalises alike.
     pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint> {
         let not_an_http_url = || InvalidEndpoint::NotAnHttpUrl { given: raw.to_owned() };
+        // `http::Uri` silently discards a fragment at parse, so a `#` is refused HERE, on the raw text.
+        if raw.contains('#') {
+            return Err(InvalidEndpoint::PathBeyondRoot { given: raw.to_owned() });
+        }
         let uri: Uri = raw
             .trim()
             .parse()
@@ -374,6 +367,16 @@ impl Endpoint {
         let authority = uri.authority().ok_or_else(not_an_http_url)?;
         if authority.as_str().contains('@') {
             return Err(InvalidEndpoint::CredentialsInUrl { given: raw.to_owned() });
+        }
+        // A declared port must be a valid nonzero `u16`; bytes (not `&str`) so a bracketed IPv6
+        // host's own colons are never mistaken for the port's.
+        let after_host = authority
+            .as_str()
+            .as_bytes()
+            .get(authority.host().len()..)
+            .unwrap_or_default();
+        if after_host.starts_with(b":") && !matches!(authority.port_u16(), Some(port) if port > 0) {
+            return Err(not_an_http_url());
         }
         let root_only = uri
             .path_and_query()
@@ -936,6 +939,47 @@ mod tests {
             Endpoint::parse("http://127.0.0.1:1?@evil.example"),
             Err(InvalidEndpoint::PathBeyondRoot {
                 given: String::from("http://127.0.0.1:1?@evil.example")
+            })
+        );
+    }
+
+    /// A fragment is refused, not silently dropped by `http::Uri`'s own parse.
+    #[test]
+    fn a_fragment_is_refused_rather_than_silently_dropped() {
+        assert_eq!(
+            Endpoint::parse("http://127.0.0.1:1#x"),
+            Err(InvalidEndpoint::PathBeyondRoot {
+                given: String::from("http://127.0.0.1:1#x")
+            })
+        );
+        assert_eq!(
+            Endpoint::parse("https://datahub.example#"),
+            Err(InvalidEndpoint::PathBeyondRoot {
+                given: String::from("https://datahub.example#")
+            })
+        );
+    }
+
+    /// A missing, zero or out-of-range port is refused at construction, not at the first read.
+    #[test]
+    fn a_malformed_or_out_of_range_port_is_refused() {
+        for bad in ["http://127.0.0.1:", "http://127.0.0.1:0", "http://127.0.0.1:65536"] {
+            assert_eq!(
+                Endpoint::parse(bad),
+                Err(InvalidEndpoint::NotAnHttpUrl {
+                    given: String::from(bad)
+                })
+            );
+        }
+    }
+
+    /// A bare `/path` is refused - the same `PathBeyondRoot` branch as the query cell above.
+    #[test]
+    fn a_path_is_refused_rather_than_silently_dropped() {
+        assert_eq!(
+            Endpoint::parse("http://127.0.0.1:1/path"),
+            Err(InvalidEndpoint::PathBeyondRoot {
+                given: String::from("http://127.0.0.1:1/path")
             })
         );
     }
