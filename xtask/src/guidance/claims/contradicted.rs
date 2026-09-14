@@ -647,43 +647,23 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         }],
         instead: "`crates/sutura-conformance` and `execute_packs!` exist, three data systems bind \
                   them, and `xtask/src/conformance.rs` (`check-conformance-bindings`) holds the \
-                  registration in step. What is still unbuilt: a per-pack timing aggregate, the \
-                  `cargo-insta` unreferenced-snapshot check, and a fourth bound adapter",
+                  registration in step. What is still unbuilt: a per-pack timing aggregate and \
+                  the `cargo-insta` unreferenced-snapshot check (both planned further down, not \
+                  built), the three named corpus cases (remote-dimension filter with an orphan \
+                  key, zero-denominator ratio, `CountDistinct` over two join keys), the corpus \
+                  itself (code today, not the files this record specifies), and a fourth \
+                  adapter, `sutura-exec-bigquery`, that IS built and not yet bound",
         only: &[],
         // 0012 states the old status line and amends it directly below.
         except: &["docs/adr/0012-conformance-packs-for-inputs-and-adapters.md"],
     },
-    Contradicted {
-        // github.com/telekom/sutura#159, and the blocking dependency a 2026-09-06 comment on it
-        // named: `crates/sutura-http/src/wire/refusal.rs` used to carry the same stale count in
-        // its own comments (`:29`, `:500`, "four variants are `422`") and has since been corrected
-        // to five there - only `docs/serving.md` did not move with it. `COUNTS` cannot hold this
-        // claim: its `trailing_number` parses ASCII digits and this prose spells the number as a
-        // word, which is why this is registered rather than derived.
-        name: "four refusal reasons map to 422",
-        wordings: &["four of the codes above land"],
-        // REVIEW #667: the original anchor was the comment `// five variants are \`422\`` beside
-        // the match, not a production arm - a comment can stay behind after an arm is removed and
-        // the rule would stay live over a sentence that had become true again. Anchored on the
-        // fifth arm's own match pattern instead, which cannot outlive the arm it names.
-        //
-        // REVIEW #667 ROUND 2: that only holds for THIS arm going. The claim guarded is a COUNT
-        // over five arms, and this anchor tracks one of them - regress a DIFFERENT arm's status
-        // (or `ResourcesExhausted`'s own status while keeping its pattern) and the rule stays
-        // live, refusing a sentence that has gone back to true. Not fixable by a better anchor: a
-        // count needs `COUNTS`, and `Granularity::Occurrences` can't tell a production arm from
-        // the `#[cfg(test)]` ones sharing the same literal further down this file. If that
-        // regression is ever the real shape, the fix is to delete this row, not to re-anchor it.
-        evidence: &[Evidence {
-            path: "crates/sutura-http/src/wire/refusal.rs",
-            holds: "RefusalReason::ResourcesExhausted { ceiling_bytes } => (",
-        }],
-        instead: "five: `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, \
-                  `duplicate_dimension` and `resources_exhausted`. `docs/serving.md`'s own table, \
-                  above the sentence, lists all five",
-        only: &[],
-        except: &[],
-    },
+    // The "four refusal reasons map to 422" row that used to be here (#603, #667) is deleted
+    // rather than re-anchored, per its own last review note: it was corrected from four to five
+    // by hand, #661 then added a sixth arm an hour fifty-eight minutes later, and every prose
+    // site still said five (#676) - a third registration would be the same fix again. The number
+    // is now read off the arms in `xtask/src/guidance/claims/counts.rs`'s `COUNTS`, which cannot
+    // go stale the way a registered wording can, at the cost of needing digits rather than a
+    // spelled number in prose.
     Contradicted {
         // github.com/telekom/sutura#159, raised in review of #667. `sutura-serve` links the
         // adapter behind the default-off `bigquery` feature; a default build (feature off) still

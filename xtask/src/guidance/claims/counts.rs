@@ -67,11 +67,34 @@ pub(in crate::guidance) struct Counted {
     /// The literal that is counted. Whether a second one in the same file counts is
     /// [`Counted::granularity`]'s question, not this field's.
     pub(super) holds: &'static str,
+    /// Text at or after this marker is excluded from the count. Empty counts the whole file.
+    ///
+    /// The seam a file can share between production code and a test fixture that repeats the same
+    /// literal on purpose: `crates/sutura-http/src/wire/refusal.rs`'s own `#[cfg(test)]` module
+    /// asserts each `422` arm's status against the literal it just matched, so
+    /// `grep -c StatusCode::UNPROCESSABLE_ENTITY` reports fourteen where six production arms
+    /// reach it. **The limit next to that claim: this is a text cut, not a parse.** A second
+    /// `#[cfg(test)]` string earlier in the file - inside a doc comment explaining this very
+    /// mechanism, say - would truncate there instead, so this field wants the boundary to be
+    /// unique in the file it is set for.
+    pub(super) stop_before: &'static str,
     /// Files, or occurrences within them.
     pub(super) granularity: Granularity,
     /// Where the number may be stated. **At least one file here has to state it**, or the entry
-    /// counts the tree and compares it to nothing - see [`count_mismatches`].
+    /// counts the tree and compares it to nothing - see [`count_mismatches`]. Matched against the
+    /// GUIDANCE-scoped listing, same as every other prose check - see [`also_stated_in`](Counted::also_stated_in)
+    /// for the one exception this table needs.
     pub(super) mentioned_in: &'static [&'static str],
+    /// Exact paths - not the doc/config glob [`mentioned_in`](Counted::mentioned_in) reads - where this number may ALSO be
+    /// stated in Rust.
+    ///
+    /// `.rs` is out of the guidance scope everywhere else in this gate, for the reason
+    /// `guidance::in_scope` gives: a `CONTRADICTED` wording registered in Rust would contain the
+    /// very phrase it forbids. A `Counted` marker carries no forbidden sentence, so that risk is
+    /// absent here - but the scope is still widened by naming exact files rather than a blanket
+    /// `.rs` glob, so a new source file does not silently become a place this number may be
+    /// asserted without anyone deciding that. Empty means no Rust file states it.
+    pub(super) also_stated_in: &'static [&'static str],
     /// The noun phrase the number belongs to. The count is the integer IMMEDIATELY BEFORE it.
     ///
     /// Deliberately that narrow, for the reason the `versions` check reads only the token
@@ -115,6 +138,7 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         // the glob is too - and a new crate's snapshots are inside it the day they land.
         over: &["crates/*/tests/snapshots/**"],
         holds: "LIMIT 10001",
+        stop_before: "",
         // FILES, and here that is a decision rather than the default it used to be: what is
         // claimed is how many goldens carry the row cap, and a golden carrying it twice is still
         // one golden.
@@ -126,12 +150,14 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         // own founding cause one layer up: the correction landed on one table and not its sibling.
         // The stated-side check is what makes the next one of those a failure.
         mentioned_in: &[".agents/skills/**", "AGENTS.md", "docs/**", "README.md"],
+        also_stated_in: &[],
         marker: "SQL goldens read",
     },
     Counted {
         name: "`pub trait` declarations under `crates/*/src`",
         over: &["crates/*/src/**/*.rs"],
         holds: "pub trait ",
+        stop_before: "",
         // OCCURRENCES, and this is the entry that could not be held honestly before. Every
         // declaration sits in a file of its own today, so counting files would report the right
         // number BY COINCIDENCE and go green on the wrong one the day two of them share a file.
@@ -142,6 +168,7 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         // the page, which is worse than the mention it would exclude.
         granularity: Granularity::Occurrences,
         mentioned_in: &[".agents/skills/**", "AGENTS.md", "CONTRIBUTING.md", "docs/**", "README.md"],
+        also_stated_in: &[],
         marker: "`pub trait` declarations under",
     },
     Counted {
@@ -154,10 +181,37 @@ pub(in crate::guidance) const COUNTS: &[Counted] = &[
         // contribute to is a number nobody can predict. Measured when this landed: a comment over
         // there naming the constructor made it `8` against 7 rows, and the gate said so.
         holds: "Needle::new(",
+        stop_before: "",
         // OCCURRENCES: every row is one needle, and they share a file by construction.
         granularity: Granularity::Occurrences,
         mentioned_in: &[".agents/skills/**", "AGENTS.md", "docs/**"],
+        also_stated_in: &[],
         marker: "needles the wait gate keys on",
+    },
+    Counted {
+        name: "refusal reasons that land on `422`",
+        // github.com/telekom/sutura#603, #670, #676. Three prior fixes each hand-corrected the
+        // number in every prose site they could find and missed at least one: #667 moved four of
+        // the six sites from four to five and left `docs/serving.md`'s own `422 - where four of
+        // them land` untouched in `routes/v1/query.rs`; #661 then added a sixth arm
+        // (`DeadlineExceeded`) an hour fifty-eight minutes later and every site still said five.
+        // Registering the new number a fourth time would be the same fix again - so this entry
+        // reads the arms instead.
+        over: &["crates/sutura-http/src/wire/refusal.rs"],
+        holds: "StatusCode::UNPROCESSABLE_ENTITY",
+        // Six is `refused`'s own match; fourteen is `grep -c` on the whole file, because
+        // `every_reason()` in `#[cfg(test)]` below repeats the literal once per case it asserts -
+        // #676's own "counting these by grep is a trap".
+        stop_before: "#[cfg(test)]",
+        granularity: Granularity::Occurrences,
+        // The two Rust sites are `also_stated_in`, not here: `.rs` is outside `mentioned_in`'s
+        // scope everywhere in this gate.
+        mentioned_in: &["docs/serving.md"],
+        also_stated_in: &[
+            "crates/sutura-http/src/wire/refusal.rs",
+            "crates/sutura-http/src/routes/v1/query.rs",
+        ],
+        marker: "refusal reasons land on `422`",
     },
 ];
 
@@ -216,7 +270,15 @@ pub(super) fn tally(root: &Path, all: &[String], counted: &Counted, unreadable: 
         let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
             continue;
         };
-        total = total.saturating_add(counted.granularity.count_in(&text, counted.holds));
+        // Everything at or after `stop_before` is a test fixture repeating the same literal on
+        // purpose, not a second production instance - see the field's own doc for the measured
+        // case (six arms, fourteen occurrences).
+        let counted_text = if counted.stop_before.is_empty() {
+            text.as_str()
+        } else {
+            text.split(counted.stop_before).next().unwrap_or(&text)
+        };
+        total = total.saturating_add(counted.granularity.count_in(counted_text, counted.holds));
     }
     total
 }
@@ -231,15 +293,24 @@ pub(super) struct Stated {
     number: u64,
 }
 
-/// Every place this entry's number is actually written.
+/// Every place this entry's number is actually written, among `files` matching `patterns`.
 ///
 /// One implementation of *where is this number stated*, because the mismatch check and the
 /// vacuity check are two questions about one answer and a second walk of the tree would be a
-/// second thing to keep in step.
-pub(super) fn statements(root: &Path, files: &[String], counted: &Counted, unreadable: &mut Vec<String>) -> Vec<Stated> {
+/// second thing to keep in step. `patterns` is a parameter rather than always
+/// `counted.mentioned_in`, because [`mismatches_for`] asks this same question twice - once over
+/// the doc/config scope and once over [`Counted::also_stated_in`]'s named Rust files - and the two
+/// scopes are different lists filtered from different starting sets.
+pub(super) fn statements(
+    root: &Path,
+    files: &[String],
+    patterns: &[&'static str],
+    counted: &Counted,
+    unreadable: &mut Vec<String>,
+) -> Vec<Stated> {
     let mut found = Vec::new();
     for rel in files {
-        if !matches_any(counted.mentioned_in, rel) {
+        if !matches_any(patterns, rel) {
             continue;
         }
         let Some(text) = crate::repo::read_subject(root, rel, unreadable) else {
@@ -256,43 +327,56 @@ pub(super) fn statements(root: &Path, files: &[String], counted: &Counted, unrea
     found
 }
 
+/// One entry's mismatches: the tree's actual count against every place `counted` says it is
+/// stated - `mentioned_in`'s docs and config, plus `also_stated_in`'s named Rust files.
+///
+/// Split out of [`count_mismatches`] so a test can exercise one entry against a fixture tree
+/// without depending on [`COUNTS`] or the real repo - the shape `an_unreadable_subject_in_scope…`
+/// already uses for the checks beside this one.
+pub(super) fn mismatches_for(root: &Path, all: &[String], files: &[String], counted: &Counted, problems: &mut Vec<String>) {
+    let actual = tally(root, all, counted, problems);
+    if actual == 0 {
+        // Zero means the thing counted moved, not that the prose is right. A count check that
+        // silently agreed with nothing would pass vacuously, which is worse than failing.
+        problems.push(format!(
+            "nothing in the tree matches the {} count (`{}` under {:?}) - the count moved, so \
+             this entry in COUNTS is measuring nothing",
+            counted.name, counted.holds, counted.over
+        ));
+        return;
+    }
+    let mut stated = statements(root, files, counted.mentioned_in, counted, problems);
+    if !counted.also_stated_in.is_empty() {
+        stated.extend(statements(root, all, counted.also_stated_in, counted, problems));
+    }
+    for page in &stated {
+        if page.number != actual {
+            problems.push(format!(
+                "{}:{}: says {} {} - the tree has {actual}",
+                page.file, page.line, page.number, counted.name
+            ));
+        }
+    }
+    if stated.is_empty() {
+        // The OTHER way this check goes vacuously green, and the one that actually happened: the
+        // count is measured, nothing states it, and the gate agrees with silence. The row-cap
+        // sentence lived in `AGENTS.md` until the router rewrite carried the invariants table
+        // into `.agents/skills/`; `mentioned_in` did not follow, and a gate that had caught `39`
+        // at 63 was left holding nothing. Failing here is the only way that is visible, because a
+        // deleted sentence looks exactly like a correct one.
+        problems.push(format!(
+            "nothing under {:?} (or {:?}) states the {} count - the number is derived and \
+             compared to nothing, so this entry in COUNTS is a gate over silence. State it \
+             before the marker `{}`, or delete the entry",
+            counted.mentioned_in, counted.also_stated_in, counted.name, counted.marker
+        ));
+    }
+}
+
 pub(in crate::guidance) fn count_mismatches(root: &Path, all: &[String], files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for counted in COUNTS {
-        let actual = tally(root, all, counted, &mut problems);
-        if actual == 0 {
-            // Zero means the thing counted moved, not that the prose is right. A count check that
-            // silently agreed with nothing would pass vacuously, which is worse than failing.
-            problems.push(format!(
-                "nothing in the tree matches the {} count (`{}` under {:?}) - the count moved, \
-                 so this entry in COUNTS is measuring nothing",
-                counted.name, counted.holds, counted.over
-            ));
-            continue;
-        }
-        let stated = statements(root, files, counted, &mut problems);
-        for page in &stated {
-            if page.number != actual {
-                problems.push(format!(
-                    "{}:{}: says {} {} - the tree has {actual}",
-                    page.file, page.line, page.number, counted.name
-                ));
-            }
-        }
-        if stated.is_empty() {
-            // The OTHER way this check goes vacuously green, and the one that actually happened:
-            // the count is measured, nothing states it, and the gate agrees with silence. The
-            // row-cap sentence lived in `AGENTS.md` until the router rewrite carried the
-            // invariants table into `.agents/skills/`; `mentioned_in` did not follow, and a gate
-            // that had caught `39` at 63 was left holding nothing. Failing here is the only way
-            // that is visible, because a deleted sentence looks exactly like a correct one.
-            problems.push(format!(
-                "nothing under {:?} states the {} count - the number is derived and compared to \
-                 nothing, so this entry in COUNTS is a gate over silence. State it before the \
-                 marker `{}`, or delete the entry",
-                counted.mentioned_in, counted.name, counted.marker
-            ));
-        }
+        mismatches_for(root, all, files, counted, &mut problems);
     }
     problems
 }

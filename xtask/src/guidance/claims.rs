@@ -426,32 +426,92 @@ mod tests {
         }
     }
 
-    /// The sentence `#603` is about has to be WRITABLE: five refusals really do map to `422`.
-    ///
-    /// RED AGAINST BASE by construction, which is the point of writing it this way round. The row
-    /// deleted for that issue forbade `"five of the codes above land"` and prescribed four, while
-    /// `crates/sutura-http/src/wire/refusal.rs` sends five variants to `UNPROCESSABLE_ENTITY` - so
-    /// the gate refused a true sentence and recommended a false one. Reverting
-    /// `claims/contradicted.rs` alone turns this red.
-    ///
-    /// **The limit.** It restates the matcher's question for ONE line instead of calling
-    /// [`contradicted_claims`], which needs a file on disk. [`flatten`] over a single line is that
-    /// line, so for this sentence the two ask the same thing - but a wording that matches only
-    /// across a wrap would escape here while the gate still catches it. It also says nothing about
-    /// the COUNT: that five is right is prose in the other file, held by review.
+    /// `#603`, `#670`, `#676`: three hand-corrections of the same claim (four refusals, then
+    /// five, then six arms while every site still said five) each left at least one prose site
+    /// stale, because the number was registered as a `CONTRADICTED` wording rather than read off
+    /// the arms. That entry is gone now - superseded by the `Counted` row below - so nothing here
+    /// pins its old wording against the current true sentence; there is no longer a row that
+    /// could forbid it. The row's own tally against the real file is pinned in
+    /// `a_count_entry_measures_something` below, rather than a fresh listing here: `census.rs`'s
+    /// own `every_transitional_door_in_the_tree_is_declared` counts `into_listing(` call sites, so
+    /// a second one here would be exactly the kind of diff that test asks to be justified.
     #[test]
-    fn no_live_rule_forbids_the_true_count_of_422_refusals() {
-        let root = crate::repo::root().expect("the repo root");
-        let truth = "five of the codes above land on `422`";
-        let refusing: Vec<&str> = CONTRADICTED
-            .iter()
-            .filter(|rule| rule.is_live(&root))
-            .flat_map(|rule| rule.wordings.iter().copied())
-            .filter(|wording| truth.contains(wording))
-            .collect();
+    fn a_stop_before_boundary_excludes_a_repeated_literal_past_it() {
+        use super::counts::{Counted, Granularity, tally};
+        let tree = crate::scratch_tree::Tree::of(
+            "counts-stop-before",
+            &[(
+                "src/wire.rs",
+                b"fn f() {\n    let a = MARK;\n    let b = MARK;\n    let c = MARK;\n}\n\n\
+                  #[cfg(test)]\nmod tests {\n    fn t() { let d = MARK; }\n}\n",
+            )],
+        );
+        let files = vec![String::from("src/wire.rs")];
+        let counted = Counted {
+            name: "fixture",
+            over: &["src/wire.rs"],
+            holds: "MARK",
+            stop_before: "#[cfg(test)]",
+            granularity: Granularity::Occurrences,
+            mentioned_in: &[],
+            also_stated_in: &[],
+            marker: "",
+        };
+        let mut unreadable = Vec::new();
+        // Three before the boundary, a fourth after it that must not count.
+        assert_eq!(tally(tree.root(), &files, &counted, &mut unreadable), 3);
+    }
+
+    #[test]
+    fn a_number_may_be_stated_in_an_allow_listed_rust_file_and_a_mismatch_there_is_caught() {
+        use super::counts::{Counted, Granularity, mismatches_for};
+        // `holds` and `marker` are deliberately disjoint strings, the way the real entry's
+        // `StatusCode::UNPROCESSABLE_ENTITY` and `refusal reasons land on \`422\`` are - a marker
+        // sentence that repeated the counted literal would make the tally see its own statement.
+        let all: Vec<String> = vec![String::from("src/wire.rs"), String::from("docs/page.md")];
+        let counted = Counted {
+            name: "fixture",
+            over: &["src/wire.rs"],
+            holds: "TAG(",
+            stop_before: "",
+            granularity: Granularity::Occurrences,
+            mentioned_in: &["docs/page.md"],
+            also_stated_in: &["src/wire.rs"],
+            marker: "call sites are tagged",
+        };
+
+        // Agreement: the doc, the allow-listed Rust comment, and the tree all say 3.
+        let agreeing = crate::scratch_tree::Tree::of(
+            "counts-also-stated-in",
+            &[
+                (
+                    "src/wire.rs",
+                    b"let a = TAG();\nlet b = TAG();\nlet c = TAG();\n// 3 call sites are tagged\n",
+                ),
+                ("docs/page.md", b"3 call sites are tagged\n"),
+            ],
+        );
+        let mut agree = Vec::new();
+        mismatches_for(agreeing.root(), &all, &all, &counted, &mut agree);
+        assert!(agree.is_empty(), "{agree:?}");
+
+        // Wrong in the comment alone - `mentioned_in` (the doc) still agrees, so this is caught
+        // only because `also_stated_in` is read too.
+        let wrong = crate::scratch_tree::Tree::of(
+            "counts-also-stated-in-wrong",
+            &[
+                (
+                    "src/wire.rs",
+                    b"let a = TAG();\nlet b = TAG();\nlet c = TAG();\n// 4 call sites are tagged\n",
+                ),
+                ("docs/page.md", b"3 call sites are tagged\n"),
+            ],
+        );
+        let mut found = Vec::new();
+        mismatches_for(wrong.root(), &all, &all, &counted, &mut found);
         assert!(
-            refusing.is_empty(),
-            "a live rule forbids a sentence this repo can now write: {refusing:?}"
+            found.iter().any(|p| p.contains("src/wire.rs") && p.contains('4')),
+            "a wrong count in the allow-listed Rust file must be reported: {found:?}"
         );
     }
 
@@ -562,6 +622,16 @@ SQL goldens read the cap";
             unreadable.is_empty(),
             "a subject this tally walks could not be read: {unreadable:?}"
         );
+
+        // Pinned rather than merely non-zero: `grep -c StatusCode::UNPROCESSABLE_ENTITY` on the
+        // whole file answers fourteen - #676's own "counting these by grep is a trap" - because
+        // `every_reason()` inside `#[cfg(test)]` repeats the literal once per case it asserts.
+        // `stop_before` is what tells the two apart.
+        let entry = COUNTS
+            .iter()
+            .find(|counted| counted.name == "refusal reasons that land on `422`")
+            .expect("the entry stays registered");
+        assert_eq!(super::counts::tally(&root, &files, entry, &mut unreadable), 6);
     }
 
     #[test]
@@ -578,7 +648,7 @@ SQL goldens read the cap";
         let mut unreadable = Vec::new();
         for counted in COUNTS {
             assert!(
-                !super::counts::statements(&root, &files, counted, &mut unreadable).is_empty(),
+                !super::counts::statements(&root, &files, counted.mentioned_in, counted, &mut unreadable).is_empty(),
                 "no page under {:?} states the {} count before `{}`",
                 counted.mentioned_in,
                 counted.name,

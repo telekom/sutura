@@ -26,8 +26,8 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. And `422`, which five refusals below map to, is documented the other way round
-//! from the premise: "Clients that receive a `422` response should expect that repeating the request
+//! `RoundTripper`. 6 refusal reasons land on `422` below, documented the other way round from the
+//! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
 //! **And the `200` cost something the argument never priced.** A governance refusal that comes back
@@ -571,12 +571,17 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - five variants are `422` - so the code is what a client
-        // has to be able to branch on, and two variants sharing one would make that impossible.
-        // THE NUMBER HERE IS PROSE, held by review and by nothing else. It said four while the
-        // table below mapped five and every gate stayed green - `github.com/telekom/sutura#603`.
-        // A test pinning it to `every_reason` was written and then removed: it passed against base
-        // as well, and `just causality` refuses a test that cannot go red.
+        // The status is shared on purpose - 6 refusal reasons land on `422` - so the code is what
+        // a client has to be able to branch on, and two variants sharing one would make that
+        // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
+        // then five while this file gained a sixth arm, and every OTHER gate stayed green both
+        // times - `github.com/telekom/sutura#603`, `#670`, `#676`. `COUNTS`
+        // (`xtask/src/guidance/claims/counts.rs`) now derives this number from the arms above and
+        // refuses `check-guidance` if this comment, `docs/serving.md`'s or
+        // `routes/v1/query.rs`'s says anything else - the limit being that it holds only those
+        // three registered sites, not every mention anywhere. A test pinning it to
+        // `every_reason` was written and then removed: it passed against base as well, and `just
+        // causality` refuses a test that cannot go red.
         let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
         let count = codes.len();
         codes.sort_unstable();
