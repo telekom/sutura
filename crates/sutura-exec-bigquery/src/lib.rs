@@ -124,7 +124,7 @@ pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod sts;
 pub use sts::{StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
 
-use crate::transport::{DatasetId, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{DatasetId, JobDeadline, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -387,6 +387,7 @@ where
         &'job self,
         query: &'job GeneratedQuery,
         subject_bearer: Option<&'job sutura_domain::identity::Secret>,
+        deadline: JobDeadline,
     ) -> JobRequest<'job> {
         JobRequest::new(
             query.sql(),
@@ -394,6 +395,7 @@ where
             &self.billing_project,
             &self.default_dataset,
             subject_bearer,
+            deadline,
         )
     }
 
@@ -435,8 +437,16 @@ where
         // What makes the literals safe is that each one was parsed - see `crate::importer`.
         // And no subject bearer for the same reason: a `CREATE OR REPLACE TABLE` is a thing the
         // identity this transport already holds does to its own dataset, so handing it a subject's
-        // exchanged token would run a write under whoever last asked a question.
-        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None);
+        // exchanged token would run a write under whoever last asked a question. And no port
+        // `Deadline`: a fixture load has no caller and no request timeout - the boot path's own shape.
+        let request = JobRequest::new(
+            &statement,
+            &[],
+            &self.billing_project,
+            &self.default_dataset,
+            None,
+            JobDeadline::Boot,
+        );
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
@@ -459,8 +469,16 @@ where
     pub fn drop_table(&self, table: &TableName) -> Dropped<T::Error> {
         let statement = crate::importer::Fixture::drop_statement(table);
         // No parameters and no subject bearer, exactly as the load: a DROP is a thing the identity
-        // this transport already holds does to its own dataset, like the `CREATE` that built it.
-        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset, None);
+        // this transport already holds does to its own dataset, like the `CREATE` that built it. And
+        // no port `Deadline`, for the same reason `load_fixture` carries none.
+        let request = JobRequest::new(
+            &statement,
+            &[],
+            &self.billing_project,
+            &self.default_dataset,
+            None,
+            JobDeadline::Boot,
+        );
         self.transport
             .apply(&request)
             .map_err(|cause| FixtureNotLoaded::Endpoint { cause })
@@ -562,26 +580,29 @@ where
     /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
     /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
     ///
-    /// **The deadline is carried, not enforced here; see `docs/adr/0029`.** `CallDeadline` still
-    /// opens from this adapter's own configured job bounds rather than from the port's `Deadline` -
-    /// deriving `timeoutMs`/`jobTimeoutMs` from it is a later slice behind `telekom/sutura#160`.
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
+    /// **The deadline is now what `timeoutMs`/`jobTimeoutMs` derive from; `docs/adr/0029`.** This
+    /// call's `CallDeadline` opens from what the port's own `Deadline` says is left, read at the
+    /// instant this call reaches the wire - not from this adapter's own configured job bounds, which
+    /// stay only for the boot path and the socket's own backstop ceiling. See
+    /// `crate::wire::BigQueryWire::submit`.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         let estimated_bytes = self
             .transport
-            .validate(&self.request(&query, Self::subject_bearer(presented)))
+            .validate(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Ok(PreFlight::Accepted { estimated_bytes })
     }
 
-    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    /// Derives the job's own bounds from the port's `Deadline`; see [`Self::dry_run`]'s note and
+    /// `docs/adr/0029`.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(&query, Self::subject_bearer(presented)))
+            .run(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered)
     }
@@ -595,11 +616,15 @@ where
     /// **What an executed anchor proves here is narrower than on a file engine, and this is the first
     /// adapter where that bites:** a dataset has grants, so these numbers reproduced *for the identity
     /// this adapter holds*. Under row-level security that is not necessarily any caller's.
+    ///
+    /// **No port `Deadline`, and `docs/adr/0029` says why: this is the boot path.** There is no
+    /// caller and no request timeout to read one from, so the job is bounded by this adapter's own
+    /// configured job bounds instead - unchanged by this record.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })?;
         let answered = self
             .transport
-            .run(&self.request(&query, None))
+            .run(&self.request(&query, None, JobDeadline::Boot))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered).map(AnchorRows::of)
     }
@@ -631,6 +656,34 @@ where
     /// TRANSPORT through [`JobTransport::job_was_refused`]; the classification is [`Self::refused_via`].
     fn source_refused(&self, error: &Self::Error) -> bool {
         Self::refused_via(error, |cause| self.transport.job_was_refused(cause))
+    }
+
+    /// Was this failure the port's own `Deadline` running out, either found spent before the job was
+    /// sent or the service stopping it at `jobTimeoutMs`? Delegates to the TRANSPORT, for the same
+    /// reason [`Self::result_did_not_fit`] and [`Self::source_refused`] do: `Self::Error` is
+    /// `BigQueryError::Endpoint` wrapping the transport's own type, and only the transport can read
+    /// the wire-level shape. Every other variant is `false`, exhaustively: none of them is
+    /// [`crate::wire::WireError::DeadlineSpent`] or [`crate::wire::WireError::NotComplete`] wrapped in
+    /// [`Self::Error`] - see [`crate::wire::BigQueryWire::deadline_exceeded`] for what those are and
+    /// the acceptance cell that measures the second against a real endpoint.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        match *error {
+            BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
+            BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. }
+            | BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Incomplete { .. }
+            | BigQueryError::Shape { .. } => false,
+        }
     }
 
     // `working_set_exhausted` is deliberately NOT overridden. The port's default is `None`, and that
