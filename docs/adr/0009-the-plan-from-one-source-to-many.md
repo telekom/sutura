@@ -292,8 +292,11 @@ implementation is how a ceiling becomes whichever source was registered first. S
 **Against what, and measured by whom.** A ceiling above the container's memory limit is process death by
 default under `panic = "abort"`, so the configured value is checked against the limit available at boot
 and refuses to start when it exceeds it, or is derived from it. And the numbers themselves - **a
-provisional 1 GB working set and a provisional three-minute deadline**, the ceiling global and the
-deadline global with per-source overrides - are exactly that: provisional. `AGENTS.md`'s operating
+provisional 1 GB working set and a provisional 30-second deadline**, the ceiling global and, as this
+record first planned it, the deadline too - are exactly that: provisional. The later
+[0029](0029-where-a-deadline-lives.md) declined the per-source overrides this sentence predicted, so
+in the shipped tree the deadline is a single query-wide value like the ceiling, with no override on
+any source. `AGENTS.md`'s operating
 contract already says verify rather than assert, and two numbers nobody measured are exactly what that
 forbids - so they are marked as a starting point to be replaced by a measurement on the corpus, not
 presented as findings. Whoever implements `feat/query-bounds` measures them; the record's job is to stop
@@ -324,8 +327,11 @@ provisional until a representative production-scale corpus exercises those unobs
 
 **One of the two is already contradicted by a route the surface has to survive**, and saying so here is
 cheaper than discovering it when the first gateway-fronted deployment times out. A route whose front
-door cuts a request at tens of seconds cannot carry a governed turn allowed 180 seconds, so on that
-route one of the two numbers is decorative. The decision is that the DEADLINE yields: it is bounded by
+door cuts a request at tens of seconds cannot carry a governed turn allowed the three minutes this
+record planned, so on that route one of the two numbers is decorative. The shipped 30-second
+default narrows that collision rather than removing it - a front door cutting below 30 seconds
+still has one - so the rule stands whatever the number is. The decision is that the DEADLINE
+yields: it is bounded by
 the front door on any route that has one, rather than the front door being treated as an operational
 detail a default may ignore. And where a governed turn can exceed that bound, the surface on that route
 becomes submit-and-poll rather than the deadline becoming a number nothing enforces. The implementation
