@@ -3791,10 +3791,29 @@ agent reads: 64 values of 64 characters is 4 KiB, the same order as
 one note body is. Per-value caps alone let N conforming values do what one oversized value cannot,
 which is the same argument <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code> makes for notes.</p>
 <p>What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
-dimensions a metric declares or how many metrics a catalog holds, so the size of the whole
-rendered document is still a function of how much a catalog says. Those are the same shape of hole
-and want the same kind of fix; this is the one the review named, and the honest statement of what
-holds is better than a bound nobody measured.</p>
+dimensions a metric declares or how many metrics a catalog holds. <code>MAX_DEFINITIONS_BYTES</code> is
+the fix for that other half.</p>
+<h3 id="constant-max_definitions_bytes"><code>constant MAX_DEFINITIONS_BYTES</code><a class="headerlink" href="#constant-max_definitions_bytes" title="Permanent link">&para;</a></h3>
+<p>The most bytes a whole <code>Definitions</code> may carry of authored content beyond its own identifiers.</p>
+<p>Every column a model declares, every required filter and dimension value a metric declares, and
+every model's and metric's description count toward it.</p>
+<p><strong>The count <code>MAX_VALUES_PER_DIMENSION</code>'s own note names as missing</strong>: that bound is one
+dimension's, and nothing capped how many dimensions a metric declares, how many required filters
+a metric declares, how many columns a model declares, or how many models and metrics a catalog
+holds. Per-item caps alone let N conforming declarations do what one oversized declaration
+cannot, the same argument <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code> makes for a bundle of notes,
+applied to the catalog that bundle is checked against.</p>
+<p><strong>Measured before it was chosen.</strong> This repository's shipped <code>single-player</code> catalog - the larger
+of the two example catalogs - is the reference: its widest model (<code>subscriptions</code>) declares 8
+columns, no metric declares more than one required filter, and its columns, required filters and
+dimension values together sum under 1 KiB. Descriptions are the rest of it, at about 18 KiB across
+eleven metrics and four models - each individually inside <code>MAX_DESCRIPTION_BYTES</code>, and it is
+their COUNT that was uncapped.</p>
+<p><code>MAX_DEFINITIONS_BYTES</code> is 128 KiB: about 6.5 times that reference catalog's ~19 KiB, more
+headroom than <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code>'s five times its own reference, because a
+definitions bundle also carries the identifiers a knowledge bundle does not. Argued the way
+<code>crate::query::MAX_RANGE_DAYS</code> is: what it bounds is the size of the document, not whether what
+is in it is worth reading.</p>
 <h2 id="module-definitions">Module <code>definitions</code><a class="headerlink" href="#module-definitions" title="Permanent link">&para;</a></h2>
 <p>The identifiers of a pinned definition set, and the one operation that computes one.</p>
 <p>Definitions are authored upstream and arrive as an immutable, hashed snapshot. The digest
@@ -4985,17 +5004,20 @@ whose digest certifies the text as it stands - and it would do so silently, beca
 downstream of the render can tell a cut body from a short one. The module documentation records
 what was measured to choose the numbers.</p>
 <p>Newlines and tabs are content here, where <code>Phrase</code> refuses them: a body is a markdown block and
-its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
-the renderer, which is the one place that knows what it is rendering into - so the emptiness check
-is made on what the renderer will keep and a body that would draw nothing is refused rather than
-rendered as a heading over blank space.</p>
-<p><strong>What does NOT survive parsing is an invisible or direction-changing code point, and unlike a
-<code>Phrase</code> a body is not normalised</strong> - it is refused, naming the character. The two types differ
-because what they are is different: a phrase is a key, so two spellings that read as one word have
-to become one value, and a body is prose a person reviewed, so silently editing it would make the
-rendered document differ from the text the definition digest certifies. This is the same argument
-<code>crate::expression::InvalidFragment::InvisibleCharacter</code> makes for authored SQL, at the one
-remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
+its paragraph breaks are the author's. <strong>Every other control character is refused, not
+tolerated</strong> - the emptiness check alone is made on what the renderer will keep, because a body
+made entirely of characters <code>sutura_app::prompt::quote</code> drops would render as a heading over
+blank space; one mixed into otherwise ordinary prose passes that check and would render one byte
+shorter than the text under the digest, which is <code>crate::catalog::Description</code>'s own argument
+for <code>first_altered_control</code> and is not a fact about that
+type alone.</p>
+<p><strong>What also does not survive parsing is an invisible or direction-changing code point, and unlike
+a <code>Phrase</code> a body is not normalised</strong> - it is refused, naming the character. The two types
+differ because what they are is different: a phrase is a key, so two spellings that read as one
+word have to become one value, and a body is prose a person reviewed, so silently editing it would
+make the rendered document differ from the text the definition digest certifies. This is the same
+argument <code>crate::expression::InvalidFragment::InvisibleCharacter</code> makes for authored SQL, at the
+one remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
 <code>status = 'active'</code> in every terminal and every diff, saying something else, under a digest taken
 over text nobody read - CVE-2021-42574 with the fragment replaced by a paragraph.</p>
 <h4 id="methods_23">Methods<a class="headerlink" href="#methods_23" title="Permanent link">&para;</a></h4>
@@ -5016,8 +5038,15 @@ four-kilobyte body is not, so the error says how much there was and where the li
 <h4 id="variants_17">Variants<a class="headerlink" href="#variants_17" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Empty</code> - Nothing a reader would see. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space - so this covers whitespace, control characters the renderer drops, and the zero-width code points that draw nothing, as well as the empty string.</li>
-<li><code>InvisibleCharacter</code> - One of them, mixed into prose. <strong>Separate from <code>Self::Empty</code>, because a body made ENTIRELY of these characters was already refused and a body with one in the middle of a sentence was not</strong> - and the second is the dangerous one: the first renders as a blank heading somebody notices, the second renders as a paragraph that reads correctly and is not what it says.</li>
+<li><code>ControlCharacter</code> - A control character other than a newline or a tab, mixed into otherwise ordinary prose.</li>
 </ul>
+<p><strong>The half <code>Self::Empty</code> cannot see.</strong> A body made entirely of these is empty, and is
+  already refused above; one in the middle of a sentence passes that check and renders as a
+  body that is one character shorter than the text under the digest -
+  <code>crate::catalog::Description</code>'s own <code>InvalidDescription::ControlCharacter</code>'s argument,
+  applied to the second prose type held to the same renderer.</p>
+<p><code>InvalidDescription::ControlCharacter</code>: crate::catalog::InvalidDescription::ControlCharacter
+- <code>InvisibleCharacter</code> - One of them, mixed into prose. <strong>Separate from <code>Self::Empty</code>, because a body made ENTIRELY of these characters was already refused and a body with one in the middle of a sentence was not</strong> - and the second is the dangerous one: the first renders as a blank heading somebody notices, the second renders as a paragraph that reads correctly and is not what it says.</p>
 <p>It is a second refusal beside the emptiness check rather than a widening of it for the reason
   <code>crate::expression::InvalidFragment::InvisibleCharacter</code> gives: <code>char::is_control</code> is false
   for every one of these - general category <code>Cf</code>, not <code>Cc</code> - so nothing that tests for a control
