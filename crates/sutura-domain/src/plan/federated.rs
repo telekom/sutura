@@ -201,29 +201,33 @@ impl FederatedPlan {
             });
         }
         for key in &keys {
-            match key.side() {
-                LegSide::Fact => leg_has_key(&fact, key.label()).map_err(|label| FederatedPlanError::KeyNotOnLeg {
-                    side: LegSide::Fact,
-                    label: String::from(label),
-                })?,
-                LegSide::Lookup => leg_has_key(&lookup, key.label()).map_err(|label| FederatedPlanError::KeyNotOnLeg {
-                    side: LegSide::Lookup,
-                    label: String::from(label),
-                })?,
+            let (side, leg) = match key.side() {
+                LegSide::Fact => (LegSide::Fact, &fact),
+                LegSide::Lookup => (LegSide::Lookup, &lookup),
+            };
+            if !leg_has_key(leg, key.label()) {
+                return Err(FederatedPlanError::KeyNotOnLeg {
+                    side,
+                    label: String::from(key.label()),
+                });
             }
         }
         // The link column, which is not an answer key and used to be checked by nothing: the
         // combiner looked it up in each leg's result and reported a missing column when a leg had
         // not projected it. Asked here instead, so a plan that cannot be joined does not exist.
         let link = InternalLabel::Link.label();
-        leg_has_key(&fact, &link).map_err(|label| FederatedPlanError::KeyNotOnLeg {
-            side: LegSide::Fact,
-            label: String::from(label),
-        })?;
-        leg_has_key(&lookup, &link).map_err(|label| FederatedPlanError::KeyNotOnLeg {
-            side: LegSide::Lookup,
-            label: String::from(label),
-        })?;
+        if !leg_has_key(&fact, &link) {
+            return Err(FederatedPlanError::KeyNotOnLeg {
+                side: LegSide::Fact,
+                label: link,
+            });
+        }
+        if !leg_has_key(&lookup, &link) {
+            return Err(FederatedPlanError::KeyNotOnLeg {
+                side: LegSide::Lookup,
+                label: link,
+            });
+        }
         for leaf in federation.carried() {
             let aggregate = leaf.combine();
             if !reaggregates(aggregate) {
@@ -341,8 +345,8 @@ pub enum FederatedPlanError {
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.
-fn leg_has_key<'a>(leg: &LegPlan, label: &'a str) -> Result<(), &'a str> {
-    leg.keys().iter().any(|key| key.label() == label).then_some(()).ok_or(label)
+fn leg_has_key(leg: &LegPlan, label: &str) -> bool {
+    leg.keys().iter().any(|key| key.label() == label)
 }
 
 /// The column positions [`FederatedPlan::combine`] needs, resolved once.

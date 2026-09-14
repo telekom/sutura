@@ -178,6 +178,8 @@ enum Scan {
     AwaitingBody(String),
     /// Inside the named struct's body, at this brace depth.
     InBody { name: String, depth: usize },
+    /// Inside a tuple struct's parentheses, opened but not yet closed, at this paren depth.
+    InTupleBody { name: String, depth: usize },
 }
 
 /// A `pub` field on a `pub struct` - the newtype invariant made bypassable.
@@ -205,7 +207,20 @@ fn pub_field_violations(rel: &str, text: &str) -> Vec<String> {
                     }
                     continue;
                 }
-                if opens > closes {
+                // `tuple_fields` returned `None` for lack of a closing paren on this line, not
+                // for lack of an opening one - a genuine multi-line tuple struct has an
+                // unbalanced `(`. Keyed on that imbalance rather than on "the line contains
+                // `(`": `pub struct S<F: Fn(u8)>` with its `{` on a later line also contains a
+                // `(`, but its parens close on the same line, so it must still fall through to
+                // the brace-based states below.
+                let popens = trimmed.matches('(').count();
+                let pcloses = trimmed.matches(')').count();
+                if popens > pcloses {
+                    Scan::InTupleBody {
+                        name: String::from(name),
+                        depth: popens.saturating_sub(pcloses),
+                    }
+                } else if opens > closes {
                     Scan::InBody {
                         name: String::from(name),
                         depth: opens.saturating_sub(closes),
@@ -225,6 +240,22 @@ fn pub_field_violations(rel: &str, text: &str) -> Vec<String> {
                     }
                 } else {
                     Scan::AwaitingBody(name)
+                }
+            }
+            Scan::InTupleBody { name, depth } => {
+                // A field on its own line, opened but not yet closed - the doc-commented shape
+                // rustfmt emits for a tuple field it cannot collapse to one line.
+                let is_pub = trimmed.starts_with("pub ") || trimmed.starts_with("pub(") || trimmed == "pub";
+                if depth == 1 && is_pub {
+                    problems.push(format!("{rel}:{number}: `{name}` has a pub tuple field"));
+                }
+                let popens = trimmed.matches('(').count();
+                let pcloses = trimmed.matches(')').count();
+                let next = depth.saturating_add(popens).saturating_sub(pcloses);
+                if next == 0 {
+                    Scan::Outside
+                } else {
+                    Scan::InTupleBody { name, depth: next }
                 }
             }
             Scan::InBody { name, depth } => {
@@ -311,9 +342,41 @@ fn result_error_types(line: &str) -> Vec<&str> {
     found
 }
 
-/// Is this the standard library's `String` in an error position?
+/// Is this an owned or borrowed string in an error position - `String`, `&str` (with or without
+/// a lifetime), or `Cow<_, str>`?
+///
+/// Does not reach `Box<dyn Error>`: four sites in `sutura-exec-postgres` are `tokio_postgres`
+/// `FromSql`/`ToSql` signatures where that shape is the only legal one, and two more are inside
+/// `//!` doc comments this scan does not blank. A gate wide enough to catch those would refuse
+/// code it cannot fix, which is how a gate gets switched off rather than obeyed.
 fn is_stringly(error: &str) -> bool {
-    error == "String" || error.ends_with("::String")
+    error == "String" || error.ends_with("::String") || is_str_reference(error) || is_cow_of_str(error)
+}
+
+/// Is this `&str`, with or without a named lifetime?
+fn is_str_reference(error: &str) -> bool {
+    let Some(rest) = error.strip_prefix('&') else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let rest = rest.strip_prefix('\'').map_or(rest, |after_tick| {
+        after_tick
+            .trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            .trim_start()
+    });
+    rest == "str"
+}
+
+/// Is this `Cow<'_, str>` (any lifetime, any path prefix)?
+fn is_cow_of_str(error: &str) -> bool {
+    let compact: String = error.chars().filter(|c| !c.is_whitespace()).collect();
+    let Some(open) = compact.find('<') else {
+        return false;
+    };
+    let Some(head) = compact.get(..open) else {
+        return false;
+    };
+    (head == "Cow" || head.ends_with("::Cow")) && compact.ends_with(",str>")
 }
 
 /// A `Result` in a library crate whose error type is `String`.
@@ -640,6 +703,23 @@ mod tests {
     }
 
     #[test]
+    fn a_multi_line_tuple_struct_field_is_still_scanned() {
+        // The shape rustfmt emits for a doc-commented tuple field, which cannot collapse to one
+        // line - `tuple_fields` finds an opening `(` but no closing one on the same line.
+        let text = "/// A probe.\npub struct Probe(\n    /// Why it failed.\n    pub String,\n);\n";
+        assert_eq!(pub_field_violations("x.rs", text).len(), 1);
+    }
+
+    #[test]
+    fn a_multi_line_private_tuple_field_is_still_the_point_of_the_pattern() {
+        let text = "/// A probe.\npub struct Probe(\n    /// Why it failed.\n    String,\n);\n";
+        assert!(
+            pub_field_violations("x.rs", text).is_empty(),
+            "a private tuple field spread over lines is not a violation either"
+        );
+    }
+
+    #[test]
     fn an_empty_struct_body_on_one_line_does_not_confuse_the_scan() {
         let text = "pub struct Marker {}\npub struct Other {\n    pub leak: u8,\n}\n";
         let found = pub_field_violations("x.rs", text);
@@ -711,6 +791,34 @@ mod tests {
     fn a_qualified_string_is_still_stringly() {
         let found = stringly_error_violations("x.rs", "fn f() -> Result<(), std::string::String> {}\n");
         assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_str_reference_with_a_lifetime_is_stringly() {
+        let found = stringly_error_violations("x.rs", "fn f() -> Result<(), &'static str> {}\n");
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_bare_str_reference_is_stringly() {
+        let found = stringly_error_violations("x.rs", "fn f() -> Result<(), &str> {}\n");
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_cow_of_str_is_stringly() {
+        let found = stringly_error_violations("x.rs", "fn f() -> Result<(), Cow<'_, str>> {}\n");
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_boxed_dyn_error_is_not_widened_into() {
+        // The one legal shape for a `tokio_postgres` `FromSql`/`ToSql` impl, and the widening's
+        // documented limit: this gate does not, and must not, reach it.
+        assert!(
+            stringly_error_violations("x.rs", "fn f() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {}\n").is_empty(),
+            "a boxed trait-object error is not stringly"
+        );
     }
 
     #[test]
