@@ -919,3 +919,64 @@ stands unaltered, and only the METRIC half of that snapshot came off the wire - 
 relationship are still the corpus's. Nothing is authenticated either: the tier runs with
 metadata-service auth off. And the cell is `#[ignore]`d with no CI venue, because the nix sandbox has
 no docker socket - so it is evidence of whatever the last `just datahub-acceptance` run reported.
+
+## Revision, 2026-09-14: the reader, and exactly how far its own measurement reaches
+
+**Status: accepted.** *What this revision does NOT reach* above is now half true rather than whole:
+`sutura_catalog_datahub::http::HttpAspectReader` is a real `AspectReader` implementor, behind the
+crate's default-off `http` feature. What it does and does not change:
+
+- **Three paged `GET /openapi/v3/entity/{entityName}` calls become one `Snapshot`** - `dataset`
+  (`schemaMetadata`, `datasetProperties`), `semanticModel` (`semanticModelRelationship`) and `metric`
+  (`metricInfo`, `structuredProperties`), one page each, at a fixed generous count. A page that
+  signals more results than the one page this reader reads (a `scrollId`, or a returned count equal
+  to a reported `total`) is a typed refusal (`HttpReaderError::MorePages`) rather than a silent
+  truncation - the "one page or a refusal" shape `sutura-exec-bigquery`'s wire already holds for
+  `jobs.query`, for the same reason: a caller must not certify a bundle built from a `Snapshot` that
+  silently dropped a model, a relationship or a metric.
+- **Only the `metric` mapping is measured against a live instance, and this is the same limit the
+  previous revision already stated, now attached to running code instead of to a test file.**
+  `HttpAspectReader`'s metric mapping is the one `tests/provisioned.rs`'s `harvest` wrote out first
+  and compared byte-for-byte against the recorded fixture - moved into the library it was always
+  meant to belong to, unaltered in shape. **The `dataset` and `semanticModel` mappings are NOT
+  measured against a live instance.** Their field lists come from this record's own "Field by field"
+  table, read from the platform's `.pdl` schema sources rather than from a served response, and this
+  reader's own module header repeats the limit rather than letting it live only here. Because a wrong
+  guess there would be a FIRST claim rather than a regression against a proven round trip, the
+  decoder refuses an unexpected shape by name (`HttpReaderError::UnexpectedShape { entity, field }`)
+  instead of reading past a missing or mistyped key with a default. **Do not cite this reader as
+  proof the structural half works against a real `DataHub`** until an acceptance leg measures it the
+  way `tests/provisioned.rs` measured the metric half.
+- **`fromColumns`/`toColumns` arriving as arrays is now a refusal, not a silent narrowing.** The
+  "Field by field" table already named `DataHub`'s relationship endpoints as WIDER than this
+  adapter's single column per side; the reader reduces an array of exactly one to that one column and
+  refuses (by name) anything else, rather than picking the first and dropping the rest unremarked.
+- **Auth is a personal access token as a `Secret`, sent as a bearer on every request**, read by a
+  composition root from a settings-declared `token_file` and never inline - the naming convention
+  `credential_file`/`password_file` already hold for other sources. Not built here: the settings key
+  and the composition wiring are a separate, stacked change (see below).
+- **One shared deadline across the (up to) three requests, and a response-size cap read before
+  decode - both settings with defaults, not constants.** `ReadBounds::parse` is where this crate owns
+  the range; the default request-timeout and cap values a settings tree fills an absent key with are
+  that tree's own, by the same single-owner split `BytesBilledCeiling::parse` holds for BigQuery's
+  ceiling. A budget opened once and shared, rather than reopened per request, so a slow first page
+  cannot leave the second and third each a fresh full timeout of their own -
+  `sutura_exec_bigquery::wire::bounds::CallDeadline`'s own argument, applied here.
+- **TLS is `ureq`'s compiled-in default root set when the endpoint IS `https`, and `https_only` is
+  deliberately NOT pinned, unlike BigQuery's wire.** `BigQuery`'s `HOST` is a compile-time `https://`
+  constant, so refusing plaintext is a second lock on an already-fixed destination; this reader's
+  endpoint is the DEPLOYMENT's own declared URL, and this record's own measurement tier reaches its
+  `DataHub` over loopback plaintext "by construction" - an internal metadata platform on plain HTTP
+  inside a private network is a real shape, not a mistake. A deployment that writes `https://` gets
+  the root set below; one that writes `http://` gets what it asked for. `max_redirects(0)` and the
+  proxy left on are held, matching BigQuery. Issue #125 PR2's `security.outbound.transport_anchors` is
+  named as the follow-up for a deployment's own CA, for the endpoints that do use TLS; it is not built
+  here.
+- **Tested against a real local HTTP server, not mocked HTTP** - `tests/http_reader.rs`, over the
+  recorded fixture's own corpus so the fake and the fixture cannot drift.
+- **Still not served.** No composition root links this crate, and `sutura-serve` refuses
+  `catalog.kind: datahub` by name - unchanged by this revision. That half is `catalog.kind: datahub`
+  settings and composition, a stacked change immediately after this one, and its own PR body states
+  the same limit: a reader nobody can configure is not yet a "yes" to issue #202's practical use.
+  `.agents/skills/sutura/query-surface/SKILL.md`'s *Built and not wired* register carries the current
+  split between the two.

@@ -71,7 +71,12 @@ build compiles the whole workspace's dependency *closure* for its target. It als
 DEV-dependencies, and `sutura-catalog-datahub` has a non-optional `ureq` one - so the outbound TLS
 closure is in all four `sutura-deps-<triple>` derivations at cargo's default set already, and
 `cargo tree` on 2026-09-04 shows that dev-dependency as the only edge into `ureq` for a musl target.
-Making a networked adapter non-optional would add nothing there.
+Making a networked adapter non-optional would add nothing there. **Since #202's HTTP reader,
+`sutura-catalog-datahub` also has a SECOND `ureq` entry**, behind its own default-off `http` feature -
+the real `AspectReader`'s. It is the `sutura-exec-bigquery`/`wire` shape exactly (optional,
+feature-gated, off at the default set), so it does not change this paragraph's conclusion: the
+dev-dependency was already pulling the same closure in unconditionally, and a feature nobody
+requested still adds nothing to the default `sutura-deps-<triple>` derivations.
 
 **The reason is the ARTEFACT.** No published binary links an outbound TLS stack, and
 `checks.shipped-features` asserts it out of each binary's own embedded dependency list rather than
