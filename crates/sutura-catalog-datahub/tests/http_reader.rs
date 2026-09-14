@@ -16,7 +16,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError, ReadBounds};
+    use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError, InvalidEndpoint, ReadBounds};
     use sutura_catalog_datahub::{AspectReader as _, DataHubCatalog, DataHubError};
     use sutura_domain::identity::Secret;
     use sutura_domain::model::SourceName;
@@ -573,5 +573,22 @@ mod tests {
             "expected MorePages{{entity: \"dataset\"}}, got: {}",
             http_cause(&error)
         );
+    }
+
+    /// **The round-2 review's own dial probe, re-run as a cell.** A real loopback listener - one
+    /// that WOULD receive a request if this reader dialled it, not an imaginary target - stands in
+    /// for the review's `http://[::1]:1@localhost:<port>` shape. `Endpoint::parse` refuses it before
+    /// any `HttpAspectReader` can be built, so there is no later call that could reach the listener:
+    /// the listener is dropped having accepted nothing, which is the point rather than something
+    /// this test has to poll for - no `HttpAspectReader` exists to make the call.
+    #[test]
+    fn a_userinfo_endpoint_pointing_past_a_real_loopback_listener_is_refused_before_any_dial() {
+        let server = FakeServer::start(vec![Scripted::ok(&dataset_page())]);
+        let malicious = format!("http://[::1]:1@{}", server.addr);
+        let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
+        assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
+        // Dropped without ever being asked to `finish()` - the accept loop never runs at all,
+        // because nothing here could have connected to it.
+        drop(server);
     }
 }

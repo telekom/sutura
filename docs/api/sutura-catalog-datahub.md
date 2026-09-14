@@ -760,29 +760,38 @@ crate has watched a real GMS answer.
 # TLS and the endpoint
 
 `Endpoint::parse` is the ONLY way to obtain an `Endpoint`, and `HttpAspectReader::new` takes
-one rather than a `String` - a caller cannot dial an endpoint this module has not validated, which
-is what makes the rule below a type rather than a sentence a reviewer has to trust.
+one rather than a `String` - a caller cannot dial an endpoint this module has not validated. What
+`Endpoint::parse` accepts, exactly: a `Uri` (`ureq`'s own re-export of the `http` crate's
+parser, `ureq::http::Uri` - the SAME type `ureq` itself parses a request URL into before
+dialling) naming `http` or `https` as its scheme, an authority with no `user[:pass]@` prefix, and
+nothing past the bare root - no path, no query, no fragment. `https://` is accepted for any host;
+`http://` is accepted ONLY when the host is an IP loopback LITERAL -
+`sutura_domain::source::host_is_loopback`, the ONE predicate `sutura_config::sources::transport`
+also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
+`github.com/telekom/sutura#653`): a hostname is not an address, so `localhost` does not count
+either, and only something that parses as `IpAddr` and answers `is_loopback()` does. Both crates
+call the same function - not a copy each holds - so a divergence between the two is a compile
+error, not something a review has to notice.
 
-**`https://` is accepted for any host. `http://` is accepted ONLY when the host is an IP loopback
-LITERAL** - the exact rule `sutura_config::sources::transport::host_is_loopback` holds for
-Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule, `github.com/telekom/sutura#653`):
-a hostname is not an address, so `localhost` does not count either, and only something that parses
-as `IpAddr` and answers `is_loopback()` does. **This reader does not depend on `sutura-config` to
-get that rule** - crate-map's dependency direction runs the other way, so `host_is_loopback` is a
-mechanical copy of the same one-line check, not a shared function; the doc-tested source of truth
-for the RULE is the settings crate's, and this crate's own cells hold that the copy still agrees
-with it.
+**This section has been wrong twice, and both corrections are worth keeping visible rather than
+silently fixed - the second because the first one's OWN reasoning had a gap in it.**
 
-**The earlier shape of this section was wrong, and the correction is worth keeping visible rather
-than silently fixed.** A first draft removed `https_only(true)` (`BigQuery`'s own pin) entirely,
-arguing that this reader's endpoint is the deployment's own declared URL and this record's own
-measurement tier reaches its `DataHub` over loopback plaintext "by construction" - both true, and
-both an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might type.
-With no parse at all, `endpoint` was a raw `String` interpolated into a URL, and a bearer would
-have been dialled in clear text to `http://datahub.example.internal` exactly as readily as to
-`http://127.0.0.1`. A review reproduced it: a non-loopback `http://` endpoint was dialled, the
-bearer prepared, and the only refusal was a connection timeout - no control at all. `Endpoint`
-is the fix: the loopback argument now bounds exactly the case it was made for.
+The first draft removed `https_only(true)` (`BigQuery`'s own pin) entirely, arguing from this
+record's own measurement tier reaching its `DataHub` over loopback plaintext "by construction" -
+true, but an argument for LOOPBACK plaintext, not for plaintext to any host a deployment might
+type. With no parse at all, a bearer was dialled in clear text to
+`http://datahub.example.internal` exactly as readily as to `http://127.0.0.1`, refused only by a
+connection timeout. The first fix was `Endpoint`, parsed by splitting the string by hand.
+
+**The hand-split parse was itself the second gap, and a second review measured it.** For
+`http://[::1]:1@localhost:<port>`, the hand-rolled host extraction took the text before the
+LAST `:` in the authority - `::1` for the bracketed case - so the endpoint parsed as loopback
+while the REAL host, `localhost` (everything after the userinfo's `@`), is exactly the name
+`Endpoint::parse` is supposed to refuse in plaintext. A reader built from that string dialled
+`localhost` with the bearer prepared. Parsing with `Uri` - the SAME parser `ureq` itself uses -
+closes this the way it should have been closed the first time: `Authority::host` already
+resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any `user[:pass]@`
+prefix outright rather than trusting that resolution to stay correct.
 
 `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
 proxy left on (`Proxy::try_from_env()`) are the other three pins
@@ -904,8 +913,10 @@ Why a declared endpoint is not usable.
 
 #### Variants
 
-- `NotAnHttpUrl` - Not an `http://` or `https://` URL.
-- `PlaintextBeyondLoopback` - `http://` to a host that is not an IP loopback literal - see `host_is_loopback`.
+- `NotAnHttpUrl` - Not a parseable URL, or a parseable URL naming neither `http` nor `https`, or one naming no authority at all.
+- `CredentialsInUrl` - The authority carries `user[:pass]@` - refused outright. **This is not merely defence in depth against a spoofed host**: the round-2 review measured a reader built from `http://[::1]:1@localhost:<port>` dialling `localhost` in clear text with the bearer prepared, because a hand-rolled host extraction split on the wrong delimiter. Parsing with `Uri` closes that specific bypass on its own - `Authority::host` resolves to the text AFTER the last `@`, which is `localhost` here, so the loopback check below already sees the real target - but a declared endpoint has no legitimate use for embedded credentials, so this refuses the shape by name rather than relying on that resolution being correct forever.
+- `PathBeyondRoot` - A path, a query or a fragment beyond the bare root. **Not supported in this revision, and that is a stated limit rather than an oversight:** a GMS behind a reverse proxy with a path prefix is a real deployment shape this crate has not measured a use case for, so the grammar stays exactly `scheme://host[:port]` until one is.
+- `PlaintextBeyondLoopback` - `http://` to a host that is not an IP loopback literal - see `sutura_domain::source::host_is_loopback`.
 
 #### Implements
 
@@ -917,11 +928,13 @@ Why a declared endpoint is not usable.
 pub struct Endpoint
 ```
 
-A validated `DataHub` endpoint.
+A validated `DataHub` endpoint: `scheme://host[:port]`, and NOTHING past the authority - no
+path, query or fragment (see `InvalidEndpoint::PathBeyondRoot`).
 
-`https://<host>[:port]` for any host, or `http://` only for an IP loopback literal.
-`Self::parse` is the only constructor - see the module header's "TLS and the endpoint" section
-for the rule and why an earlier draft did not hold it.
+`https://` is accepted for any host; `http://` is accepted only for an IP loopback literal
+(`sutura_domain::source::host_is_loopback`); an authority carrying `user[:pass]@` is refused
+outright. `Self::parse` is the only constructor - see the module header's "TLS and the
+endpoint" section for the rule and why an earlier draft did not hold it.
 
 #### Methods
 
@@ -933,9 +946,14 @@ pub fn as_str(&self) -> &str
 pub fn parse(raw: &str) -> Result<Self, InvalidEndpoint>
 ```
 
-Parses and validates a declared endpoint, refusing a plaintext scheme to anything but a
-loopback literal. A trailing slash is normalised away, so `https://datahub.example/` and
-`https://datahub.example` produce the same request paths.
+Parses and validates a declared endpoint against `Uri` - the SAME parser `ureq` itself
+uses to dial, re-exported as `ureq::http::Uri` - rather than a hand-rolled split, which is
+what let the round-2 review's userinfo form (`http://[::1]:1@localhost`) reach
+`host_is_loopback` with the wrong string. Refuses a scheme other than `http`/`https`, an
+authority carrying `user[:pass]@`, anything past the bare root, and `http://` to a
+non-loopback host. The stored form is rebuilt from the parsed `scheme` and `authority`
+rather than kept as the trimmed input, so a trailing slash (or any other root spelling)
+normalises to the same string.
 
 #### Implements
 

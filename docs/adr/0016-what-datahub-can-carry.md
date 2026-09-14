@@ -966,23 +966,32 @@ crate's default-off `http` feature. What it does and does not change:
   ceiling. A budget opened once and shared, rather than reopened per request, so a slow first page
   cannot leave the second and third each a fresh full timeout of their own -
   `sutura_exec_bigquery::wire::bounds::CallDeadline`'s own argument, applied here.
-- **The endpoint is a validated newtype, `http::Endpoint`, and the rule it holds is loopback-plaintext-
-  only, not absence of a rule.** `Endpoint::parse` is the only way to obtain one, and
-  `HttpAspectReader::new` takes an `Endpoint` rather than a `String` - a caller cannot dial an
-  endpoint this crate has not validated. `https://` is accepted for any host; `http://` is accepted
-  ONLY when the host is an IP loopback literal, the exact rule
-  `sutura_config::sources::transport::host_is_loopback` holds for Postgres's `transport_mode:
-  plaintext` (issue 124's fail-closed rule, `github.com/telekom/sutura#653`) - a hostname is not an
-  address, so `localhost` does not count either. **This corrects a defect a review found in this
-  same PR, worth recording rather than silently fixing:** the first draft removed BigQuery's
-  `https_only(true)` pin entirely, arguing from this repository's own loopback-plaintext measurement
-  tier - true, but an argument for LOOPBACK plaintext, not for plaintext to any host a deployment
-  might type. With no parse at all, a bearer was dialled in clear text to
-  `http://datahub.example.internal` exactly as readily as to `http://127.0.0.1`, refused only by a
-  connection timeout - no control at all. `ureq`'s compiled-in default root set still applies for an
-  `https://` endpoint; `max_redirects(0)` and the proxy left on are held, matching BigQuery. Issue
-  #125 PR2's `security.outbound.transport_anchors` is named as the follow-up for a deployment's own
-  CA, for the endpoints that do use TLS; it is not built here.
+- **The endpoint is a validated newtype, `http::Endpoint`, parsed with `ureq::http::Uri` - the SAME
+  parser `ureq` itself dials with - and the rule it holds is loopback-plaintext-only, checked on the
+  parsed authority rather than a hand-split string.** `Endpoint::parse` is the only way to obtain
+  one, and `HttpAspectReader::new` takes an `Endpoint` rather than a `String`. `https://` is
+  accepted for any host; `http://` is accepted ONLY when the host is an IP loopback literal, via
+  `sutura_domain::source::host_is_loopback` - the ONE predicate `sutura_config::sources::transport`
+  also calls for Postgres's `transport_mode: plaintext` (issue 124's fail-closed rule,
+  `github.com/telekom/sutura#653`), not a copy each crate holds. Any authority carrying
+  `user[:pass]@` is refused outright, and so is anything past the bare root (no path, query or
+  fragment - a reverse-proxy path prefix is not supported in this revision, a stated limit rather
+  than an oversight).
+  **This corrects a defect a review found in this same PR, and then a second review found the fix's
+  OWN reasoning had a gap - both worth recording rather than silently fixed.** The first draft
+  removed BigQuery's `https_only(true)` pin entirely, arguing from this repository's own
+  loopback-plaintext measurement tier - true, but an argument for LOOPBACK plaintext, not for
+  plaintext to any host a deployment might type; a bearer was dialled in clear text to
+  `http://datahub.example.internal` as readily as to `http://127.0.0.1`. The first fix parsed the
+  URL by hand, and a second review measured that a userinfo prefix
+  (`http://[::1]:1@localhost:<port>`) made the hand-split extraction read the loopback literal
+  BEFORE the `@` while the real host - `localhost`, everything after it - reached the socket: a
+  bearer was dialled to `localhost` in clear text. `Uri`'s own `Authority::host` already resolves
+  past userinfo correctly; `Endpoint::parse` additionally refuses the `user[:pass]@` shape by name
+  rather than relying on that resolution staying correct. `ureq`'s compiled-in default root set
+  still applies for an `https://` endpoint; `max_redirects(0)` and the proxy left on are held,
+  matching BigQuery. Issue #125 PR2's `security.outbound.transport_anchors` is named as the
+  follow-up for a deployment's own CA, for the endpoints that do use TLS; it is not built here.
 - **Tested against a real local HTTP server, not mocked HTTP** - `tests/http_reader.rs`, over the
   recorded fixture's own corpus so the fake and the fixture cannot drift.
 - **Still not served.** No composition root links this crate, and `sutura-serve` refuses

@@ -46,7 +46,6 @@
 //! `transport.*` spelling that the tree would refuse as an unknown field. The word `transport` here
 //! is the CONCEPT (what the channel is made of), and the flat spelling is what an operator edits.
 
-use std::net::IpAddr;
 use std::path::PathBuf;
 
 use super::SourceName;
@@ -380,16 +379,13 @@ fn absolute(alias: &SourceName, key: &'static str, written: &str) -> Result<Path
 
 /// Whether a declared source host can only be reached from this machine.
 ///
-/// **A name is not an address**, which is the rule `crate::server::BindAddress` already applies to
-/// the serving bind read the other way round: `localhost` resolves to whatever the resolver says
-/// today, so it cannot carry a claim about what a network can reach. Only an `IpAddr` literal
-/// answers `true`, and only a loopback one - so a `plaintext` declaration is refused for a hostname
-/// however it happens to resolve. That is the fail-closed direction issue 124 asks for: an operator
-/// who means a loopback TCP dial writes `127.0.0.1` or `::1`.
-#[must_use]
-pub fn host_is_loopback(host: &str) -> bool {
-    host.trim().parse::<IpAddr>().is_ok_and(|address| address.is_loopback())
-}
+/// **The shared predicate, `sutura_domain::source::host_is_loopback` - re-exported here rather than
+/// copied**, so `sutura_catalog_datahub::http::Endpoint` and this module read the same rule and a
+/// divergence between the two is a compile-time impossibility rather than something a reviewer has
+/// to notice. `crate::server::BindAddress` applies the same "a name is not an address" reasoning to
+/// the serving bind read the other way round; that is the fail-closed direction issue 124 asks for
+/// on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `::1`.
+pub use sutura_domain::source::host_is_loopback;
 
 #[cfg(test)]
 mod tests {
