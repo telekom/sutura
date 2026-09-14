@@ -53,8 +53,8 @@ const QUERY: Subject = Subject {
     name: "RefusalReason",
     declared_in: DECLARED_IN,
     allow_file: ALLOW_FILE,
-    // 21: `docs/adr/0030-where-a-budget-lives.md` added `BudgetExhausted`.
-    variants: variants(21),
+    // 22: PR-1 (conf266 D19+A4) added `FederatedAnswerNotWellFormed`.
+    variants: variants(22),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

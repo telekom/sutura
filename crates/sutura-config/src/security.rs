@@ -27,6 +27,7 @@ use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
 use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 
+use crate::identity_cache::CredentialCacheSettings;
 use crate::inbound::InboundIdentity;
 
 /// A pre-shared secret a caller presents to reach the service.
@@ -522,6 +523,10 @@ pub struct SecuritySettings {
     inbound: Option<InboundIdentity>,
     identity: Option<DeploymentIdentity>,
     metrics_token: Option<AccessToken>,
+    /// `security.credential_cache` - `docs/adr/0031`. Never an `Option`: the group is infallible
+    /// once parsed and off is a value of it, the same shape `ToolsSettings` uses for a capability
+    /// nobody turned on.
+    credential_cache: CredentialCacheSettings,
 }
 
 impl SecuritySettings {
@@ -542,6 +547,7 @@ impl SecuritySettings {
         inbound: Option<InboundIdentity>,
         identity: Option<DeploymentIdentity>,
         metrics_token: Option<AccessToken>,
+        credential_cache: CredentialCacheSettings,
     ) -> Self {
         Self {
             access_token,
@@ -549,7 +555,15 @@ impl SecuritySettings {
             inbound,
             identity,
             metrics_token,
+            credential_cache,
         }
+    }
+
+    /// The exchanged-credential cache's own settings - `docs/adr/0031`.
+    #[inline]
+    #[must_use]
+    pub const fn credential_cache(&self) -> CredentialCacheSettings {
+        self.credential_cache
     }
 
     /// The token that gates `/metrics`, when one is configured.
@@ -635,6 +649,7 @@ impl SecuritySettings {
 
 #[cfg(test)]
 mod tests {
+    use crate::identity_cache::CredentialCacheSettings;
     use crate::inbound::{IssuerUrl, KeySetFile, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
 
     use super::{
@@ -717,6 +732,7 @@ mod tests {
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
+            CredentialCacheSettings::default(),
         );
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
@@ -786,6 +802,7 @@ mod tests {
             None,
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
+            CredentialCacheSettings::default(),
         );
         let without = SecuritySettings::default();
         assert!(!with_token.describes_identity(), "a shared token is not an identity");
@@ -797,7 +814,14 @@ mod tests {
         // And the other half, which is what makes the assertions above load-bearing rather than a
         // tautology about a constant: a deployment that validates a caller's token DOES establish an
         // identity, and the same function says so.
-        let verifying = SecuritySettings::new(None, TlsTermination::Ingress, Some(direct()), None, None);
+        let verifying = SecuritySettings::new(
+            None,
+            TlsTermination::Ingress,
+            Some(direct()),
+            None,
+            None,
+            CredentialCacheSettings::default(),
+        );
         assert!(verifying.describes_identity());
         assert_eq!(verifying.inbound_mode(), "direct");
         assert_eq!(verifying.token_state(), "absent");

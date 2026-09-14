@@ -446,8 +446,12 @@ where
             // one thing - this deployment is wrong about its own identity wiring, and a caller can
             // do nothing about either. The typed cause is what tells them apart in the log.
             ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-            // The combiner could not assemble the answer. To a transport this is a data-system
-            // concern - the question and the caller were fine - so it answers like one.
+            // D19 + A4: only the combiner's OWN wiring defects reach here now -
+            // `FederatedAnswerRefusal::of` classifies a deterministic combine failure (a non-finite
+            // ratio, an ambiguous link) as a `RefusalReason` before `answer_federated` ever returns
+            // this `Err`, because retrying either does not help. What is left really is a
+            // data-system concern in the sense that matters to a transport: the question and the
+            // caller were fine.
             ServiceError::Federated { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
         })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record

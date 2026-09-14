@@ -206,6 +206,31 @@ site is a type error - the same reason a `SourceName` and a `SourceName` neighbo
 as two bare `String`s elsewhere in this workspace. `Copy`, like every other bound in this crate:
 it is read once at boot and carried by value from there.
 
+## `use CacheWindow`
+
+How long an operator lets the cache serve an entry, on top of whatever the credential's own
+life and the broker's floor already bound it to.
+
+**A ceiling only, never a grant.** `sutura_exec_bigquery`'s cache folds this window together
+with the credential's own expiry (minus the broker's floor) through `min`, so a large window
+here cannot make a served credential outlive what was actually minted - it can only make the
+cache stop serving an entry SOONER than the credential's own life would allow. That asymmetry is
+the whole reason this is a distinct type rather than a bare `u64`: the field name alone invites
+reading it as "how long the cache keeps something alive", and the truth is narrower - it is one
+of three numbers a `min` is taken over, and the other two are never influenced by it.
+
+## `use CredentialCacheSettings`
+
+The exchanged-credential cache's own settings.
+
+**`Copy`, like `crate::tools::ToolsSettings`**: every field is a small owned value, and this
+is held in `crate::Settings` the same way. There is deliberately no credential-shaped field
+here - this type is a bound and a switch, never a place a secret could arrive.
+
+## `use InvalidCredentialCacheSettings`
+
+`security.credential_cache.{capacity,window_seconds}` is not usable.
+
 ## `use InboundIdentity`
 
 How the identity of a caller reaches this deployment. Printed at startup, per deployment.
@@ -1648,6 +1673,122 @@ The window half of `SpendBudget`: how long a subject's spend accumulates before 
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+## Module `identity_cache`
+
+The exchanged-credential cache's own settings - `docs/adr/0031`, `security.credential_cache`.
+
+**Off by default**, and the reason is stated rather than assumed: nobody has run a token
+exchange against a real authorization server yet (`github.com/telekom/sutura#376`), so the
+round-trip cost this cache would save is unmeasured. Shipping it off lets an operator turn it on
+once they have a measurement of their own `IdP`'s behaviour, rather than sutura asserting the
+trade on their behalf. Modelled on `crate::tools::ToolsSettings`: infallible once parsed, one
+key per capability, no group-wide switch.
+
+### `enum InvalidCredentialCacheSettings`
+
+```rust
+pub enum InvalidCredentialCacheSettings
+```
+
+`security.credential_cache.{capacity,window_seconds}` is not usable.
+
+#### Variants
+
+- `EmptyCapacity` - A capacity of zero caches nothing - a slower way to spell `enabled: false`.
+- `NoWindow` - A window of zero seconds serves nothing - the same shape of mistake as a zero capacity.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct CacheWindow`
+
+```rust
+pub struct CacheWindow
+```
+
+How long an operator lets the cache serve an entry, on top of whatever the credential's own
+life and the broker's floor already bound it to.
+
+**A ceiling only, never a grant.** `sutura_exec_bigquery`'s cache folds this window together
+with the credential's own expiry (minus the broker's floor) through `min`, so a large window
+here cannot make a served credential outlive what was actually minted - it can only make the
+cache stop serving an entry SOONER than the credential's own life would allow. That asymmetry is
+the whole reason this is a distinct type rather than a bare `u64`: the field name alone invites
+reading it as "how long the cache keeps something alive", and the truth is narrower - it is one
+of three numbers a `min` is taken over, and the other two are never influenced by it.
+
+#### Methods
+
+```rust
+pub const fn duration(self) -> Duration
+```
+
+The window, as a duration the broker's cache can add to an instant it read.
+
+```rust
+pub const fn parse(seconds: u64) -> Result<Self, InvalidCredentialCacheSettings>
+```
+
+Parses a configured number of seconds. Refuses zero, the same shape
+`sutura_config::server::RequestTimeout::parse` refuses one - a zero-second window is a
+cache that never serves anything, which is a slower way to spell `enabled: false`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct CredentialCacheSettings`
+
+```rust
+pub struct CredentialCacheSettings
+```
+
+The exchanged-credential cache's own settings.
+
+**`Copy`, like `crate::tools::ToolsSettings`**: every field is a small owned value, and this
+is held in `crate::Settings` the same way. There is deliberately no credential-shaped field
+here - this type is a bound and a switch, never a place a secret could arrive.
+
+#### Methods
+
+```rust
+pub const fn capacity(self) -> NonZeroUsize
+```
+
+How many live entries the cache may hold at once.
+
+```rust
+pub const fn enabled(self) -> bool
+```
+
+Whether an operator turned this on. Off unless `security.credential_cache.enabled: true`.
+
+```rust
+pub const fn new(enabled: bool, capacity: NonZeroUsize, window: CacheWindow) -> Self
+```
+
+Assembles the group from parts that have each already been parsed.
+
+```rust
+pub fn parse(enabled: bool, capacity_entries: Option<u64>, window_seconds: Option<u64>) -> Result<Self, InvalidCredentialCacheSettings>
+```
+
+Reads the raw, optional configuration and applies the defaults above - a capacity or a
+window an operator did not write, never a capacity or a window of zero: those are refused
+by name rather than silently rounded up, the same way an unset `security.credential_cache`
+block is silently `enabled: false` rather than a refusal.
+
+```rust
+pub const fn window(self) -> CacheWindow
+```
+
+The operator's own ceiling on how long an entry is served.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Eq`, `PartialEq`
 
 ## Module `inbound`
 
@@ -3443,6 +3584,12 @@ pub const fn access_token(&self) -> Option<&AccessToken>
 The configured token, if there is one.
 
 ```rust
+pub const fn credential_cache(&self) -> CredentialCacheSettings
+```
+
+The exchanged-credential cache's own settings - `docs/adr/0031`.
+
+```rust
 pub const fn describes_identity(&self) -> bool
 ```
 
@@ -3498,7 +3645,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -3864,15 +4011,15 @@ The certificate and key this process would terminate TLS with, if any were confi
 
 The sources this deployment declares: one entry per data system, keyed by the alias a model names.
 
-**Beside `catalog.data_dir` rather than instead of it, and the two answer different questions.**
-`catalog.dir` and `catalog.data_dir` are the *catalog*: authored definitions, and the directory the
+**Beside `catalogs[].data_dir` rather than instead of it, and the two answer different questions.**
+`catalogs[].dir` and `catalogs[].data_dir` are the *catalog*: authored definitions, and the directory the
 `sutura` command reads. A `sources:` entry is a *data system*: what kind it is, where it is, which
 identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
 is the key that selects one.
 
-**The service reads this tree and not `catalog.data_dir`**, which is the one operator-facing break
+**The service reads this tree and not `catalogs[].data_dir`**, which is the one operator-facing break
 worth stating at the top: a deployment that pointed the service at its files with
-`catalog.data_dir` has to declare a source instead, and one that declares none does not serve -
+`catalogs[].data_dir` has to declare a source instead, and one that declares none does not serve -
 the catalog names a source with no entry, and the composition root refuses before a listener is
 bound.
 
@@ -4085,12 +4232,12 @@ convenience, and nothing needs to clone a startup refusal.
   deployment configured as though it had been, and nothing anywhere would say so.
 - `NoDataDirectory` - The entry names no file location.
 
-  Refused rather than defaulted to `catalog.data_dir`: a source that inherited the catalog's
+  Refused rather than defaulted to `catalogs[].data_dir`: a source that inherited the catalog's
   data directory would be a second source reading the first one's files, which is a
   configuration nobody wrote and cannot see.
 - `RelativeDataDirectory` - The path is relative, so it resolves against the process working directory.
 
-  A different directory on every host and never the one the operator meant. `catalog.data_dir`
+  A different directory on every host and never the one the operator meant. `catalogs[].data_dir`
   tolerates a relative path because it is resolved beside a command somebody typed; a source in a
   registry is read by a service whose working directory is whatever its supervisor chose.
 - `RelativePath` - A path a kind requires is relative, so it resolves against the process working directory.
@@ -4139,6 +4286,11 @@ convenience, and nothing needs to clone a startup refusal.
   from another machine may not - so a deployment cannot send a password and a whole result set
   in clear text by leaving a key out. The key named is `transport_mode`, because declaring a TLS
   mode and its anchors is the remedy.
+- `TlsOverUnixSocket` - A `verified` or `mutual` transport declared on a `unix_socket` dial.
+
+  A parse-time refusal rather than the connect-time one the driver would otherwise give: the
+  driver has no TLS handshake to perform over a local socket, so the failure it produces there
+  is a confusing one that names neither key. Refusing here says which two keys disagree.
 
 #### Implements
 

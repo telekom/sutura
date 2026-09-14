@@ -1,0 +1,37 @@
+[package]
+name = "sutura-tls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "Reads a declared trust-anchor bundle or the host store, and an optional client identity pair, into loadable rustls material - the one place either outbound TLS adapter reads a PEM file."
+
+[dependencies]
+# `CertificateDer`, `PrivateKeyDer` and the trailing `PemObject` reader - the shared types crate
+# `rustls` itself re-exports verbatim as `rustls::pki_types` (`pub use pki_types::*;`), so a
+# `LoadedIdentity` built here and a `rustls::pki_types::CertificateDer` in `sutura-exec-postgres` are
+# the identical type at the identical resolved version, with no conversion at the seam. Depending on
+# `rustls` itself here would be the wrong crate for that: it turns on a crypto provider (this
+# workspace's pin is `features = ["ring", "tls12"]`, so `rustls` alone means `ring`), and this crate
+# is exactly the one that must NOT need one - which certificates a `ClientConfig` trusts, and which
+# library reads them, is each adapter's own decision. `sutura_exec_postgres::tls` validates the
+# loaded certificates into a `RootCertStore` with the `ring` provider IT already depends on; a
+# `ureq`-based adapter turns the same bytes into `ureq::tls::Certificate`. Sharing stops at "these
+# are the bytes the declaration named", which is the part that was genuinely duplicated.
+# `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds `sutura-tls -> ring` absent mechanically.
+rustls-pki-types = { workspace = true }
+# The `transport_anchors: system` path - the host trust store, read once. Already resolved at this
+# version for `sutura-exec-postgres`; this crate adds no new entry to `Cargo.lock`.
+rustls-native-certs = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Generated self-signed pairs for the refusal tests below - the same crate
+# `sutura-exec-postgres/src/tls.rs` and `sutura-http`'s own TLS tests already rest on.
+rcgen = { workspace = true }
+
+[lints]
+workspace = true

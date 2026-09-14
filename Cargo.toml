@@ -50,6 +50,13 @@ members = [
   # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
   # is accepted by a real Postgres, reached through the compose tier.
   "crates/sutura-exec-postgres",
+  # The one place either outbound TLS adapter reads a declared bundle or the host store: no
+  # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
+  # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
+  # (`github.com/telekom/sutura#125`'s second PR) is the second - neither may depend on the other
+  # (`xtask/src/boundaries/adapters.rs`'s "data systems" class), so the read that both need moved
+  # here rather than into either.
+  "crates/sutura-tls",
   "crates/sutura-cli",
   # The service runtime. Four crates rather than one, and the split is the dependency direction:
   # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
@@ -105,6 +112,7 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
+sutura-tls = { path = "crates/sutura-tls" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }
@@ -123,6 +131,13 @@ sutura-conformance = { path = "crates/sutura-conformance" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
+# `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
+# does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
+# across an `.await`, but the type is banned regardless of caller). Already resolved in
+# `Cargo.lock` transitively, so this adds no new package - it names an existing one as a direct
+# dependency of the one crate that now takes a lock of its own.
+parking_lot = "0.12"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
@@ -158,6 +173,11 @@ tokio-postgres-rustls = { version = "0.14", default-features = false, features =
 # server is refused without this feature - so the pin is about making the behaviour legible rather
 # than about closing a gap.
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
+# `CertificateDer`/`PrivateKeyDer`/the `PemObject` reader, with no crypto provider and no TLS
+# implementation attached - `rustls` itself re-exports this crate verbatim as `rustls::pki_types`.
+# Already resolved at this version via `rustls-native-certs`, so `sutura-tls` depending on it adds no
+# new `Cargo.lock` entry. `std` (which implies `alloc`) is what the `pem` module needs.
+rustls-pki-types = { version = "1", default-features = false, features = ["std"] }
 # The explicit `transport_anchors: system` choice for an outbound source. This is not a default:
 # configuration has to name the host store before the adapter reads it. On Linux it probes the
 # conventional certificate bundle paths without OpenSSL; macOS and Windows use their platform

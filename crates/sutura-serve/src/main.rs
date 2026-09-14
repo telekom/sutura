@@ -156,9 +156,9 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalogs = catalog::open_catalog(settings.catalogs())?;
     let pinned = catalog::load(&catalogs)?;
-    // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
+    // The `sources:` tree rather than `catalogs[].data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
-    // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
+    // `catalogs[].data_dir` stays what it always was - the catalog's own directory - and is no longer
     // where a source's files are found.
     let opened = open_engine(
         &pinned,
@@ -236,7 +236,11 @@ fn run() -> Result<(), String> {
             // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
             // same pinned agent and bounds the source composition already declares, so the exchange
             // and the job share one connection pool and one set of pins - see `crate::broker`.
-            let broker = broker::build_broker(settings.sources(), settings.server().request_timeout())?;
+            let broker = broker::build_broker(
+                settings.sources(),
+                settings.server().request_timeout(),
+                settings.security().credential_cache(),
+            )?;
             (
                 started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
                 None,

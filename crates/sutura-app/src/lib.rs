@@ -799,10 +799,7 @@ where
         // An anchor is asked with no dimensions, so it can only ever be one source. Reaching this
         // arm is a defect here rather than anything about the data.
         Compiled::Federated { .. } => {
-            return not_executed(NotExecutedReason::NotCompiled {
-                message: String::from("an anchor's question resolved to two data systems"),
-                chain: Vec::new(),
-            });
+            return not_executed(NotExecutedReason::ResolvedToTwoSources);
         }
         Compiled::Planned { plan } => plan,
     };
@@ -827,10 +824,10 @@ where
     // for every other anchor in the bundle.
     let anchor_plan = match AnchorPlan::of(&plan, pinned, metric) {
         Ok(anchor_plan) => anchor_plan,
-        Err(cause) => {
-            let (message, chain) = flatten(&cause);
-            return not_executed(NotExecutedReason::NotAnAnchor { message, chain });
-        }
+        // D10: carried typed now - `flatten` used to erase `NotAnAnchorsPlan`'s own variant into a
+        // string, though it is this crate's own type and never needed the boundary that justifies
+        // `flatten` for the other two `NotExecutedReason` arms.
+        Err(cause) => return not_executed(NotExecutedReason::NotAnAnchor { cause }),
     };
     // `verify_anchor` and not `execute`, and the difference is the identity rather than the method
     // name. There is no caller at boot, so there is no credential in scope and nothing here could

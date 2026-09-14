@@ -393,6 +393,17 @@ exercises every refusal above in-crate against `rcgen`-generated material, and `
 drives the same construction against the tier's real server - where the two cells are that the
 declared anchor verifies and an issuer it does not name is refused.
 
+**The READ itself lives in `sutura-tls`**, a leaf crate with no dependency on a crypto provider,
+a network client, or `sutura-config` - extracted here because `github.com/telekom/sutura#125`'s
+remainder needs the identical bundle-or-system-store read a second time, for a `ureq`-based
+outbound adapter, and copying `bundle_roots`/`system_roots`/the identity loaders a second time
+is exactly the duplication `AGENTS.md` asks not to hold twice. What stays HERE, and is this
+crate's own, is folding the read bytes into a `RootCertStore` (the step that also catches a
+certificate rustls itself cannot use as a root - `PostgresError::AnchorsRead` for a bundle
+entry, `PostgresError::SystemStoreCertificate` for a system-store one, unchanged from before
+the extraction) and building the `ring`-backed `rustls::ClientConfig` `tokio-postgres-rustls`
+wants. Every error variant this module can produce is unchanged; only where the read happens did.
+
 ### `enum TlsAnchors`
 
 ```rust

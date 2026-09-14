@@ -902,3 +902,47 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     assert_eq!(opened[0].name().as_str(), "structure");
     assert_eq!(opened[1].name().as_str(), "metrics");
 }
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn the_boot_line_names_the_credential_cache_as_off_by_default() {
+    // `docs/adr/0031` is off by default, and the identity skill's own rule is that the startup log
+    // prints the limit beside the mode - this is the cell that reads that line back. The line is
+    // built from `WorkloadIdentityBroker::cache_capacity()`, so this cell also reads that accessor
+    // on the SAME broker the line was printed for: "off by default" is held by the two agreeing,
+    // not by a reader of `broker::build_broker`'s own source, and not by trusting the line alone.
+    let capture = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, capture.clone()).expect("a valid directive builds a subscriber");
+
+    let built = tracing::subscriber::with_default(subscriber, || {
+        super::broker::build_broker(
+            &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
+            default_timeout(),
+            sutura_config::CredentialCacheSettings::default(),
+        )
+    })
+    .expect("a shared bigquery source with a declared ceiling builds a broker");
+
+    assert_eq!(
+        built.cache_capacity(),
+        None,
+        "the broker itself must hold no cache under the default settings, not merely log one as off"
+    );
+
+    let rendered = capture.contents();
+    assert!(
+        rendered.contains("credential_cache: off"),
+        "the default settings must boot with the cache off, and say so: {rendered}"
+    );
+    assert!(
+        !rendered.contains("credential_cache: on"),
+        "the default settings must never log the cache as on: {rendered}"
+    );
+}

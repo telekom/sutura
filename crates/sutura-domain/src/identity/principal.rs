@@ -395,7 +395,11 @@ pub enum Attribution<'a> {
     ActingFor { subject: &'a Subject, actors: &'a ActorChain },
 }
 
-/// Human, then agent, then task - ordered, and with both tail positions absent today.
+/// Human, then agent, then task - ordered.
+///
+/// The task position is absent today - nothing in this workspace parses one onto a chain yet - but
+/// the agent position is populated wherever an inbound gate reads an RFC 8693 `act` claim
+/// (`sutura_http::inbound::token`).
 ///
 /// This is what a call is recorded under, and what a budget would be keyed on **if a budget
 /// existed**. There is no budget port in this workspace; the chain is the key and nothing consumes it
@@ -434,7 +438,8 @@ pub struct PrincipalChain {
 }
 
 impl PrincipalChain {
-    /// A chain with both tail positions absent, which is every chain this workspace builds today.
+    /// A chain with both tail positions absent - the starting point every chain is built from, an
+    /// inbound gate adding the agent position onto it where an `act` claim says one acted.
     ///
     /// The canonical constructor: the two below add a tail position to a chain this one made, so
     /// there is one place a chain comes into existence.

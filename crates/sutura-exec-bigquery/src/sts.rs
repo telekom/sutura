@@ -25,11 +25,16 @@
 //! outbound TLS stack stays a decision a composition root makes.
 
 use std::collections::BTreeMap;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
+use std::sync::Arc;
+use std::time::Duration;
 
 use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
+
+mod cache;
+use cache::CredentialCache;
 
 /// The setup one impersonating source needs from the settings tree, minus the borrowing.
 ///
@@ -186,6 +191,16 @@ pub struct WorkloadIdentityBroker<E, C = SystemClock> {
     /// type makes them unable to disagree instead, which is the difference between a contract and a
     /// convention.
     floor: Option<NonZeroU64>,
+    /// The exchanged-credential cache, `docs/adr/0031` - `None` unless
+    /// [`Self::with_cache`] was called, which is what makes an operator's `false` (the shipped
+    /// default) a broker with nothing extra to reason about rather than a cache with a zero
+    /// capacity.
+    ///
+    /// `Arc`, not owned outright: this broker derives `Clone`, and every clone must share ONE map -
+    /// an empty second cache per clone would silently cost most of the hit rate a composition root
+    /// thought it configured. Sharing state across a clone is what `Arc` is for; nothing here
+    /// escapes the borrow checker with it.
+    cache: Option<Arc<CredentialCache>>,
 }
 
 /// A defect in this broker itself.
@@ -208,9 +223,11 @@ pub enum ExchangeUnusable {
     },
     /// The broker's [`UnixClock`] could not say what time it is, so the floor could not be applied.
     ///
-    /// Only reachable from a mint whose floor CAN fire - a declared floor over at least one exchanged
-    /// deadline. A purely shared mint and a broker with no floor never ask, which is a property
-    /// under test rather than a claim.
+    /// Reachable two ways now: a mint whose floor CAN fire (a declared floor over at least one
+    /// exchanged deadline), or a mint where a cache (`docs/adr/0031`) is configured at all - the
+    /// cache asks the same clock for its own TTL fold regardless of whether a floor exists. A
+    /// purely shared mint on a broker with neither a floor nor a cache still never asks, which is a
+    /// property under test rather than a claim.
     #[error("this process could not read the time, so the exchanged-token expiry floor could not be applied")]
     NoClock {
         #[source]
@@ -233,6 +250,7 @@ impl<E> WorkloadIdentityBroker<E, SystemClock> {
             impersonating: BTreeMap::new(),
             shared: BTreeMap::new(),
             floor: None,
+            cache: None,
         }
     }
 }
@@ -255,6 +273,7 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
             impersonating: self.impersonating,
             shared: self.shared,
             floor: self.floor,
+            cache: self.cache,
         }
     }
 
@@ -290,6 +309,29 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
     pub fn impersonating_count(&self) -> usize {
         self.impersonating.len()
     }
+
+    /// Turns on the exchanged-credential cache, `docs/adr/0031` - off unless a composition root
+    /// calls this. `capacity` bounds the number of live entries; `window` is the operator's own
+    /// ceiling on top of the credential's own life, never the other way - see
+    /// `sutura_config::identity_cache::CacheWindow`'s own doc for why a window cannot LENGTHEN what
+    /// was minted.
+    #[must_use]
+    pub fn with_cache(mut self, capacity: NonZeroUsize, window: Duration) -> Self {
+        self.cache = Some(Arc::new(CredentialCache::new(capacity, window)));
+        self
+    }
+
+    /// The capacity a composition root's boot line names, read from THIS broker's own state rather
+    /// than the setting that (maybe) built it - `None` when [`Self::with_cache`] was never called.
+    ///
+    /// A boot line built from the setting alone can drift from what the broker actually holds: the
+    /// two agree only because one `if` gates both today, and nothing stops a future edit widening
+    /// one arm without the other. Reading it back through this accessor is what keeps the printed
+    /// line and the broker's own state the same fact.
+    #[must_use]
+    pub fn cache_capacity(&self) -> Option<NonZeroUsize> {
+        self.cache.as_ref().map(|cache| cache.capacity())
+    }
 }
 
 impl<E, C> CredentialBroker for WorkloadIdentityBroker<E, C>
@@ -312,6 +354,28 @@ where
         // The asker's own token, which a broker that exchanges REQUIRES - a subject with no
         // credential at a source is refused, never answered as the process.
         let assertion = context.assertion();
+        // The subject `LegCredentials::minted` takes as `asked_by` below - one field, so N legs
+        // cannot disagree about who asked.
+        let asked_by = context.chain().subject();
+        // The WHOLE chain, which is what `docs/adr/0031`'s cache keys on - not just `asked_by`
+        // above. A chain the transport built from an RFC 8693 `act` claim differs from the same
+        // subject's direct chain, and the cache has to tell them apart even though `asked_by` alone
+        // would not.
+        let chain = context.chain();
+        // Read once, only when a cache exists to consult at all - the same "ask only when needed"
+        // shape the floor already holds, extended by one more reason to need the time. A second,
+        // independent read happens further down for the floor itself when both are configured;
+        // that duplication is cheap and left alone rather than restructured around a clock this
+        // change did not otherwise need to touch.
+        let cache_now = if self.cache.is_some() {
+            Some(
+                self.clock
+                    .unix_seconds()
+                    .map_err(|cause| ExchangeUnusable::NoClock { cause })?,
+            )
+        } else {
+            None
+        };
 
         let mut presented = BTreeMap::new();
         // The exchanged deadlines and the source each came from, so the FLOOR can name the source
@@ -339,11 +403,36 @@ where
             let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+
+            // A live entry, if the cache holds one for this exact chain and this exact
+            // (audience, scope) - never for anything less, see `cache`'s own module doc. A hit
+            // skips the round trip entirely; nothing below this arm runs for that source.
+            if let (Some(cache), Some(now)) = (&self.cache, cache_now)
+                && let Some(hit) = cache.get(chain, workload, now)
+            {
+                deadlines.push((source, hit.not_after));
+                drop(presented.insert(source.clone(), Presented::SubjectToken { material: hit.material }));
+                continue;
+            }
+
             let credential = self
                 .exchange
                 .exchange(workload.audience(), workload.scope(), assertion)
                 .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
             deadlines.push((source, credential.not_after()));
+            // Populated from exactly this arm, right after a successful exchange - there is no
+            // other call to `put` anywhere in this broker, which is what makes "never cache a
+            // refusal or an error" true by absence rather than by a check.
+            if let (Some(cache), Some(now)) = (&self.cache, cache_now) {
+                cache.put(
+                    chain,
+                    workload,
+                    credential.access_token().clone(),
+                    credential.not_after(),
+                    self.floor,
+                    now,
+                );
+            }
             drop(presented.insert(
                 source.clone(),
                 Presented::SubjectToken {
@@ -378,7 +467,7 @@ where
                 });
             }
         }
-        LegCredentials::minted(context.chain().subject().clone(), not_after, sources, presented)
+        LegCredentials::minted(asked_by.clone(), not_after, sources, presented)
             .map(|credentials| Minted::Granted { credentials })
             .map_err(|cause| ExchangeUnusable::Coverage { cause })
     }

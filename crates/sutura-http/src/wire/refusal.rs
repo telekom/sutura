@@ -225,22 +225,39 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  not additive"
             ),
         ),
+        // 409, and D19 + A4's own reason: a non-finite ratio or an ambiguous join is the SAME plan
+        // against the SAME rows failing again, which is what 409 says and what the `503` this used
+        // to leave as - "worth retrying" - does not. Carries no cell: see
+        // `FederatedAnswerRefusal`'s own note on why a join key or a float value never reaches this
+        // far.
+        RefusalReason::FederatedAnswerNotWellFormed { .. } => (
+            StatusCode::CONFLICT,
+            String::from(
+                "answering this across two data systems hit a division by zero or a join key that \
+                 matched more than one row; asking again unchanged returns this same refusal. Ask \
+                 the same metric without the dimension on the second data system, or report it to \
+                 a person",
+            ),
+        ),
         // 409, and the same reasoning `PlanSpansTooManySources` above carries: the question is well
         // formed,
         // the metric permits it, and this deployment cannot express it as one statement. That is a
         // conflict between what was asked and how the tables it reads are named, which is what 409 says
         // and what no status about the request's own content would.
         //
-        // The sentence names the identifier and neither of the two paths. The identifier is the thing a
-        // person can act on; a path carries the project and dataset a deployment reads, which is not
-        // the asker's business. It says what else to try, because unlike the two-source refusal there
-        // usually IS another question: a dimension that needs no join is still answered.
-        RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
+        // D7: the sentence names NEITHER the identifier NOR either path. A schema identifier reaching
+        // this surface reaches an agent's own context exactly as a table name in the generated prompt
+        // would - `sutura_app::prompt`'s own rule - and this refusal is a TOOL OUTPUT an agent reads,
+        // not the prompt itself, so the same rule applies here even though the identifier is only the
+        // bare table name and not a project or dataset path. It says what else to try, because unlike
+        // the two-source refusal there usually IS another question: a dimension that needs no join is
+        // still answered.
+        RefusalReason::PlanTablesShareAnIdentifier { .. } => (
             StatusCode::CONFLICT,
-            format!(
-                "answering this would read two different tables that are both called `{table}`, and one \
+            String::from(
+                "answering this would read two different tables that answer to one identifier, and one \
                  statement cannot tell them apart; ask for a dimension that does not need that join, or \
-                 report it to a person"
+                 report it to a person",
             ),
         ),
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
@@ -394,6 +411,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::MeasureDoesNotFederate { .. }
+        | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }
         | RefusalReason::SourceUnavailable { .. }
         | RefusalReason::ResourcesExhausted { .. }
@@ -559,6 +577,13 @@ mod tests {
                 "measure_does_not_federate",
             ),
             (
+                RefusalReason::FederatedAnswerNotWellFormed {
+                    federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
+                },
+                StatusCode::CONFLICT,
+                "federated_answer_not_well_formed",
+            ),
+            (
                 RefusalReason::PlanTablesShareAnIdentifier {
                     table: TableName::parse("orders").expect("a test table is a table"),
                 },
@@ -622,6 +647,16 @@ mod tests {
             );
             assert!(!body.detail().is_empty(), "{reason:?} refused with no sentence");
         }
+    }
+
+    #[test]
+    fn a_shared_table_identifier_never_reaches_the_wire() {
+        // D7: this refusal is a tool output an agent reads exactly as it would read the
+        // generated prompt, which never puts a schema name in an agent's context.
+        let (_, body) = refused(&RefusalReason::PlanTablesShareAnIdentifier {
+            table: TableName::parse("orders").expect("a test table is a table"),
+        });
+        assert!(!body.detail().contains("orders"), "{}", body.detail());
     }
 
     #[test]

@@ -101,6 +101,17 @@ pub(crate) enum PlanError {
     NotAssembled(#[from] FederatedPlanError),
     #[error(transparent)]
     NotBound(#[from] IncoherentBindings),
+    /// `federated_plan` ran with no remote dimension it could join through.
+    ///
+    /// **A2: the same argument [`NotAssembled`](Self::NotAssembled) and [`NotBound`](Self::NotBound)
+    /// already carry, applied to a third invariant.** `plan` calls `federated_plan` only when exactly
+    /// one remote source exists, and a remote dimension has a join by construction - so no test
+    /// provokes this arm either. It used to be reported as
+    /// `RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }`, a fabricated count with no
+    /// relationship to anything a caller asked; a caller cannot narrow their way out of our own
+    /// wiring, which is why this is not a [`RefusalReason`] at all.
+    #[error("the federated splitter found no remote dimension to join the fact leg through")]
+    NoRemoteJoin,
 }
 
 impl From<RefusalReason> for PlanError {
@@ -262,11 +273,13 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     // unreachable - `plan` calls this only for exactly one remote source, and a remote dimension has
     // a join by construction - but a panic here would be reachable from a catalog plus a question, so
     // they refuse instead.
+    //
+    // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
-        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }.into());
+        return Err(PlanError::NoRemoteJoin);
     };
     let Some(first_join) = first_remote.join.as_ref() else {
-        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }.into());
+        return Err(PlanError::NoRemoteJoin);
     };
     let relationship = first_join.relationship;
     let remote_path = first_join.model.table();

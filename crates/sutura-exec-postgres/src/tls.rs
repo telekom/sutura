@@ -35,13 +35,22 @@
 //! exercises every refusal above in-crate against `rcgen`-generated material, and `tests/tls.rs`
 //! drives the same construction against the tier's real server - where the two cells are that the
 //! declared anchor verifies and an issuer it does not name is refused.
+//!
+//! **The READ itself lives in `sutura-tls`**, a leaf crate with no dependency on a crypto provider,
+//! a network client, or `sutura-config` - extracted here because `github.com/telekom/sutura#125`'s
+//! remainder needs the identical bundle-or-system-store read a second time, for a `ureq`-based
+//! outbound adapter, and copying `bundle_roots`/`system_roots`/the identity loaders a second time
+//! is exactly the duplication `AGENTS.md` asks not to hold twice. What stays HERE, and is this
+//! crate's own, is folding the read bytes into a `RootCertStore` (the step that also catches a
+//! certificate rustls itself cannot use as a root - [`PostgresError::AnchorsRead`] for a bundle
+//! entry, [`PostgresError::SystemStoreCertificate`] for a system-store one, unchanged from before
+//! the extraction) and building the `ring`-backed `rustls::ClientConfig` `tokio-postgres-rustls`
+//! wants. Every error variant this module can produce is unchanged; only where the read happens did.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustls::RootCertStore;
-use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use crate::PostgresError;
 
@@ -97,10 +106,7 @@ impl TlsIdentity {
 /// to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
 /// cannot be read or does not hold its kind.
 pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<rustls::ClientConfig, PostgresError> {
-    let roots = match anchors {
-        TlsAnchors::System => system_roots(rustls_native_certs::load_native_certs())?,
-        TlsAnchors::Bundle(path) => bundle_roots(path)?,
-    };
+    let roots = certificate_roots(anchors)?;
 
     // An explicit provider rather than `CryptoProvider::install_default`, for the reason the
     // serving side gives: the process-global default would make this adapter's behaviour depend on
@@ -114,10 +120,10 @@ pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Re
     match identity {
         None => Ok(builder.with_no_client_auth()),
         Some(identity) => {
-            let cert_der = load_certificate(&identity.certificate)?;
-            let key = load_private_key(identity.key())?;
+            let loaded = sutura_tls::load_identity(&resolved_identity(identity)).map_err(convert_load_error)?;
+            let (chain, key) = loaded.into_parts();
             builder
-                .with_client_auth_cert(cert_der, key)
+                .with_client_auth_cert(chain, key)
                 .map_err(|_cause| PostgresError::IdentityKey {
                     path: identity.key().display().to_string(),
                     what: "not a private key this build can present",
@@ -126,86 +132,62 @@ pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Re
     }
 }
 
-/// Reads a declared PEM bundle into a root store without skipping an invalid certificate.
-fn bundle_roots(anchors_path: &Path) -> Result<RootCertStore, PostgresError> {
-    let mut roots = RootCertStore::empty();
-    let bundle = std::fs::read(anchors_path).map_err(|cause| PostgresError::AnchorsRead {
-        path: anchors_path.display().to_string(),
-        cause,
-    })?;
-    for entry in CertificateDer::pem_slice_iter(&bundle) {
-        let der = entry.map_err(|cause| PostgresError::AnchorsRead {
-            path: anchors_path.display().to_string(),
-            cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
-        })?;
-        roots.add(der).map_err(|cause| PostgresError::AnchorsRead {
-            path: anchors_path.display().to_string(),
-            cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
-        })?;
-    }
-    if roots.is_empty() {
-        return Err(PostgresError::AnchorsEmpty {
-            path: anchors_path.display().to_string(),
-        });
-    }
-    Ok(roots)
-}
-
-/// Turns the host-store reader's result into the same strict root set as a declared bundle.
+/// Reads the declared anchors through `sutura_tls::load_anchors` and folds the certificates into a
+/// `RootCertStore`, which is the one step `sutura-tls` deliberately does not take - it has no crypto
+/// provider to validate against, and which anchors a `ClientConfig` trusts is this adapter's own
+/// decision.
 ///
-/// The upstream reader reports partial reads as certificates plus errors. Accepting only the
-/// certificates would make `system` mean a silently reduced store, so any reported error is a
-/// refusal. A certificate rustls itself rejects is likewise not skipped.
-fn system_roots(loaded: rustls_native_certs::CertificateResult) -> Result<RootCertStore, PostgresError> {
-    if !loaded.errors.is_empty() {
-        let errors = loaded.errors.len();
-        let mut failures = loaded.errors.into_iter();
-        let cause = failures.next().ok_or(PostgresError::SystemStoreEmpty)?;
-        return Err(PostgresError::SystemStoreRead { errors, cause });
-    }
+/// A certificate rustls itself rejects is refused rather than skipped, in the same shape each of the
+/// two sources used before this read moved: a bundle entry's failure is
+/// [`PostgresError::AnchorsRead`] (wrapping the rejection as the read failure it effectively is for
+/// that source), and a system-store entry's is [`PostgresError::SystemStoreCertificate`] - the two
+/// error identities a caller already matches on are unchanged.
+fn certificate_roots(anchors: &TlsAnchors) -> Result<RootCertStore, PostgresError> {
+    let certificates = sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(convert_load_error)?;
     let mut roots = RootCertStore::empty();
-    for certificate in loaded.certs {
-        roots
-            .add(certificate)
-            .map_err(|cause| PostgresError::SystemStoreCertificate { cause })?;
+    for certificate in certificates {
+        roots.add(certificate).map_err(|cause| match anchors {
+            TlsAnchors::System => PostgresError::SystemStoreCertificate { cause },
+            TlsAnchors::Bundle(path) => PostgresError::AnchorsRead {
+                path: path.display().to_string(),
+                cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
+            },
+        })?;
     }
-    if roots.is_empty() {
-        return Err(PostgresError::SystemStoreEmpty);
-    }
+    // `sutura_tls::LoadedAnchors` cannot be empty by construction, so `roots` is non-empty here
+    // whenever every `add` above succeeded - the property is the type's, not a comment's.
     Ok(roots)
 }
 
-/// Reads and parses the client certificate chain, refused if it holds no certificate.
-fn load_certificate(path: &Path) -> Result<Vec<CertificateDer<'static>>, PostgresError> {
-    let bytes = std::fs::read(path).map_err(|cause| PostgresError::IdentityRead {
-        path: path.display().to_string(),
-        cause,
-    })?;
-    let certificates = CertificateDer::pem_slice_iter(&bytes)
-        .collect::<Result<Vec<CertificateDer<'static>>, _>>()
-        .map_err(|_cause| PostgresError::IdentityIncomplete {
-            path: path.display().to_string(),
-            what: "no certificate",
-        })?;
-    if certificates.is_empty() {
-        return Err(PostgresError::IdentityIncomplete {
-            path: path.display().to_string(),
-            what: "no certificate",
-        });
+/// This crate's declared anchors, as the plain `Bundle`-or-`System` shape `sutura-tls` reads.
+fn resolved_anchors(anchors: &TlsAnchors) -> sutura_tls::Anchors {
+    // `TlsAnchors::Bundle` holds an owned `PathBuf`; `sutura_tls::Anchors` needs one too, so this
+    // clones the path rather than borrowing it - the same cost `TlsIdentity`'s accessors already
+    // pay by returning `&Path` from an owned field.
+    match anchors {
+        TlsAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
+        TlsAnchors::System => sutura_tls::Anchors::System,
     }
-    Ok(certificates)
 }
 
-/// Reads and parses the client private key, refused if it is not a key this build can present.
-fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, PostgresError> {
-    let bytes = std::fs::read(path).map_err(|cause| PostgresError::IdentityRead {
-        path: path.display().to_string(),
-        cause,
-    })?;
-    PrivateKeyDer::from_pem_slice(&bytes).map_err(|_cause| PostgresError::IdentityKey {
-        path: path.display().to_string(),
-        what: "not a private key this build can present",
-    })
+/// This crate's declared identity, as the plain path pair `sutura-tls` reads.
+fn resolved_identity(identity: &TlsIdentity) -> sutura_tls::Identity {
+    sutura_tls::Identity::new(identity.certificate.clone(), identity.key.clone())
+}
+
+/// Maps `sutura-tls`'s load refusal onto this crate's own error type, field for field - the two
+/// enums were designed to line up exactly, so a caller matching on `PostgresError::AnchorsRead` (or
+/// any of the other six) sees no difference from before the read moved crates.
+fn convert_load_error(cause: sutura_tls::LoadError) -> PostgresError {
+    match cause {
+        sutura_tls::LoadError::AnchorsRead { path, cause } => PostgresError::AnchorsRead { path, cause },
+        sutura_tls::LoadError::AnchorsEmpty { path } => PostgresError::AnchorsEmpty { path },
+        sutura_tls::LoadError::SystemStoreRead { errors, cause } => PostgresError::SystemStoreRead { errors, cause },
+        sutura_tls::LoadError::SystemStoreEmpty => PostgresError::SystemStoreEmpty,
+        sutura_tls::LoadError::IdentityRead { path, cause } => PostgresError::IdentityRead { path, cause },
+        sutura_tls::LoadError::IdentityIncomplete { path, what } => PostgresError::IdentityIncomplete { path, what },
+        sutura_tls::LoadError::IdentityKey { path, what } => PostgresError::IdentityKey { path, what },
+    }
 }
 
 #[cfg(test)]
@@ -265,43 +247,11 @@ mod tests {
         client_config(&TlsAnchors::Bundle(anchors), None).expect("a bundle with one cert builds");
     }
 
-    #[test]
-    fn a_loaded_system_store_builds_the_same_root_set_as_an_explicit_bundle() {
-        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
-        let mut loaded = rustls_native_certs::CertificateResult::default();
-        loaded.certs.push(issued.cert.der().clone());
-        assert_eq!(system_roots(loaded).expect("one system root loads").len(), 1);
-    }
-
-    #[test]
-    fn an_empty_system_store_is_refused() {
-        assert!(matches!(
-            system_roots(rustls_native_certs::CertificateResult::default()),
-            Err(PostgresError::SystemStoreEmpty)
-        ));
-    }
-
-    #[test]
-    fn a_partially_read_system_store_is_refused_naming_how_many_failed() {
-        // The "partially" half of this function's own doc: the upstream reader reports a partial
-        // read as certificates PLUS errors, and accepting the certificates alone would make
-        // `system` mean a silently reduced store. One good certificate and one reported failure -
-        // the good one must not paper over the bad one.
-        let mut loaded = rustls_native_certs::CertificateResult::default();
-        let issued = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
-        loaded.certs.push(issued.cert.der().clone());
-        loaded.errors.push(rustls_native_certs::Error {
-            context: "one store entry could not be read",
-            kind: rustls_native_certs::ErrorKind::Io {
-                inner: std::io::Error::other("permission denied"),
-                path: PathBuf::from("/etc/ssl/certs/broken.pem"),
-            },
-        });
-        assert!(matches!(
-            system_roots(loaded),
-            Err(PostgresError::SystemStoreRead { errors: 1, .. })
-        ));
-    }
+    // The system-store loading cells (a loaded store builds the same root set as a bundle, an empty
+    // store is refused, a partially-read store is refused naming how many entries failed) moved to
+    // `sutura-tls`'s own suite with the function they exercised - `system_roots` no longer exists in
+    // this crate. What stays here is the postgres-specific half those tests never reached: that a
+    // `client_config` refusal still comes back as THIS crate's own `PostgresError` variant.
 
     #[test]
     fn a_missing_anchor_file_is_refused_naming_the_path() {
@@ -379,6 +329,30 @@ mod tests {
         assert!(matches!(
             client_config(&TlsAnchors::Bundle(anchors), Some(&identity)),
             Err(PostgresError::IdentityKey { .. })
+        ));
+    }
+
+    #[test]
+    fn convert_load_error_maps_the_two_system_store_arms() {
+        // The two arms `an_empty_system_store_is_refused` and
+        // `a_partially_read_system_store_is_refused_naming_how_many_failed` asserted directly before
+        // the read moved into `sutura-tls` - they now assert `sutura_tls::LoadError` there instead, so
+        // this is the cell that holds THIS crate's own claim: the seam maps them onto the same
+        // `PostgresError` variants a caller already matches on, field for field.
+        assert!(matches!(
+            convert_load_error(sutura_tls::LoadError::SystemStoreEmpty),
+            PostgresError::SystemStoreEmpty
+        ));
+        let cause = rustls_native_certs::Error {
+            context: "one store entry could not be read",
+            kind: rustls_native_certs::ErrorKind::Io {
+                inner: std::io::Error::other("permission denied"),
+                path: PathBuf::from("/etc/ssl/certs/broken.pem"),
+            },
+        };
+        assert!(matches!(
+            convert_load_error(sutura_tls::LoadError::SystemStoreRead { errors: 1, cause }),
+            PostgresError::SystemStoreRead { errors: 1, .. }
         ));
     }
 }

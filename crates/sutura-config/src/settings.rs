@@ -232,6 +232,11 @@ pub enum SettingsError {
         #[source]
         cause: UnknownTlsTermination,
     },
+    #[error("`security.credential_cache` is not usable")]
+    CredentialCache {
+        #[source]
+        cause: crate::identity_cache::InvalidCredentialCacheSettings,
+    },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
         #[source]
@@ -297,13 +302,15 @@ pub enum SettingsError {
         #[source]
         cause: InvalidServiceName,
     },
-    #[error("`catalog.version` is not a definition version")]
+    #[error("`catalogs.{catalog}.version` is not a definition version")]
     Version {
+        catalog: String,
         #[source]
         cause: InvalidVersion,
     },
-    #[error("`catalog.kind` does not name a catalog this configuration can express")]
+    #[error("`catalogs.{catalog}.kind` does not name a catalog this configuration can express")]
     CatalogKind {
+        catalog: String,
         #[source]
         cause: UnknownCatalogKind,
     },
@@ -767,7 +774,20 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None => None,
         Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
-    Ok(SecuritySettings::new(token, termination, inbound, identity, metrics_token))
+    let credential_cache = crate::identity_cache::CredentialCacheSettings::parse(
+        raw.security.credential_cache.enabled,
+        raw.security.credential_cache.capacity,
+        raw.security.credential_cache.window_seconds,
+    )
+    .map_err(|cause| SettingsError::CredentialCache { cause })?;
+    Ok(SecuritySettings::new(
+        token,
+        termination,
+        inbound,
+        identity,
+        metrics_token,
+        credential_cache,
+    ))
 }
 
 /// The data systems this deployment declares.
@@ -857,8 +877,14 @@ fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsError> {
             written: raw_catalog.name.clone(),
             cause,
         })?;
-        let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind { cause })?;
-        let version = DefinitionVersion::parse(&raw_catalog.version).map_err(|cause| SettingsError::Version { cause })?;
+        let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind {
+            catalog: raw_catalog.name.clone(),
+            cause,
+        })?;
+        let version = DefinitionVersion::parse(&raw_catalog.version).map_err(|cause| SettingsError::Version {
+            catalog: raw_catalog.name.clone(),
+            cause,
+        })?;
         let settings = CatalogSettings::parse(
             name,
             kind,
@@ -914,7 +940,7 @@ fn parse_spend_budget(raw: &RawSettings) -> Result<Option<SpendBudget>, Settings
 /// explains, so absent is the safe reading. An empty *path* resolves to the process working
 /// directory - a different directory on every host and never the one the operator meant - and
 /// absence is already expressible by removing the key, so here the safe reading is a refusal naming
-/// the key. It is the argument `catalog.dir` already makes.
+/// the key. It is the argument `catalogs[].dir` already makes.
 ///
 /// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
 /// its own copy of the defaults gets the default rather than a deserialization failure.

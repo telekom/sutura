@@ -23,9 +23,15 @@
 /// own statement of how long a question may take (`docs/adr/0008` part 6 puts the floor in the
 /// broker adapter for exactly this reason): an exchanged credential that would age out during the
 /// answer is refused by the broker rather than presented and left to fail at the source mid-query.
+///
+/// **The exchanged-credential cache (`docs/adr/0031`) is wired here too, off unless
+/// `security.credential_cache.enabled` is `true`.** It shares the same floor: a cached leg is
+/// served only if it would still clear the identical bound a fresh mint is held to, never a looser
+/// one - `sutura_exec_bigquery::WorkloadIdentityBroker::with_cache`'s own doc has the fold.
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
+    credential_cache: sutura_config::CredentialCacheSettings,
 ) -> Result<sutura_exec_bigquery::WorkloadIdentityBroker<sutura_exec_bigquery::wire::StsOverHttp>, String> {
     use sutura_config::SourcePlacement;
     use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
@@ -96,6 +102,25 @@ pub(crate) fn build_broker(
     }
     for (alias, workload) in impersonating {
         broker = broker.impersonating(alias, workload);
+    }
+    if credential_cache.enabled() {
+        broker = broker.with_cache(credential_cache.capacity(), credential_cache.window().duration());
+    }
+    // The identity skill's own rule: the startup log prints the limit beside the mode. Read from
+    // `broker.cache_capacity()` - THE BROKER'S OWN STATE - rather than `credential_cache` again, so
+    // the line cannot say "off" while a cache sits attached above it: the two would have to drift
+    // apart on purpose, not just by one `if` arm changing without the other. "Off by default" is
+    // otherwise held by nothing but reading this function, the same shape `#684`'s spend ledger
+    // states plainly of its own switch - this line, and the accessor it reads, are the mechanism,
+    // and this crate's own test asserts the accessor beside the rendered line.
+    if let Some(capacity) = broker.cache_capacity() {
+        tracing::info!(
+            capacity = capacity.get(),
+            window_seconds = credential_cache.window().duration().as_secs(),
+            "credential_cache: on"
+        );
+    } else {
+        tracing::info!("credential_cache: off");
     }
     Ok(broker)
 }

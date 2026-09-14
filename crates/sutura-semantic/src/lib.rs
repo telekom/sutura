@@ -112,6 +112,14 @@ pub enum CompileFailure {
     /// A plan this workspace compiled whose predicates and parameters did not resolve each other.
     #[error("this deployment compiled a question whose parameters did not bind")]
     NotBound(#[from] IncoherentBindings),
+    /// A2: the splitter ran with no remote dimension to join the fact leg through.
+    ///
+    /// Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when exactly one
+    /// remote source exists and a remote dimension has a join by construction, so nothing provokes
+    /// this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
+    /// limit: 2 }` a caller could not have narrowed their way out of.
+    #[error("the federated splitter found no remote dimension to join the fact leg through")]
+    NoRemoteJoin,
 }
 
 /// Resolves and plans. It does not render.
@@ -166,5 +174,6 @@ pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, Co
         Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
         Err(PlanError::NotBound(cause)) => Err(cause.into()),
+        Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
     }
 }

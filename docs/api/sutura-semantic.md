@@ -113,6 +113,12 @@ as a refusal a caller would retry.
 - `AuthoredSqlNotPlanned` - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.
 - `NotAssembled` - A two-source plan this workspace compiled and could not then assemble.
 - `NotBound` - A plan this workspace compiled whose predicates and parameters did not resolve each other.
+- `NoRemoteJoin` - A2: the splitter ran with no remote dimension to join the fact leg through.
+
+  Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when exactly one
+  remote source exists and a remote dimension has a join by construction, so nothing provokes
+  this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
+  limit: 2 }` a caller could not have narrowed their way out of.
 
 ### Implements
 

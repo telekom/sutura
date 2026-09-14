@@ -6,8 +6,11 @@
 //! supplies the physical model, the descriptions and the join columns, and supplies no measure this
 //! adapter will execute **unless the deployment defines the metric itself**, no reliable cardinality,
 //! no definitional filter, no grain, no value allowlist and no anchor. That is the shape of a
-//! **declaring** adapter: it says which kinds it provides and which it does not, and it is measured
-//! against that declaration rather than against the golden adapters' oracle.
+//! **declaring** adapter, and it is measured against its own declaration rather than against the
+//! golden adapters' oracle. **The excluded half is the knowledge kinds, declared empty below** -
+//! every one of the nine [`DefinitionKind`]s is covered, either provided unconditionally or as a
+//! declared-and-empty may-provide kind, so there is no definition kind this adapter declares itself
+//! out of.
 //!
 //! **Issue #202 is the exception the previous paragraph stops at, and it lives in this crate.**
 //! `DataHub`'s `structuredProperty` is scalar-only, so a deployment cannot define a nested metric

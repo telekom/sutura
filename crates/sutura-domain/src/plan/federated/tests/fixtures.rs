@@ -10,10 +10,10 @@ use crate::catalog::TIME_BUCKET_LABEL;
 use crate::federation::Federation;
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
-use crate::plan::leg::LegPlan;
+use crate::plan::leg::{LegPlan, LegTerm};
 use crate::plan::{
-    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanKey, ResultLabel,
-    StatementTables,
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm,
+    ResultLabel, StatementTables, labels,
 };
 use crate::warehouse::{RowSet, Value};
 
@@ -96,17 +96,35 @@ pub(super) fn bucket() -> PlanBucket {
     )
 }
 
-pub(super) fn fact_leg() -> LegPlan {
+pub(super) fn fact_leg(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(FACT_SOURCE),
         metric: metric("revenue"),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![key("product_family", FACT), link_key(FACT)],
-        terms: Vec::new(),
+        terms,
         bindings: PlanBindings::none(),
         range: range(),
     }
+}
+
+/// One placeholder [`LegTerm`] per leaf `federation` carries, labelled exactly as
+/// [`FederatedPlan::new`]'s own D9 check requires - the same `labels(&federation)` zip the one
+/// production splitter runs. The term's computation is never read by anything this suite asserts
+/// on; only the label is.
+pub(super) fn terms_for(federation: &Federation) -> Vec<LegTerm> {
+    labels(federation)
+        .into_iter()
+        .map(|label| {
+            LegTerm::new(
+                PlanTerm::CountIf {
+                    column: PlanColumn::new(table(FACT), column("mrr_cents")),
+                },
+                ResultLabel::internal(label),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn lookup_leg() -> LegPlan {
@@ -134,7 +152,7 @@ pub(super) fn try_plan_for(
         name,
         measure_label,
         bucket(),
-        fact_leg(),
+        fact_leg(terms_for(&federation)),
         lookup_leg(),
         include_unmatched,
         federation,

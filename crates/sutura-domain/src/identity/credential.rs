@@ -869,14 +869,17 @@ pub trait CredentialBroker {
     ///
     /// # What this costs, on the request path
     ///
-    /// **It is called once per ACCEPTED question, synchronously, and it has no bound of its own.**
-    /// There is no cache, no pool, no per-subject reuse and no deadline enforced here: the only
-    /// ceiling is the transport's own request timeout, and nothing in the domain can see one. For the
-    /// implementor that ships this is free, because the identity provider it talks to *is* the
-    /// settings tree. For the first broker that exchanges a token it is **one authorization-server
-    /// round trip per question**, and N audience-restricted exchanges inside it for a plan reading N
-    /// sources - which is the reason the port takes the whole [`SourceSet`] in one call rather than
-    /// one call per leg.
+    /// **It is called once per ACCEPTED question, synchronously, and the PORT has no bound of its
+    /// own.** This signature enforces no cache, no pool, no per-subject reuse and no deadline: the
+    /// only ceiling the domain can see is the transport's own request timeout. For the implementor
+    /// that ships this is free, because the identity provider it talks to *is* the settings tree.
+    /// For the first broker that exchanges a token it is **one authorization-server round trip per
+    /// question**, and N audience-restricted exchanges inside it for a plan reading N sources -
+    /// which is the reason the port takes the whole [`SourceSet`] in one call rather than one call
+    /// per leg. **`docs/adr/0031` is that architecture decision, taken by exactly one implementor:**
+    /// `sutura_exec_bigquery::WorkloadIdentityBroker` now caches what it exchanged, per chain,
+    /// entirely inside its own adapter - nothing at this port changed to let it, and every other
+    /// implementor still pays the round trip described below on every call.
     ///
     /// Two things follow, and they are stated here rather than left to be discovered by whoever
     /// deploys the first exchanging broker. **One:** a question this deployment declines does not

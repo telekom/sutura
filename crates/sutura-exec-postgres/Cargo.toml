@@ -27,9 +27,17 @@ tokio-postgres = { workspace = true }
 # `rustls::ClientConfig` per connection.
 tokio-postgres-rustls = { workspace = true }
 rustls = { workspace = true }
+# Kept even though this crate's own `tls` module no longer reads the host store itself
+# (`sutura-tls` does): `PostgresError::SystemStoreRead` names `rustls_native_certs::Error` as its
+# `cause`, so the type has to be nameable here regardless of which crate calls the loader.
 rustls-native-certs = { workspace = true }
-# (This crate's `tls` module reads the anchor bundle and client identity off disk with rustls's own
-#  `PemObject` reader and builds the `ClientConfig` for [`connect_secured`] to connect with.)
+# The bundle-or-system-store read and the client-identity read, shared with a `ureq`-based outbound
+# adapter (`sutura-exec-bigquery`, `github.com/telekom/sutura#125`'s remainder) so the refusals for
+# an unreadable, empty or malformed bundle/identity are not re-derived per adapter. This crate's own
+# `tls` module folds the result into a `RootCertStore` and the `rustls::ClientConfig` for
+# [`connect_secured`] to connect with - `sutura-tls` builds neither.
+sutura-tls = { workspace = true }
+# (This crate's `tls` module builds the `ClientConfig` for [`connect_secured`] to connect with.)
 # The wire buffer a `ToSql` impl hands bytes to, and the `Sink` item a text `COPY` drives.
 bytes = { workspace = true }
 futures-util = { workspace = true }

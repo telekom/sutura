@@ -7,10 +7,14 @@
 //!
 //! Three things about this module are load-bearing rather than incidental.
 //!
-//! **No `Debug` derive, anywhere.** A raw shape holds the access token as a plain `String`, so a
-//! `{:?}` on one would print it. The redaction lives in [`sutura_domain::identity::Secret`], and
-//! the raw tree is converted into types that hold one before anything logs anything. Not deriving
-//! `Debug` is what makes that ordering impossible to get wrong: there is nothing to print.
+//! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the access token,
+//! password and key paths as plain `String`s, so a `{:?}` on it would print them; a shape that
+//! carries none of that - [`RawWorkloadIdentity`], [`RawGovernance`], [`RawSpendCeiling`] - derives
+//! `Debug` deliberately, each saying so beside the derive. The redaction lives in
+//! [`sutura_domain::identity::Secret`], and the raw tree is converted into types that hold one
+//! before anything logs anything. Not deriving `Debug` on [`RawSource`] is what makes that ordering
+//! impossible to get wrong there: there is nothing to print. **This is review discipline, not a
+//! gate** - nothing here refuses a `Debug` derive added to a secret-holding shape later.
 //!
 //! **`deny_unknown_fields` at every depth.** A misspelled key is otherwise dropped in silence and
 //! the service runs on the default the operator thought they had overridden - which is the same
@@ -211,6 +215,9 @@ pub(crate) struct RawRuntime {
 /// Per-replica, in-process resource ceilings. `docs/adr/0030` decides the shape and names the
 /// limit: `Default` (an absent section) means none of them are configured, which is today's
 /// behaviour and not a bound of zero.
+///
+/// Derives `Debug` deliberately: neither field it holds, nor `RawSpendCeiling` inside it, is a
+/// secret.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawGovernance {
@@ -229,6 +236,9 @@ pub(crate) struct RawGovernance {
     pub(crate) per_replica_spend_ceiling: Option<RawSpendCeiling>,
 }
 
+/// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.
+///
+/// Derives `Debug` deliberately: a byte count and a window are not secrets.
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawSpendCeiling {
@@ -283,6 +293,10 @@ pub(crate) struct RawSecurity {
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
     pub(crate) inbound: Option<RawInbound>,
+    /// The exchanged-credential cache - `docs/adr/0031`. Absent is the whole block off, the same
+    /// shape `tools:` uses: a deployment that never turns this on should never carry a line for it.
+    #[serde(default)]
+    pub(crate) credential_cache: RawCredentialCache,
     /// The credential that gates `/metrics` and nothing else.
     ///
     /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of
@@ -292,6 +306,25 @@ pub(crate) struct RawSecurity {
     /// treated as absent, like `access_token`.
     #[serde(default)]
     pub(crate) metrics_token: Option<String>,
+}
+
+/// `security.credential_cache` - `docs/adr/0031`. Every field optional and defaulted in
+/// `crate::identity_cache::CredentialCacheSettings::parse`, the same shape `RawRunSql` uses: an
+/// absent block is the whole capability off, and a present one with only `enabled: true` takes the
+/// documented defaults for the other two.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCredentialCache {
+    /// Off unless an operator writes `true`.
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    /// How many live entries the cache may hold. Absent takes the shipped default.
+    #[serde(default)]
+    pub(crate) capacity: Option<u64>,
+    /// The operator's own ceiling on how long an entry is served, in seconds. Absent takes the
+    /// shipped default.
+    #[serde(default)]
+    pub(crate) window_seconds: Option<u64>,
 }
 
 /// The inbound-identity declaration, as read.

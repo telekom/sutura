@@ -91,6 +91,26 @@ pub use crate::generate::{GenerateError, generate, generate_key_probe, generate_
 /// adapters, and the CLI so `sutura compile` can print a statement - already depends on this crate.
 /// So the move added an edge nowhere and made the domain smaller by exactly the part of it that was
 /// not domain.
+///
+/// **A6: a caller outside this crate cannot pair an arbitrary `sql` with an arbitrary `params`.**
+/// [`GeneratedQuery::new`] is `pub(crate)`; the only public constructor for a caller elsewhere is
+/// [`GeneratedQuery::literal`], which takes no parameters at all.
+///
+/// ```compile_fail
+/// use sutura_domain::model::SourceName;
+/// let source = SourceName::parse("local").expect("a test source is a source");
+/// // `new` is `pub(crate)`; a caller in another crate has no way to pair `sql` with `params`.
+/// let _query = sutura_sql::GeneratedQuery::new(source, String::from("SELECT ?"), Vec::new());
+/// ```
+///
+/// The compiling twin: the one constructor a caller outside this crate may reach.
+///
+/// ```
+/// use sutura_domain::model::SourceName;
+/// let source = SourceName::parse("local").expect("a test source is a source");
+/// let query = sutura_sql::GeneratedQuery::literal(source, String::from("SELECT 1"));
+/// assert!(query.params().is_empty());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct GeneratedQuery {
     source: SourceName,
@@ -99,8 +119,23 @@ pub struct GeneratedQuery {
 }
 
 impl GeneratedQuery {
-    pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self {
+    /// `pub(crate)`, deliberately: [`generate()`] is the one place that derives `sql` and `params`
+    /// together, and a `pub` constructor let any caller pair an arbitrary parameter list with
+    /// arbitrary text - A6's finding. [`Self::literal`] is the one shape a caller outside this
+    /// crate legitimately needs, and it cannot mismatch because it has no parameters to mismatch.
+    pub(crate) const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self {
         Self { source, sql, params }
+    }
+
+    /// A statement with no bind parameters, for a caller that is not this crate's own generator.
+    ///
+    /// **The one external use today is a test fixture** (`sutura-exec-duckdb`) exercising a literal
+    /// `SELECT` with nothing to bind - exactly what this constructor can build and nothing else.
+    /// The general two-list constructor stays crate-private, so no external caller can pair a
+    /// nonempty `params` with text it did not derive from them.
+    #[must_use]
+    pub const fn literal(source: SourceName, sql: String) -> Self {
+        Self::new(source, sql, Vec::new())
     }
 
     #[inline]

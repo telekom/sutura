@@ -174,6 +174,16 @@ struct ForbiddenEdge {
     why: &'static str,
     /// What to do instead. Printed, because a gate that only says "no" gets worked around.
     instead: &'static str,
+    /// Which edges the walk follows for THIS entry.
+    ///
+    /// Named per entry rather than fixed at [`Edges::Every`] for the whole table, because the two
+    /// existing rules and the newest one make genuinely different claims: `sutura-catalog-rdbms`'s
+    /// own comment argues `Edges::Every` on purpose - a test-only compile of the SQL generator is
+    /// still the thing that rule forbids. A crate whose claim is about what a SHIPPED BINARY links
+    /// (nothing dev-only ever ships) needs [`Edges::Normal`] instead, or a test-only tool with no
+    /// bearing on the claim - `rcgen`'s own `ring` feature, needed to generate self-signed test
+    /// certificates and nowhere near a shipped artifact - would keep the rule permanently red.
+    edges: Edges,
 }
 
 /// Edges that must stay absent.
@@ -197,6 +207,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
               executes plans on the engine",
         instead: "put the rendering in `sutura-sql` and depend on THAT from the SQL adapter that \
                   needs it. `sutura-exec-duckdb` and `sutura-cli` do",
+        edges: Edges::Every,
     },
     // The re-entry path, and the reason this is two entries rather than one. Nothing stops
     // somebody adding `sutura-sql` to `sutura-semantic`'s manifest to "share" a type - and that
@@ -211,6 +222,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
                   belongs to both, it belongs in `sutura-domain`, which is where `QueryPlan` and \
                   `ParamValue` already are. A type only the renderer uses belongs in `sutura-sql`, \
                   which is where `GeneratedQuery` went",
+        edges: Edges::Every,
     },
     // The same closure argument from the metadata side, and it was nearly missed: a checkpoint
     // compiled `authored_sql:` fragments at catalog load, which needs `sutura_sql::expression` and
@@ -229,6 +241,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         instead: "store the authored fragment as `sutura_domain::expression::SqlFragment` and leave \
                   it uncompiled; the adapter that declares `Warehouse::EXECUTES_AUTHORED_SQL` is the \
                   one that compiles it, beside the renderer for its own dialect",
+        edges: Edges::Every,
     },
     // The sibling catalog adapter, and the one `docs/adr/0016` names as the next candidate to mint
     // an authored computation (`metricInfo.expression`). Same class, same reason, one line.
@@ -237,6 +250,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         forbidden: "sutura-sql",
         why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+        edges: Edges::Every,
     },
     // The rule above is about the class, not the two adapters that happened to exist when it was
     // written. `sutura-catalog-rdbms` is a DEV-dependency of `sutura-app` only - `cargo tree -e
@@ -250,6 +264,36 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         forbidden: "sutura-sql",
         why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
+        edges: Edges::Every,
+    },
+    // `github.com/telekom/sutura#705` review finding 1: the crate's own doc claimed "no dependency
+    // on a crypto provider" while its manifest named `rustls` - and this workspace's `rustls` entry
+    // pins `features = ["ring", "tls12"]`, so that edge was `ring` under a different name. The
+    // sentence exists because the whole reason this crate is a THIRD crate rather than a dependency
+    // between the two adapters that need it is that it must stay usable by any future outbound
+    // adapter without dragging a TLS implementation along - `docs/adr/0010`'s `security.outbound`
+    // reuse case names a shipped `sutura-http` reader as one, and `nix/shipped.nix` bans `ring` from
+    // every published binary. A recall-held sentence is not a control; this is the control.
+    //
+    // `Edges::Normal`, not `Edges::Every`: the claim is about what a SHIPPED BINARY links, and this
+    // crate's own dev-dependency on `rcgen` (to generate self-signed certificates for its tests)
+    // reaches `ring` through `rcgen`'s own feature - measured, `cargo tree -p sutura-tls -e
+    // normal,build,dev -i ring` names exactly that edge and no other. Nothing dev-only ever ships,
+    // so `Edges::Every` here would hold a permanently-red rule over a fact this claim is not about -
+    // the same reasoning `sutura-catalog-rdbms`'s own entry gives for the opposite choice, because
+    // that rule's claim genuinely is about a test-only compile.
+    ForbiddenEdge {
+        from: "sutura-tls",
+        forbidden: "ring",
+        why: "this crate's whole reason to exist is a bundle-or-system-store READ any outbound TLS \
+              adapter can depend on without acquiring a crypto provider - a shipped reader is the \
+              reuse case `docs/adr/0010` names, and `nix/shipped.nix` refuses `ring` in every \
+              published binary",
+        instead: "read the bytes with `rustls-pki-types` (`CertificateDer`, `PrivateKeyDer`, the \
+                  `PemObject` reader) - the same types `rustls::pki_types` re-exports verbatim, so \
+                  a `rustls`-depending caller converts nothing at the seam. Building a `ClientConfig` \
+                  or a `RootCertStore` is each adapter's own job, with its own crypto provider",
+        edges: Edges::Normal,
     },
 ];
 
@@ -282,6 +326,19 @@ impl Edges {
                 .get("dep_kinds")
                 .and_then(|kinds| kinds.as_array())
                 .is_none_or(|kinds| kinds.iter().any(is_normal_kind)),
+        }
+    }
+
+    /// The `cargo tree -e` value that reproduces this same walk, for a refusal's own remedy line.
+    ///
+    /// A fixed `normal` printed for every entry (as `forbidden_edges`'s refusal used to) is wrong
+    /// for an `Edges::Every` entry whose forbidden crate is reachable only through a dev or build
+    /// edge - `sutura-tls -> ring` is exactly that shape, and `cargo tree -e normal --invert ring`
+    /// prints nothing for it while the gate correctly refuses.
+    const fn tree_flag(self) -> &'static str {
+        match self {
+            Self::Every => "normal,build,dev",
+            Self::Normal => "normal",
         }
     }
 }
@@ -572,10 +629,11 @@ fn forbidden_edges() -> Verdict {
 
     let mut failed = false;
     for edge in FORBIDDEN_EDGES {
-        // Walked per entry rather than once, because `from` differs per rule and a missing
-        // `from` has to be an error rather than a vacuous pass: a renamed crate would
-        // otherwise silently switch the rule off.
-        let tree = match transitive_names(&meta, edge.from, Edges::Every) {
+        // The count for the `ok` line is a second walk of the same tree `reaches` already took -
+        // cheap here (one gate, run once) and it keeps `reaches` itself a one-question function a
+        // fixture can call directly, rather than one that also has to hand back a count nothing
+        // else needs.
+        let tree = match transitive_names(&meta, edge.from, edge.edges) {
             Ok(names) => names,
             Err(message) => {
                 eprintln!("xtask check-boundaries: {message}");
@@ -583,7 +641,15 @@ fn forbidden_edges() -> Verdict {
                 continue;
             }
         };
-        if !tree.contains(edge.forbidden) {
+        let found = match reaches(&meta, edge) {
+            Ok(found) => found,
+            Err(message) => {
+                eprintln!("xtask check-boundaries: {message}");
+                failed = true;
+                continue;
+            }
+        };
+        if !found {
             println!(
                 "xtask check-boundaries: ok - {} does not reach {} ({} crate(s) in its tree)",
                 edge.from,
@@ -602,8 +668,10 @@ fn forbidden_edges() -> Verdict {
         eprintln!("  Do:  {}", edge.instead);
         eprintln!();
         eprintln!(
-            "  `cargo tree -p {} -e normal --invert {}` names the edge.",
-            edge.from, edge.forbidden
+            "  `cargo tree -p {} -e {} --invert {}` names the edge.",
+            edge.from,
+            edge.edges.tree_flag(),
+            edge.forbidden
         );
         eprintln!("  If the edge genuinely belongs, the entry in FORBIDDEN_EDGES is what has to");
         eprintln!("  go, and that is an architecture decision: it should be a visible diff with");
@@ -611,6 +679,19 @@ fn forbidden_edges() -> Verdict {
         eprintln!();
     }
     if failed { Verdict::Fail } else { Verdict::Pass }
+}
+
+/// Whether `edge.forbidden` is reachable from `edge.from`, over the edge kinds `edge.edges` names.
+///
+/// Factored out of [`forbidden_edges`] so a fixture can drive ONE entry's scoping directly: a
+/// `dep_kinds: [{"kind": "dev"}]` route from `from` to `forbidden` must answer `true` for an
+/// `Edges::Every` entry and `false` for an `Edges::Normal` one, which is the property the per-entry
+/// `edges` field exists to hold and which `just lint` alone does not exercise both ways - the live
+/// resolve graph only happens to make `Edges::Every` fail-visible today (`sutura-tls`'s `rcgen` dev
+/// edge to `ring`), and nothing in the graph currently makes `Edges::Normal` fail-visible at all.
+fn reaches(meta: &serde_json::Value, edge: &ForbiddenEdge) -> Result<bool, String> {
+    let tree = transitive_names(meta, edge.from, edge.edges)?;
+    Ok(tree.contains(edge.forbidden))
 }
 
 /// Which way dependencies point: nothing framework-shaped is reachable from the domain.
@@ -731,7 +812,7 @@ fn typed_surface() -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, transitive_names, violations};
+    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, ForbiddenEdge, reaches, transitive_names, violations};
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|n| String::from(*n)).collect()
@@ -807,17 +888,26 @@ mod tests {
         // The case a manifest grep misses, and the one the second entry in `FORBIDDEN_EDGES`
         // exists for: `sutura-semantic` names `sutura-sql`, `sutura-sql` names the generator, and
         // no line anywhere in the core's manifest says `polyglot-sql`.
+        // One fixture asserting over every REAL entry in `FORBIDDEN_EDGES`, so a `forbidden` name
+        // this fixture's graph does not reach is a fixture gap this test itself would name rather
+        // than an edge the walk quietly missed - it is why `sutura-tls`/`ring` are wired in here
+        // too, reachable transitively (through `tls`) rather than declared directly on `sem`, which
+        // is the whole shape this test is about.
         let meta: serde_json::Value = serde_json::from_str(
             r#"{
                 "packages": [
                     {"id": "sem", "name": "sutura-semantic"},
                     {"id": "sql", "name": "sutura-sql"},
-                    {"id": "pg", "name": "polyglot-sql"}
+                    {"id": "pg", "name": "polyglot-sql"},
+                    {"id": "tls", "name": "sutura-tls"},
+                    {"id": "ring", "name": "ring"}
                 ],
                 "resolve": {"nodes": [
-                    {"id": "sem", "deps": [{"pkg": "sql"}]},
+                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}]},
                     {"id": "sql", "deps": [{"pkg": "pg"}]},
-                    {"id": "pg", "deps": []}
+                    {"id": "pg", "deps": []},
+                    {"id": "tls", "deps": [{"pkg": "ring"}]},
+                    {"id": "ring", "deps": []}
                 ]}
             }"#,
         )
@@ -826,6 +916,53 @@ mod tests {
         for edge in FORBIDDEN_EDGES {
             assert!(tree.contains(edge.forbidden), "{} was not seen in the tree", edge.forbidden);
         }
+    }
+
+    #[test]
+    fn a_forbidden_edges_kind_scoping_is_held_by_a_fixture() {
+        // `reaches` is the per-entry question `forbidden_edges` asks, and the field it reads
+        // (`edge.edges`) had no test of its own before this one: the fixture above always walks a
+        // hardcoded `Edges::Every` from a hardcoded root, so it proves a NAME is reachable and
+        // never that one entry's OWN `edges` choice is respected. One DEV-only route from `from`
+        // to `forbidden` (the shape `boundaries::adapters`'s own fixtures build) answers both
+        // directions at once: an `Edges::Every` entry must still catch it, and an `Edges::Normal`
+        // entry - `sutura-tls`'s own claim, since its `rcgen` dev-dependency reaching `ring` is
+        // exactly the route that must NOT trip a claim about what a shipped binary links - must not.
+        let meta: serde_json::Value = serde_json::from_str(
+            r#"{
+                "packages": [
+                    {"id": "from-id", "name": "from"},
+                    {"id": "forbidden-id", "name": "forbidden"}
+                ],
+                "resolve": {"nodes": [
+                    {"id": "from-id", "deps": [{"pkg": "forbidden-id", "dep_kinds": [{"kind": "dev"}]}]},
+                    {"id": "forbidden-id", "deps": []}
+                ]}
+            }"#,
+        )
+        .expect("fixture parses");
+        let every = ForbiddenEdge {
+            from: "from",
+            forbidden: "forbidden",
+            why: "test fixture",
+            instead: "test fixture",
+            edges: Edges::Every,
+        };
+        let normal = ForbiddenEdge {
+            from: "from",
+            forbidden: "forbidden",
+            why: "test fixture",
+            instead: "test fixture",
+            edges: Edges::Normal,
+        };
+        assert!(
+            reaches(&meta, &every).expect("walk succeeds"),
+            "an Edges::Every entry must still catch a dev-only route"
+        );
+        assert!(
+            !reaches(&meta, &normal).expect("walk succeeds"),
+            "an Edges::Normal entry must not be tripped by a dev-only route"
+        );
     }
 
     #[test]

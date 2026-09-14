@@ -455,6 +455,22 @@ where
                     found.extend(failed_together(&name, here, there));
                     Reached::FailedTogether
                 }
+                // D19 + A4: the mono path's zero-denominator-fails case still leaves the driver's
+                // own "inf is not a finite number" as an `Err` - a gap this PR does not close,
+                // named rather than left for the fallback arm below to call a divergence. The
+                // federated combiner's own version of the same failure is a `RefusalReason` now,
+                // so this is the ONE shape this corpus case is allowed to reach: not agreement, and
+                // not failing together, but the federated side correctly refusing what the mono
+                // side still errors on.
+                (
+                    Err(_),
+                    Ok(ToolOutcome::Refusal {
+                        reason:
+                            RefusalReason::FederatedAnswerNotWellFormed {
+                                federated: sutura_domain::plan::FederatedAnswerRefusal::NonFinite,
+                            },
+                    }),
+                ) => Reached::FederatedRefusedWhatMonoFailed,
                 (here, there) => {
                     found.push(format!(
                         "{name} on {topology}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}"
@@ -502,8 +518,15 @@ where
         }
     }
     // Every arm of the match above, reached by something. An arm no question reaches is an arm that
-    // could be replaced by a panic and stay green.
-    for wanted in [Reached::Agreed, Reached::FailedTogether, Reached::RefusedAsUnfederatable] {
+    // could be replaced by a panic and stay green. `FailedTogether` is deliberately not in this
+    // list, for `Diverged`'s own reason below: D19 + A4 moved this corpus's one prior occupant to
+    // `FederatedRefusedWhatMonoFailed`, and the arm stays as a defensive shape for a future case
+    // that fails on both sides for an unrelated cause.
+    for wanted in [
+        Reached::Agreed,
+        Reached::RefusedAsUnfederatable,
+        Reached::FederatedRefusedWhatMonoFailed,
+    ] {
         assert!(
             reached.iter().any(|&(_, got)| got == wanted),
             "on {topology}, no two-source question reached {wanted:?}, so that arm proved nothing"
@@ -516,10 +539,24 @@ where
 enum Reached {
     /// Both topologies answered, and the answers agree in content and in order.
     Agreed,
-    /// Both topologies failed, which `zero_denominator: fails` is the one supported way to.
+    /// Both topologies failed the same way.
+    ///
+    /// **Not in the arm-coverage loop below**, for the same reason [`Self::Diverged`] is not:
+    /// `zero_denominator: fails` was the one corpus case that reached it, and D19 + A4 moved that
+    /// case to [`Self::FederatedRefusedWhatMonoFailed`] because the federated side now refuses
+    /// rather than erroring. Kept as a defensive shape for a future case that fails on both sides
+    /// for an unrelated reason, rather than folding into [`Self::Diverged`] and losing the
+    /// distinction between "both sides agree something is wrong" and "the two sides disagree".
     FailedTogether,
     /// The two-source topology refused a measure it cannot re-aggregate.
     RefusedAsUnfederatable,
+    /// D19 + A4: the federated combiner refused a non-finite ratio as
+    /// `RefusalReason::FederatedAnswerNotWellFormed` where the mono path still leaves the
+    /// driver's own `Err` for the same `zero_denominator: fails` case. Not
+    /// [`Self::FailedTogether`], because the two sides no longer fail the same way; not
+    /// [`Self::Diverged`], because this ONE divergence is the fix this PR makes rather than a
+    /// defect it would otherwise report.
+    FederatedRefusedWhatMonoFailed,
     /// The two topologies did not agree on whether there is an answer at all.
     ///
     /// Not in [`MUST_BE_REACHED`] and not in the arm-coverage loop, because on a tree where the
@@ -561,7 +598,10 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     ("two-source-a-minimum-re-taken-above-the-legs", Reached::Agreed),
     // A zero denominator in one subgroup, both ways round.
     ("two-source-a-zero-denominator-in-one-subgroup", Reached::Agreed),
-    ("two-source-a-zero-denominator-that-fails", Reached::FailedTogether),
+    (
+        "two-source-a-zero-denominator-that-fails",
+        Reached::FederatedRefusedWhatMonoFailed,
+    ),
     // A distinct value spanning join keys, which is separate feature work rather than a defect.
     (
         "two-source-a-distinct-value-spanning-join-keys",
