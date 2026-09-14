@@ -226,10 +226,9 @@ pub enum DataFusionError {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// The deadline ran out: found spent before a call, or `tokio::time::timeout` fired around the whole `rows` future -
-    /// [`Warehouse::deadline_exceeded`] names only this variant. A `SpawnedTask` aborts on `Drop`
-    /// (`datafusion-common-runtime-55.0.0/src/common.rs:108-111`), and `EnsureCooperative`
-    /// (`datafusion-physical-plan-55.0.0/src/coop.rs:65-67`) yields every non-cooperative leaf.
+    /// The deadline ran out before a call or around the whole `rows` future. Dropping that future
+    /// requests abort of spawned asynchronous tasks; `DataFusion` wraps non-cooperative plan leaves
+    /// so they yield. Already-running blocking work cannot be aborted and may outlive this error.
     #[error("the deadline ran out with a budget of {budget:?}")]
     DeadlineExceeded { budget: std::time::Duration },
 }
@@ -747,8 +746,9 @@ impl Warehouse for DataFusionWarehouse {
     // during analysis, so a plan naming a table that was never attached is an error out of
     // `execute` before a single row comes back - which is what the pre-flight was for.
 
-    /// **Stopped, not merely bounded** - `tokio::time::timeout` on a runtime built with `enable_time()`;
-    /// [`DataFusionError::DeadlineExceeded`]'s doc has the mechanism, `docs/adr/0029` the limits.
+    /// Deadline-aware at cooperative yield points: `tokio::time::timeout` on a runtime built with
+    /// `enable_time()` drops the rows future when the budget is spent. [`DataFusionError::DeadlineExceeded`]'s
+    /// doc has the mechanism, `docs/adr/0029` the limits.
     fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
         // What this leg runs as, matched exhaustively before anything is executed. There is exactly
         // one shape this adapter can honour, and the other two are a wiring defect rather than a

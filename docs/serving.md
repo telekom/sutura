@@ -452,8 +452,10 @@ follows the same rule.
 
 ## Capacity
 
-**Three numbers, and they bound three different things.** The one to read first is that none of them
-cancels a question that has started.
+**Three numbers, and they bound three different things.** None of these capacity settings itself
+cancels a question that has started. The separate per-request deadline is derived from
+`server.request_timeout_seconds`; the engine and Postgres honour it with the limits below, while
+BigQuery currently accepts and ignores it.
 
 | Key                                 | Default                        | What it bounds                                                      |
 | ----------------------------------- | ------------------------------ | ------------------------------------------------------------------- |
@@ -463,18 +465,19 @@ cancels a question that has started.
 
 ### Why a bound on execution exists at all
 
-`server.request_timeout_seconds` is a deadline on the **reply**, not on the work. When it expires the
-caller gets a `408` and the request handler is dropped - and the question keeps running, because the
-`Warehouse` port is synchronous and the task it runs on cannot be aborted. So without a bound on
-execution, a caller asking questions that cost more than the timeout gets a fast turnaround while the
-deployment keeps the whole cost, and the work accumulates at whatever rate the limiter allows. The
-only real limit was memory, and that also defeats the bounded stop below: a process cannot stop while
-it is waiting for work nobody can cancel.
+`server.request_timeout_seconds` bounds the caller's **whole wait**. The same setting, minus a
+one-second reply margin, opens the absolute deadline carried by the `Warehouse` port. The engine
+returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
+`SET LOCAL statement_timeout` after acquiring its execution lock. BigQuery does not yet honour the
+port deadline, so its work can continue after the caller receives the transport timeout. The
+concurrency bound is still necessary: it caps how much work can accumulate where cancellation is
+delayed, cooperative or absent.
 
 `max_concurrent_queries` is that bound. A question holds its slot from the moment it starts until the
-data system answers it - **not** until the caller is answered. That is the part that makes the number
-mean something: a timed-out request does not hand its slot back early, so the backlog is a number
-somebody chose rather than however much memory there is.
+port call returns - **not** merely until the caller is answered. For the engine that is after the
+timer is observed at a cooperative yield; for Postgres it is after the execution-lock wait and the
+statement stop; for BigQuery it remains when the source answers. The backlog is therefore bounded
+even when a timed-out caller cannot promptly stop the underlying work.
 
 A question that cannot get a slot inside `admission_timeout_seconds` is answered `503` with
 `code: at_capacity` and a `Retry-After` in seconds, rather than being left in a queue. `503` and not
@@ -501,28 +504,30 @@ nothing, because the deadline answers first.
 
 What differs is how each answer comes back: there is no status code on a pipe, so a shed question and
 a question whose deadline expired are both a tool result marked as an error - the first saying to ask
-again shortly, the second saying the question may still be running and to ask for less. Neither
-carries a number: the bound, the window and the deadline are the operator's own configuration, so
-they go to the log rather than into a model's context. Everything under *what it does not bound* is
-true of that surface as well, and one thing more: a peer that sends `notifications/cancelled` stops
-nothing and learns nothing until the deadline fires, because the pinned MCP SDK delivers that
-cancellation as a token the handler does not read.
+again shortly, the second saying to ask for less. A deadline refusal means the adapter reported its
+own stop; the transport timeout still cannot prove the underlying work stopped. The capacity bound
+and admission window go to the log rather than into a model's context. Everything under *what it
+does not bound* is true of that surface as well, and one thing more: a peer that sends
+`notifications/cancelled` stops nothing and learns nothing until the deadline fires, because the
+pinned MCP SDK delivers that cancellation as a token the handler does not read.
 
 ### What it does not bound
 
 Stated plainly, because each of these has been mistaken for the thing above.
 
-- **It does not cancel anything.** A question that has started runs to completion, holding its slot,
-  whatever the caller was told. Cancelling it needs a cancellation token the `Warehouse` port does
-  not have, and adding one is a change to every adapter.
-- **It does not bound how long one question takes.** One question that runs for an hour holds its
-  slot for an hour.
+- **It does not cancel anything by itself.** The per-request deadline is a separate mechanism. The
+  engine observes it at cooperative yield points and Postgres after its execution-lock wait;
+  BigQuery currently ignores it. None of those facts turns the concurrency ceiling into a
+  cancellation mechanism.
+- **It does not impose one universal duration bound.** Already-running blocking engine work may
+  outlive the rows future, Postgres's lock wait is outside its statement timeout, and BigQuery can
+  hold a slot until its source answers.
 - **It is not a per-caller budget.** One caller can fill every slot and shed everybody else. With leg 1
   configured two callers *can* now be told apart - and nothing does: there is no budget port to key on
   a principal, which is one of the four things [what is not built](#what-is-not-built) names. The
   limiter bounds an address's *rate*; this bounds the deployment's *concurrency*.
-- **It does not reach inside the engine.** The in-process engine has its own blocking thread pool at
-  the runtime default, which nothing here sizes.
+- **It does not size the engine.** The in-process engine has its own blocking thread pool at the
+  runtime default, which this concurrency setting does not reach.
 
 ### The engine's width
 
@@ -573,7 +578,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | ----------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `server.host`                                   | `127.0.0.1`                          | An IP address, never a hostname: a name resolves to whatever the resolver says today. Either family - `::1` and `[::1]` are both read. See [Address families](#address-families)                                                                                                                                                               |
 | `server.port`                                   | `8080`                               |                                                                                                                                                                                                                                                                                                                                                |
-| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. It is also what a `bigquery` job's own deadline is divided out of                                                                                                                                                     |
+| `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points, Postgres after its execution-lock wait, and BigQuery does not yet                   |
 | `server.max_body_bytes`                         | `65536`                              | At most one mebibyte. A question is a few hundred bytes                                                                                                                                                                                                                                                                                        |
 | `security.access_token`                         | absent                               | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared**                                                                                                                                                                                                   |
 | `security.metrics_token`                        | absent                               | An RFC 6750 `b64token`, at least 32 characters, gating `GET /metrics` and nothing else. Required in production and on a non-loopback bind, like the access token; equal to `security.access_token` is a refusal. See [the metrics endpoint](#the-metrics-endpoint)                                                                             |
