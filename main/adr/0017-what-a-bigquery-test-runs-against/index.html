@@ -4123,6 +4123,12 @@ deliberately not used, because a second key on one binary is the duplicate the f
 paragraph refuses. What would lift it is a settings key meaning <em>how long a QUESTION may take</em> rather
 than how long a REQUEST may - one number both roots read - and that is a settings decision rather
 than this record's.</p>
+<p><strong>Superseded by <code>docs/adr/0029</code>.</strong> <code>QueryDeadline::within_request_timeout</code> and <code>CALLS_PER_ANSWER</code> are
+deleted: a request-time job now derives <code>timeoutMs</code>/<code>jobTimeoutMs</code> from the port's own <code>Deadline</code>,
+opened once per answer and shared by every call it makes, rather than from a share of this adapter's
+own configured job bounds divided in advance. This composition root now fills <code>JobBounds</code> from
+<code>server.request_timeout_seconds</code> directly - the number this paragraph's limit measured against the
+old arithmetic no longer applies, because there is no longer an arithmetic here to measure.</p>
 <p><strong>Three more things no test observes on the command-line root</strong>, listed because a composition that is
 tested reads as a path that is exercised. <code>OpenedWith::attached</code> is <code>None</code> for a dataset and no test
 sees that value, because every one of them stops at the credential read - what it feeds is <code>mcp</code>'s

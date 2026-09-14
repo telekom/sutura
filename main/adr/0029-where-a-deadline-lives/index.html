@@ -2756,11 +2756,17 @@
 
 
 <h1 id="where-a-deadline-lives">Where a deadline lives<a class="headerlink" href="#where-a-deadline-lives" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted; the first slice landed the record, the port signature and the refusal. Postgres
-now stops the certified path on it - <code>SET LOCAL statement_timeout</code>, PR4 of <code>telekom/sutura#160</code> - and
-its own raw SQL tool path is stopped by the connect-time ceiling, since <code>Warehouse::execute_raw</code>
-carries no per-request deadline; the engine and BigQuery slices that make their own adapters honour
-it are still to follow.</strong> Four accepted
+<p>Status: <strong>accepted; the first slice landed the record, the port signature and the refusal. Two
+adapters now stop on it.</strong> Postgres stops the certified path with <code>SET LOCAL statement_timeout</code> (PR4
+of <code>telekom/sutura#160</code>); its own raw SQL tool path is stopped by the connect-time ceiling instead,
+since <code>Warehouse::execute_raw</code> carries no per-request deadline. <code>sutura-exec-bigquery</code> derives
+<code>timeoutMs</code>/<code>jobTimeoutMs</code> from the port's own <code>Deadline</code> (PR3) rather than from its own configured
+job bounds, retiring the arithmetic (<code>QueryDeadline::within_request_timeout</code>, <code>CALLS_PER_ANSWER</code>)
+that used to divide one instead - <strong>with two limits stated where the row is: the live reply shape for
+a job the service stops at <code>jobTimeoutMs</code> is documented rather than measured, and the credential
+broker's own per-subject token exchange still opens its bound from this transport's configured job
+bounds, not from the port's <code>Deadline</code>.</strong> The engine slice that makes it honour the deadline is still
+to follow. Four accepted
 records lean on this being decided - <a href="../0007-federating-across-different-data-systems/">0007</a>,
 <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a> part 4,
 <a href="../0009-the-plan-from-one-source-to-many/">0009</a>'s third decision and
@@ -2878,7 +2884,7 @@ and does not make the stop uniform, because it cannot: the interrupts are the da
 <tr>
 <td><code>sutura-exec-bigquery</code> (not shipped)</td>
 <td><code>CallDeadline</code> opened FROM the port's deadline rather than from the configured job bounds; <code>timeoutMs</code> and <code>jobTimeoutMs</code> are what is left; <code>DeadlineSpent</code> before the send when nothing is</td>
-<td><code>jobTimeoutMs</code>: the service cancels the job and stops billing. This is the strongest enforcement in the table</td>
+<td><code>jobTimeoutMs</code>: the service is asked to stop the job and stop billing. No <code>jobs.cancel</code> is sent - this is the same request field that bounds the job, not a second call - and the reply for a job actually stopped this way is unmeasured against a real endpoint</td>
 <td>The socket allowance (<code>CONNECT_MARGIN</code>) above what is left; the cancelled job's reply crossing the network inside the reply margin - when it does not, the caller sees the transport's <code>408</code> and the audit record carries the refusal</td>
 </tr>
 <tr>
@@ -2990,13 +2996,18 @@ arrives it shortens the budget the transport opens and changes nothing on the po
 </tr>
 <tr>
 <td>The engine stops at the deadline</td>
-<td>Not yet for the engine - it accepts the parameter and ignores it, same as BigQuery; Postgres is the one adapter that already stops (the row below). The engine's own slice adds a test over a streaming source that yields until a stop instant well past the budget: the call returns inside the budget plus a tolerance, the predicate answers <code>true</code>, the source's drop flag is set</td>
+<td>Not yet - it accepts the parameter and ignores it. The engine's own slice adds a test over a streaming source that yields until a stop instant well past the budget: the call returns inside the budget plus a tolerance, the predicate answers <code>true</code>, the source's drop flag is set</td>
 <td>Everything, until that slice lands: a non-yielding operator, planning, and one started blocking read stay unreached even after it does</td>
 </tr>
 <tr>
 <td>Postgres stops the certified path at the deadline</td>
 <td><code>SET LOCAL statement_timeout</code> sent before <code>dry_run</code>'s prepare and <code>execute</code>'s statement, inside a transaction this adapter opens (after its execution lock) and always rolls back; <code>57014 query_canceled</code> or a local <code>DeadlineSpent</code> is <code>deadline_exceeded</code>'s predicate. Three gate-reachable tests on the Postgres tier (<code>crates/sutura-exec-postgres/tests/deadline.rs</code>): a statement cross-joined with <code>pg_sleep</code> under a small budget returns <code>DeadlineExceeded</code> well inside it; a <code>PREPARE</code> blocked on a table another connection holds <code>ACCESS EXCLUSIVE</code> is stopped the same way, covering the <code>Prepare</code> arm; and a third cell reads <code>pg_settings.setting</code> for <code>statement_timeout</code> back through the certified path, proving the per-statement value rather than the connect-time ceiling. A hermetic cell (<code>src/tests.rs</code>) proves the clamp is structurally never zero (<code>NonZeroU32</code>) for a deadline grazing its own budget, whichever of the two internal branches actually fires</td>
 <td>The raw SQL tool's own statement: <code>Warehouse::execute_raw</code> carries no per-request deadline at all, so it is stopped only by the connect-time ceiling that pre-dates this record, never by what is left of the caller's own budget - <code>telekom/sutura#129</code>'s cancellation prerequisite is discharged for the raw tool only to that ceiling, not to the request's; this record's own contribution there is <code>deadline_exceeded</code> recognising the stop, not a new mechanism. <code>57014</code> is also what a manual <code>pg_cancel_backend</code> produces, indistinguishable to the predicate. The wait for the execution lock is itself outside the deadline - unbounded - which is what <code>DeadlineSpent</code> catches after the fact rather than the port's own pre-call check, which runs before that wait. The round trip that opens the transaction and sets the timeout is itself bounded by nothing but the socket</td>
+</tr>
+<tr>
+<td>BigQuery asks the service to stop the job at the deadline</td>
+<td><code>timeoutMs</code>/<code>jobTimeoutMs</code> derive from what the port's <code>Deadline</code> says is left, read once per call rather than from this adapter's own configured job bounds; a spent deadline refuses (<code>DeadlineSpent</code>) before the credential exchange is asked. Pinned at <code>call_body</code>, a pure function unit cells hold directly: the request body carries what is LEFT of the call after the exchange, not the configured ceiling, and a spent deadline refuses before either is built. <code>submit</code> handing <code>call_body</code> the SAME <code>call</code> the exchange was handed - rather than a fresh window - is read at the one call site, not measured: <code>HOST</code> is unreachable from a hermetic test by design, so nothing here sends a request to observe what actually reached the service. One acceptance cell runs the real composition (real wire, real credential) against a deliberately already-spent deadline and needs no network timing to be deterministic</td>
+<td><strong>The service's own reply for a job it stopped at <code>jobTimeoutMs</code> is documented, not measured against a real endpoint</strong> - <code>WireError::NotComplete</code>'s doc names the argument and the acceptance cell that could not close it without racing a real deadline against this crate's own corpus fixture size. <strong>The credential broker's own per-subject token exchange (<code>sutura-serve</code>'s <code>StsOverHttp</code>) does not read the port's <code>Deadline</code> at all</strong> - it has no such parameter on its own trait, and still opens its bound from this transport's configured job bounds, derived from the request timeout's budget rather than the port's own per-request instant</td>
 </tr>
 <tr>
 <td>Running out of time is a refusal</td>
@@ -3028,6 +3039,14 @@ arrives it shortens the budget the transport opens and changes nothing on the po
   timeout was left.</li>
 <li><strong>A cost budget is a different bound.</strong> Time and money are not interchangeable and the BigQuery
   bytes-billed ceiling stays where it is.</li>
+<li><strong>BigQuery's <code>jobTimeoutMs</code> reply shape is documented, not yet measured against a real endpoint.</strong>
+  <code>crate::wire::WireError::NotComplete</code>'s own doc names the argument for treating it as
+  <code>deadline_exceeded</code> and the acceptance cell that could not close it: a statement racing a real
+  deadline needs to reliably outrun the budget, and this crate's corpus fixture is too small to lose
+  that race without flaking against a project that bills for every attempt. What ships instead is
+  the narrower, deterministic claim - a spent port deadline refuses through the real wire and
+  credential before anything is sent - and this gap stays open until a fixture exists that is slow
+  on purpose.</li>
 </ul>
 
 

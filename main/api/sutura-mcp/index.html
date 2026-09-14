@@ -2848,10 +2848,10 @@ inventing a key of this transport's own is a decision with two arguments:</stron
 <li>A second key would be a second number for one fact - <em>how long a caller waits for a reply</em> -
   and the two transports would then be able to disagree about it while sharing one execution
   bound.</li>
-<li>The number is already load-bearing on this composition. <code>sutura</code>'s <code>mcp</code> command passes it to
-  <code>open_engine</code>, where <code>QueryDeadline::within_request_timeout</code> divides it into the deadline a
-  <code>bigquery</code> job is submitted with. So the engine on this transport already gives up against
-  this key; before this change the <em>peer</em> was the only party in that arithmetic with no
+<li>The number is already load-bearing on this composition. <code>sutura</code>'s <code>mcp</code> command opens the
+  port's own <code>Deadline</code> from it (<code>docs/adr/0029</code>), which a <code>bigquery</code> job derives
+  <code>timeoutMs</code>/<code>jobTimeoutMs</code> from directly - so the engine on this transport already gives up
+  against this key; before this change the <em>peer</em> was the only party in that arithmetic with no
   deadline at all.</li>
 </ul>
 <p>The key's name says <code>server</code> and this transport binds no listener, which is the one argument
