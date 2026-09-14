@@ -126,6 +126,11 @@ What this request's caller may do.
 
 See the module documentation for the two cases and for why the second is not a fallback.
 
+**Reads `sutura_app::Asked`, not `VerifiedCaller` directly.** `establish_asked` is the one
+place that turns a verified caller (or its absence) into the pair this function narrows - the
+same derivation the agent surface will read once it exists, rather than a second one that
+happens to agree with this one today.
+
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is
 absent, and `Permitted::without` is what applies the first without `Permitted` growing a
@@ -364,7 +369,8 @@ anybody else would.
 
 # Where the grant comes from, and the one honest hole in it
 
-`permitted_for` is the whole derivation, and it is two cases:
+`permitted_for` reads `sutura_app::Asked`, which `establish_asked` derives from whatever
+leg 1 established and is still two cases underneath:
 
 * A `crate::inbound::VerifiedCaller` in the request extensions - which only
   `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
@@ -458,6 +464,11 @@ pub fn permitted_for(request: &axum::extract::Request, run_sql_enabled: bool) ->
 What this request's caller may do.
 
 See the module documentation for the two cases and for why the second is not a fallback.
+
+**Reads `sutura_app::Asked`, not `VerifiedCaller` directly.** `establish_asked` is the one
+place that turns a verified caller (or its absence) into the pair this function narrows - the
+same derivation the agent surface will read once it exists, rather than a second one that
+happens to agree with this one today.
 
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is

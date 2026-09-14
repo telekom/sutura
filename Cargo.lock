@@ -3784,6 +3784,7 @@ version = "0.5.1"
 dependencies = [
  "insta",
  "polyglot-sql",
+ "serde_json",
  "serde_norway",
  "sutura-catalog-datahub",
  "sutura-catalog-local",

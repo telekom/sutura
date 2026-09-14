@@ -28,7 +28,8 @@
 //!
 //! # Where the grant comes from, and the one honest hole in it
 //!
-//! [`permitted_for`] is the whole derivation, and it is two cases:
+//! [`permitted_for`] reads [`sutura_app::Asked`], which [`establish_asked`] derives from whatever
+//! leg 1 established and is still two cases underneath:
 //!
 //! * A [`crate::inbound::VerifiedCaller`] in the request extensions - which only
 //!   `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
@@ -57,7 +58,7 @@ use axum::extract::{Request, State};
 use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_app::{Capability, Permitted};
+use sutura_app::{Asked, Capability, Permitted};
 
 use crate::constants::{API_V1_PREFIX, base_paths};
 use crate::inbound::VerifiedCaller;
@@ -140,6 +141,11 @@ pub fn capability_of(method: &Method, route: &str) -> Option<Capability> {
 ///
 /// See the module documentation for the two cases and for why the second is not a fallback.
 ///
+/// **Reads [`sutura_app::Asked`], not [`VerifiedCaller`] directly.** [`establish_asked`] is the one
+/// place that turns a verified caller (or its absence) into the pair this function narrows - the
+/// same derivation the agent surface will read once it exists, rather than a second one that
+/// happens to agree with this one today.
+///
 /// `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 /// deployment-level switch and a caller's own scope are two different reasons a capability is
 /// absent, and [`Permitted::without`] is what applies the first without `Permitted` growing a
@@ -147,19 +153,44 @@ pub fn capability_of(method: &Method, route: &str) -> Option<Capability> {
 /// capability this applies to; a second one gains a parameter here rather than a widened boolean.
 #[must_use]
 pub fn permitted_for(request: &Request, run_sql_enabled: bool) -> Permitted {
-    let permitted = request.extensions().get::<VerifiedCaller>().map_or_else(
-        // No verified caller: nothing established an identity, so there is no claim to narrow by.
-        Permitted::every_capability,
-        // The scopes, and nothing else. `Scopes::iter` yields what the token carried, parsed and
-        // bounded by `crate::inbound::caller`; the comparison against the capability's own scope
-        // literal happens once, in `sutura_app`, so this transport holds no copy of it.
-        |caller| Permitted::granted_by(caller.scopes().iter()),
-    );
+    let permitted = request
+        .extensions()
+        .get::<Asked>()
+        .map_or_else(Permitted::every_capability, |asked| asked.permitted().clone());
     if run_sql_enabled {
         permitted
     } else {
         permitted.without(Capability::RunSql)
     }
+}
+
+/// Derives [`sutura_app::Asked`] from whatever leg 1 established for this request, and inserts it.
+///
+/// **Total over both cases a deployment on this surface can be in, and refuses neither.** A verified
+/// caller yields its scopes; no verified caller - because `security.inbound` is not declared -
+/// yields [`Permitted::every_capability`], exactly as [`permitted_for`] answered before this existed.
+/// So installing this layer changes nothing [`permitted_for`] returns; it only gives that function,
+/// and any later transport that can read the same request extensions, ONE place the pairing of a
+/// context with a permission set comes from, instead of `crate::principal::of_verified` and
+/// [`Permitted::granted_by`] being called at call sites that happen to agree.
+///
+/// **What this does NOT do, named because a later reader will look for it:** it does not refuse a
+/// request with no established caller. That is the correct single-player answer this surface has
+/// always given on a deployment with no declared inbound identity, not an error - see the module
+/// documentation. An agent surface mounted only where an inbound identity is declared is a different
+/// deployment shape, and is where an absent value becomes a refusal, in a later change.
+pub(crate) async fn establish_asked(mut request: Request, next: Next) -> Response {
+    let (context, permitted) = request.extensions().get::<VerifiedCaller>().map_or_else(
+        || (crate::principal::established(), Permitted::every_capability()),
+        |caller| {
+            (
+                crate::principal::of_verified(caller),
+                Permitted::granted_by(caller.scopes().iter()),
+            )
+        },
+    );
+    drop(request.extensions_mut().insert(Asked::established(context, permitted)));
+    next.run(request).await
 }
 
 /// Refuses a request for a capability this caller was not granted.

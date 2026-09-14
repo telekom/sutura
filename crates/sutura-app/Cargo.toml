@@ -15,6 +15,11 @@ sutura-semantic = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+# `Asked`'s `compile_fail` doctest needs a crate to try deserializing from - the same house pattern
+# `sutura-domain::identity` and `sutura-http::inbound` pin their own no-`Deserialize` types with.
+# Dev-only: nothing in `src/` names it, so a build that never runs this doctest links no JSON crate.
+# Already resolved workspace-wide, so this is a new edge for this crate and not a new package.
+serde_json = { workspace = true }
 # Already a normal dependency above; this entry is here for one FEATURE, the way `sutura-http` asks
 # `sutura-runtime` for `test-capture`. `warehouse::agreement` is the typed comparison
 # `tests/differential.rs` makes, shared with the BigQuery acceptance leg so the two cannot diverge

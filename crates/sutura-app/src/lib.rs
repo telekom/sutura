@@ -89,6 +89,13 @@ pub mod assemble;
 // it. The module's own documentation carries the argument and the limits.
 pub mod capability;
 
+// The one value both transports read: who is asking, and what it may invoke, as the single pair a
+// verification produces. Here rather than in either transport for `capability`'s own reason - the
+// two cannot see each other - applied one step on: this is the PAIRING of that module's `Permitted`
+// with a `RequestContext`, and a pairing owned by one transport is a pairing the other has to reach
+// through it.
+pub mod asked;
+
 // Asking every open data system whether it holds the tables the bundle names, once, for both
 // composition roots that ask it - and comparing the bundle being served against what was actually
 // attached behind it. Here for `warehouses`' reason applied one step on: the DECISION is
@@ -108,6 +115,7 @@ pub mod spend;
 
 mod proof;
 
+pub use crate::asked::Asked;
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 use crate::spend::Charge;
