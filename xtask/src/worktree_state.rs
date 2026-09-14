@@ -117,8 +117,20 @@ use crate::{Verdict, repo};
 /// reading a number. **That is the point of the anchor - not a better floor, but the count ceasing
 /// to be the control.**
 ///
-/// The pattern is `crate::causality::isolation::Isolated` and `crate::conformance::Reconciled`, for
-/// the same reason: an invariant a caller has to remember is one the compiler is not holding.
+/// # A THIRD law, `github.com/telekom/sutura#689`, at the level the other two cannot see either
+///
+/// `crate::repo::census::Census::inspect` holds *"did the walk offer this file at all"* - but the
+/// closure it hands the bytes to is still this module's own code, and this module still keeps a
+/// `Vec<String>` of the files it read, pushed to on the closure's happy path. Nothing compared that
+/// count to the census's own: an early `return` inside the closure ahead of the push - a redundant
+/// re-check of `scope`, say, or any future line above it - drops the file from `read` while
+/// `Census::inspect` still counts it `judged`, because that count is incremented AFTER the closure
+/// returns and does not look inside it. Measured: `ok - inspected 117 of 117 taking(s) ... over
+/// 552 file(s)` beside `discovery: 553 of 1449 subject(s) judged` - the two adjacent lines already
+/// disagree, and nothing read them together. [`Inspected::of`] now does: `read.len() ==
+/// census_judged` is a precondition, comparing a count the CLOSURE keeps against a count
+/// `Census::inspect` keeps independently of the closure, taken off different sources the way
+/// `sutura/gates` asks for.
 #[derive(Debug)]
 struct Inspected {
     /// Files the loop read. Kept for the anchor check and the verdict line; the file-level
@@ -149,8 +161,16 @@ impl Inspected {
     /// the loop lives inside `inspect`, so `.take(n)` has nowhere to be written, and an
     /// unreachable subject from the walk itself is a refusal rather than a silent `continue`.
     /// Restating it here would be a second derivation of a weaker claim.
+    ///
+    /// **`census_judged` adds the law that level did not reach, `github.com/telekom/sutura#689`.**
+    /// `read` is this module's OWN tally, pushed to inside the closure `Census::inspect` calls;
+    /// `census_judged` is `Census::inspect`'s own count, incremented after the closure returns
+    /// and blind to what happened inside it. An early `return` ahead of the push moves the first
+    /// and not the second - two numbers from two sources, which is what makes the comparison
+    /// worth having rather than a tautology restating one loop's own report of itself.
     fn of(
         read: &[String],
+        census_judged: usize,
         lines: (usize, usize),
         discovered: usize,
         adjudicated: Vec<(Taking, Keyed)>,
@@ -158,6 +178,13 @@ impl Inspected {
         instructed_offered: usize,
     ) -> Result<Self, String> {
         let read_files = read.len();
+        if read_files != census_judged {
+            return Err(format!(
+                "this walk recorded {read_files} file(s) of its own and the census independently \
+                 judged {census_judged}. A closure that returns before recording a file is invisible \
+                 to every count derived from its own loop, and the census's count does not move with it"
+            ));
+        }
         // THE LINE LAW, over how much of each file the lexer reached. `telekom/sutura#414`
         // measured a truncated extraction leaving the file law and every anchor satisfied,
         // because both take their numbers from the same lexer and an anchor asserts a file was
@@ -414,7 +441,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     }
 
-    let inspected = match Inspected::of(&read, lines, offered, adjudicated, instructed, instructed_offered) {
+    let inspected = match Inspected::of(
+        &read,
+        counted.judged(),
+        lines,
+        offered,
+        adjudicated,
+        instructed,
+        instructed_offered,
+    ) {
         Ok(witness) => witness,
         Err(why) => {
             eprintln!("xtask check-worktree-state: FAILED - {why}");
@@ -547,6 +582,19 @@ mod tests {
     }
 
     #[test]
+    fn the_witness_refuses_a_scan_whose_own_tally_is_short_of_the_census() {
+        // `telekom/sutura#689`: the walk read one fewer file than the census independently judged
+        // - the shape an early `return` inside the closure produces, ahead of the push onto `read`.
+        // Reproduced live: `ok - inspected 117 of 117 taking(s) ... over 552 file(s)` beside
+        // `discovery: 553 of 1449 subject(s) judged`, both at exit 0, before this law existed.
+        let short: Vec<String> = anchors().into_iter().skip(1).collect();
+        let one = vec![(taking(1), Keyed::Process)];
+        let refused = Inspected::of(&short, anchors().len(), (9, 9), 1, one, Vec::new(), 0)
+            .expect_err("a walk short of the census's own count must not mint a witness");
+        assert!(refused.contains("independently judged"), "{refused}");
+    }
+
+    #[test]
     fn the_witness_refuses_a_verdict_over_a_subset() {
         // PROPERTY 3 OF `telekom/sutura#405`, held by the constructor rather than by the loop: a
         // count in a message is not a witness, and this repository has measured four gates
@@ -555,7 +603,7 @@ mod tests {
         // type rather than a sentence beside it.
         let one = vec![(taking(1), Keyed::Process)];
         assert!(
-            Inspected::of(&anchors(), (9, 9), 2, one, Vec::new(), 0).is_err(),
+            Inspected::of(&anchors(), anchors().len(), (9, 9), 2, one, Vec::new(), 0).is_err(),
             "a subset must not mint a witness"
         );
     }
@@ -567,7 +615,7 @@ mod tests {
         // OPENED rather than read in full. Measured on a sibling: 40 of 67 takings unread at exit 0
         // with every floor satisfied.
         let one = vec![(taking(1), Keyed::Process)];
-        let refused = Inspected::of(&anchors(), (115_088, 624), 1, one, Vec::new(), 0)
+        let refused = Inspected::of(&anchors(), anchors().len(), (115_088, 624), 1, one, Vec::new(), 0)
             .expect_err("a partially lexed tree must not mint a witness");
         assert!(
             refused.contains("part \nof a file") || refused.contains("part of a file"),
@@ -578,7 +626,8 @@ mod tests {
     #[test]
     fn the_witness_prints_the_numbers_its_scan_reached() {
         let two = vec![(taking(1), Keyed::Process), (taking(9), Keyed::Worktree)];
-        let witness = Inspected::of(&anchors(), (9, 9), 2, two, Vec::new(), 0).expect("two offered, two adjudicated");
+        let witness =
+            Inspected::of(&anchors(), anchors().len(), (9, 9), 2, two, Vec::new(), 0).expect("two offered, two adjudicated");
         assert_eq!(witness.discovered(), 2);
         assert_eq!(witness.inspected(), 2);
         assert_eq!(witness.files(), anchors().len());
@@ -593,7 +642,8 @@ mod tests {
             (taking(4), Keyed::Unwritten),
             (taking(7), Keyed::Shared),
         ];
-        let witness = Inspected::of(&anchors(), (9, 9), 3, mixed, Vec::new(), 0).expect("three offered, three adjudicated");
+        let witness = Inspected::of(&anchors(), anchors().len(), (9, 9), 3, mixed, Vec::new(), 0)
+            .expect("three offered, three adjudicated");
         let shared = witness.shared();
         assert_eq!(shared.len(), 2);
         assert_eq!(shared.iter().map(|t| t.line).collect::<Vec<usize>>(), vec![1, 7]);
@@ -610,7 +660,7 @@ mod tests {
         // number.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(&short, (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
+        let witness = Inspected::of(&short, short.len(), (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
         assert_eq!(witness.missed(), [scan::MUST_READ[0]]);
         assert_eq!(super::decide(&witness), super::Decision::MissedAnchors);
     }
@@ -625,7 +675,7 @@ mod tests {
         // file and its line. `telekom/sutura#405`'s property 4 is exactly that distinction.
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let shared = vec![(taking(2), Keyed::Shared)];
-        let witness = Inspected::of(&short, (9, 9), 1, shared, Vec::new(), 0).expect("the counts agree");
+        let witness = Inspected::of(&short, short.len(), (9, 9), 1, shared, Vec::new(), 0).expect("the counts agree");
         assert!(!witness.missed().is_empty(), "the fixture must also miss an anchor");
         assert_eq!(super::decide(&witness), super::Decision::Violations);
     }
@@ -635,7 +685,7 @@ mod tests {
         // THE ARM GOING QUIET, which is the one thing a rule printing no count cannot show in its
         // verdict: delete the `extend` in `run` and every other number still agrees with itself.
         let one = vec![(taking(1), Keyed::Process)];
-        let why = Inspected::of(&anchors(), (9, 9), 1, one, Vec::new(), 1)
+        let why = Inspected::of(&anchors(), anchors().len(), (9, 9), 1, one, Vec::new(), 1)
             .expect_err("one instruction offered and none carried must not mint a witness");
         assert!(why.contains("repository-global git ref"), "{why}");
     }
@@ -648,7 +698,7 @@ mod tests {
         // the refusal leaves `dead_code` quiet and every suite green.
         let one = vec![(taking(1), Keyed::Process)];
         let instructed = vec![(String::from("crates/sutura-sql/tests/adversarial_findings.rs"), 245)];
-        let witness = Inspected::of(&anchors(), (9, 9), 1, one, instructed, 1).expect("the counts agree");
+        let witness = Inspected::of(&anchors(), anchors().len(), (9, 9), 1, one, instructed, 1).expect("the counts agree");
         assert!(witness.missed().is_empty(), "no anchor was missed");
         assert!(witness.shared().is_empty(), "no filesystem path is shared in this fixture");
         assert_eq!(super::decide(&witness), super::Decision::Instructions);
@@ -659,7 +709,7 @@ mod tests {
         let short: Vec<String> = anchors().into_iter().skip(1).collect();
         let shared = vec![(taking(2), Keyed::Shared)];
         let instructed = vec![(String::from("dev/src/scope.rs"), 1)];
-        let witness = Inspected::of(&short, (9, 9), 1, shared, instructed, 1).expect("the counts agree");
+        let witness = Inspected::of(&short, short.len(), (9, 9), 1, shared, instructed, 1).expect("the counts agree");
         assert!(!witness.missed().is_empty(), "the fixture also misses an anchor");
         assert!(!witness.instructed().is_empty(), "and also instructs the operation");
         assert_eq!(super::decide(&witness), super::Decision::Violations);
@@ -668,7 +718,7 @@ mod tests {
     #[test]
     fn a_clean_scan_that_read_every_anchor_is_the_only_pass() {
         let one = vec![(taking(1), Keyed::Process)];
-        let witness = Inspected::of(&anchors(), (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
+        let witness = Inspected::of(&anchors(), anchors().len(), (9, 9), 1, one, Vec::new(), 0).expect("the counts agree");
         assert!(witness.missed().is_empty(), "no takings were missed");
         assert_eq!(super::decide(&witness), super::Decision::Clean);
     }
@@ -782,7 +832,16 @@ mod tests {
         // would still be a hole, so this walks the whole set and asserts each one lands somewhere
         // a reader sees: either in the violation list or in the holder breakdown.
         for keyed in [Keyed::Worktree, Keyed::Process, Keyed::Unwritten, Keyed::Shared] {
-            let witness = Inspected::of(&anchors(), (9, 9), 1, vec![(taking(1), keyed)], Vec::new(), 0).expect("one and one");
+            let witness = Inspected::of(
+                &anchors(),
+                anchors().len(),
+                (9, 9),
+                1,
+                vec![(taking(1), keyed)],
+                Vec::new(),
+                0,
+            )
+            .expect("one and one");
             assert_eq!(
                 witness.shared().len(),
                 usize::from(keyed.is_shared()),
