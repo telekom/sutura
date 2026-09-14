@@ -416,6 +416,15 @@ pub(crate) fn report_base(
             Verdict::Fail
         }
         BaseOutcome::NotRun => {
+            if retried {
+                println!("xtask test-causality: INCONCLUSIVE - the coherent base tree ran none of the added tests");
+                println!("The first reconstruction could not compile while implementation files were held at HEAD;");
+                println!("after restoring those files, the scoped filter matched no base-side tests. This is a");
+                println!("structural limitation of a change whose implementation and measurement target are new,");
+                println!("not evidence that the tests pass against the old behavior.");
+                println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
+                return Verdict::Inconclusive;
+            }
             eprintln!("xtask test-causality: FAILED - the tests this diff added did not run on base");
             eprintln!("{}", tail(output, 8));
             eprintln!();
@@ -924,6 +933,10 @@ mod tests {
         );
         assert_eq!(reported(&BaseOutcome::Green, "ok", false, &six), Verdict::Fail);
         assert_eq!(reported(&BaseOutcome::NotRun, "no tests to run", false, &six), Verdict::Fail);
+        assert_eq!(
+            reported(&BaseOutcome::NotRun, "no tests to run", true, &six),
+            Verdict::Inconclusive
+        );
         assert_eq!(
             reported(
                 &BaseOutcome::RedOutsideTheDiff {

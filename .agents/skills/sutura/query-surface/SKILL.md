@@ -143,14 +143,19 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   time column, grains, required filters, dimensions with their allowlists, anchor and prose -
   certified over the domain's closed vocabularies, with `deny_unknown_fields` at every depth,
   including inside an anchor's range, which is where *every depth* was one depth short until the
-  attribute reached `calendar::TimeRangeInput`. `docs/adr/0016`'s amendment and its 2026-09-04
-  revision are the record. **The two halves that do not exist:** a real `AspectReader` over
-  DataHub's versioned OpenAPI v3 entity surface - the only implementor outside a test is the recorded
-  fixture source, so no library code shapes a request or maps a response - and a composition root,
-  because
-  `sutura-serve` refuses `catalog.kind: datahub` by name and the crate's only dependant is
-  `sutura-app`, as a dev-dependency. **Do not read the declaration as availability:** what is proved
-  is that the adapter decides correctly against a fake reader.
+  attribute reached `calendar::TimeRangeInput`. `docs/adr/0016`'s amendment and its 2026-09-04 and
+  2026-09-14 revisions are the record. **One half now exists and one still does not.** A real
+  `AspectReader` does: `sutura_catalog_datahub::http::HttpAspectReader`, behind the crate's
+  default-off `http` feature - three paged `OpenAPI` v3 reads into one `Snapshot`, only the `metric`
+  mapping measured against a live instance, the `dataset`/`semanticModel` mappings read from this
+  record's own schema table and refusing an unexpected shape by name rather than guessing (the
+  reader's own module header carries that limit). **What still does not exist is a composition
+  root:** `sutura-serve` refuses `catalog.kind: datahub` by name and the crate's only dependant is
+  `sutura-app`, as a dev-dependency - the reader is reachable from no binary. **Do not read the
+  reader's existence as availability, and do not read the declaration as availability either:** what
+  is proved is that the adapter decides correctly against a fake reader, and that the new reader maps
+  the wire correctly against a real local server over the fixture's own corpus - not that any
+  deployment can point at a `DataHub` instance today.
 - **The provisioned DataHub tier proves the VENUE and the PLATFORM's half, and not a read path.**
   `just dev-up-datahub` stands up DataHub 1.7.0 behind a compose profile - upstream's own
   `quickstart-backend` selection minus its actions container - and `just datahub-acceptance` gets a

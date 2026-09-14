@@ -97,6 +97,7 @@ use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, RowSet, Warehouse};
 use sutura_sql::generate::generate;
@@ -319,6 +320,19 @@ where
             default_dataset,
             transport,
         }
+    }
+
+    /// Whether an accepted pre-flight's own estimate agrees with what [`Warehouse::PRICES_DRY_RUN`]
+    /// declares.
+    ///
+    /// **The same comparison `sutura_conformance::execute`'s pack makes** over the three adapters
+    /// `execute_packs!` binds - none of which is this one (`telekom/sutura#710`) - named here so it
+    /// can be checked against this adapter's own dry-run path without that binding. A live
+    /// endpoint's own guarantee that it always prices one is still unverified; this only compares
+    /// what an already-answered pre-flight carried against the declaration.
+    #[must_use]
+    pub const fn dry_run_estimate_agrees_with_its_declaration(estimated_bytes: Option<EstimatedBytes>) -> bool {
+        estimated_bytes.is_some() == <Self as Warehouse>::PRICES_DRY_RUN
     }
 
     /// Whether this leg's credential agrees with how the source was declared.

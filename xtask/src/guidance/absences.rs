@@ -194,7 +194,7 @@ const ABSENCES: &[Absence] = &[
         // is told not to alert on the reading - so a consumer landing without the record moving is
         // the instruction going stale.
         name: "no gauge reads the `DataFusion` pool",
-        claimed: &["a gauge whose absence it currently specifies"],
+        claimed: &["No production gauge reads the `DataFusion` pool"],
         stated_in: &["crates/sutura-exec-datafusion/src/**/*.rs"],
         refuted_by: &[Sighting {
             over: &["crates/*/src/**/*.rs"],

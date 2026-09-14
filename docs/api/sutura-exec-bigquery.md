@@ -218,6 +218,19 @@ statement is rendered from a name that parsed, and *no arbitrary SQL entry point
 Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
 
 ```rust
+pub const fn dry_run_estimate_agrees_with_its_declaration(estimated_bytes: Option<EstimatedBytes>) -> bool
+```
+
+Whether an accepted pre-flight's own estimate agrees with what `Warehouse::PRICES_DRY_RUN`
+declares.
+
+**The same comparison `sutura_conformance::execute`'s pack makes** over the three adapters
+`execute_packs!` binds - none of which is this one (`telekom/sutura#710`) - named here so it
+can be checked against this adapter's own dry-run path without that binding. A live
+endpoint's own guarantee that it always prices one is still unverified; this only compares
+what an already-answered pre-flight carried against the declaration.
+
+```rust
 pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
 ```
 

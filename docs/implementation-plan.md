@@ -585,9 +585,10 @@ megabytes and its answer is twelve rows. Bytes are the bound; the answer keeps i
 `RuntimeEnv` is constructed anywhere, so DataFusion installs its unbounded one, which under
 `panic = "abort"` makes a large enough join process death for every concurrent caller rather than an
 error for the one who asked. So this step builds: a byte newtype for the ceiling; a `RuntimeEnvBuilder`
-at both `SessionContext` construction sites, without disturbing `with_target_partitions`; the
-`Arc<dyn MemoryPool>` retained on the warehouse behind an accessor, since its fields are private and its
-hand-written `Debug` exposes only the source; **fail-immediately rather than spill**, per 0009 Decision
+at every `SessionContext` construction site, without disturbing `with_target_partitions`; an opaque
+bounded environment which cannot be replaced with DataFusion's unbounded default, while the ordinary
+warehouse exposes no live pool accessor and its hand-written `Debug` exposes only the source;
+**fail-immediately rather than spill**, per 0009 Decision
 3; and a new `RefusalReason`, because exhaustion currently leaves as `503 unavailable` and is therefore
 indistinguishable from a dead data system - a caller told to retry against a bound that will fire again.
 `ResourcesExhausted` appears nowhere in the workspace today. `sutura_http::wire::refusal`'s
@@ -603,11 +604,20 @@ raised and carries a status. **The same two sentences stand in
 *Verified*, and are corrected there** - which is the whole reason this copy is worth correcting
 rather than leaving: a reader who stops at that word never reaches either note.
 
+**Corrected again:** the planned production accessor was withdrawn before it shipped. Every session
+now consumes a private-field `pool::Bounded` minted around the configured greedy ceiling, and the
+default-off measurement feature keeps its own recorder only in fresh test children. This preserves
+the bound without exposing a live question-shaped reading as production API.
+
 **Adds.** Two newtypes with **provisional** defaults - **1 GB working set, three-minute deadline**.
 Provisional is the operative word: nobody has measured them, so this step measures them on the corpus
 and the numbers in the record are a starting point rather than a finding. Two refusal variants, each
 provokable. The ceiling is checked against the memory the process actually has at boot and refuses to
 start above it, because `panic = "abort"` makes an over-configured ceiling process death by default.
+
+**Measured, with the limit retained:** ADR 0009 now records the working-set harness, hardware and
+small-corpus envelope. The pool cannot see driver buffering, collected batches or domain-row
+conversion, so the 1 GiB default remains provisional; the deadline half is still unmeasured.
 
 **Which value is global and which is per source is DECIDED, and it is not the same answer for both** -
 0009's Decision 3 settles it, because "global with per-source overrides" has an obvious hole the moment

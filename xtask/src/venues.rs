@@ -18,6 +18,11 @@
 //!   `mod verdicts`, beside the code, and its header carries why each exists and the limit each
 //!   does not reach: `unrun` expires when CI reaches a venue, `wired` is refused until it does,
 //!   and a citable verdict needs an invocation that CI runs AND that runs tests.
+//! * **A `yes` cell over an on-demand venue has to say a run was observed, in its own section, and
+//!   may not still say `unrun` or `wired` there.** `unrun` and `wired` tie their word to the
+//!   section that carries them; `yes` had no equivalent tie, so a cell could move off either state
+//!   in one edit while the section stayed put. [`verdicts::yes_problems`] is the tie and its own
+//!   header carries the limit: this reads a WORD, never that a named run is real.
 //! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
 //!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
 //! * **A venue nothing runs claims nothing**, and a venue that IS reached and answers no claim is
@@ -48,8 +53,6 @@
 //! the same reason `nix eval` is unreachable from `check-workflows`. So the rule is one-sided by
 //! construction, and the side it holds is the one that fails silently.
 
-use std::collections::BTreeSet;
-
 use crate::Verdict;
 use crate::repo;
 
@@ -70,22 +73,15 @@ mod environment;
 // 1000-line gate is what forced it here too: every `#[test]` stayed, only the parsing moved.
 mod page;
 
-use page::{NOT_BUILT, STRUCTURAL, VERDICTS, cited_tests, claims, key, venues, verdict};
+use page::cited_tests;
 
-// What the TREE holds - which tests exist, and which tasks CI really runs - as against what the
-// page says about it. The third side of the seam `mod page;` opens, and the 1000-line gate is what
-// forced it: every `#[test]` stayed here, only the readers moved.
 // What a venues ROW must HOLD before a verdict rule may read one. Split out when this file
 // reached the 1000-line gate a third time; every `#[test]` stayed here.
 mod rows;
 
-use rows::row_problems;
-
 // What a VERDICT has to be consistent with, once a row can be judged at all. The fourth seam, and
 // the 1000-line gate forced this one too; every `#[test]` stayed here.
 mod verdicts;
-
-use verdicts::{anchor_problems, transition_problems};
 
 mod sources;
 
@@ -96,189 +92,15 @@ use sources::{invoked, test_names, test_tasks};
 // and held that the column's words are substrings of the name, and an empty column named anything.
 mod pairing;
 
+// Everything wrong with the page, read against the tree - the fifth seam, and the 1000-line gate
+// forced this one too. `page`, `rows`, `verdicts` and `sources` each say what a PART of the page
+// must hold; this is where those answers are spent. Every `#[test]` stayed here.
+mod problems;
+
+use problems::page_problems;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
-
-/// Everything wrong with the page.
-fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String>, runs_tests: &BTreeSet<String>) -> Vec<String> {
-    let listed = match venues(text) {
-        Ok(listed) => listed,
-        Err(problem) => return vec![problem],
-    };
-    if listed.len() < 3 {
-        return vec![format!(
-            "{PAGE} lists {} venue(s); a map that small would pass anything",
-            listed.len()
-        )];
-    }
-
-    let (header, claims) = match claims(text) {
-        Ok(read) => read,
-        Err(problem) => return vec![problem],
-    };
-    let columns: Vec<&String> = header.iter().skip(1).collect();
-    let mut problems = Vec::new();
-
-    if columns.len() != listed.len() {
-        problems.push(format!(
-            "{PAGE}: {} venue(s) in the venues table and {} column(s) in the claims matrix - a \
-             venue with no column states no limit, and a column with no row is a venue nothing \
-             describes",
-            listed.len(),
-            columns.len()
-        ));
-        return problems;
-    }
-
-    problems.extend(pairing::problems(&listed, &columns));
-
-    if claims.len() < 5 {
-        problems.push(format!(
-            "{PAGE}: the claims matrix has {} claim(s) - a matrix that small is not the map",
-            claims.len()
-        ));
-    }
-
-    // `claimed` is *does this row have a reason to be in the table*, which `yes`, `can` and
-    // `unrun` all earn - a written test is a reason for a row, and is not evidence. **What is NOT
-    // held here, said plainly: *may this venue be CITED for that claim*, which only `yes` and
-    // `can` earn.** That distinction is carried by [`VERDICTS`]'s own documentation and by the
-    // `unrun` arm below refusing a venue nothing reaches; a set of citable venues collected here
-    // would have been read by nothing, which `clippy::collection_is_never_read` said out loud.
-    let mut claimed: BTreeSet<&str> = BTreeSet::new();
-    // The venues that state a verdict only something RUNNING them may state - `yes` and `can`
-    // because they are the two citable ones, `wired` because it asserts a job reaches this venue.
-    // `unrun` is excluded by its own rule, which refuses a venue CI invokes at all.
-    let mut citable: BTreeSet<&str> = BTreeSet::new();
-    let mut unrun: BTreeSet<&str> = BTreeSet::new();
-    let mut wired: BTreeSet<&str> = BTreeSet::new();
-    for row in &claims {
-        let claim = row.first().map_or("", String::as_str);
-        if row.len() != listed.len().saturating_add(1) {
-            problems.push(format!(
-                "{PAGE}: the claim `{claim}` has {} cell(s) for {} venue(s) - a missing cell is a \
-                 venue whose limit for that claim is unstated",
-                row.len().saturating_sub(1),
-                listed.len()
-            ));
-            continue;
-        }
-        for (venue, cell) in listed.iter().zip(row.iter().skip(1)) {
-            match verdict(cell) {
-                None => problems.push(format!(
-                    "{PAGE}: `{}` says `{cell}` about `{claim}`, which is not one of {VERDICTS:?}. \
-                     A cell is where a venue states its limit for one claim, so a sentence there \
-                     is a limit nothing can read",
-                    venue.name
-                )),
-                Some(word @ ("yes" | "can")) => {
-                    claimed.insert(venue.name.as_str());
-                    citable.insert(venue.name.as_str());
-                    if !venue.is_built() {
-                        problems.push(format!(
-                            "{PAGE}: `{}` is `{NOT_BUILT}` and claims `{word}` about `{claim}` - a \
-                             venue nothing runs cannot be cited for anything, which is the \
-                             overstatement this page exists to prevent",
-                            venue.name
-                        ));
-                    }
-                    // **The second half of that same guard, and it was missing.** `is_built` reads
-                    // ONE cell, so a venue gained the right to be cited the moment its `Reached by`
-                    // named a task - even while its own `Where it runs` still said it runs nowhere.
-                    // Measured: with the exchange venue in that state, the row carrying leg 2 could
-                    // be edited from `only here` to `yes` and `check-venues` exited 0. A venue that
-                    // runs nowhere may have a written test, which is what `unrun` is for; it may
-                    // not be evidence for anything.
-                    else if venue.runs_nowhere() {
-                        problems.push(format!(
-                            "{PAGE}: `{}` claims `{word}` about `{claim}` while its own `Where it \
-                             runs` cell says `{}` - a venue that runs nowhere cannot be cited, \
-                             whatever its `Reached by` names. A written test that nothing can point \
-                             at is `unrun`",
-                            venue.name, venue.runs
-                        ));
-                    }
-                }
-                // The two un-citable verdicts, which differ only in whether CI has reached the
-                // venue yet - so they earn a row for exactly the same reason and are refused for a
-                // venue nothing runs for exactly the same reason. `transition_problems` is where
-                // they part.
-                Some(word @ ("unrun" | "wired")) => {
-                    claimed.insert(venue.name.as_str());
-                    if word == "unrun" {
-                        unrun.insert(venue.name.as_str());
-                    } else {
-                        wired.insert(venue.name.as_str());
-                        citable.insert(venue.name.as_str());
-                    }
-                    if !venue.is_built() {
-                        problems.push(format!(
-                            "{PAGE}: `{}` is `{NOT_BUILT}` and says `{word}` about `{claim}` - \
-                             `{word}` is a test that EXISTS and has not been run, so a venue \
-                             nothing reaches cannot be in that state: either something reaches it \
-                             and the `Reached by` cell should say so, or the cell is `-`",
-                            venue.name
-                        ));
-                    }
-                }
-                Some(_) => {}
-            }
-        }
-    }
-
-    for venue in listed.iter().filter(|venue| venue.is_built()) {
-        if !claimed.contains(venue.name.as_str()) {
-            problems.push(format!(
-                "{PAGE}: `{}` is reached by `{}` and claims nothing in the matrix - not one `yes`, \
-                 `can`, `unrun` or `wired`. Either it answers a claim and the column does not say \
-                 so, a test is written for it and the cell should say `unrun` (or `wired`, once a \
-                 job reaches it), or the row has no reason to be there",
-                venue.name, venue.reached
-            ));
-        }
-    }
-
-    let sections: BTreeSet<String> = text
-        .lines()
-        .filter_map(|line| line.strip_prefix("## "))
-        .map(|heading| heading.trim().to_owned())
-        .collect();
-    let expected: BTreeSet<String> = listed.iter().map(|venue| key(&venue.name)).collect();
-    for venue in &listed {
-        if !sections.iter().any(|heading| key(heading) == key(&venue.name)) {
-            problems.push(format!(
-                "{PAGE}: `{}` has no `##` section - a venue states what it cannot answer in its \
-                 own section, and a row with no section states nothing",
-                venue.name
-            ));
-        }
-    }
-    for heading in &sections {
-        if !expected.contains(&key(heading)) && !STRUCTURAL.contains(&heading.as_str()) {
-            problems.push(format!(
-                "{PAGE}: the section `{heading}` is neither a venue in the table nor one of \
-                 {STRUCTURAL:?} - a venue described in a section and absent from the table is a \
-                 venue with no limit"
-            ));
-        }
-    }
-
-    problems.extend(row_problems(&listed));
-    problems.extend(transition_problems(text, &listed, &unrun, &wired, invoked));
-    problems.extend(anchor_problems(&listed, &citable, invoked, runs_tests));
-
-    for name in cited_tests(text) {
-        if !tests.contains(&name) {
-            problems.push(format!(
-                "{PAGE} cites `{name}`, which is no test in this workspace - the names on this \
-                 page are what a claim is checked against, so a renamed test leaves a citation of \
-                 nothing"
-            ));
-        }
-    }
-
-    problems
-}
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Venues)) {
@@ -360,8 +182,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::BTreeSet;
 
+    use super::page::{VERDICTS, verdict};
     use super::sources::{cited_invocations, invocation, starts_a_command};
-    use super::{PAGE, VERDICTS, page_problems, verdict};
+    use super::{PAGE, page_problems};
 
     /// A page with two venues too few is refused, so the fixtures below carry three.
     const MAP: &str = "\
@@ -389,7 +212,7 @@ mod tests {
 
 ## A real dataset under a shared key
 
-Nothing about who asked.
+Nothing about who asked, and the leg's run was observed on 2026-01-01 against the fixture project.
 
 ## A real token exchange
 
@@ -474,7 +297,7 @@ Not built.
             "| A statement is accepted | no | **unrun** | - |",
         )
         .replace(
-            "## A real dataset under a shared key\n\nNothing about who asked.\n",
+            "## A real dataset under a shared key\n\nNothing about who asked, and the leg's run was observed on 2026-01-01 against the fixture project.\n",
             "## A real dataset under a shared key\n\nNothing about who asked, and the leg is unrun.\n",
         )
     }
@@ -550,7 +373,7 @@ Not built.
             "| A statement is accepted | no | **wired** | - |",
         )
         .replace(
-            "## A real dataset under a shared key\n\nNothing about who asked.\n",
+            "## A real dataset under a shared key\n\nNothing about who asked, and the leg's run was observed on 2026-01-01 against the fixture project.\n",
             "## A real dataset under a shared key\n\nNothing about who asked, and the leg is wired and unseen.\n",
         )
     }
@@ -612,6 +435,87 @@ Not built.
         // which is the state this verdict exists to name.
         let found = problems_with_ci(&map_with_a_wired_cell(), &["bigquery-acceptance"]);
         assert!(!found.iter().any(|p| p.contains("claims nothing in the matrix")), "{found:?}");
+    }
+
+    #[test]
+    fn a_yes_cell_over_an_on_demand_venue_whose_section_never_says_a_run_was_observed_fails() {
+        // RED WHEN WRITTEN: `unrun` and `wired` each tie their word to their venue's own section,
+        // and `yes` had no equivalent tie at all - a `yes` cell over the shared-key venue passed
+        // whatever its section said, or did not say. The fixture's own `yes` cell only passes
+        // because [`MAP`]'s section says the leg's run was `observed`; strip that and the on-demand
+        // venue's `yes` has nothing beside it naming a run.
+        let unobserved = MAP.replace(
+            ", and the leg's run was observed on 2026-01-01 against the fixture project",
+            "",
+        );
+        let found = problems(&unobserved);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
+            "a `yes` cell over an on-demand venue with no run named in its section has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_yes_cell_over_a_section_that_denies_the_run_is_refused() {
+        // Finding 1: a NEGATION satisfies the substring check. `No run has been observed on
+        // 2026-09-14` contains `observed` and an ISO date, but it states the opposite of a held
+        // `yes` - review found that passing, so the observed word now has to be a positive one in
+        // a sentence that does not start `No ` and carries neither `not observed` nor
+        // `never observed`.
+        let denied = MAP.replace(
+            "Nothing about who asked, and the leg's run was observed on 2026-01-01 against the fixture project.",
+            "No run has been observed on 2026-09-14, and nothing here names one.",
+        );
+        let found = problems(&denied);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
+            "a `yes` cell whose section only denies a run has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_yes_cell_whose_section_still_says_wired_fails() {
+        // Finding 2: the stale-word rule names TWO words, `unrun` and `wired`, and review found
+        // only the `unrun` half held by a test - the `wired` half lived on recall. This is the
+        // mirror of the test above over the other state: `map_with_a_wired_cell` is matrix and
+        // section both saying `wired`, and only the CELL moves here, to `yes`, while the section
+        // keeps saying `wired`.
+        let drifted = map_with_a_wired_cell().replace(
+            "| A statement is accepted | no | **wired** | - |",
+            "| A statement is accepted | no | **yes** | - |",
+        );
+        let found = problems(&drifted);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("still says `wired`")),
+            "a `yes` cell whose section still says `wired` has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_yes_cell_whose_section_still_says_unrun_fails() {
+        // The drift itself: a cell moved off `unrun` and the section stayed exactly as `unrun`
+        // left it. `map_with_an_unrun_cell` is the state this starts from - matrix and section both
+        // say `unrun` - and only the CELL moves here, to `yes`, while the section keeps saying
+        // `unrun`. `an_unrun_cell_whose_section_never_uses_the_word_fails` is this rule's mirror:
+        // that one refuses a cell citing a state its section never names, this one refuses a
+        // section still naming a state its cell has left.
+        let drifted = map_with_an_unrun_cell().replace(
+            "| A statement is accepted | no | **unrun** | - |",
+            "| A statement is accepted | no | **yes** | - |",
+        );
+        let found = problems(&drifted);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("still says `unrun`")),
+            "a `yes` cell whose section still says `unrun` has to fail: {found:?}"
+        );
     }
 
     /// [`MAP`] with the exchange venue given a task that reaches it while its own `Where it runs`

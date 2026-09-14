@@ -571,8 +571,9 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.
 
 ## `use available_memory_bytes`
 
@@ -3025,8 +3026,9 @@ is written down.
 
 # A provisional number
 
-`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
-as one, not a finding.
+`Self::DEFAULT_BYTES` is a gibibyte. The 2026-09-14 corpus measurement in ADR 0009 observed only
+a small in-process workload and cannot see driver buffers, collected batches or domain-row
+conversion, so it did not justify changing the starting point. The default remains provisional.
 
 #### Methods
 
@@ -4842,20 +4844,16 @@ refusal.** `plaintext` reads no anchors and no client identity; `verified` verif
 chain and presents nothing, so it reads no client identity either. `mutual` is the only mode
 that reads all three, so it is the only one nothing is refused on for being unread.
 
-#### `fn host_is_loopback`
-
-```rust
-pub fn host_is_loopback(host: &str) -> bool
-```
+#### `use host_is_loopback`
 
 Whether a declared source host can only be reached from this machine.
 
-**A name is not an address**, which is the rule `crate::server::BindAddress` already applies to
-the serving bind read the other way round: `localhost` resolves to whatever the resolver says
-today, so it cannot carry a claim about what a network can reach. Only an `IpAddr` literal
-answers `true`, and only a loopback one - so a `plaintext` declaration is refused for a hostname
-however it happens to resolve. That is the fail-closed direction issue 124 asks for: an operator
-who means a loopback TCP dial writes `127.0.0.1` or `::1`.
+**The shared predicate, `sutura_domain::source::host_is_loopback` - re-exported here rather than
+copied**, so `sutura_catalog_datahub::http::Endpoint` and this module read the same rule and a
+divergence between the two is a compile-time impossibility rather than something a reviewer has
+to notice. `crate::server::BindAddress` applies the same "a name is not an address" reasoning to
+the serving bind read the other way round; that is the fail-closed direction issue 124 asks for
+on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `::1`.
 
 ### Module `workload_identity`
 

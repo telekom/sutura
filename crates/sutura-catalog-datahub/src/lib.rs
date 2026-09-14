@@ -30,14 +30,16 @@
 //!
 //! This crate contains everything [`DataHubCatalog`] DECIDES about the aspects it reads, and it is
 //! tested against a fake reader that serves recorded documents - the port gets a fake, not mocked
-//! HTTP. What it does not contain is an HTTP client: [`AspectReader`] is the seam a real reader over
-//! `DataHub`'s versioned `OpenAPI` v3 entity surface will implement (with a personal access token as a
-//! bearer). Until that lands, the only implementor of the port outside a test is the recorded
-//! fixture source in [`fixture`] - the other two are doubles, `tests::Stub` and the acceptance
-//! suite's `Composed` - so no code here shapes a request or maps a response. **And nothing serves it:** no
-//! composition root links this crate (its only dependant is `sutura-app`, as a dev-dependency), and
-//! `sutura-serve` refuses `catalog.kind: datahub` by name. Everything here is decided and tested;
-//! what is not is the reader itself and a served composition - the *Built and not wired* register in
+//! HTTP. [`AspectReader`] is the seam a real reader over `DataHub`'s versioned `OpenAPI` v3 entity
+//! surface implements, and since issue #202's HTTP reader, one now does: [`http::HttpAspectReader`],
+//! behind this crate's default-off `http` feature, with a personal access token as a bearer. Its own
+//! module header states what is measured against a live `DataHub` and what is not - only the
+//! `metric` entity's wire shape is, today. The recorded fixture source in [`fixture`] and the two
+//! test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
+//! this crate reads against. **And nothing serves the new reader yet:** no composition root links
+//! this crate (its only dependant is `sutura-app`, as a dev-dependency), and `sutura-serve` refuses
+//! `catalog.kind: datahub` by name - that half is a separate, stacked change. Everything here is
+//! decided and tested; what is not is a served composition - the *Built and not wired* register in
 //! `.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
 //! may be read from - it is not an invariant.
 //!
@@ -83,6 +85,8 @@
 
 pub mod document;
 pub mod fixture;
+#[cfg(feature = "http")]
+pub mod http;
 
 use std::collections::BTreeMap;
 
@@ -110,9 +114,12 @@ type Content = (Definitions, Knowledge);
 ///
 /// **The fake seam.** Everything above this trait is decided and tested against recorded documents;
 /// a real implementor speaks to `DataHub`'s versioned `OpenAPI` v3 entity surface, decodes into
-/// [`document::Snapshot`], and maps its own failures into [`DataHubError::Read`]. The only
-/// implementor today is the recorded source in [`fixture`]. The RESPONSE SHAPE that implementor has
-/// to map, and the surface's consistency, are measured rather than guessed - see the crate header.
+/// [`document::Snapshot`], and maps its own failures into [`DataHubError::Read`]. Since issue #202
+/// one does: [`http::HttpAspectReader`], behind the `http` feature. Every other test in this crate
+/// still reads against the recorded source in [`fixture`] - the RESPONSE SHAPE a real implementor has
+/// to map, and the surface's consistency, were measured rather than guessed before it was written -
+/// see the crate header, and `http`'s own module header for which of the three entity shapes that
+/// measurement actually covers.
 ///
 /// A port rather than a method on [`DataHubCatalog`] for the same reason the warehouse port exists:
 /// a catalog that could be swapped for a live source without the conversion changing is the point.

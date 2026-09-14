@@ -21,10 +21,26 @@
 # whole tree, so it picks this up too, which is deliberate: the nix sandbox has no docker socket, so
 # those tests skip there and the log should say so.
 
+# `github.com/telekom/sutura#692`: without a ceiling, one cell that never reaches a `.await` again -
+# a mispaired OS thread, a barrier nobody releases - holds the whole run open until a human notices
+# and sends SIGTERM by hand, which is what happened at 3293s. `terminate-after = 5` on a 60s period
+# is 5 minutes, the number `#692`'s own thread states as the bar for ANY test in this suite. The
+# longest legitimately slow cell found by reading the workspace is nowhere close: postgres's own
+# cancellation-under-load cell (`crates/sutura-exec-postgres/tests/deadline.rs`) asserts its OWN
+# elapsed time stays under 18s, and the most generous reply budget in the default suite
+# (`crates/sutura-cli/tests/mcp.rs`) is 120s of slack around a local reply that returns in a
+# fraction of that - so 5 minutes has no legitimately slow cell within an order of magnitude of it.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
+
 # For complete mutation runs: NEXTEST_PROFILE=nofailfast just test.
 # A PASS line proves a cell ran; this profile still honors filters and ignored tests.
 [profile.nofailfast]
 fail-fast = false
+# Named explicitly rather than left to fall through to `[profile.default]`: the ceiling above is
+# the point of this profile too, and a custom profile that trusted inheritance while default-only
+# fell through to `#692`'s hang is the reader's confusion this is written to stay out of.
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 [[profile.default.overrides]]
 # The compose tier's own integration test, which is the only target that can decline. Matched by

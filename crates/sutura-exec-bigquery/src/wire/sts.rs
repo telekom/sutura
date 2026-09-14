@@ -38,15 +38,33 @@ struct Request<'a> {
     subject_token: String,
 }
 
-/// The answer, with the two fields this adapter reads.
+/// `expires_in` as Google's STS discovery document types it: a bare JSON integer, refused as
+/// text. Unlike `BigQuery`'s `totalRows` (`string`/`uint64`), which genuinely needs the
+/// text-shaped type this crate uses for it.
 ///
-/// **`expires_in` arrives as a JSON number, not text.** Google's STS discovery document types it
-/// `integer`/`int32`; that is unlike `BigQuery`'s `totalRows`, which is `string`/`uint64` and is why
-/// that field genuinely needs the text-shaped type this crate uses for it.
+/// **Named rather than left to the derive**, so `tests` can pin the shape directly instead of
+/// through the whole [`Response`] document - the same seam `wire::document::estimated_bytes` is
+/// for `BigQuery`'s own dry-run estimate. The derive's own generic type-mismatch error is what a
+/// quoted value is refused with; nothing here widens it, which is the property
+/// `a_quoted_expires_in_does_not_deserialize` pins and the compiler does not hold on its own.
+fn expires_in<'de, D>(deserializer: D) -> Decoded<D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(deserializer)
+}
+
+/// What [`expires_in`] returns: the field's value, or the deserializer's own reason it refused.
+///
+/// Named for `clippy.toml`'s tightened `type-complexity-threshold`, the same reason
+/// `crate::transport::DryRunEstimate` is a named alias rather than spelled out at its call sites.
+type Decoded<E> = Result<Option<u64>, E>;
+
+/// The answer, with the two fields this adapter reads.
 #[derive(serde::Deserialize)]
 struct Response {
     access_token: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "expires_in")]
     expires_in: Option<u64>,
 }
 
@@ -169,7 +187,7 @@ impl StsExchange for StsOverHttp {
 
 #[cfg(test)]
 mod tests {
-    use super::{GRANT_TYPE_EXCHANGE, Request, SUBJECT_JWT};
+    use super::{GRANT_TYPE_EXCHANGE, Request, SUBJECT_JWT, expires_in};
     use sutura_domain::identity::Secret;
 
     #[test]
@@ -192,5 +210,22 @@ mod tests {
         assert_eq!(json["subject_token"], "the-askers-own-id-token");
         assert_eq!(json["audience"], "//iam.googleapis.com/.../providers/sso");
         assert_eq!(json["scope"], "https://www.googleapis.com/auth/bigquery.readonly");
+    }
+
+    #[test]
+    fn a_bare_json_integer_is_what_deserializes() {
+        let mut document = serde_json::Deserializer::from_str("3600");
+        let parsed = expires_in(&mut document).expect("a bare integer is the discovery document's own shape");
+        assert_eq!(parsed, Some(3600));
+    }
+
+    #[test]
+    fn a_quoted_expires_in_does_not_deserialize() {
+        // The same field, sent the way `totalRows` genuinely needs to be and `expires_in` does
+        // not: a quoted number is a different JSON type, and `expires_in` refuses it rather than
+        // coercing it - `super::expires_in`'s own doc names the mechanism this pins.
+        let mut document = serde_json::Deserializer::from_str(r#""3600""#);
+        let refused = expires_in(&mut document);
+        assert!(refused.is_err(), "a quoted expires_in must not deserialize, got {refused:?}");
     }
 }
