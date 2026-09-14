@@ -1,11 +1,9 @@
 ---
 kind: caveat
-name: spread_is_not_total
+name: subscription_count_is_not_active_subscriptions
 about:
-  - { metric: order_value_spread }
-  - { metric: orders_total }
+  - { metric: subscription_count }
 ---
-Both metrics read the same two columns off the same model and mean different things.
-`order_value_spread` is `MAX(amount_cents) - MIN(amount_cents)`, the range of what was ordered.
-`orders_total` is `SUM(amount_cents)`, the total of what was ordered. Neither approximates the
-other, and a question asking for "the spread" should not be answered with the total.
+`subscription_count` counts every subscription row this model ever holds, not only the ones active
+today - a caveat the scaffold's own metric needs, so a question asking "how many now" is not
+answered with this one.

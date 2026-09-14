@@ -1,14 +1,13 @@
 ---
 kind: relationship
-name: order_customer
+name: subscription_product
 origin:
-  model: orders
-  column: customer_id
+  model: subscriptions
+  column: product_key
 target:
-  model: customers
-  column: customer_id
+  model: products
+  column: product_key
 join_type: many_to_one
 ---
-Many orders to one customer. Many-to-one cannot duplicate an order row, so `orders_total` is the
-same number whether or not it is grouped by region - which is the property that makes `region` a
-dimension a metric on `orders` may reach at all.
+Many subscriptions to one product. Many-to-one cannot duplicate a subscription row, so a metric on
+`subscriptions` may reach `products` as a dimension without changing what it measures.

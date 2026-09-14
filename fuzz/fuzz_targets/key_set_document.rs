@@ -21,9 +21,9 @@
 //! out (`FileKeySet::read`'s own `read_to_string`). This target therefore does not cover that
 //! refusal.
 //!
-//! **Provenance.** Ported from `origin/test/fuzz-the-untrusted-parsers:fuzz/fuzz_targets/keyset.rs`
-//! (119 commits behind `main`, no open PR) as a content port rather than a rebase. `KeySet::parse`,
-//! `.count()` and `.ids()` are unchanged on current `main`.
+//! **Provenance.** Ported from `origin/test/fuzz-the-untrusted-parsers:fuzz/fuzz_targets/keyset.rs`,
+//! no open PR, as a content port rather than a rebase. `KeySet::parse`, `.count()` and `.ids()` are
+//! unchanged on current `main`.
 
 #![no_main]
 

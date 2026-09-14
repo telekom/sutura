@@ -17,22 +17,25 @@
 //! anything but its input would move a digest without a definition changing.
 //!
 //! **One fuzzed document beside fixed scaffolding, and that choice is what makes the target reach
-//! anything.** A metric names a model, so a directory holding only a generated document assembles
-//! almost never - the load fails on the missing reference before `Definitions::assemble`, the
-//! digest and the knowledge half are ever reached. A constant model document sits beside the
-//! generated one so a generated metric can resolve.
+//! anything.** A metric names a model and a glossary/caveat/example names a metric, so a directory
+//! holding only a generated document assembles almost never - the load fails on the missing
+//! reference before `Definitions::assemble` or `Knowledge::assemble`, the digest and the knowledge
+//! half are ever reached. The scaffold therefore carries one metric on top of the one model, plus a
+//! second model, so a generated document of ANY `DocumentKind` - not only `metric`/`model` - can
+//! resolve: a knowledge document points `about`/`means`/`question` at the scaffold metric
+//! (`subscription_count`), and a relationship document joins the two scaffold models.
 //!
 //! **The limit.** One generated document per iteration, so nothing here reaches a *pair* of
-//! generated documents disagreeing with each other, the directory walk's symlink handling, or the
-//! prose-only knowledge shapes beyond the one the scaffolding carries. Non-UTF-8 bytes are
-//! converted lossily before the write (see the note inline below); the harness therefore does not
-//! cover `std::fs::read_to_string`'s own non-UTF-8 refusal in the read path.
+//! generated documents disagreeing with each other, or the directory walk's symlink handling.
+//! Non-UTF-8 bytes are converted lossily before the write (see the note inline below); the harness
+//! therefore does not cover `std::fs::read_to_string`'s own non-UTF-8 refusal in the read path.
 //!
 //! **Provenance.** Ported from `origin/test/fuzz-the-untrusted-parsers:fuzz/fuzz_targets/catalog_document.rs`
-//! (119 commits behind `main`, no open PR) as a content port rather than a rebase - its own
-//! scaffolding predates the merged fuzz-crate structure this file now lives in. The
-//! `LocalCatalog::new`/`.load()`/`PinnedDefinitions::digest()` signatures used below are unchanged
-//! from that branch.
+//! as a content port rather than a rebase - its own scaffolding predates the merged fuzz-crate
+//! structure this file now lives in. The `LocalCatalog::new`/`.load()`/`PinnedDefinitions::digest()`
+//! signatures used below are unchanged from that branch; the scaffold itself (a scaffold metric, a
+//! second model) is new here, to close the gap a design review found: with one bare model and no
+//! metric, a glossary, caveat, example or relationship document could never load `Ok`.
 
 #![no_main]
 
@@ -41,15 +44,44 @@ use sutura_catalog_local::LocalCatalog;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 
-/// The fixed model the generated document may refer to.
+/// The fixed model a generated metric, relationship or knowledge document may refer to.
 const SCAFFOLD_MODEL: &str = "---
 kind: model
 name: subscriptions
 source: local
 table: fact_subscription
-columns: [subscription_key, month, status, segment]
+columns: [subscription_key, month, status, segment, product_key]
 ---
 One row per subscription per month.
+";
+
+/// A second fixed model, so a generated `kind: relationship` document has two ends to join -
+/// distinct from `subscriptions` and from every model name a committed seed itself declares
+/// (`customers` in `minimal-model`), so neither collides with the other.
+const SCAFFOLD_SECOND_MODEL: &str = "---
+kind: model
+name: products
+source: local
+table: dim_product
+columns: [product_key, name]
+---
+One row per product.
+";
+
+/// A fixed metric on `subscriptions`, named apart from every metric a committed seed itself
+/// declares (`active_subscriptions` in `minimal-metric`, `mit_umlaut` in `multibyte-frontmatter`),
+/// so a generated glossary, caveat or example document has something real to point `means:`,
+/// `about:` or `question:` at without colliding with what the seed under test declares itself.
+const SCAFFOLD_METRIC: &str = "---
+kind: metric
+name: subscription_count
+model: subscriptions
+measure:
+  simple: { aggregate: count_distinct, column: subscription_key }
+time_column: month
+grains: [month]
+---
+How many subscriptions existed, the scaffold's own metric.
 ";
 
 /// One directory for the whole run, reused per iteration.
@@ -62,6 +94,9 @@ fn catalog() -> &'static LocalCatalog {
         let root = std::env::temp_dir().join(format!("sutura-fuzz-catalog-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("the fuzz harness can create its own scratch directory");
         std::fs::write(root.join("model.md"), SCAFFOLD_MODEL).expect("the fuzz harness can write its own scaffolding");
+        std::fs::write(root.join("product.md"), SCAFFOLD_SECOND_MODEL)
+            .expect("the fuzz harness can write its own scaffolding");
+        std::fs::write(root.join("metric.md"), SCAFFOLD_METRIC).expect("the fuzz harness can write its own scaffolding");
         LocalCatalog::new(
             SourceName::parse("fuzz").expect("a fixture source name is one"),
             root,

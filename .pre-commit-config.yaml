@@ -201,7 +201,7 @@ repos:
         name: fuzz (git delta)
         entry: bash nix/run-fuzz.sh smoke
         language: system
-        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-domain/src/catalog\.rs|crates/sutura-domain/src/catalog/|crates/sutura-domain/src/knowledge\.rs|crates/sutura-domain/src/knowledge/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-http/src/inbound/keys\.rs|crates/sutura-http/src/inbound/keys/|crates/sutura-catalog-local/|crates/sutura-sql/|crates/sutura-semantic/)
+        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-domain/src/catalog\.rs|crates/sutura-domain/src/catalog/|crates/sutura-domain/src/knowledge\.rs|crates/sutura-domain/src/knowledge/|crates/sutura-domain/src/pinned\.rs|crates/sutura-domain/src/pinned/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-http/src/inbound/keys\.rs|crates/sutura-http/src/inbound/keys/|crates/sutura-catalog-local/|crates/sutura-sql/|crates/sutura-semantic/)
         pass_filenames: false
         require_serial: true
 

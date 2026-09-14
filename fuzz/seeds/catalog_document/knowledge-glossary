@@ -1,10 +1,8 @@
 ---
 kind: glossary
-term: order value spread
+term: subscription count
 synonyms:
-  - order spread
-means: { metric: order_value_spread }
+  - number of subscriptions
+means: { metric: subscription_count }
 ---
-The distance between the largest and smallest order value in the period - the metric this catalog
-demonstrates the authored-SQL escape hatch with. It is a range, not a sum: `orders_total` is the
-sum of the same orders, and the two answer different questions about the same rows.
+The scaffold's own metric, spelled the way a person writes it rather than the way it is declared.

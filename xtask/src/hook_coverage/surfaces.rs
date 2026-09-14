@@ -96,6 +96,8 @@ pub(super) const SURFACES: &[Surface] = &[
             "crates/sutura-domain/src/catalog/**",
             "crates/sutura-domain/src/knowledge.rs",
             "crates/sutura-domain/src/knowledge/**",
+            "crates/sutura-domain/src/pinned.rs",
+            "crates/sutura-domain/src/pinned/**",
             "crates/sutura-http/src/wire.rs",
             "crates/sutura-http/src/wire/**",
             "crates/sutura-http/src/inbound/token.rs",
