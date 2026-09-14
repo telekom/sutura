@@ -28,11 +28,15 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     and it did not used to.** `unrun` and `wired` each had to appear in their own venue's section;
     a cell moving to `yes` had nothing tying it to the section beside it at all, so a row could
     leave either state in the matrix while its section still read as if it had not. Two rules now
-    hold that cell for an on-demand venue: its section has to say the run was **observed** - a
-    date, a run id, whatever names it, which is review's to judge - and it may no longer say
-    `unrun` or `wired`, because a section still in either word has not left that state whatever the
-    matrix now claims. An `in process` venue answers every push, so this does not reach it; only
-    a venue nothing but a job's own run can prove is held to it.
+    hold that cell for an on-demand venue: its section has to **name a run somebody observed** -
+    the word `observed` in a sentence that is not a denial (not `No … observed`, `not observed` or
+    `never observed`), plus either a GitHub Actions run link (`actions/runs/` followed by digits)
+    or an ISO date (`2026-01-01`) - and it may no longer say `unrun` or `wired`, because a section
+    still in either word has not left that state whatever the matrix now claims. A sentence that
+    only denies a run, however many dates it names, is the opposite of a held `yes` and is refused
+    with the rest; what a green run *means* is still review's to judge. An `in process` venue
+    answers every push, so this does not reach it; only a venue nothing but a job's own run can
+    prove is held to it.
 
     **Why there are two of them rather than one.** The change that wires a leg into a job cannot
     also produce that leg's first green run - the run happens after the push. So for one commit the

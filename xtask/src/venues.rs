@@ -458,6 +458,46 @@ Not built.
     }
 
     #[test]
+    fn a_yes_cell_over_a_section_that_denies_the_run_is_refused() {
+        // Finding 1: a NEGATION satisfies the substring check. `No run has been observed on
+        // 2026-09-14` contains `observed` and an ISO date, but it states the opposite of a held
+        // `yes` - review found that passing, so the observed word now has to be a positive one in
+        // a sentence that does not start `No ` and carries neither `not observed` nor
+        // `never observed`.
+        let denied = MAP.replace(
+            "Nothing about who asked, and the leg's run was observed on 2026-01-01 against the fixture project.",
+            "No run has been observed on 2026-09-14, and nothing here names one.",
+        );
+        let found = problems(&denied);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
+            "a `yes` cell whose section only denies a run has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_yes_cell_whose_section_still_says_wired_fails() {
+        // Finding 2: the stale-word rule names TWO words, `unrun` and `wired`, and review found
+        // only the `unrun` half held by a test - the `wired` half lived on recall. This is the
+        // mirror of the test above over the other state: `map_with_a_wired_cell` is matrix and
+        // section both saying `wired`, and only the CELL moves here, to `yes`, while the section
+        // keeps saying `wired`.
+        let drifted = map_with_a_wired_cell().replace(
+            "| A statement is accepted | no | **wired** | - |",
+            "| A statement is accepted | no | **yes** | - |",
+        );
+        let found = problems(&drifted);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("still says `wired`")),
+            "a `yes` cell whose section still says `wired` has to fail: {found:?}"
+        );
+    }
+
+    #[test]
     fn a_yes_cell_whose_section_still_says_unrun_fails() {
         // The drift itself: a cell moved off `unrun` and the section stayed exactly as `unrun`
         // left it. `map_with_an_unrun_cell` is the state this starts from - matrix and section both

@@ -166,23 +166,26 @@ pub(super) fn transition_problems(
 /// unchanged. An on-demand `yes` is different in kind: nothing but a job's own run makes it true,
 /// so the section is the only place that run can be named at all.
 ///
-/// 1. The section has to say a run was **observed** - the word this page already uses to say the
-///    opposite (`wired`'s own definition: *no run of it has been observed*), so adopting it for the
-///    positive case reuses a word the page's own header already carries rather than inventing a
-///    second one. What counts as satisfying this is deliberately unparsed: a date, a run id, `on
-///    a developer machine` are all accepted, because *what a green run means* is review's question
-///    and this reads only whether one is named at all - the same limit [`transition_problems`]
-///    states for `unrun` and `wired`.
+/// 1. The section has to name a run somebody **observed** - the word this page already uses to say
+///    the opposite (`wired`'s own definition: *no run of it has been observed*), so adopting it for
+///    the positive case reuses a word the page's own header already carries rather than inventing a
+///    second one. Because *what a green run means* is review's question, the run has to be NAMED
+///    beside the word: the section must carry `observed` in a sentence that is not a denial, AND
+///    either a GitHub Actions run link (`actions/runs/` followed by digits) or an ISO date
+///    (`2026-01-01`). A sentence that says `No run has been observed…`, `not observed` or
+///    `never observed` is the opposite of a held `yes` and refuses with the rest - the same limit
+///    [`transition_problems`] states for `unrun` and `wired`: a word and a shape are read, and
+///    what they mean stays review's.
 /// 2. The section may not still say `unrun` or `wired` - the two words a cell in either of those
 ///    states is required to carry. A `yes` cell whose section keeps one of them is not a rewording
 ///    away from that state, it is still IN it, wherever the matrix now says.
 ///
-/// **The limit, stated where the claim is: this reads a WORD, not a run.** A section can say
-/// *observed on 2026-01-01* over a run nobody performed, and this passes it - exactly as `unrun`'s
-/// expiry rule cannot see a job that always skips. What is mechanical is that a `yes` cell can no
-/// longer sit over a section with nothing beside it, or over one still describing the state the
-/// cell left; that *the named run is real and answers this claim* stays review's, as it already did
-/// for every citable cell before this.
+/// **The limit, stated where the claim is: this reads a WORD and a SHAPE, not a run.** A section
+/// can say *observed on 2026-01-01* over a run nobody performed, and this passes it - exactly as
+/// `unrun`'s expiry rule cannot see a job that always skips. What is mechanical is that a `yes`
+/// cell can no longer sit over a section with nothing beside it, over one still describing the
+/// state the cell left, or over one denying the run outright; that *the named run is real and
+/// answers this claim* stays review's, as it already did for every citable cell before this.
 pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -> Vec<String> {
     let mut problems = Vec::new();
     for venue in listed
@@ -190,12 +193,21 @@ pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -
         .filter(|venue| yes.contains(venue.name.as_str()) && venue.site() == Some(ON_DEMAND))
     {
         let body = section_body(text, &venue.name).unwrap_or_default();
-        if !body.contains("observed") {
+        // An on-demand `yes` has to name a run somebody OBSERVED: the word, positive rather than
+        // denied, AND a run link or an ISO date beside it. A negation that still carries `observed`
+        // and a date (`No run has been observed on 2026-09-14`) would satisfy a bare substring
+        // check while stating the opposite of a held `yes` - review found that passing, so both
+        // halves are read.
+        let observed_positive = has_positive_observed(&body);
+        let run_named = contains_run_link(&body) || contains_iso_date(&body);
+        if !observed_positive || !run_named {
             problems.push(format!(
                 "{PAGE}: `{}` says `yes` and runs in `{}` - ON DEMAND, so nothing but a job's own \
-                 run makes that true - and its own section never says a run was OBSERVED. Either \
-                 name the run in the section (a date, a run id - what it means is review's) or the \
-                 honest cell is `unrun` or `wired`",
+                 run makes that true - and its own section never names a run somebody OBSERVED \
+                 holding it: it must say `observed` in a sentence that is not a denial (not \
+                 `No … observed`, `not observed` or `never observed`) and carry either a GitHub \
+                 Actions run link (`actions/runs/` plus digits) or an ISO date (`2026-01-01`). \
+                 Either name the run that way, or the honest cell is `unrun` or `wired`",
                 venue.name, venue.runs
             ));
         }
@@ -212,6 +224,50 @@ pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -
         }
     }
     problems
+}
+
+/// Whether the on-demand `yes`'s section says a run was OBSERVED in the positive. `.` separates a
+/// sentence here; the real page's observed line (and the negation review found passing) carries the
+/// whole phrase inside one period-delimited sentence. The needle lives alone in this fn so the
+/// gate's fn-local substring check does not compare it against the denial phrases it widens.
+fn has_positive_observed(body: &str) -> bool {
+    body.split('.').any(|sentence| {
+        let sentence = sentence.trim();
+        sentence.contains("observed") && !denies_observed(sentence)
+    })
+}
+
+/// The denial shapes a sentence may use instead of asserting a run, kept out of
+/// [`has_positive_observed`] so its two needles - neither a substring of the other - sit apart
+/// from the bare `observed` they widen.
+fn denies_observed(sentence: &str) -> bool {
+    sentence.starts_with("No ") || sentence.contains("never observed") || sentence.contains("not observed")
+}
+
+/// Whether `body` names a run through a GitHub Actions run link - `actions/runs/` followed by
+/// digits, which is the one un-mistakeable spelling of *a CI job ran this*.
+fn contains_run_link(body: &str) -> bool {
+    const MARKER: &str = "actions/runs/";
+    let marker = MARKER.as_bytes();
+    let bytes = body.as_bytes();
+    body.find(MARKER)
+        .is_some_and(|at| bytes.get(at + marker.len()).is_some_and(u8::is_ascii_digit))
+}
+
+/// Whether `body` carries an ISO date - `YYYY-MM-DD` - anywhere, which is the other un-mistakeable
+/// way a section names a run. The real page spells it `2026-08-31`, doubled in the negation line
+/// this rule refuses.
+fn contains_iso_date(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    (0..=bytes.len().saturating_sub(10)).any(|at| {
+        (0..4).all(|k| bytes.get(at + k).is_some_and(u8::is_ascii_digit))
+            && bytes.get(at + 4) == Some(&b'-')
+            && bytes.get(at + 5).is_some_and(u8::is_ascii_digit)
+            && bytes.get(at + 6).is_some_and(u8::is_ascii_digit)
+            && bytes.get(at + 7) == Some(&b'-')
+            && bytes.get(at + 8).is_some_and(u8::is_ascii_digit)
+            && bytes.get(at + 9).is_some_and(u8::is_ascii_digit)
+    })
 }
 
 /// Every citable or wired venue whose citation is anchored in nothing the tree runs a test with.
