@@ -16,7 +16,7 @@
 //!
 //! `rmcp::service::RequestContext`'s fields are `pub` and `RequestContext::new(id, peer)` is `pub`,
 //! but its `peer: rmcp::service::Peer<RoleServer>` field cannot be built from nothing: `Peer::new` is
-//! `pub(crate)` in the pinned SDK (`rmcp`'s `src/service.rs:801`), so nothing outside the `rmcp`
+//! `pub(crate)` in the pinned SDK (`rmcp`'s `src/service.rs`), so nothing outside the `rmcp`
 //! crate can mint one directly. [`a_peer`] gets a real one the only way available - a throwaway
 //! handshake over an in-memory pipe, against a handler ([`Nobody`]) that does nothing - and every
 //! test below reuses the SAME peer across its several hand-built contexts, the way `rmcp`'s own
@@ -129,6 +129,14 @@ async fn a_tool_call_with_no_established_caller_is_refused_and_never_answered_as
         "a call refused for having no established caller must write no audit record at all - in \
          particular never one naming Subject::TheDeploymentItself"
     );
+
+    // The presentation half answers the refusal the same way the call does: `tools/list` must not
+    // show an absent caller the deployment's whole tool set just because nobody established them.
+    let listed = surface
+        .list_tools(None, hand_built_context(2, a_peer().await, None))
+        .await
+        .expect_err("tools/list must refuse a caller nobody established, not show every tool");
+    assert_eq!(listed.code, ErrorCode::INVALID_REQUEST, "{listed:?}");
 }
 
 /// **Two callers over one connection are two different askers.** The SAME [`AgentSurface`], the SAME
@@ -139,8 +147,9 @@ async fn a_tool_call_with_no_established_caller_is_refused_and_never_answered_as
 /// presentation (`tools/list`) and the control (`tools/call`).
 #[tokio::test]
 async fn two_callers_over_one_connection_are_two_different_askers() {
+    let recording = Arc::new(testing::RecordingSurface::new());
     let surface = AgentSurface::new(
-        Arc::new(testing::FailingSurface::new()),
+        Arc::clone(&recording),
         Asking::PerRequest,
         CatalogProse::Quoted,
         super::admission(""),
@@ -180,16 +189,63 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
     let error = refused.expect_err("a caller without the scope must be refused, not answered");
     assert_eq!(error.code, ErrorCode::METHOD_NOT_FOUND, "{error:?}");
 
-    // Bob, granted the scope, is not refused at this channel - whatever the fake port under him
-    // does next is a different assertion this fixture is not built to make.
-    let answered = surface
+    let bob = Subject::Verified {
+        id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
+    };
+
+    // The control's second half, held at the PORT rather than at the channel: bob, granted the
+    // scope, is not refused - and the identity his `ask_metric` reaches `Surface::answer` under is
+    // bob, never `Subject::TheDeploymentItself`. `RecordingSurface` records the subject of each
+    // context the port is handed, so a transport that resolved the caller and then read the
+    // deployment's own identity instead would fail the assertion the way a substitution in the
+    // handler cannot: the wrong subject is the one the port sees.
+    surface
         .call_tool(
             super::ask(&super::a_certified_question()),
             hand_built_context(4, peer, Some(everything)),
         )
-        .await;
-    assert!(
-        answered.is_ok(),
-        "the caller granted the scope must reach the port rather than be refused: {answered:?}"
+        .await
+        .expect("bob's ask_metric must not be refused at the channel");
+    assert_eq!(
+        recording.subjects(),
+        [bob],
+        "bob's ask_metric must reach the port as Subject::Verified, never Subject::TheDeploymentItself"
+    );
+}
+
+/// The raw door of the driving port is held to the same identity claim as the ask door: a
+/// `run_sql` call answers as the caller this request's `Asked` named, never as the deployment.
+///
+/// Its own cell, rather than riding inside the two-callers test, because the two arms are two
+/// substitutions a careless change could make separately - and the proof that either is caught
+/// needs an assertion that fails on its own, not one masked by the other's failure first.
+#[tokio::test]
+async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
+    let recording = Arc::new(testing::RecordingSurface::new());
+    let surface = AgentSurface::new(
+        Arc::clone(&recording),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+    );
+    let peer = a_peer().await;
+    // The raw door only exists under a grant that names it - bob is granted every capability, which
+    // is how a deployment turns this tool on for a caller.
+    let everything = subject_asked("bob@example.com", Permitted::every_capability());
+
+    surface
+        .call_tool(
+            super::raw(&serde_json::json!({ "statement": "select 1" })),
+            hand_built_context(1, peer, Some(everything)),
+        )
+        .await
+        .expect("bob's run_sql must not be refused at the channel");
+    assert_eq!(
+        recording.subjects(),
+        [Subject::Verified {
+            id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
+        }],
+        "bob's run_sql must reach the port as Subject::Verified, never Subject::TheDeploymentItself"
     );
 }

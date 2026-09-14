@@ -181,6 +181,12 @@ fn ask(arguments: &serde_json::Value) -> CallToolRequestParams {
     call(Capability::AskMetric.id(), arguments)
 }
 
+/// The raw tool, called the way a client with a statement calls it - the port's second door, and a
+/// caller that reaches what it was granted is the point of the cell that drives it.
+fn raw(arguments: &serde_json::Value) -> CallToolRequestParams {
+    call(Capability::RunSql.id(), arguments)
+}
+
 /// The catalog tool, called the way a client with nothing to say calls it.
 fn describe() -> CallToolRequestParams {
     call(Capability::DescribeCatalog.id(), &serde_json::json!({}))
