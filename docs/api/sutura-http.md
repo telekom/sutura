@@ -403,7 +403,12 @@ mechanism:
   ever reached a handler without one. `crate::inbound::tests::router`'s
   `a_verified_caller_reaches_only_the_routes_its_scopes_name` and
   `a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing` are the mechanism that
-  proves it: a mutation moving `establish_asked` after this layer turns both red.
+  proves the ORDER: a mutation moving `establish_asked` after this layer turns both red. Neither
+  holds the ARM inside this function on its own, since both go through a route whose handler ALSO
+  requires `Extension<sutura_app::Asked>` - `tests::a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability`
+  is the cell that holds the ARM: it builds `require_capability` over a route with no
+  `establish_asked` ahead of it at all, so the `500` it asserts can only be this function's own
+  refusal.
 
 # It fails closed, and the refusal is what makes that survivable
 
