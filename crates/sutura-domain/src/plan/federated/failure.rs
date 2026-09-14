@@ -55,7 +55,7 @@ pub enum FederatedFailure {
     NonNumericLeaf { aggregate: Aggregate, value: Value },
     /// A leaf column carried two numeric types, so no total or comparison over it is exact.
     ///
-    /// A result column in a data system has one logical type. [`RowSet`] constrains a row's width and
+    /// A result column in a data system has one logical type. [`crate::warehouse::RowSet`] constrains a row's width and
     /// nothing about its cells, so a column mixing [`Value::Integer`] and [`Value::Real`] cells is
     /// representable here, and the two ways to answer one are both wrong numbers: dropping either
     /// subtotal loses it outright, and folding the integer one into the real one is an `i64 as f64`
@@ -69,7 +69,7 @@ pub enum FederatedFailure {
     Overflow { aggregate: Aggregate },
     /// An aggregate the combiner does not know how to re-aggregate with.
     ///
-    /// The one path [`FederatedPlan::new`] closes is a carried leaf naming an aggregate
+    /// The one path [`super::FederatedPlan::new`] closes is a carried leaf naming an aggregate
     /// `reaggregate::reaggregates` answers `false` for - it refuses such a federation before any
     /// leg runs, so no plan that constructor built carries this value. **The limit: nothing else
     /// closes it, and construction is not restricted to this module.** `FederatedFailure` is `pub`
@@ -90,7 +90,7 @@ pub enum FederatedFailure {
     ResourcesExhausted { ceiling_bytes: u64 },
     /// A row whose width contradicts the result's own column count.
     ///
-    /// Unreachable by construction on both halves: a leg result is built by [`RowSet::new`], which
+    /// Unreachable by construction on both halves: a leg result is built by [`crate::warehouse::RowSet::new`], which
     /// refuses a ragged row up front, and the answer is projected from a single fixed key list. It is
     /// this slice's defensive arm - the named, reachable-if-the-type-lying shape the old `LegCount`
     /// catch-all used to swallow.
