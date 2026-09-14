@@ -1622,6 +1622,51 @@ jobs:
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json"
 
+  # The one cell that needs a REAL identity provider rather than the mock -
+  # `crates/sutura-serve/tests/served.rs`'s `#[ignore]`d
+  # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
+  # Its own job for the same reason `bigquery-acceptance` gets one: attributable failure, and the
+  # rest of CI does not wait on a JVM boot.
+  #
+  # **No environment and no secret, unlike `bigquery-acceptance` - and that is the honest
+  # difference, not an oversight.** `nix/keycloak-tier.nix` generates every credential it needs at
+  # `start`, so there is nothing here for a fork's pull request to be denied: this job runs on every
+  # event that selects the identity category, with no repository-membership condition. The COST
+  # decision is the one this leg still carries: a JVM boot on every push or pull request that
+  # selects the `identity` category (`xtask/src/affected.rs`'s `IDENTITY_PATHS`, which now names
+  # `crates/sutura-serve/` and `nix/keycloak-tier` beside the inbound transport) - accepted rather
+  # than deferred, because an `#[ignore]`d cell with no venue proves nothing.
+  keycloak-served-test:
+    needs: [ci]
+    # No fork/push distinction, unlike bigquery-acceptance: no secret is read below, so there is
+    # nothing this condition needs to withhold from a fork's pull request.
+    if: needs.ci.outputs.identity == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # `nix run .#keycloak-served-test` starts the tier, runs the one cell, and stops the tier
+      # whatever the cell does - see the app's own header in `flake.nix`. Not a `checks.*`: this
+      # job's JVM boot is a cost `just validate`'s sandboxed checks should not pay on every push,
+      # the same reason `bigquery-acceptance` is an app rather than a check.
+      - name: Real-issuer leg
+        run: |
+          set -eu
+          nix run .#keycloak-served-test -- --no-capture
+
   # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
   # It performs no build and no test; it reads every category-gated leg's result and fails when a
   # leg that should have run was skipped. A required check that never RUNS stays Pending forever
@@ -1631,15 +1676,15 @@ jobs:
   # and this job is what turns that green shape red.
   #
   # Legs and their categories: `ci` is always required; `bigquery-acceptance` is
-  # `data_source_bigquery`. `core` (a shared or unmapped path) subsumes every category because the
-  # category outputs are emitted as `core || selected`, so a `core` diff requires every leg to run
-  # and forbids every allowed skip.
+  # `data_source_bigquery`; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
+  # path) subsumes every category because the category outputs are emitted as `core || selected`,
+  # so a `core` diff requires every leg to run and forbids every allowed skip.
   #
-  # Two event exceptions are deliberate and match the jobs' own `if:`. A fork pull request cannot
-  # reach the `bq-test` environment secret, and the merge queue never runs `bigquery-acceptance`
-  # (its trigger excludes `merge_group`); in both the leg is skipped not by a filter bug but by the
-  # event, so the aggregator does not require it there. On every in-repo pull request and push it
-  # is held to the run-or-fail rule above.
+  # One event exception is deliberate and matches `bigquery-acceptance`'s own `if:`: a fork pull
+  # request cannot reach the `bq-test` environment secret, and the merge queue never runs it (its
+  # trigger excludes `merge_group`); the leg is skipped not by a filter bug but by the event, so the
+  # aggregator does not require it there. `keycloak-served-test` reads no secret and carries no such
+  # exception - every event that selects `identity` is held to the run-or-fail rule below.
   #
   # `ubuntu-latest`, WHICH IS WHAT `.github/actionlint.yaml` ALREADY DECLARES FOR A JOB LIKE THIS:
   # a larger runner where Rust is compiled, `ubuntu-latest` where nothing is. This job checks out
@@ -1654,7 +1699,7 @@ jobs:
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, bigquery-acceptance]
+    needs: [ci, bigquery-acceptance, keycloak-served-test]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1663,6 +1708,8 @@ jobs:
           CI_RESULT: ${{ needs.ci.result }}
           BQ_RESULT: ${{ needs.bigquery-acceptance.result }}
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          KC_RESULT: ${{ needs.keycloak-served-test.result }}
+          KC_SELECTED: ${{ needs.ci.outputs.identity }}
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
@@ -1672,10 +1719,10 @@ jobs:
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if`, top of the file). That skip propagates to every leg
-          # that `needs: [ci]` here - bigquery-acceptance included - so a skipped `ci` means the
-          # release belt intentionally skipped together, and the aggregate is validly green.
-          # Every other non-`success` `ci` is a real failure, and the bigquery check below is
-          # untouched: a selected-but-skipped leg still fails, whatever `ci` reported.
+          # that `needs: [ci]` here - bigquery-acceptance and keycloak-served-test included - so a
+          # skipped `ci` means the release belt intentionally skipped together, and the aggregate
+          # is validly green. Every other non-`success` `ci` is a real failure, and the two checks
+          # below are untouched: a selected-but-skipped leg still fails, whatever `ci` reported.
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"
           fi
@@ -1695,6 +1742,18 @@ jobs:
             case "$BQ_RESULT" in
               skipped|success) ;;
               *) fail "bigquery-acceptance reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # `keycloak-served-test` reads no secret, so unlike bigquery-acceptance it carries no
+          # event exception: every event that selects `identity` must run it.
+          if [ "$KC_SELECTED" = "true" ]; then
+            if [ "$KC_RESULT" != "success" ]; then
+              fail "keycloak-served-test must run (identity category selected) but reported '$KC_RESULT'"
+            fi
+          else
+            case "$KC_RESULT" in
+              skipped|success) ;;
+              *) fail "keycloak-served-test reported '$KC_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

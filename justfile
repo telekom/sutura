@@ -602,6 +602,29 @@ bigquery-exchanged-identity:
     echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
 
+# The one cell that needs a REAL identity provider rather than the mock - a real RS256 signature, a
+# real JWKS document, a real discovery document, none of which `sutura_dev::issuer` can generate.
+# `#[ignore]`d, so `just test` never reaches it: `nix/keycloak-tier.nix`'s own header names the JVM
+# boot as a cost every `cargo nextest run` should not pay, and `sutura_dev::provisioned::here`'s
+# skip/fail flag is shared with the Postgres tier - see `crates/sutura-serve/tests/served/harness/
+# keycloak.rs`'s own header for why this cell bypasses it rather than reusing it. This is NOT a
+# gate: `just validate`'s nix checks have no network beyond loopback for THIS tier either, since the
+# tier is started here rather than already up.
+# CI runs the same leg through `nix run .#keycloak-served-test`, on the pinned toolchain, gated on
+# the paths that can change this claim. Keep this filter aligned with that app; neither derives the
+# other - `bigquery-acceptance`'s own pattern (#430) - and this recipe starts and stops the tier
+# itself rather than delegating to the app, so a developer's own cargo runs it directly.
+# Start the keycloak tier, run the one real-issuer cell, stop the tier - fails rather than skips.
+keycloak-served-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "keycloak-served-test: scope sutura-serve - the one composed-binary cell over a real Keycloak tier."
+    echo "keycloak-served-test: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    nix run .#keycloak-tier -- start
+    trap 'nix run .#keycloak-tier -- stop' EXIT
+    cargo nextest run -p sutura-serve --run-ignored only \
+      -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
+
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

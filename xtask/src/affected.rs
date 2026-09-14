@@ -53,6 +53,15 @@ const IDENTITY_PATHS: &[&str] = &[
     "crates/sutura-config/src/security.rs",
     "crates/sutura-mcp/",
     "crates/sutura-http/",
+    // Added for `just keycloak-served-test`: the composed binary's own leg-1 e2e suite and the
+    // tier it now needs. Before this, a path here matched no category and fell open
+    // to `core` - which still ran every category-gated leg, just more of them than the diff
+    // touched. NARROWS that: a `sutura-serve` or `keycloak-tier` change now selects `identity`
+    // specifically rather than everything, which is the precision this leg's own JVM-boot cost
+    // asks for - it should not run on, say, a BigQuery-only diff, and under the old fail-open it
+    // did not need to (nothing gated on it existed yet).
+    "crates/sutura-serve/",
+    "nix/keycloak-tier",
 ];
 
 /// A path's category selection: whether it fell open to `core`, the categories it selected, and
@@ -633,6 +642,8 @@ macro_rules! registered {
                 ("CI_RESULT", "skipped"),
                 ("BQ_RESULT", "skipped"),
                 ("BQ_SELECTED", ""),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -653,6 +664,8 @@ macro_rules! registered {
                 ("CI_RESULT", "success"),
                 ("BQ_RESULT", "skipped"),
                 ("BQ_SELECTED", "true"),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -665,11 +678,34 @@ macro_rules! registered {
         }
 
         #[test]
+        fn a_selected_but_skipped_keycloak_leg_is_still_red() {
+            // The same #135 rule, over `keycloak-served-test`: it reads no secret, so it carries
+            // no event exception at all - every event that selects `identity` must see it succeed.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", "true"),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
+            assert!(
+                text.contains("keycloak-served-test must run"),
+                "the verdict should name the required-but-skipped leg: {text}"
+            );
+        }
+
+        #[test]
         fn a_clean_run_is_green() {
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "success"),
                 ("BQ_RESULT", "success"),
                 ("BQ_SELECTED", "true"),
+                ("KC_RESULT", "success"),
+                ("KC_SELECTED", "true"),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
