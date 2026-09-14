@@ -1403,6 +1403,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#built-2026-09-14-the-demand-signal-mechanism-and-what-stayed-a-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built (2026-09-14): the demand-signal mechanism, and what stayed a limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2835,6 +2846,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#built-2026-09-14-the-demand-signal-mechanism-and-what-stayed-a-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built (2026-09-14): the demand-signal mechanism, and what stayed a limit
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2856,12 +2878,14 @@
 
 
 <h1 id="a-raw-sql-tool-off-by-default-and-the-ramp-it-exists-to-build">A raw SQL tool, off by default, and the ramp it exists to build<a class="headerlink" href="#a-raw-sql-tool-off-by-default-and-the-ramp-it-exists-to-build" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted, scheduled LAST, and amended 2026-09-13</strong> for the showcase's fork (which source),
-prerequisite 2's interim bound and prerequisite 4's read-only story - see the amendment at the foot of
-this record. <strong>PR1 (<code>#666</code>) builds the mechanism this record describes</strong> - <code>RawOutcome</code>,
-<code>Capability::RunSql</code>, the boot refusal, and the Postgres execution path below - and this record still
-does not amend an invariant: PR1's own body states which of the two drafted rows it deferred and why,
-rather than landing them alongside a still-settling mechanism.</p>
+<p>Status: <strong>accepted, scheduled LAST, amended 2026-09-13, and closed 2026-09-14</strong> - the 2026-09-13
+amendment settled the showcase's fork (which source), prerequisite 2's interim bound and
+prerequisite 4's read-only story; <strong>PR1 (<code>#666</code>) built the mechanism this record describes</strong> -
+<code>RawOutcome</code>, <code>Capability::RunSql</code>, the boot refusal, and the Postgres execution path below; and the
+2026-09-14 "Built" section at the foot of this record closes step 5 (<code>#129</code>) - the demand-signal
+mechanism, the two invariants rows PR1 deferred, and one mechanical gap this pass found and closed.
+This record now amends the invariants file, over a mechanism unchanged since <code>#666</code> and reviewed
+three times since.</p>
 <p><strong>Corrected:</strong> this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
 <code>docs/implementation-plan.md</code> carried <code>feat/raw-sql-tool</code> as a row, 0009's order table carried
 the same branch with a done-when, and the identity half of the plan said it has a row now. Three records
@@ -3102,6 +3126,8 @@ learned something worth knowing, and it can only learn it if somebody is looking
 <p><strong>And the labelling is not decoration.</strong> An ungoverned answer says so, in the payload, every time. A
 reader who cannot tell which kind of answer they are holding has the worst of both designs.</p>
 <h2 id="what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet">What this would change in the invariants, and why the row is not written yet<a class="headerlink" href="#what-this-would-change-in-the-invariants-and-why-the-row-is-not-written-yet" title="Permanent link">&para;</a></h2>
+<p><strong>Corrected 2026-09-14: the rows are written now</strong> - see "Built (2026-09-14)" at the foot of this
+record. This section is kept as the record of why they waited, not as the current state.</p>
 <p>The row reading <em>"No SQL, table name, filter expression or row-id list on the tool surface"</em> is a
 statement about the <strong>certified</strong> surface, and the mechanism behind it is untouched by this record:
 <code>Query</code> declares no such field and <code>deny_unknown_fields</code> makes an attempt an error naming it. That
@@ -3294,6 +3320,75 @@ under the same two keys, because both carry rows. The audit record is a sibling 
 carry the caller's statement text, as an audit-only field the wire layer never reads. The capability id
 is <code>run_sql</code>, the scope <code>sutura:sql.run</code> - the literal <code>crates/sutura-cli/tests/mcp.rs</code>'s own guard
 test already asserted did not exist, corrected rather than deleted.</p>
+<h2 id="built-2026-09-14-the-demand-signal-mechanism-and-what-stayed-a-limit">Built (2026-09-14): the demand-signal mechanism, and what stayed a limit<a class="headerlink" href="#built-2026-09-14-the-demand-signal-mechanism-and-what-stayed-a-limit" title="Permanent link">&para;</a></h2>
+<p>This section closes the ramp section's own status: <strong>the "written" half is built, and it was built
+by <code>#666</code>, not by this step.</strong> <code>CallRecord::of_raw</code> (<code>crates/sutura-domain/src/audit.rs</code>) and its
+two <code>RecordedOutcome::{RawAnswered,RawRefused}</code> arms already carry the statement (opaque,
+audit-only, the one accessor <code>CallRecord::statement()</code>), the row count, the outcome variant and the
+full principal chain - the credential deadline rides on <code>CallRecord</code> itself either way, but
+<code>TracingAuditSink</code>'s own rendering puts it on the log line only for <code>RawAnswered</code>, the same
+asymmetry the certified <code>answered</code>/<code>refused</code> pair already has (neither <code>Refused</code> nor <code>RawRefused</code>
+renders it) - and that sink already emits both raw arms as <code>raw_answered</code>/<code>raw_refused</code>
+log events, distinct from the certified <code>answered</code>/<code>refused</code> pair, with the statement text logged
+deliberately (its own doc: "this is a SINK, not a channel back to any caller"). <code>LocalService::run_sql</code>
+(<code>crates/sutura-app/src/surface.rs</code>) writes the record before returning, exercised through the real
+<code>Surface</code> rather than only the constructor.</p>
+<p><strong>"Not stored" is an absence held by review, not by a gate, and that is stated here rather than left
+implied.</strong> No <code>absences</code> entry names it (<code>xtask/src/guidance/absences.rs</code>), because the sighting an
+entry would need - a second <code>impl AuditSink for</code> in <code>crates/*/src</code> - is written by this workspace's
+own tests today: every fixture sink in this tree (<code>crates/sutura-domain/src/audit.rs</code>'s <code>Recorded</code>,
+<code>crates/sutura-app/src/surface.rs</code>'s test sinks) is <code>impl AuditSink for</code> something, under
+<code>#[cfg(test)]</code>, in exactly the directories a naive sighting would scan - so the sighting would flag
+the tests that prove the mechanism works, and refute itself the day it is written. The honest
+statement is the limit itself: a deployment that links a second, RETAINING <code>AuditSink</code> in
+non-test <code>src/</code> is a change nothing here catches, and "sutura retains nothing" is true of the one
+implementor this workspace ships, not of every implementor a future PR could add.</p>
+<p><strong>No new field, port, sink or counter was needed, and none was added.</strong> A source name was declined -
+<code>run_sql</code> "targets the sole registered data system" (<code>raw.rs</code>'s own doc), so a field naming it is a
+constant. An elapsed-time field was declined - no call in this workspace, certified or raw, records
+duration anywhere, and adding it only here would be a new, uneven mechanism rather than a gap in this
+one. A stable digest was declined - this record's own position is that coverage is a number the
+DEPLOYMENT's monitoring computes over the emitted stream, and a deployment wanting to count repeated
+demand without keeping text can already hash the logged statement string itself; sutura computing that
+hash is a step toward the "series sutura keeps" this record already refuses. A <code>run_sql</code>-specific
+series on <code>/metrics</code> was declined for the same reason: that endpoint's own doc says it writes no audit
+record and names nothing that names a question, and the distinguishing signal is the log event NAME, a
+log pipeline's to read. The agent-authored-candidate-definition half of the ramp is unchanged from the
+base record and needs no further mechanism.</p>
+<p><strong>Two gaps were found in this record's own first pass, and both are closed now - <code>#703</code>'s review
+found the second one.</strong> <code>xtask check-boundaries</code>'s answer-path gate guarded only <code>answer</code>.
+<code>sutura_app::run_sql</code> is a second door on the driving port, added by <code>#666</code> after the gate was
+written, and nothing mechanical stopped a caller from reaching <code>sutura_app::run_sql</code> directly -
+bypassing <code>LocalService::run_sql</code> and the audit write it makes - the same shape issue <code>#266</code>'s A1
+named for <code>answer</code> itself. The gate (<code>xtask/src/boundaries/answer_path.rs</code>) classifies and guards
+both doors: a needle per door (<code>ANSWER</code>, <code>RUN_SQL</code>), a liveness check against each door's own
+defining file (<code>crates/sutura-app/src/raw.rs</code> for <code>run_sql</code>, since <code>lib.rs</code> only re-exports it), and
+a fixture cell, <code>a_direct_call_to_run_sql_is_found_with_its_line</code>, constructed the same way every
+other cell in this module is - directly against the classifier, not the real tree.</p>
+<p><strong>That first pass still left <code>run_sql</code>'s module <code>pub</code> - <code>pub mod raw;</code> at <code>lib.rs</code> - which is a
+SECOND, ungated spelling of the same door</strong> (<code>sutura_app::raw::run_sql</code>), invisible to the
+classifier by the same design that spares a call THROUGH the port
+(<code>sutura_app::surface::Surface::run_sql</code>): both read as reaching something else first, then
+<code>run_sql</code>. <code>#703</code>'s review proved it live - a bypass at that spelling in a caller crate compiled
+clean and the gate printed <code>ok</code> over it - exactly the A1 shape this whole gate exists to close, not
+among the limits the first pass stated. Closed by making the module private (<code>mod raw;</code>, keeping
+<code>pub use raw::{..., run_sql}</code> so no caller loses access) and by a THIRD refusal: <code>pub mod raw</code>
+present in <code>lib.rs</code> is now <code>Verdict::Fail</code> on its own, so the hole cannot be reopened silently. The
+header's own limits list is corrected to state the property this holds: a door is guarded at the
+crate root only, so the module it lives in may never be <code>pub</code>.</p>
+<p><strong>The two invariants rows PR1 (<code>#666</code>) deferred are landed</strong> in
+<code>.agents/skills/sutura/invariants/SKILL.md</code>, citing the tests that already pass and have now had three
+review rounds (<code>#666</code> rounds 1-2, <code>#686</code>): a raw answer cannot be rendered as certified, and <code>run_sql</code>
+boots only single-user or over a source that cannot answer for more than one identity. Neither row's
+mechanism changed to land it - only the wait for review scrutiny that PR1 itself asked for.</p>
+<p><strong>What is left, named as pre-existing limits and not as this step's scope:</strong> the per-request deadline
+for the raw path, waiting on <code>#160</code> PR4; the raw tool sharing one lock-serialized connection with the
+certified path rather than a dedicated one; the row cap's streaming stop bounding this process's own
+heap rather than the server's work, pending a portal <code>max_rows</code> that needs <code>&amp;mut Client</code>;
+<code>RunSqlEnabledInMultiUserMode</code> refusing by declared mode alone rather than by the linked adapter's
+actual shape (<code>#666</code>'s Finding 10); a dedicated read-only role for the development tier, documented
+but not provisioned. None of these are the demand signal - they were named as limits before this step
+and stay limits after it.</p>
 
 
 
