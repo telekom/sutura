@@ -1,10 +1,11 @@
 use crate::catalog::TIME_BUCKET_LABEL;
 use crate::federation::Federation;
 use crate::measure::Measure;
-use crate::model::{Aggregate, ColumnName, DimensionName, InvalidIdentifier, MetricName, TableName};
+use crate::model::{Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, TableName};
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings, ResultLabel, StatementTables,
+    AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings,
+    PlanBucket, PlanColumn, ResultLabel, StatementTables,
 };
 use crate::warehouse::{Real, RowSet, Value};
 
@@ -484,10 +485,12 @@ fn an_ambiguous_lookup_link_is_refused() {
         ],
     )
     .expect("a lookup result with two rows for one link");
-    assert!(matches!(
-        plan.combine(&fact, &lookup, UNBOUNDED),
-        Err(FederatedFailure::AmbiguousLink { .. })
-    ));
+    let refusal = plan.combine(&fact, &lookup, UNBOUNDED);
+    assert!(matches!(refusal, Err(FederatedFailure::AmbiguousLink { .. })));
+    // D6: the join key is caller data - a customer identifier, in the finding's own example -
+    // and Display is what every logger and every refusal surface reads.
+    let message = refusal.expect_err("asserted above").to_string();
+    assert!(!message.contains("c1"), "the join key leaked into the message: {message}");
 }
 
 #[test]
@@ -510,6 +513,27 @@ fn an_answer_that_crosses_the_byte_budget_is_refused_not_truncated() {
     // And the boundary holds the other way: the same question under a ceiling it fits answers.
     plan.combine(&fact, &lookup, UNBOUNDED)
         .expect("an unbounded budget fits the answer");
+}
+
+#[test]
+fn a_large_lookup_leg_is_charged_even_when_no_fact_row_joins_to_it() {
+    // D8: `lookups_by_link` clones every lookup row's key columns before any group is built - the
+    // one allocation in `combine` sized by a LEG's own row count rather than by the answer's. An
+    // empty fact leg means `group_facts` never runs `project`, so nothing downstream of the clone
+    // ever added a byte to the budget - the lookup could be arbitrarily large and this ceiling
+    // would never see it.
+    let plan = sum_plan(true);
+    let fact = fact(Vec::new());
+    let oversized_region = "x".repeat(500);
+    let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text(oversized_region)]]);
+    // Comfortably above every column label's own length and well below the 500-byte cell.
+    assert!(matches!(
+        plan.combine(&fact, &lookup, 64),
+        Err(FederatedFailure::ResourcesExhausted { ceiling_bytes: 64 })
+    ));
+    // The negative control: the same oversized lookup leg under a budget that fits it.
+    plan.combine(&fact, &lookup, UNBOUNDED)
+        .expect("an unbounded budget fits even an oversized lookup leg");
 }
 
 #[test]
@@ -578,7 +602,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
         metric("revenue"),
         ResultLabel::measure(&metric("revenue")),
         bucket(),
-        fact_leg(),
+        fact_leg(Vec::new()),
         unlinked,
         true,
         Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents"))),
@@ -627,6 +651,132 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
             assert_eq!(*label, InternalLabel::Link.label());
         }
         ref other => panic!("a fact leg that projects no link is not a plan, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_bucket_that_does_not_match_the_fact_legs_own_does_not_construct() {
+    // D9: `bucket` and the fact leg's own bucket are two independently supplied arguments; the one
+    // production splitter clones one value into both, so a producer that stops doing that is what
+    // this catches.
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let mismatched_bucket = PlanBucket::new(
+        ResultLabel::bucket(),
+        Grain::Week,
+        PlanColumn::new(table(FACT), column("week")),
+    );
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        mismatched_bucket,
+        fact_leg(terms_for(&federation)),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(matches!(plan, Err(FederatedPlanError::BucketMismatch)), "{plan:?}");
+}
+
+#[test]
+fn fact_terms_that_do_not_match_the_federations_labels_do_not_construct() {
+    // D9: `fact`'s own terms are supplied by the producer rather than derived here, and the one
+    // production splitter zips `federation.carried()` with `labels(&federation)` to build them.
+    // Empty terms are what a producer with no leaves to project would send, which is never this
+    // federation's own shape.
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(Vec::new()),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(matches!(plan, Err(FederatedPlanError::TermsDoNotMatchFederation)), "{plan:?}");
+}
+
+#[test]
+fn matching_bucket_and_terms_construct_the_negative_control() {
+    // Negative control for the two tests above: the same shapes, unmutated, still construct - so
+    // the two refusals are about the mismatch, not about the fixtures being unusable.
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let plan = FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_leg(terms_for(&federation)),
+        lookup_leg(),
+        true,
+        federation,
+        Vec::new(),
+    );
+    assert!(plan.is_ok(), "{plan:?}");
+}
+
+#[test]
+fn federated_answer_refusal_classifies_every_failure_variant() {
+    // D19 + A4: the total classification `answer_federated` reads to decide whether a combine
+    // failure is a governance refusal or a wiring defect. Every arm is named here so a ninth
+    // `FederatedFailure` variant is a compile error in `FederatedAnswerRefusal::of` before it can
+    // be a silent `None`.
+    let revenue = metric("revenue");
+    let deterministic: Vec<FederatedFailure> = vec![
+        FederatedFailure::NonFinite { metric: revenue.clone() },
+        FederatedFailure::FloatLinkKey { value: 1.5 },
+        FederatedFailure::AmbiguousLink { key: String::from("c1") },
+        FederatedFailure::NonNumericLeaf {
+            aggregate: Aggregate::Sum,
+            value: Value::Text(String::from("x")),
+        },
+        FederatedFailure::MixedNumericLeaf {
+            aggregate: Aggregate::Sum,
+        },
+        FederatedFailure::Overflow {
+            aggregate: Aggregate::Sum,
+        },
+    ];
+    for cause in &deterministic {
+        assert!(
+            FederatedAnswerRefusal::of(cause).is_some(),
+            "{cause:?} is deterministic and must be a refusal"
+        );
+    }
+    assert_eq!(
+        FederatedAnswerRefusal::of(&FederatedFailure::NonFinite { metric: revenue }),
+        Some(FederatedAnswerRefusal::NonFinite)
+    );
+    assert_eq!(
+        FederatedAnswerRefusal::of(&FederatedFailure::AmbiguousLink { key: String::from("c1") }),
+        Some(FederatedAnswerRefusal::AmbiguousLink)
+    );
+
+    let wiring_defects: Vec<FederatedFailure> = vec![
+        FederatedFailure::MissingColumn {
+            side: "fact",
+            label: String::from("0_leaf_0"),
+        },
+        FederatedFailure::DuplicateLabels {
+            side: "fact",
+            label: String::from("region"),
+        },
+        FederatedFailure::UnsupportedAggregate {
+            aggregate: Aggregate::CountDistinct,
+        },
+        FederatedFailure::ResourcesExhausted { ceiling_bytes: 1 },
+        FederatedFailure::MalformedRow { side: "answer" },
+        FederatedFailure::LeafCursorExhausted {
+            metric: metric("revenue"),
+        },
+    ];
+    for cause in &wiring_defects {
+        assert_eq!(
+            FederatedAnswerRefusal::of(cause),
+            None,
+            "{cause:?} is this workspace's own defect, not a governance refusal"
+        );
     }
 }
 

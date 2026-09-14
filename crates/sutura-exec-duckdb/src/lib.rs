@@ -849,7 +849,7 @@ mod tests {
         // exercised directly with a literal statement, because the labels have to be right before
         // any plan is involved.
         let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture()).expect("an in-memory database opens");
-        let query = GeneratedQuery::new(source(), String::from("SELECT 1 AS period, 'north' AS region"), Vec::new());
+        let query = GeneratedQuery::literal(source(), String::from("SELECT 1 AS period, 'north' AS region"));
         let rows = warehouse.run(&query).expect("a literal select answers");
         assert_eq!(rows.columns(), ["period", "region"]);
         assert_eq!(rows.rows().len(), 1);

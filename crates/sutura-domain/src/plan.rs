@@ -38,7 +38,7 @@ mod anchor_tests;
 
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::federated::{
-    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
+    AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
 pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
@@ -640,7 +640,11 @@ pub struct AnchorPlan<'bundle> {
 ///
 /// **An error and not a refusal**: reaching it means the boot path compiled something other than the
 /// anchor's question, which is a defect here rather than anything about a caller.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// `Serialize` for [`crate::pinned::NotExecutedReason::NotAnAnchor`]'s reason: a boot report
+/// serializes the whole reason tree, and D10 stopped that variant from flattening this into a
+/// string first.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, thiserror::Error)]
 pub enum NotAnAnchorsPlan {
     /// The plan computes a different metric from the one whose anchor it would be checked against.
     #[error("this plan computes `{plan}` and the anchor certifies `{anchor}`")]

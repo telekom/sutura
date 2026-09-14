@@ -41,6 +41,13 @@
 /// then reports is vacuous.
 mod reaggregate;
 
+/// What a combine can fail with, and the classification that tells a caller-facing refusal apart
+/// from this workspace's own wiring defect.
+///
+/// Split out when this file reached the unexemptable 1000-line gate, along a concept seam rather
+/// than the counter's own fall - see the module's own header for why this pair is one subject.
+mod failure;
+
 /// The reserved label namespace, and the one function that assigns it.
 ///
 /// Its own module because it is what the splitter, the combiner and the leg goldens all read the
@@ -58,6 +65,7 @@ use crate::plan::ResultLabel;
 use crate::plan::leg::LegPlan;
 use crate::warehouse::{RowSet, Value};
 
+pub use failure::{FederatedAnswerRefusal, FederatedFailure};
 pub use label::{InternalLabel, labels};
 use reaggregate::{Leaves, reaggregates};
 
@@ -222,6 +230,37 @@ impl FederatedPlan {
                 return Err(FederatedPlanError::LeafDoesNotReaggregate { aggregate });
             }
         }
+        // D9: `bucket` and `fact`'s own embedded bucket and terms are three independently supplied
+        // arguments, and the one production splitter (`sutura_semantic::plan::federated_plan`)
+        // derives all three from the same local values - the bucket by cloning one `PlanBucket`, the
+        // terms by zipping `federation.carried()` with `labels(&federation)`. Checked here so a
+        // future producer that stops doing that fails at construction rather than combining under a
+        // bucket the fact leg never grouped by, or a term the federation never asked for.
+        // `clippy::unreachable` refuses the macro here, so the `else` arm is the same refusal
+        // `is_fact` above already returned for this exact shape - a second `NotFact` rather than a
+        // panic, for a branch the type still has to answer even though nothing can reach it.
+        let LegPlan::Fact {
+            bucket: ref fact_bucket,
+            terms: ref fact_terms,
+            ..
+        } = fact
+        else {
+            return Err(FederatedPlanError::NotFact {
+                source_name: fact.source().clone(),
+            });
+        };
+        if *fact_bucket != bucket {
+            return Err(FederatedPlanError::BucketMismatch);
+        }
+        let expected: Vec<String> = labels(&federation).into_iter().map(InternalLabel::label).collect();
+        let matches_expected = fact_terms.len() == expected.len()
+            && fact_terms
+                .iter()
+                .zip(&expected)
+                .all(|(term, expected_label)| term.label() == expected_label);
+        if !matches_expected {
+            return Err(FederatedPlanError::TermsDoNotMatchFederation);
+        }
         Ok(Self {
             metric,
             measure_label,
@@ -287,93 +326,23 @@ pub enum FederatedPlanError {
     /// answered `Null` for a group of nulls, under the metric's own certified name.
     #[error("a carried leaf re-aggregates with `{aggregate}`, which the combine cannot apply")]
     LeafDoesNotReaggregate { aggregate: Aggregate },
+    /// The bucket handed to this constructor is not the fact leg's own.
+    ///
+    /// Unreachable through the one production splitter, which builds both from one local value -
+    /// see [`FederatedPlan::new`]'s own comment for why this is checked anyway.
+    #[error("the plan's bucket does not match the fact leg's own bucket")]
+    BucketMismatch,
+    /// The fact leg's terms do not name the labels its federation expects, in order.
+    ///
+    /// Same reason as [`BucketMismatch`](Self::BucketMismatch): the one production splitter derives
+    /// both from `labels(&federation)` in one pass.
+    #[error("the fact leg's terms do not match the labels its federation expects")]
+    TermsDoNotMatchFederation,
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.
 fn leg_has_key<'a>(leg: &LegPlan, label: &'a str) -> Result<(), &'a str> {
     leg.keys().iter().any(|key| key.label() == label).then_some(()).ok_or(label)
-}
-
-/// Why a federated answer could not be assembled.
-///
-/// The shape failures are defects in this workspace's own wiring - a leg result missing a column
-/// [`labels`] named, or a row narrower than its result's own columns. The [`NonFinite`](FederatedFailure::NonFinite)
-/// variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
-/// value for.
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub enum FederatedFailure {
-    /// A column `combine` reached for by label was absent from a leg's result.
-    ///
-    /// The labelling contract is one function - the splitter and the combiner both call [`labels`] -
-    /// so this is a wiring defect between the two halves rather than a choice either side made.
-    #[error("the {side} result has no column `{label}`")]
-    MissingColumn { side: &'static str, label: String },
-    /// A division happened by a zero denominator while the measure declared `fails`.
-    ///
-    /// On the mono-source path a non-finite cell is refused at the port; this is this slice's port,
-    /// so the guard landing here is an error naming the metric it could not certify.
-    #[error("a non-finite value reached the answer for `{metric}`")]
-    NonFinite { metric: MetricName },
-    /// A leg result had two columns under one label, so the combiner could not tell which of them
-    /// a leaf or key names.
-    #[error("the {side} result labels two columns `{label}`")]
-    DuplicateLabels { side: &'static str, label: String },
-    /// A link cell carried a floating-point key, which the ADR's float-key rule forbids.
-    #[error("a link column carried a floating-point key ({value})")]
-    FloatLinkKey { value: f64 },
-    /// A link value had more than one lookup row, which would double every measure.
-    #[error("the link value `{key}` maps to more than one lookup row")]
-    AmbiguousLink { key: String },
-    /// A leaf cell that was not a number reached a re-aggregating aggregate.
-    ///
-    /// The `DuckDB` adapter deliberately returns `DECIMAL` and wide integer columns as
-    /// [`Value::Text`] to keep them exact; a sum reaching such a cell cannot certify a number, so
-    /// it is refused rather than counted as zero.
-    #[error("a `{aggregate:?}` re-aggregation met a non-numeric leaf cell (`{value:?}`)")]
-    NonNumericLeaf { aggregate: Aggregate, value: Value },
-    /// A leaf column carried two numeric types, so no total or comparison over it is exact.
-    ///
-    /// A result column in a data system has one logical type. [`RowSet`] constrains a row's width and
-    /// nothing about its cells, so a column mixing [`Value::Integer`] and [`Value::Real`] cells is
-    /// representable here, and the two ways to answer one are both wrong numbers: dropping either
-    /// subtotal loses it outright, and folding the integer one into the real one is an `i64 as f64`
-    /// widening - the same silent widening `DuckDB`'s own conversion refuses for a 32-bit float and
-    /// for a wide integer that does not fit an `i64`. Refused instead, which is also what leaves the
-    /// aggregates above comparing and adding one type.
-    #[error("a `{aggregate:?}` re-aggregation met a leaf column mixing integer and real cells")]
-    MixedNumericLeaf { aggregate: Aggregate },
-    /// A leaf total overflowed a 64-bit integer.
-    #[error("a `{aggregate:?}` re-aggregation overflowed a 64-bit integer")]
-    Overflow { aggregate: Aggregate },
-    /// An aggregate the combiner does not know how to re-aggregate with.
-    ///
-    /// The one path [`FederatedPlan::new`] closes is a carried leaf naming an aggregate
-    /// `reaggregate::reaggregates` answers `false` for - it refuses such a federation before any
-    /// leg runs, so no plan that constructor built carries this value. **The limit: nothing else
-    /// closes it, and construction is not restricted to this module.** `FederatedFailure` is `pub`
-    /// and re-exported, and the application's federated execution already writes a sibling
-    /// variant's literal from outside the crate. So any caller can build this value directly; it
-    /// stays a refusal rather than becoming a panic because a value that claims a re-aggregation
-    /// which does not exist would answer wrongly, not because the type seals the variant.
-    #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
-    UnsupportedAggregate { aggregate: Aggregate },
-    /// Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion
-    /// boundary.
-    ///
-    /// The legs have no row cap - that measured key cardinality rather than bytes, which is exactly
-    /// what 0009 retired - so this is the bound on the answer `combine` builds. A refusal is honest
-    /// in the way a truncated one is not: the caller sees a `federation_not_executable`-adjacent
-    /// refusal rather than a row set that stopped early.
-    #[error("the federated answer exceeds the {ceiling_bytes}-byte working-set ceiling")]
-    ResourcesExhausted { ceiling_bytes: u64 },
-    /// A row whose width contradicts the result's own column count.
-    ///
-    /// Unreachable by construction on both halves: a leg result is built by [`RowSet::new`], which
-    /// refuses a ragged row up front, and the answer is projected from a single fixed key list. It is
-    /// this slice's defensive arm - the named, reachable-if-the-type-lying shape the old `LegCount`
-    /// catch-all used to swallow.
-    #[error("a row of the {side} result had the wrong number of cells")]
-    MalformedRow { side: &'static str },
 }
 
 /// The column positions [`FederatedPlan::combine`] needs, resolved once.
@@ -495,11 +464,20 @@ fn fact_rows(fact: &RowSet, fact_join: usize) -> Result<FactRows<'_>, FederatedF
 
 /// The remote keys each link value maps to, refusing a link with more than one lookup row.
 ///
-/// More than one row for one link would double every measure, so it is refused rather than certified.
+/// More than one row for one link would double every measure, so it is refused rather than
+/// certified.
+///
+/// **D8: the one allocation in `combine` sized by a LEG's own row count rather than by the
+/// answer's, so it is charged against `budget` as it clones each row's key columns** - the working
+/// set `docs/adr/0009` bounds is the whole of what a combine holds, not only the rows the answer
+/// finally emits. Everything else `combine` builds before this either borrows (`fact_rows`) or is
+/// sized by the key list rather than by a row count (`LegIndexes::resolve`'s own maps).
 fn lookups_by_link(
     lookup: &RowSet,
     lookup_join: usize,
     lookup_columns: &[(String, usize)],
+    budget: &mut ByteBudget,
+    byte_budget: u64,
 ) -> Result<RemoteByLink, FederatedFailure> {
     let mut by_link: RemoteByLink = BTreeMap::new();
     for row in lookup.rows() {
@@ -516,6 +494,7 @@ fn lookups_by_link(
         let Some(remote) = remote else {
             continue;
         };
+        budget.add(remote.iter().map(value_bytes).sum(), byte_budget)?;
         let entry = by_link.entry(key.clone()).or_default();
         if !entry.is_empty() {
             return Err(FederatedFailure::AmbiguousLink { key });
@@ -547,11 +526,16 @@ impl FederatedPlan {
         distinct_columns(fact, "fact")?;
         distinct_columns(lookup, "lookup")?;
 
+        // D8: the budget is built before anything it will count is. `lookups_by_link` is the one
+        // allocation here that scales with a LEG's own row count rather than with the answer's -
+        // it clones every lookup row's key columns into `RemoteByLink` - so it is charged as it
+        // clones them, not after. `LegIndexes::resolve` and `fact_rows` build no cell copies: the
+        // first is metadata sized by the key list, the second borrows the fact rows it groups.
+        let mut budget = ByteBudget::new(byte_budget);
         let indexes = LegIndexes::resolve(self, fact, lookup)?;
         let facts = fact_rows(fact, indexes.fact_join)?;
-        let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns)?;
+        let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns, &mut budget, byte_budget)?;
 
-        let mut budget = ByteBudget::new(byte_budget);
         let column_bytes: u64 = self.keys.iter().map(|key| key.label().len() as u64).sum::<u64>()
             + self.bucket.label().len() as u64
             + self.measure_label.as_str().len() as u64;
@@ -645,12 +629,17 @@ impl FederatedPlan {
         };
         for fact_row in fact_rows {
             let bucket_cell = cell(fact_row, indexes.bucket, "fact", self.bucket.label())?.clone();
+            // D2: `cell` already refuses a missing column as `MissingColumn` - `unwrap_or(Value::Null)`
+            // used to swallow that refusal into a silent zero-length leaf instead of propagating it,
+            // the same fail-open `bucket_cell` above never had. `indexes.leaf_indexes` is resolved
+            // against this same `fact` RowSet, so this is unreachable by construction; propagated
+            // rather than defaulted so a future edit that breaks that pairing fails loudly.
             let leaves: Vec<Value> = indexes
                 .leaf_indexes
                 .iter()
                 .zip(&indexes.leaf_labels)
-                .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
-                .collect();
+                .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned())
+                .collect::<Result<_, _>>()?;
             for remote in remote_rows {
                 let mut cells = Vec::with_capacity(self.keys.len() + 1);
                 for key in &self.keys {

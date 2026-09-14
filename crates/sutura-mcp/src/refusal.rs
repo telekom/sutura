@@ -117,13 +117,26 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              aggregate is not additive; ask it without the dimension that sits on the second \
              data system"
         ),
+        // Written for an agent: D19 + A4's own reason applies here too. A non-finite ratio or an
+        // ambiguous join is the same plan against the same rows failing again - not an outage - so
+        // retrying it will not change the answer.
+        RefusalReason::FederatedAnswerNotWellFormed { .. } => String::from(
+            "answering this across two data systems hit a division by zero or a join key that \
+             matched more than one row. Retrying it unchanged will be refused again: ask the same \
+             metric without the dimension on the second data system, or say so to the person you \
+             are acting for.",
+        ),
         // Written for an agent, so it says which of the two moves is available rather than only that
         // this one failed: unlike the two-source refusal there usually is another question, because a
         // dimension that needs no join is still answered.
-        RefusalReason::PlanTablesShareAnIdentifier { ref table } => format!(
-            "answering this would read two different tables both called `{table}`, and one \
+        //
+        // D7: no schema identifier here, for the same reason `sutura_app::prompt` never puts a table
+        // name in an agent's context - this refusal is a tool output an agent reads exactly as it
+        // would read the prompt.
+        RefusalReason::PlanTablesShareAnIdentifier { .. } => String::from(
+            "answering this would read two different tables that answer to one identifier, and one \
              statement cannot tell them apart. Try a dimension that needs no join; if every \
-             useful one does, say so to the person you are acting for."
+             useful one does, say so to the person you are acting for.",
         ),
         RefusalReason::SourceUnavailable { ref source } => {
             format!("the data system `{source}` is not one this process opened")
@@ -246,6 +259,9 @@ mod tests {
                 metric: metric(),
                 aggregate: Aggregate::CountDistinct,
             },
+            RefusalReason::FederatedAnswerNotWellFormed {
+                federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
+            },
             RefusalReason::PlanTablesShareAnIdentifier {
                 table: TableName::parse("orders").expect("a test table is a table"),
             },
@@ -344,6 +360,16 @@ mod tests {
             detail.contains("41 seconds"),
             "the sentence does not name when the window resets: {detail}"
         );
+    }
+
+    #[test]
+    fn a_shared_table_identifier_never_reaches_an_agents_context() {
+        // D7: this refusal is a tool result an agent reads, exactly the surface
+        // `sutura_app::prompt` never puts a schema name in.
+        let (_, detail) = refused(&RefusalReason::PlanTablesShareAnIdentifier {
+            table: TableName::parse("orders").expect("a test table is a table"),
+        });
+        assert!(!detail.contains("orders"), "{detail}");
     }
 
     /// The bound with no number still tells an agent what to do, and names nothing it was not told.

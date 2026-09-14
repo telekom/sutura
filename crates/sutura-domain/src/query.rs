@@ -310,6 +310,20 @@ pub enum RefusalReason {
     ///
     /// Carries the metric and the aggregate that cannot descend, so a caller sees why.
     MeasureDoesNotFederate { metric: MetricName, aggregate: Aggregate },
+    /// The combiner could not compute the answer as asked, deterministically.
+    ///
+    /// **D19 + A4: this used to have no refusal at all.** A non-finite ratio and a link value
+    /// mapping to more than one lookup row left as `ServiceError::Federated` and reached a transport
+    /// as an HTTP `503` - "worth retrying", the status a data system that might come back
+    /// produces. Neither is: the same plan against the same rows fails again, so retrying spends a
+    /// caller's own budget on an answer that was never going to change.
+    /// [`crate::plan::FederatedAnswerRefusal::of`] is the total classification that decides
+    /// which [`FederatedFailure`](crate::plan::FederatedFailure) causes land here rather than
+    /// staying a wiring-defect `ServiceError`.
+    ///
+    /// Carries the classification and no cell: see [`FederatedAnswerRefusal`](crate::plan::FederatedAnswerRefusal)'s
+    /// own note on why a join key or a float value never reaches this far.
+    FederatedAnswerNotWellFormed { federated: crate::plan::FederatedAnswerRefusal },
     /// Two tables the plan would read answer to one identifier inside one statement.
     ///
     /// **A reproduced wrong-answer report, not a hypothetical.** A fact table at
@@ -328,10 +342,12 @@ pub enum RefusalReason {
     /// join is still answered. `sutura_domain::plan::tables` holds the guard and the argument for why
     /// distinct explicit aliases are not the fix today.
     ///
-    /// Carries the identifier the two collapsed to and neither of the two paths. The identifier is
-    /// the thing a person can act on - it names the join to avoid - and a path carries the project
-    /// and dataset a deployment reads, which is the operator's business rather than the asker's. The
-    /// operator-facing detail is on the domain error the plan stage refused with.
+    /// **D7: carries the identifier and neither of the two paths, and no transport renders the
+    /// identifier either.** It used to be argued that the bare identifier was safe to show because
+    /// it names the join to avoid; it still reaches an agent's own context exactly as a schema name
+    /// in the generated prompt would, which is the rule `sutura_app::prompt` states for that
+    /// surface, so every transport's message is generic and the identifier stays a typed field for
+    /// logs and tests.
     PlanTablesShareAnIdentifier { table: TableName },
     /// The plan named a data system this process did not open.
     ///
@@ -553,6 +569,7 @@ impl RefusalReason {
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::MeasureDoesNotFederate { .. } => "measure_does_not_federate",
+            Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
             Self::PlanTablesShareAnIdentifier { .. } => "plan_tables_share_an_identifier",
             Self::SourceUnavailable { .. } => "source_unavailable",
             Self::ResourcesExhausted { .. } => "resources_exhausted",
@@ -882,6 +899,9 @@ mod tests {
             RefusalReason::MeasureDoesNotFederate {
                 metric: MetricName::parse("active_subscriptions").expect("a test metric"),
                 aggregate: Aggregate::CountDistinct,
+            },
+            RefusalReason::FederatedAnswerNotWellFormed {
+                federated: crate::plan::FederatedAnswerRefusal::AmbiguousLink,
             },
             RefusalReason::PlanTablesShareAnIdentifier {
                 table: TableName::parse("orders").expect("a test table"),

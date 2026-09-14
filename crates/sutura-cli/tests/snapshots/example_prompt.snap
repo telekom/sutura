@@ -125,6 +125,11 @@ Every reason you can be given, and what to do about each:
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
   the second data system, or report it to a person.
+- **federated_answer_not_well_formed** - answering this across two data systems hit a division by
+  zero or a join key that matched more than one row - the same question and the same rows fail the
+  same way every time.
+  Do not retry it unchanged. Ask the same metric without the dimension on the second data system, or
+  report it to a person: it is a fact about the data, not about how you asked.
 - **legs_decide_identity_differently** - the question spans two data systems that decide who is
   asking differently, so one answer would add rows read under one identity to rows read under
   another - a total neither identity is entitled to.

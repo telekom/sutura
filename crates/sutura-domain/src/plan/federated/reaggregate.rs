@@ -245,9 +245,17 @@ impl LeafColumn {
 fn apply_above(above: &Above, aggregated: &[Value], cursor: &mut usize, metric: &MetricName) -> Result<Value, FederatedFailure> {
     match *above {
         Above::Total(_) => {
-            let value = aggregated.get(*cursor).cloned();
+            // D2: unreachable by construction - `Leaves::of` builds one value per
+            // `Federation::carried()` leaf and this walks the identical tree in the same order, so
+            // the counts cannot diverge. Propagated rather than defaulted to `Value::Null`, so a
+            // future edit that broke that pairing fails loudly under the metric's own name instead
+            // of silently certifying a wrong number.
+            let value = aggregated
+                .get(*cursor)
+                .cloned()
+                .ok_or_else(|| FederatedFailure::LeafCursorExhausted { metric: metric.clone() })?;
             *cursor = cursor.saturating_add(1);
-            Ok(value.unwrap_or(Value::Null))
+            Ok(value)
         }
         Above::Quotient {
             ref numerator,
@@ -301,5 +309,66 @@ const fn to_f64(value: &Value) -> Option<f64> {
         Value::Integer(cell) => Some(*cell as f64),
         Value::Real(cell) => Some(cell.get()),
         Value::Null | Value::Text(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::federation::{Carried, Descent};
+    use crate::model::ColumnName;
+
+    fn metric() -> MetricName {
+        MetricName::parse("revenue").expect("a test metric is a metric")
+    }
+
+    fn sum_leaf() -> Carried {
+        let pushed = match Descent::of(Aggregate::Sum) {
+            Descent::AsWritten(pushed) => pushed,
+            other => panic!("Sum is pushable as written, got {other:?}"),
+        };
+        Carried::Aggregated {
+            pushed,
+            column: ColumnName::parse("mrr_cents").expect("a test column is a column"),
+        }
+    }
+
+    // D2: `apply_above`'s cursor read is unreachable through `Leaves::measure`, the type's one
+    // caller - see this function's own doc. Provoked directly here, the way this module's other
+    // defensive arms are, to hold that the guard refuses rather than silently answers `Value::Null`
+    // for a metric it never certified.
+    #[test]
+    fn a_cursor_that_outruns_its_aggregated_leaves_is_refused_not_defaulted() {
+        let leaf = sum_leaf();
+        let above = Above::Quotient {
+            numerator: Box::new(Above::Total(leaf.clone())),
+            denominator: Box::new(Above::Total(leaf)),
+            zero_denominator: ZeroDenominator::Null,
+        };
+        let mut cursor = 0;
+        // The tree has two `Total` leaves; one aggregated value is handed in, so the second read
+        // must outrun it.
+        let aggregated = [Value::Integer(1)];
+        let result = apply_above(&above, &aggregated, &mut cursor, &metric());
+        assert!(
+            matches!(result, Err(FederatedFailure::LeafCursorExhausted { .. })),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn a_cursor_within_its_aggregated_leaves_answers_without_the_guard_firing() {
+        // The negative control for the test above: the same tree, with enough values, answers
+        // rather than refusing - proving the guard is the count and not the shape of the tree.
+        let leaf = sum_leaf();
+        let above = Above::Quotient {
+            numerator: Box::new(Above::Total(leaf.clone())),
+            denominator: Box::new(Above::Total(leaf)),
+            zero_denominator: ZeroDenominator::Null,
+        };
+        let mut cursor = 0;
+        let aggregated = [Value::Integer(10), Value::Integer(2)];
+        let result = apply_above(&above, &aggregated, &mut cursor, &metric());
+        assert_eq!(result, Ok(Value::Real(Real::parse(5.0).expect("5.0 is finite"))));
     }
 }

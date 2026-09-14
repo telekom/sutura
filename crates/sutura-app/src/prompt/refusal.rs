@@ -131,6 +131,16 @@ const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
              in the hope of avoiding it.",
 };
 
+const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
+    reason: "federated_answer_not_well_formed",
+    meaning: "answering this across two data systems hit a division by zero or a join key that \
+              matched more than one row - the same question and the same rows fail the same way \
+              every time",
+    remedy: "Do not retry it unchanged. Ask the same metric without the dimension on the second \
+             data system, or report it to a person: it is a fact about the data, not about how \
+             you asked.",
+};
+
 const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
     reason: "plan_tables_share_an_identifier",
     meaning: "answering would read two different tables that carry the same name, and one statement \
@@ -265,6 +275,9 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &MEASURE_DOES_NOT_FEDERATE,
+    // With the federation family, for the same reason: the move is to drop the second-source
+    // dimension, and it is not a passing outage.
+    &FEDERATED_ANSWER_NOT_WELL_FORMED,
     // With the federation family rather than with the two an agent cannot act on, because it IS
     // actionable and the move is the same one: drop the dimension that pulls in the second data
     // system. An agent reading it here has just read that a refusal about the two-source shape is
@@ -307,6 +320,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
+        RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,

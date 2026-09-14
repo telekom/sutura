@@ -70,6 +70,9 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
             metric: metric_name("active_subscriptions"),
             aggregate: Aggregate::CountDistinct,
         },
+        RefusalReason::FederatedAnswerNotWellFormed {
+            federated: sutura_domain::plan::FederatedAnswerRefusal::AmbiguousLink,
+        },
         RefusalReason::PlanTablesShareAnIdentifier {
             table: TableName::parse("orders").expect("a test table is a table"),
         },
@@ -134,6 +137,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::MeasureDoesNotFederate { .. }
+            | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }
             | RefusalReason::SourceUnavailable { .. }
             | RefusalReason::SourceRefused { .. }

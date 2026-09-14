@@ -38,6 +38,7 @@ use crate::catalog::{Anchor, Definitions};
 use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
+use crate::plan::NotAnAnchorsPlan;
 use crate::query::RefusalReason;
 use crate::source::UniformlyExecuted;
 use crate::text::first_invisible;
@@ -473,6 +474,16 @@ pub enum NotExecutedReason {
     /// The anchor's own question would not compile against the bundle that carries it.
     #[error("the anchor's own question would not compile: {}", flattened(.message, .chain))]
     NotCompiled { message: String, chain: Vec<String> },
+    /// The anchor's own question compiled to two data systems, so nothing here executed it.
+    ///
+    /// **A5: a defect in this workspace's own wiring, not a compile failure.** An anchor is asked
+    /// with no dimensions, so it can only ever be one source's own question -
+    /// `sutura_semantic::plan::federated_plan` is unreachable from a question with no remote
+    /// dimension. This used to be folded into [`NotCompiled`](Self::NotCompiled) with a fabricated
+    /// `message` and an empty `chain`, which misreported a plan that compiled fine, to the wrong
+    /// SHAPE, as one that never compiled at all.
+    #[error("the anchor's own question compiled to two data systems, not one")]
+    ResolvedToTwoSources,
     /// The anchor's own question was refused. A governance outcome, surfaced as one: an anchor a
     /// caller could not have asked for is not a failure of the data system.
     #[error("the anchor's own question was refused: {reason:?}")]
@@ -505,14 +516,22 @@ pub enum NotExecutedReason {
     /// The plan the boot path compiled is not this anchor's own, so nothing executed it.
     ///
     /// **A defect in the boot path rather than anything about the catalog**, which is why it is one
-    /// variant with the typed cause flattened into it rather than one per cause: whoever reads a
-    /// report needs to know this anchor was not checked and why, and every way
-    /// `sutura_domain::plan::AnchorPlan::of` refuses a plan is "the question compiled here was not the
-    /// anchor's". Nothing in this workspace can provoke it - it is a SELF-CHECK on the boot path, not
-    /// a barrier against a caller, and `AnchorPlan`'s own documentation is where that distinction is
-    /// argued - and a check with no reportable outcome would have to be a panic instead.
-    #[error("the plan compiled for this anchor is not the anchor's own: {}", flattened(.message, .chain))]
-    NotAnAnchor { message: String, chain: Vec<String> },
+    /// variant rather than one per cause: whoever reads a report needs to know this anchor was not
+    /// checked and why, and every way `sutura_domain::plan::AnchorPlan::of` refuses a plan is "the
+    /// question compiled here was not the anchor's". Nothing in this workspace can provoke it - it
+    /// is a SELF-CHECK on the boot path, not a barrier against a caller, and `AnchorPlan`'s own
+    /// documentation is where that distinction is argued - and a check with no reportable outcome
+    /// would have to be a panic instead.
+    ///
+    /// **D10: carries [`NotAnAnchorsPlan`] typed, not flattened.** Unlike [`NotCompiled`](Self::NotCompiled)
+    /// and [`Failed`](Self::Failed), this cause is not a cross-crate type the domain must not depend
+    /// on - `NotAnAnchorsPlan` is this crate's own - so there was never a boundary forcing the
+    /// flatten this variant used to do anyway.
+    #[error("the plan compiled for this anchor is not the anchor's own: {cause}")]
+    NotAnAnchor {
+        #[source]
+        cause: NotAnAnchorsPlan,
+    },
     /// The data system failed the statement. `message` is the adapter's own, `chain` is every cause
     /// beneath it - the driver error included, which is the part that names a table, a column or a
     /// file and the part a single string used to throw away.
