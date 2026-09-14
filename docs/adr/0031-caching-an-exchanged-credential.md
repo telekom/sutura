@@ -1,6 +1,6 @@
 ---
 title: Caching an exchanged credential
-description: A per-process, per-subject cache in front of the one broker that performs a token exchange - the key, the TTL as a minimum of three bounds, what is never cached, and the limits this does not close (per-replica only, no bound on the caller's own assertion lifetime, revocation delayed by at most the configured window).
+description: A per-process cache, keyed on the whole verified chain, in front of the one broker that performs a token exchange - the key, the TTL as the issue's three bounds with two of them enforced, what is never cached, and the limits this does not close (per-replica only, no bound on the caller's own assertion lifetime, revocation delayed by at most the configured window).
 ---
 
 # Caching an exchanged credential
@@ -23,18 +23,35 @@ synchronous inner loop `github.com/telekom/sutura#378`'s chain puts on it.
   `mint`. Nothing outside that one file knows the cache exists; `sutura-domain` and `sutura-app` are
   untouched.
 
-### The key: `(Subject, audience, scope)`, never less, never the whole request
+### The key: `(PrincipalChain, audience, scope)`, never less, never the whole request
 
-The verified [`Subject`] `mint` already attributes the answer to
-(`RequestContext::chain().subject()`, the same value `LegCredentials::minted` takes as `asked_by`),
-paired with the literal input to the exchange call - not the `SourceSet` a request happened to name
-(two requests over different subsets of sources must still hit per source), and not the `SourceName`
-either, though a source's audience and scope are declared once at startup and never change while a
-process runs: the issue's own wording asks for the literal exchange input, and keying on it directly
-is the shape that stays correct if that assumption ever stops holding. Not the whole
-`PrincipalChain`: its second and third positions (an acting agent, a task) are always absent today
-and the port itself attributes a credential to a bare `Subject` - keying on more than the domain
-already keys on would be a distinction with no data behind it, until an agent surface makes one.
+**Corrected after review.** The first version of this record keyed on `Subject` alone and stated
+the chain's second position (an acting agent) "is always absent today", which was false of the tree
+it landed beside: `sutura_http`'s inbound gate already builds one from an RFC 8693 `act` claim
+(`crates/sutura-http/src/inbound/token.rs`) and the audit record already writes it
+(`crates/sutura-runtime/src/audit.rs`). A subject-only key would serve one caller's credential to
+another presenting a different assertion under a different attribution, the moment a workload's
+attribute mapping reads the `act` claim - which is exactly the cross-subject leak this whole cache
+exists to make unrepresentable, reappearing one layer down. The key is the WHOLE chain
+`RequestContext::chain()` carries at the moment `mint` is called, paired with the literal input to
+the exchange call - not the `SourceSet` a request happened to name (two requests over different
+subsets of sources must still hit per source), and not the `SourceName` either, though a source's
+audience and scope are declared once at startup and never change while a process runs: the issue's
+own wording asks for the literal exchange input, and keying on it directly is the shape that stays
+correct if that assumption ever stops holding.
+`the_same_subject_through_a_different_acting_agent_pays_its_own_round_trip`
+(`crates/sutura-exec-bigquery/src/sts/cache.rs`) is the permanent regression.
+
+**The residual, stated rather than assumed away.** A verified `PrincipalChain` is exactly what
+`sutura_domain::identity` parses from a token's `sub` and `act` claims - a claim a provider maps
+from something else (group membership, a custom attribute a workload-identity pool's attribute
+condition reads) never reaches this chain, because the domain does not verify or carry it. Two
+requests identical in every claim this key can see, differing only in a claim the domain never
+parses, would still share an entry - a limit of what leg 1 verifies, not something this cache could
+key around. Separately, `RequestContext::with_assertion(PrincipalChain::of(Subject::TheDeploymentItself), ..)`
+is `pub` and would collapse every caller onto one key if anything built one; nothing shipped does -
+both transports' `established()` use `RequestContext::of`, which carries no assertion, so that chain
+can never reach an impersonating source at all.
 
 **Unrepresentable from outside, by construction rather than by discipline.** The key type has no
 `pub` constructor anywhere - not `pub(crate)`, not exported - because the whole cache is private to
@@ -42,25 +59,27 @@ already keys on would be a distinction with no data behind it, until an agent su
 value to a cache entry, which is the same shape `sutura_domain::identity::PrincipalChain` uses for
 "a caller cannot state its own identity": not a check that runs, an absence of the door.
 
-### The lifetime: the minimum of what was minted, the floor, and the operator's window
+### The lifetime: the issue's three bounds, two of them enforced
 
-An entry is served only until the EARLIEST of:
+The issue's body numbers three bounds; this record keeps that numbering rather than inventing its
+own, because renumbering is exactly how "the second" and "the third" drift apart in review:
 
 1. **the minted credential's own `not_after`, minus the same FLOOR `docs/adr/0008` part 6 already
-   refuses inside** (`WorkloadIdentityBroker::with_floor`). A cache that ignored the floor would
-   re-introduce exactly the bug the floor exists for: the first caller gets refused for having too
-   little life left, and the second gets the same credential anyway because it was already sitting
-   in the map.
-2. **`security.credential_cache.window_seconds`**, an operator's own ceiling - `CacheWindow` in
-   `sutura_config::identity_cache`, which documents itself as a ceiling and never a grant: the fold
-   can only shorten how long an entry is served, never lengthen what the exchange actually minted.
-3. Implicitly, whatever `1` already is: nothing is ever cached longer than the credential's own
-   life, because the fold takes the minimum rather than the operator's number alone.
+   refuses inside** (`WorkloadIdentityBroker::with_floor`). **Enforced** - a cache that ignored the
+   floor would re-introduce exactly the bug the floor exists for: the first caller gets refused for
+   having too little life left, and the second gets the same credential anyway because it was
+   already sitting in the map.
+2. **the caller's own assertion expiry.** **Not enforced.** The shipped broker never parses the
+   caller's assertion beyond handing it to the exchange as opaque material, so this record cannot
+   fold it into `min(...)` today. Stated as a limit below, not silently dropped -
+   [what this explicitly leaves for later](#what-this-explicitly-leaves-for-later) names it.
+3. **`security.credential_cache.window_seconds`**, an operator's own ceiling. **Enforced** -
+   `CacheWindow` in `sutura_config::identity_cache` documents itself as a ceiling and never a grant:
+   the fold can only shorten how long an entry is served, never lengthen what the exchange actually
+   minted.
 
-**Not decided here: the caller's own assertion expiry.** The issue's own body lists three bounds; the
-third - never outlive the caller's own token - is not enforced by this record, because the shipped
-broker never parses the caller's assertion beyond handing it to the exchange as opaque material.
-Stated as a limit below, not silently dropped.
+An entry is served only until the EARLIEST of bounds 1 and 3 - `min`, not a three-way fold, because
+bound 2 is absent from the computation entirely rather than defaulted to "no limit".
 
 ### What is never cached, and why each is an absence rather than a check
 

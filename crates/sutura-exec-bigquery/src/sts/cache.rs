@@ -29,50 +29,71 @@
 //!
 //! # The key
 //!
-//! [`ExchangeKey`] is `(Subject, audience, scope)` - the verified subject
-//! [`super::WorkloadIdentityBroker`]'s `mint` already attributes the answer to
-//! (`RequestContext::chain().subject()`, the same value `LegCredentials::minted` takes as
-//! `asked_by`), plus the literal input to [`super::StsExchange::exchange`]. Not the whole
-//! `SourceSet` a request happened to ask about - two requests naming different subsets of sources
-//! must still hit per source - and not the `SourceName` either: a source's audience and scope are
-//! declared once at startup and never change while a process runs, but the issue's own wording asks
-//! for the literal exchange input, and this is the shape that stays correct if that ever stops being
-//! true. Not the whole `PrincipalChain`: the second and third positions (an acting agent, a task)
-//! are always absent today and `LegCredentials::asked_by` is a bare `Subject` already - keying on
-//! more than the port itself attributes the credential to would be a distinction with no data behind
-//! it.
+//! [`ExchangeKey`] is `(PrincipalChain, audience, scope)` - the WHOLE chain `mint` was called with
+//! (`RequestContext::chain()`), plus the literal input to [`super::StsExchange::exchange`]. Not a
+//! bare `Subject`: an earlier version of this cache keyed on the subject alone and its own doc
+//! claimed the chain's second position (an acting agent) "is always absent today", which was false
+//! of the tree it shipped beside - `sutura_http`'s inbound gate already builds one from an RFC 8693
+//! `act` claim (`crates/sutura-http/src/inbound/token.rs`) and records it on the audit line
+//! (`crates/sutura-runtime/src/audit.rs`). Two requests presenting DIFFERENT assertions - alice
+//! direct, and alice acting through an agent - are two different inputs to the exchange, whatever
+//! the STS resolves them to, and a key that could not tell them apart would serve one caller's
+//! credential to the other under a different attribution.
+//! `the_same_subject_through_a_different_acting_agent_pays_its_own_round_trip` is the permanent
+//! regression: two exchange calls, one per chain.
+//!
+//! Not the whole `SourceSet` a request happened to ask about - two requests naming different
+//! subsets of sources must still hit per source - and not the `SourceName` either: a source's
+//! audience and scope are declared once at startup and never change while a process runs, but the
+//! issue's own wording asks for the literal exchange input, and this is the shape that stays
+//! correct if that assumption ever stops holding.
+//!
+//! **The residual, stated rather than assumed away.** A verified `PrincipalChain` is exactly what
+//! `sutura_domain::identity` parses from a token's `sub` and `act` claims - nothing a provider maps
+//! from OTHER claims (group membership, a custom attribute a workload-identity pool's attribute
+//! condition reads) reaches this chain at all, because the domain does not verify or carry those.
+//! Two requests identical in every claim this key can see, differing only in a claim the domain
+//! never parses, would still share an entry - which is a limit of what leg 1 verifies, not
+//! something this cache could key around.
+//!
+//! **One more collapse, named rather than left to be found.**
+//! `RequestContext::with_assertion(PrincipalChain::of(Subject::TheDeploymentItself), ..)` is `pub`
+//! and would key every caller onto one entry if anything ever built one - but nothing does: both
+//! shipped transports' own `established()` (`sutura_http::principal`, `sutura_mcp::principal`) use
+//! `RequestContext::of`, which carries no assertion at all, so a `TheDeploymentItself` chain can
+//! never reach an impersonating source in the first place - it is refused for having nothing to
+//! exchange before any cache lookup runs.
 
 use std::collections::HashMap;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use sutura_domain::identity::{Expiry, Secret, Subject};
+use sutura_domain::identity::{Expiry, PrincipalChain, Secret};
 
 use super::WorkloadIdentity;
 
-/// `(Subject, audience, scope)` - see the module header for why each piece is there and why
-/// nothing else is.
+/// `(PrincipalChain, audience, scope)` - see the module header for why the whole chain is here and
+/// why nothing else is.
 ///
 /// No public constructor outside this module: [`Self::of`] is the only door, and it takes a
-/// [`Subject`] and a [`WorkloadIdentity`] the caller already holds - never a value assembled from
-/// parts a request body could supply. `Hash`/`Eq` are derived so it can key a map; there is
-/// deliberately no `Ord`, for the reason `sutura_domain::identity::PrincipalChain` gives one none
-/// either - an ordering over subjects has no meaning anybody would agree on, and nothing here needs
-/// one.
+/// [`PrincipalChain`] and a [`WorkloadIdentity`] the caller already holds - never a value assembled
+/// from parts a request body could supply. `Hash`/`Eq` are derived so it can key a map;
+/// `PrincipalChain` already derives both. There is deliberately no `Ord` here either, for the same
+/// reason `PrincipalChain` itself has none - an ordering over principals has no meaning anybody
+/// would agree on, and nothing here needs one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ExchangeKey {
-    subject: Subject,
+    chain: PrincipalChain,
     audience: String,
     scope: String,
 }
 
 impl ExchangeKey {
-    /// Builds the key for one source's exchange, from the subject the request is attributed to and
-    /// that source's declared audience and scope.
-    fn of(subject: &Subject, workload: &WorkloadIdentity) -> Self {
+    /// Builds the key for one source's exchange, from the whole chain the request is attributed to
+    /// and that source's declared audience and scope.
+    fn of(chain: &PrincipalChain, workload: &WorkloadIdentity) -> Self {
         Self {
-            subject: subject.clone(),
+            chain: chain.clone(),
             audience: workload.audience().to_owned(),
             scope: workload.scope().to_owned(),
         }
@@ -159,9 +180,12 @@ impl Entry {
 /// **Unreachable from outside this crate - not merely uncallable.** A doctest compiles as its own
 /// crate depending on this one as an external dependency, so it can only name what this crate
 /// exports; `sts` is a private module (`mod sts;` in `lib.rs`, nothing re-exports it), so there is
-/// no path to this type at all, let alone a constructor:
+/// no path to this type at all, let alone a constructor. The fence names the error code
+/// (`E0603`, a private module) rather than a bare `compile_fail`, so a change that made this fail
+/// for the WRONG reason - a rename, an unrelated syntax error - would itself fail to compile;
+/// rustdoc enforces the code, on the nightly toolchain this workspace pins, and only there:
 ///
-/// ```compile_fail
+/// ```compile_fail,E0603
 /// let _ = sutura_exec_bigquery::sts::cache::CredentialCache::new(
 ///     std::num::NonZeroUsize::new(1).expect("a doctest capacity is non-zero"),
 ///     std::time::Duration::from_secs(60),
@@ -179,10 +203,13 @@ impl Entry {
 #[derive(Debug)]
 pub(super) struct CredentialCache {
     entries: parking_lot::Mutex<HashMap<ExchangeKey, Entry>>,
+    /// The most live entries this cache holds at once. A stream of more than `capacity` distinct
+    /// verified chains evicts entries oldest-inserted-first (see [`Self::put`]), so the churn is
+    /// bounded by this setting and the hit rate the `IdP` relief depends on is not - a workload that
+    /// keeps naming new principals faster than `capacity` sees no relief at all, only the eviction
+    /// cost.
     capacity: NonZeroUsize,
     window: Duration,
-    hits: AtomicU64,
-    misses: AtomicU64,
 }
 
 impl CredentialCache {
@@ -191,41 +218,28 @@ impl CredentialCache {
             entries: parking_lot::Mutex::new(HashMap::new()),
             capacity,
             window,
-            hits: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
         }
     }
 
-    /// A live entry for `subject`/`workload` at `now_unix_seconds`, or `None` - counted as a miss
-    /// either for having nothing stored or for finding only something already past
-    /// [`Entry::valid_until_unix`].
+    /// A live entry for `chain`/`workload` at `now_unix_seconds`, or `None` - either for having
+    /// nothing stored or for finding only something already past [`Entry::valid_until_unix`].
     ///
     /// A stale entry found here is removed rather than left for the next lookup to skip past again
     /// - the same argument `KeySetCache` makes for not accumulating dead state under its own lock.
-    pub(super) fn get(&self, subject: &Subject, workload: &WorkloadIdentity, now_unix_seconds: u64) -> Option<CacheHit> {
-        let key = ExchangeKey::of(subject, workload);
-        // The lock is scoped to this block alone - `significant_drop_tightening` wants the guard
-        // gone before the counters below are touched, not merely by the end of the function.
-        let hit = {
-            let mut entries = self.entries.lock();
-            match entries.get(&key) {
-                Some(entry) if entry.valid_until_unix > now_unix_seconds => Some(CacheHit {
-                    material: entry.material.clone(),
-                    not_after: entry.not_after,
-                }),
-                Some(_expired) => {
-                    drop(entries.remove(&key));
-                    None
-                }
-                None => None,
+    pub(super) fn get(&self, chain: &PrincipalChain, workload: &WorkloadIdentity, now_unix_seconds: u64) -> Option<CacheHit> {
+        let key = ExchangeKey::of(chain, workload);
+        let mut entries = self.entries.lock();
+        match entries.get(&key) {
+            Some(entry) if entry.valid_until_unix > now_unix_seconds => Some(CacheHit {
+                material: entry.material.clone(),
+                not_after: entry.not_after,
+            }),
+            Some(_expired) => {
+                drop(entries.remove(&key));
+                None
             }
-        };
-        if hit.is_some() {
-            self.hits.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.misses.fetch_add(1, Ordering::Relaxed);
+            None => None,
         }
-        hit
     }
 
     /// Stores a freshly minted leg, if it clears the floor by enough to be worth storing at all.
@@ -236,7 +250,7 @@ impl CredentialCache {
     /// exist there, not that a flag on it defaults to off.
     pub(super) fn put(
         &self,
-        subject: &Subject,
+        chain: &PrincipalChain,
         workload: &WorkloadIdentity,
         material: Secret,
         not_after: Expiry,
@@ -246,7 +260,7 @@ impl CredentialCache {
         let Some(valid_until_unix) = Entry::stored_until(not_after, now_unix_seconds, self.window, floor) else {
             return;
         };
-        let key = ExchangeKey::of(subject, workload);
+        let key = ExchangeKey::of(chain, workload);
         let mut entries = self.entries.lock();
         // Expiry-first: drop everything already past its OWN bound before capacity is even asked
         // about, so a cache under steady load evicts the thing that earned it rather than whatever
@@ -271,18 +285,6 @@ impl CredentialCache {
             },
         ));
     }
-
-    /// How many lookups found a live entry. Read by a composition root's own startup/health log,
-    /// never on the request path - a counter is not a secret, but it is also not something a caller
-    /// asks a broker for.
-    pub(super) fn hits(&self) -> u64 {
-        self.hits.load(Ordering::Relaxed)
-    }
-
-    /// How many lookups found nothing usable - absent, or past its stored bound.
-    pub(super) fn misses(&self) -> u64 {
-        self.misses.load(Ordering::Relaxed)
-    }
 }
 
 #[cfg(test)]
@@ -293,7 +295,8 @@ mod tests {
     use std::time::Duration;
 
     use sutura_domain::identity::{
-        CredentialBroker as _, Expiry, Minted, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+        Actor, ActorChain, CredentialBroker as _, Expiry, Minted, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+        SubjectId,
     };
     use sutura_domain::model::SourceName;
 
@@ -580,18 +583,83 @@ mod tests {
     }
 
     #[test]
-    fn no_key_type_is_reachable_from_outside_this_crate() {
-        // `ExchangeKey` is private to `sts::cache`, `CredentialCache` is `pub(super)` and every
-        // constructor it offers takes a `Subject` and a `WorkloadIdentity` this test built through
-        // the domain's own parsers - never a value assembled from a raw string at the key's own
-        // level. There is no `pub` path to either type from another crate, which a `compile_fail`
-        // doctest cannot even express: a doctest runs as an external crate and could not name a
-        // private type to fail on trying to construct - the absence of any visible path IS the
-        // stronger statement.
+    fn an_entry_is_never_served_at_or_past_its_own_valid_until() {
+        // Direct against `CredentialCache`, not through the broker: `get` takes `now` as an
+        // argument, so this is the one property nothing indirect (a `FixedClock` that cannot
+        // advance) can observe - store at `NOW`, then ask at the exact instant `stored_until`
+        // computed, and the answer must already be gone.
         let cache = super::CredentialCache::new(
-            NonZeroUsize::new(1).expect("a test capacity is non-zero"),
+            NonZeroUsize::new(8).expect("a test capacity is non-zero"),
             Duration::from_secs(60),
         );
-        assert!(cache.get(&subject("alice"), &workload(), NOW).is_none());
+        let chain = PrincipalChain::of(subject("alice"));
+        cache.put(
+            &chain,
+            &workload(),
+            Secret::new("exchanged"),
+            Expiry::At {
+                unix_seconds: NOW.saturating_add(3600),
+            },
+            None,
+            NOW,
+        );
+        // The window (60s) is the binding bound here, so `valid_until` is `NOW + 60`.
+        assert!(
+            cache.get(&chain, &workload(), NOW.saturating_add(60)).is_none(),
+            "an entry must not be served AT its own valid_until, let alone past it"
+        );
+    }
+
+    #[test]
+    fn a_capacity_of_one_cannot_hold_two_subjects_at_once() {
+        // The issue's own DoS argument: an unbounded map keyed by subject is a surface, and a
+        // bound needs an eviction policy. Capacity 1 makes the policy observable in three calls -
+        // alice, then bob (which must evict alice's entry), then alice again (which must miss,
+        // because her entry is gone) - three exchanges for two subjects and one capacity.
+        let (exchange, calls) = CountingExchange::lasting(600);
+        let broker = broker_with_cache(exchange, 1, 300);
+
+        let _alice_first = broker
+            .mint(&context_for(subject("alice")), &one_source())
+            .expect("a fixture mint does not error");
+        let _bob = broker
+            .mint(&context_for(subject("bob")), &one_source())
+            .expect("a fixture mint does not error");
+        let _alice_second = broker
+            .mint(&context_for(subject("alice")), &one_source())
+            .expect("a fixture mint does not error");
+
+        assert_eq!(
+            calls.get(),
+            3,
+            "a capacity of one cannot hold both subjects, so alice's second mint must pay again"
+        );
+    }
+
+    #[test]
+    fn the_same_subject_through_a_different_acting_agent_pays_its_own_round_trip() {
+        // The BLOCKING finding this test closes: a key that dropped the chain's second position
+        // (the acting agent an RFC 8693 `act` claim establishes - `sutura_http`'s inbound gate
+        // already builds one) would serve a delegated caller the direct caller's own credential.
+        // Two DIFFERENT assertions - the direct token and the token an agent presented acting for
+        // the same subject - are two different inputs to the exchange, whatever an STS resolves
+        // them to, so the key must tell them apart even though `Subject` alone is identical.
+        let (exchange, calls) = CountingExchange::lasting(600);
+        let broker = broker_with_cache(exchange, 8, 300);
+        let alice = subject("alice");
+
+        let direct = RequestContext::with_assertion(PrincipalChain::of(alice.clone()), Secret::new("alice-direct-token"));
+        let _first = broker.mint(&direct, &one_source()).expect("a fixture mint does not error");
+
+        let delegated_chain =
+            PrincipalChain::of(alice).acting(ActorChain::of(Actor::parse("agent-x").expect("a test actor is an actor")));
+        let delegated = RequestContext::with_assertion(delegated_chain, Secret::new("agent-x-delegated-token"));
+        let _second = broker.mint(&delegated, &one_source()).expect("a fixture mint does not error");
+
+        assert_eq!(
+            calls.get(),
+            2,
+            "the same subject acting through a different agent, with a different assertion, must pay its own round trip"
+        );
     }
 }

@@ -103,8 +103,19 @@ pub(crate) fn build_broker(
     for (alias, workload) in impersonating {
         broker = broker.impersonating(alias, workload);
     }
+    // The identity skill's own rule: the startup log prints the limit beside the mode. "Off by
+    // default" is otherwise held by nothing but reading this function, the same shape `#684`'s
+    // spend ledger states plainly of its own switch - this line is the mechanism, one this crate's
+    // own test reads back.
     if credential_cache.enabled() {
         broker = broker.with_cache(credential_cache.capacity(), credential_cache.window().duration());
+        tracing::info!(
+            capacity = credential_cache.capacity().get(),
+            window_seconds = credential_cache.window().duration().as_secs(),
+            "credential_cache: on"
+        );
+    } else {
+        tracing::info!("credential_cache: off");
     }
     Ok(broker)
 }

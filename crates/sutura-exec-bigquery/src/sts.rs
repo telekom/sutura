@@ -320,21 +320,6 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
         self.cache = Some(Arc::new(CredentialCache::new(capacity, window)));
         self
     }
-
-    /// How many cache lookups found a live entry. `0` when no cache is configured.
-    ///
-    /// Read by a composition root's own startup/health log, never by anything on the answer path -
-    /// a count is not a secret, but it is also not a value a caller asks a broker for.
-    #[must_use]
-    pub fn cache_hits(&self) -> u64 {
-        self.cache.as_ref().map_or(0, |cache| cache.hits())
-    }
-
-    /// How many cache lookups found nothing usable. `0` when no cache is configured.
-    #[must_use]
-    pub fn cache_misses(&self) -> u64 {
-        self.cache.as_ref().map_or(0, |cache| cache.misses())
-    }
 }
 
 impl<E, C> CredentialBroker for WorkloadIdentityBroker<E, C>
@@ -357,9 +342,14 @@ where
         // The asker's own token, which a broker that exchanges REQUIRES - a subject with no
         // credential at a source is refused, never answered as the process.
         let assertion = context.assertion();
-        // The subject the cache attributes an entry to - the same value `LegCredentials::minted`
-        // takes as `asked_by` below, and the only identity component `docs/adr/0031`'s key carries.
+        // The subject `LegCredentials::minted` takes as `asked_by` below - one field, so N legs
+        // cannot disagree about who asked.
         let asked_by = context.chain().subject();
+        // The WHOLE chain, which is what `docs/adr/0031`'s cache keys on - not just `asked_by`
+        // above. A chain the transport built from an RFC 8693 `act` claim differs from the same
+        // subject's direct chain, and the cache has to tell them apart even though `asked_by` alone
+        // would not.
+        let chain = context.chain();
         // Read once, only when a cache exists to consult at all - the same "ask only when needed"
         // shape the floor already holds, extended by one more reason to need the time. A second,
         // independent read happens further down for the floor itself when both are configured;
@@ -402,11 +392,11 @@ where
                 return Ok(Minted::Refused { source: source.clone() });
             };
 
-            // A live entry, if the cache holds one for this exact subject and this exact
+            // A live entry, if the cache holds one for this exact chain and this exact
             // (audience, scope) - never for anything less, see `cache`'s own module doc. A hit
             // skips the round trip entirely; nothing below this arm runs for that source.
             if let (Some(cache), Some(now)) = (&self.cache, cache_now)
-                && let Some(hit) = cache.get(asked_by, workload, now)
+                && let Some(hit) = cache.get(chain, workload, now)
             {
                 deadlines.push((source, hit.not_after));
                 drop(presented.insert(source.clone(), Presented::SubjectToken { material: hit.material }));
@@ -423,7 +413,7 @@ where
             // refusal or an error" true by absence rather than by a check.
             if let (Some(cache), Some(now)) = (&self.cache, cache_now) {
                 cache.put(
-                    asked_by,
+                    chain,
                     workload,
                     credential.access_token().clone(),
                     credential.not_after(),
@@ -465,7 +455,7 @@ where
                 });
             }
         }
-        LegCredentials::minted(context.chain().subject().clone(), not_after, sources, presented)
+        LegCredentials::minted(asked_by.clone(), not_after, sources, presented)
             .map(|credentials| Minted::Granted { credentials })
             .map_err(|cause| ExchangeUnusable::Coverage { cause })
     }

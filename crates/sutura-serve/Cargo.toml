@@ -108,6 +108,11 @@ tracing = { workspace = true }
 # so the cost argument was spent before it was written. The narrower reasons above are the real ones.
 [dev-dependencies]
 serde_json = { workspace = true }
+# The log-capture writer, for the one test that reads a boot line back - `sutura-http` already
+# depends on the same feature for the identical reason, and its own Cargo.toml carries the argument
+# for a second entry rather than a normal-dependency feature: the helpers around the writer use
+# `expect`, which is denied outside test code.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 # The mock authorization server, for the leg-1 cases in `tests/served.rs`: a generated key pair, a
 # JWK set published to a real path and a token minter every claim of which is a parameter.
 #

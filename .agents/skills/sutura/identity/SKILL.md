@@ -156,13 +156,18 @@ query timeout. `sutura-serve`'s `bigquery` build composes it for a deployment wi
 source, carrying both shapes.
 
 **It also caches, off by default** (`docs/adr/0031`, `security.credential_cache.enabled`) - a
-private `sts::cache` module keyed on `(Subject, audience, scope)` with no path in from a caller,
-never populated on a refusal or an `Err`, and served only up to `min(not_after − the same floor,
-the operator's configured window)`. `sutura-domain` and `sutura-app` are untouched; the whole cache
-is inside the one broker that pays a round trip. **What it does not close**: per-process only, no
-bound on the caller's own assertion lifetime, and a served entry (cached or freshly minted) can
-still expire mid-question if the floor a composition root wires does not cover the request's own
-deadline - nothing asserts that coverage anywhere.
+private `sts::cache` module keyed on `(PrincipalChain, audience, scope)` with no path in from a
+caller, never populated on a refusal or an `Err`, and served only up to `min(not_after − the same
+floor, the operator's configured window)`. **The key is the whole chain, not a bare `Subject`** -
+review found the first version's own doc claiming an acting agent "is always absent today" while
+`sutura-http`'s inbound gate already builds one from an `act` claim; a subject-only key would have
+served a delegated caller the direct caller's credential. `sutura-domain` and `sutura-app` are
+untouched; the whole cache is inside the one broker that pays a round trip. **What it does not
+close**: per-process only, no bound on the caller's own assertion lifetime (the issue's own second
+of three TTL bounds - the first and third are enforced), a served entry (cached or freshly minted)
+can still expire mid-question if the floor a composition root wires does not cover the request's
+own deadline (nothing asserts that coverage anywhere), and a claim a provider maps from outside what
+the domain verifies (a group, a custom attribute) stays outside the key by construction.
 
 A broker that could not be **reached** is not a refusal: that is `SurfaceFailure::Broker` and
 `503 identity_unavailable`, which shares its status with a dead data system and not its code.
