@@ -1021,6 +1021,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-exchanged-credential-caches-own-stated-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The exchanged-credential cache's own stated limit
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1082,6 +1093,8 @@
   
     
     
+      
+        
       
         
       
@@ -2012,6 +2025,34 @@
     
   
     Where a budget lives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0031-caching-an-exchanged-credential/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Caching an exchanged credential
   
 
     
@@ -3095,6 +3136,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-exchanged-credential-caches-own-stated-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The exchanged-credential cache's own stated limit
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3905,6 +3957,18 @@ account is not built</em>. Until that exists, <code>AGENTS.md</code> keeps the s
 <blockquote>
 <p>no source a deployment SERVES executes as the asking subject.</p>
 </blockquote>
+<h3 id="the-exchanged-credential-caches-own-stated-limit">The exchanged-credential cache's own stated limit<a class="headerlink" href="#the-exchanged-credential-caches-own-stated-limit" title="Permanent link">&para;</a></h3>
+<p><code>docs/adr/0031</code> adds a per-process cache in front of <code>WorkloadIdentityBroker</code>'s exchange, off by
+default (<code>security.credential_cache.enabled</code>). It changes nothing above - a cached credential is
+still presented to the source and still re-checked against the source's own grant on every query -
+but it does change how quickly a revocation at the IDENTITY PROVIDER (an account disabled, a
+principal removed) reaches this deployment: a cached entry is served for up to
+<code>min(the credential's own remaining life minus the broker's floor, security.credential_cache.window_seconds)</code>
+after the provider would have refused to mint it again. That window is stated here because it is a
+number an operator can act on, and because per-request minting would not have done better: an
+exchanged token is typically valid for close to an hour regardless of how it was minted, so a fresh
+mint carries the same stale grant for the rest of its own life either way. What the cache adds is
+strictly bounded by the configured window on top of that, never by more.</p>
 <h2 id="keeping-this-page-honest">Keeping this page honest<a class="headerlink" href="#keeping-this-page-honest" title="Permanent link">&para;</a></h2>
 <p>A venue that cannot state its limit is how <em>verified</em> drifts. So:</p>
 <ul>

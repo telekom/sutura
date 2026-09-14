@@ -1204,6 +1204,8 @@
       
         
       
+        
+      
     
     
     
@@ -2073,6 +2075,34 @@
     
   
     Where a budget lives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0031-caching-an-exchanged-credential/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Caching an exchanged credential
   
 
     
@@ -4138,6 +4168,21 @@ selects which file is layered, so a file that could change it would be self-refe
 <td><code>security.inbound.transit_max_lifetime_seconds</code></td>
 <td><code>120</code></td>
 <td><code>behind-gateway</code> only. The longest <code>exp - iat</code> this deployment will call short-lived. Between 1 and 3600. An assertion with no <code>iat</code> is refused</td>
+</tr>
+<tr>
+<td><code>security.credential_cache.enabled</code></td>
+<td><code>false</code></td>
+<td>An exchanged credential (a <code>bigquery</code> source's <code>impersonation-at-source</code> leg) cached per chain, per process. Off because nobody has measured the round trip it saves - see <a href="../adr/0031-caching-an-exchanged-credential/">ADR 0031</a></td>
+</tr>
+<tr>
+<td><code>security.credential_cache.capacity</code></td>
+<td><code>1024</code></td>
+<td>The most live entries the cache holds at once. Zero is refused</td>
+</tr>
+<tr>
+<td><code>security.credential_cache.window_seconds</code></td>
+<td><code>300</code></td>
+<td>The operator's own ceiling on how long an entry is served, on top of the credential's own remaining life and the broker's own expiry floor - whichever of the three is soonest wins. Zero is refused</td>
 </tr>
 <tr>
 <td><code>server.tls_certificate</code></td>
