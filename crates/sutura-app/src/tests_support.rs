@@ -290,6 +290,16 @@ impl Warehouse for FixedWarehouse {
     }
 }
 
+/// [`PricedWarehouse`] - split out for this file's own `max-lines` reason, above.
+///
+/// `#[cfg(test)]` here is redundant under this file's own gate and present anyway, for
+/// `telekom/sutura#657`'s reason: a bare `mod priced;` declares nothing `xtask test-causality`'s
+/// scan reads as a test, so a later diff touching only this line would revert the file and orphan
+/// the module rather than fail loud. The attribute reads as `TestModule`.
+#[cfg(test)]
+mod priced;
+pub(crate) use priced::PricedWarehouse;
+
 /// A fake that scripts the query pre-flight and records whether execution was reached.
 pub(crate) struct PreflightWarehouse<const EXECUTES_LEGS: bool> {
     source: SourceName,
@@ -425,7 +435,7 @@ impl Warehouse for LegsWarehouse {
 /// The instrument for the federated half of the volume bound: the same reach
 /// [`LegsWarehouse`] gives (it declares [`Warehouse::EXECUTES_LEGS`], so the federated path runs it),
 /// but its `execute` returns `Err` and its [`Warehouse::result_did_not_fit`] answers `true`, so
-/// `execute_leg` must turn it into a [`RefusalReason::ResultTooLarge`] carrying
+/// `run_leg` must turn it into a [`RefusalReason::ResultTooLarge`] carrying
 /// [`ResultBound::Volume`] and never into the `503` a dead data system produces. `federated.rs`'s
 /// `a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503` pins that.
 pub(crate) struct PageBoundLegsWarehouse {
@@ -534,7 +544,7 @@ impl Warehouse for RefusingSourceWarehouse {
 /// the statement at the identity/authorization level.
 ///
 /// The same reach [`PageBoundLegsWarehouse`] gives (it declares `EXECUTES_LEGS`, so the federated
-/// path runs it), but its error answers [`Warehouse::source_refused`] `true`, so `execute_leg` must
+/// path runs it), but its error answers [`Warehouse::source_refused`] `true`, so `run_leg` must
 /// turn it into a [`RefusalReason::SourceRefused`] rather than a [`LegError::Failure`] - the `503`
 /// an outage produces. `federated.rs`'s `a_federated_leg_the_source_refuses_is_refused_not_a_503`
 /// pins that.

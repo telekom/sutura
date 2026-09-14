@@ -12,6 +12,14 @@ an agent or a deployment across many jobs, and #139 is the report that measured 
 include none for spend, and every `Budget`-named value in the tree (`FEDERATED_BUDGET`, the MCP test
 durations) bounds bytes or time already answered, not money not yet spent.
 
+**Amended: the counter and the refusal this record decided are now built.** `sutura_app::spend::SpendLedger`
+is the mechanism *Where the counter lives* decides, keyed and windowed exactly as stated there, and
+`RefusalReason::BudgetExhausted` at `429` is the refusal *What a spent budget produces* decides. Every
+limit this record states - per-replica rather than deployment-wide, the collapsed key with no
+`security.inbound`, the agent-spends-the-subject's-own-budget cost, the federated under-count - is
+unchanged by the build and still holds. The *"Nothing here enforces anything"* bullet below is what
+this amendment closes.
+
 ## Context
 
 The pieces this decision assembles already exist and none of them talk to each other, stated here at
@@ -254,6 +262,7 @@ except the one call site with a real number to put there
   This under-counts whenever a `None` leg would have scanned real bytes, which today is every leg
   that is not BigQuery. Stated here so the follow-on branch cannot silently treat a partial sum as a
   complete one.
-- **Nothing here enforces anything.** A number that nothing refuses against is a metric, not a
-  budget. `feat/preflight-estimate-carries-a-number` ships the number; `feat/budget-refusal` ships
-  the refusal this record already named the shape of.
+- **Nothing here enforces anything.** *(Amended - see the top of this record: the counter and the
+  refusal are built.)* A number that nothing refuses against is a metric, not a budget.
+  `feat/preflight-estimate-carries-a-number` shipped the number; the counter and the refusal shipped
+  the shape this bullet named.

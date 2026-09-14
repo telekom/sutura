@@ -1,7 +1,15 @@
-//! One leg's own execution, split out of `federated.rs` for `cargo xtask max-lines`'s cap - the
-//! same reason that file is split out of `lib.rs`'s, not for thematic tidiness. Its tests stay in
-//! `federated.rs`'s own `mod tests`, which exercises this function through [`super::answer_federated`]
-//! exactly as it did before the split.
+//! One leg's own pre-flight and its own execution, split out of `federated.rs` for `cargo xtask
+//! max-lines`'s cap - the same reason that file is split out of `lib.rs`'s, not for thematic
+//! tidiness. Its tests stay in `federated.rs`'s own `mod tests`, which exercises these functions
+//! through [`super::answer_federated`] exactly as the one function they used to be did before the
+//! split.
+//!
+//! **Two functions rather than one**, and that split is `docs/adr/0030`'s, not `max-lines`'s:
+//! `answer_federated` dry-runs both legs (`dry_run_leg`), sums and charges their own estimates
+//! against the spend ledger, and only then runs either one's `execute` (`run_leg`) - "all-or-nothing
+//! before any leg executes". The posture agreement is checked once, inside `dry_run_leg`, because it
+//! is a property of the credential and the adapter rather than of which call is about to run - the
+//! mono path's own `sutura_app::answer` checks it once too, before its own `dry_run`.
 
 use std::time::Instant;
 
@@ -13,20 +21,15 @@ use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::{ServiceError, deadline_exceeded, now_in_unix_seconds};
 
-use super::{LegError, LegResult};
+use super::{LegError, LegPreflight, LegResult};
 
-/// Runs one leg against its own adapter, under that source's own presented credential.
-///
-/// The same guards the mono path applies run here for the same reasons: the presented credential
-/// agrees with the posture the adapter was opened with, the plan is pre-flighted where that is
-/// cheaper than running it, and the credential is still usable this instant. A deadline that ages
-/// out during the OTHER leg's work is caught by this leg's own `still_usable_at`.
-pub(crate) fn execute_leg<W, B>(
+/// Pre-flights one leg against its own adapter, under that source's own presented credential.
+pub(crate) fn dry_run_leg<W, B>(
     warehouse: &W,
     credentials: &BoundToTheRequest,
     leg: &LegPlan,
     deadline: Deadline,
-) -> LegResult<W, B>
+) -> LegPreflight<W, B>
 where
     W: Warehouse,
     B: CredentialBroker,
@@ -47,17 +50,36 @@ where
     // would on `execute` - never as the retryable `ServiceError::Warehouse` a dead data system
     // produces. `working_set_exhausted` and `result_did_not_fit` are deliberately not asked of the
     // pre-flight, mirroring the mono path: a check reads no data, so neither bound can have fired.
-    if let Err(cause) = warehouse.dry_run(Executable::Leg(leg), presented, deadline) {
-        if warehouse.deadline_exceeded(&cause) {
-            return Err(LegError::Refusal(deadline_exceeded(deadline)));
+    match warehouse.dry_run(Executable::Leg(leg), presented, deadline) {
+        Ok(preflight) => Ok(preflight),
+        Err(cause) => {
+            if warehouse.deadline_exceeded(&cause) {
+                return Err(LegError::Refusal(deadline_exceeded(deadline)));
+            }
+            if warehouse.source_refused(&cause) {
+                return Err(LegError::Refusal(RefusalReason::SourceRefused {
+                    source: warehouse.source().clone(),
+                }));
+            }
+            Err(LegError::Failure(ServiceError::Warehouse { cause }))
         }
-        if warehouse.source_refused(&cause) {
-            return Err(LegError::Refusal(RefusalReason::SourceRefused {
-                source: warehouse.source().clone(),
-            }));
-        }
-        return Err(LegError::Failure(ServiceError::Warehouse { cause }));
     }
+}
+
+/// Runs one leg's `execute`, after its own dry run (and the spend ledger, above both legs) have
+/// already cleared it.
+///
+/// The same guards `execute_leg` applied run here for the same reasons: the credential is still
+/// usable this instant, checked again here because a deadline that ages out during the OTHER leg's
+/// own dry run is caught by this leg's own `still_usable_at`.
+pub(crate) fn run_leg<W, B>(warehouse: &W, credentials: &BoundToTheRequest, leg: &LegPlan, deadline: Deadline) -> LegResult<W, B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    let presented = credentials
+        .presented_for(leg.source())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
     credentials
         .still_usable_at(now_in_unix_seconds())
         .map_err(|cause| ServiceError::Credentials { cause })?;

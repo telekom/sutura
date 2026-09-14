@@ -8539,6 +8539,7 @@ somebody else's input.
   two `shared-service-user` legs may be two different deployment-held identities and this
   passes them.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
+- `BudgetExhausted` - The asking subject has spent more than this replica's configured byte ceiling inside the current window.
 
   **A refusal rather than a failure, and `docs/adr/0029` argues both directions once rather
   than asserting the choice.** For a failure: time is load-dependent in a way memory is not, so

@@ -242,6 +242,7 @@ impl RefusalBody {
 pub struct Outcome {
     status: axum::http::StatusCode,
     body: OutcomeBody,
+    retry_after_seconds: Option<u64>,
 }
 
 impl Outcome {
@@ -272,11 +273,14 @@ impl From<&ToolOutcome> for Outcome {
                     columns: rows.columns().to_vec(),
                     rows: render(rows),
                 },
+                retry_after_seconds: None,
             },
             ToolOutcome::Refusal { ref reason } => {
+                let retry_after_seconds = refusal::retry_after(reason);
                 let (status, reason) = refusal::refused(reason);
                 Self {
                     status,
+                    retry_after_seconds,
                     body: OutcomeBody::Refusal { reason },
                 }
             }
@@ -285,17 +289,29 @@ impl From<&ToolOutcome> for Outcome {
 }
 
 impl axum::response::IntoResponse for Outcome {
-    /// The status and the body, and no headers of its own.
+    /// The status and the body, plus a `Retry-After` where the refusal names a fact rather than a
+    /// guess.
     ///
-    /// No `Retry-After`, on any refusal. See [`refusal::refused`]: the rule this surface already had
-    /// is a number that is already known or no header, and nothing here knows when a data system
-    /// comes back.
+    /// **Two arms, not an always-present header with a sentinel** - the same shape
+    /// `crate::problem::Failure::into_response` already uses, and for the same reason:
+    /// `Retry-After: 0` is a promise the next request will be answered, and a header that is
+    /// sometimes invented is worse than one that is sometimes absent. Every refusal but
+    /// `budget_exhausted` carries `None` here: nothing else on this surface knows when its answer
+    /// changes, and [`refusal::retry_after`] is the one place that decides which does.
     fn into_response(self) -> axum::response::Response {
         let outcome = match &self.body {
             OutcomeBody::Answer { rows, .. } => crate::metrics::QuestionOutcome::answered(rows.len()),
             OutcomeBody::Refusal { .. } => crate::metrics::QuestionOutcome::refused(),
         };
-        let mut response = (self.status, axum::Json(self.body)).into_response();
+        let mut response = match self.retry_after_seconds {
+            Some(seconds) => (
+                self.status,
+                [(axum::http::header::RETRY_AFTER, seconds.to_string())],
+                axum::Json(self.body),
+            )
+                .into_response(),
+            None => (self.status, axum::Json(self.body)).into_response(),
+        };
         response.extensions_mut().insert(outcome);
         response
     }
@@ -468,6 +484,8 @@ impl CatalogBody {
 
 #[cfg(test)]
 mod tests {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse as _;
     use sutura_domain::model::{DimensionName, Grain, MetricName};
     use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 
@@ -543,6 +561,39 @@ mod tests {
                       "sql":"select * from orders"}"#;
         let error = serde_json::from_str::<QuestionBody>(raw).expect_err("`sql` is not a field of a question");
         assert!(error.to_string().contains("sql"), "{error}");
+    }
+
+    #[test]
+    fn a_spent_budget_reaches_the_response_as_429_with_a_retry_after_header() {
+        // `docs/adr/0030`'s own claim, at the layer that builds the actual response: the ONE
+        // refusal on this surface whose `Outcome::into_response` attaches a `Retry-After`, over the
+        // conversion `axum::serve` uses for real - not a helper this test writes its own copy of.
+        let outcome = ToolOutcome::Refusal {
+            reason: RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
+        };
+        let response = Outcome::from(&outcome).into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = response
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .expect("a spent budget must carry a Retry-After");
+        assert_eq!(retry_after, "41");
+    }
+
+    #[test]
+    fn an_ordinary_refusal_carries_no_retry_after() {
+        // The control for the cell above: every OTHER refusal invents no header, which is the
+        // property `Outcome::into_response`'s own doc comment now states.
+        let response = Outcome::from(&ToolOutcome::Refusal {
+            reason: RefusalReason::MetricUnknown {
+                metric: MetricName::parse("revenue").expect("a test metric is a metric"),
+            },
+        })
+        .into_response();
+        assert!(
+            response.headers().get(axum::http::header::RETRY_AFTER).is_none(),
+            "an ordinary refusal must not invent a Retry-After"
+        );
     }
 
     #[test]

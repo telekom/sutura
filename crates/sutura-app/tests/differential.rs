@@ -269,6 +269,7 @@ mod tests {
             let question = read_question(&path);
             let name = stem(&path);
 
+            let no_budget = sutura_app::SpendLedger::no_budget();
             let from_engine = answer(
                 &validated,
                 &question,
@@ -277,6 +278,7 @@ mod tests {
                 &engine,
                 1 << 30,
                 crate::adapters::deadline(),
+                &no_budget,
             );
             let from_other = answer(
                 &validated,
@@ -286,6 +288,7 @@ mod tests {
                 &other,
                 1 << 30,
                 crate::adapters::deadline(),
+                &no_budget,
             );
 
             // A third outcome, and it is the one that used to be missing.

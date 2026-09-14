@@ -160,7 +160,7 @@ impl Warehouse for RecordingLegsWarehouse {
 /// A data system whose `execute` fails with what it reports as the deadline having fired.
 ///
 /// The mono-path sibling `RefusingSourceWarehouse` is modelled on: `answer` (and, when
-/// `EXECUTES_LEGS` is `true`, `crate::federated::execute_leg`) must turn this specific error into
+/// `EXECUTES_LEGS` is `true`, `crate::federated::run_leg`) must turn this specific error into
 /// `RefusalReason::DeadlineExceeded` and never into the retryable `503` a dead data system
 /// produces, so `sutura_app::tests`'s `running_out_of_time_is_a_refusal_and_not_a_503` and its
 /// federated sibling pin the mapping the same way `RefusingLegsWarehouse` pins `source_refused` on

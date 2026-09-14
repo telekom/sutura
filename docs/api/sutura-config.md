@@ -197,6 +197,15 @@ Carries what it found, because the whole point of the type is that a typo fails 
 a failure that does not quote the typo makes the operator guess which of the three spellings
 they got wrong.
 
+## `use SpendBudget`
+
+A byte ceiling and the window it resets on.
+
+**Two newtypes rather than a bare `(u64, Duration)`**, so an argument-order mistake at a call
+site is a type error - the same reason a `SourceName` and a `SourceName` neighbour do not sit
+as two bare `String`s elsewhere in this workspace. `Copy`, like every other bound in this crate:
+it is read once at boot and carried by value from there.
+
 ## `use InboundIdentity`
 
 How the identity of a caller reaches this deployment. Printed at startup, per deployment.
@@ -1552,6 +1561,93 @@ pub fn found(&self) -> &str
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `governance`
+
+What one replica will spend on one subject before it refuses them until a window resets.
+
+`docs/adr/0030-where-a-budget-lives.md` decides the shape this key carries and names its own
+limit; this module is only the parsing. Read the ADR before changing either half.
+
+**The settings key says what this is, on purpose.** `governance.per_replica_spend_ceiling` and
+not `governance.spend_budget`: the counter this key configures is per-replica, in-process, and
+resets on every restart in addition to its own window - a deployment with N replicas gets N
+times this ceiling before every replica has independently refused. Naming it `spend_budget`
+unqualified would let an operator who read only the key mistake the limit for the goal.
+
+**Absent is a decision, not an omission.** `RawGovernance::per_replica_spend_ceiling` is an
+`Option`, and `None` means this replica counts nothing and refuses nothing on this account -
+today's behaviour before this key existed. A deployment that wants the counter writes both
+`bytes` and `window_seconds` under one key, together: there is no state where only one of the
+two is configured, because `RawSpendCeiling` is a nested object
+and a YAML mapping either has it or does not.
+
+### `struct SpendBudget`
+
+```rust
+pub struct SpendBudget
+```
+
+A byte ceiling and the window it resets on.
+
+**Two newtypes rather than a bare `(u64, Duration)`**, so an argument-order mistake at a call
+site is a type error - the same reason a `SourceName` and a `SourceName` neighbour do not sit
+as two bare `String`s elsewhere in this workspace. `Copy`, like every other bound in this crate:
+it is read once at boot and carried by value from there.
+
+#### Methods
+
+```rust
+pub const fn ceiling_bytes(self) -> u64
+```
+
+The ceiling, in bytes.
+
+```rust
+pub const fn parse(bytes: u64, window_seconds: u64) -> Result<Self, InvalidBound>
+```
+
+Reads a ceiling and a window in whole seconds, refusing either at zero.
+
+**Zero is refused for both, and for the same reason every other bound in this crate refuses
+it**: a zero ceiling reads as "no limit" to somebody writing the file rather than "refuse
+every question", and a zero window never accumulates anything, which is a counter that
+never fires dressed as one that resets constantly. Neither ambiguity is one this type
+carries silently.
+
+```rust
+pub const fn window(self) -> Duration
+```
+
+The window a subject's spend accumulates over before it resets.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct SpendCeilingBytes`
+
+```rust
+pub struct SpendCeilingBytes
+```
+
+The byte ceiling half of `SpendBudget`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct SpendWindow`
+
+```rust
+pub struct SpendWindow
+```
+
+The window half of `SpendBudget`: how long a subject's spend accumulates before it resets.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ## Module `inbound`
 

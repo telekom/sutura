@@ -175,6 +175,19 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              budget for one answer. Retrying it unchanged will be refused again: narrow the \
              period, ask for fewer dimensions, or add a filter."
         ),
+        // Written for an agent, and USUALLY the one refusal here that self-heals: unlike every
+        // other arm above, waiting is usually a real remedy. `docs/adr/0030` is the record. The one
+        // exception is stated too: a question whose own estimate is over the ceiling by itself is
+        // refused every window, and only narrowing helps there.
+        RefusalReason::BudgetExhausted { reset_after_seconds } => format!(
+            "the person you are acting for has spent this deployment's per-replica byte ceiling \
+             for the current window. Asking again right now will be refused again; it usually \
+             becomes answerable in {reset_after_seconds} seconds, when the window resets, and \
+             narrowing does not usually help - the ceiling is about how much has already been \
+             spent, not about this question's shape. If it is refused again immediately in a fresh \
+             window, this question's own estimate is over the ceiling by itself: waiting will never \
+             help that case, and narrowing the question is the only remedy."
+        ),
     };
     (code, detail)
 }
@@ -249,6 +262,7 @@ mod tests {
                 postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+            RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         ]
     }
 
@@ -319,6 +333,16 @@ mod tests {
         assert!(
             detail.contains("29 seconds"),
             "the sentence does not name the budget: {detail}"
+        );
+    }
+
+    #[test]
+    fn a_spent_budget_names_its_code_and_its_reset_in_the_sentence() {
+        let (code, detail) = refused(&RefusalReason::BudgetExhausted { reset_after_seconds: 41 });
+        assert_eq!(code, "budget_exhausted");
+        assert!(
+            detail.contains("41 seconds"),
+            "the sentence does not name when the window resets: {detail}"
         );
     }
 
