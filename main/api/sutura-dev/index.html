@@ -3527,6 +3527,78 @@ listening on a port I expected" is not an identity, and neither is "whatever hol
 file names": a PID is reused. The check is the process's own working directory, resolved and
 compared against this repository's root, because that is the one property a colliding stranger
 cannot accidentally have.</p>
+<h2 id="module-tolerance">Module <code>tolerance</code><a class="headerlink" href="#module-tolerance" title="Permanent link">&para;</a></h2>
+<p>Whether a wall-clock assertion runs under CI's own margin, or a wider one for a shared machine.</p>
+<p><code>telekom/sutura#140</code>: a deadline cell asserting <code>elapsed &lt; budget + a_few_hundred_ms</code> reddened
+three times in one evening, on branches that could not have touched the code it exercises - the
+host was running several other lanes' builds at once. The margin itself is not wrong on an
+isolated runner; it is wrong on a machine sharing its cores with work this repository's own
+multi-lane workflow expects. So the number this module hands back depends on which of those two
+machines is asking, and <strong>not on how busy the machine actually is right now</strong> - a bound keyed on
+measured load gives the same tree a different verdict on different runs, which is worse than a
+flaky cell because it stops being reproducible at all.</p>
+<p><strong>CI wins unconditionally, and everything unrecognised is CI too.</strong> <code>decide</code> checks
+<code>GITHUB_ACTIONS</code> first and returns <code>Tolerance::Strict</code> the moment it reads <code>"true"</code> - the exact
+spelling <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>'s own <code>ci_run_id</code> cell already holds
+(<code>GITHUB_ACTIONS=false was read as CI</code> is asserted there as a failure, so <code>"true"</code> is the only
+reading, not a truthy list). Only past that check does <code>RELAXED</code> get read, and an absent or
+unrecognised environment - not exactly one of those two branches - falls through to
+<code>Tolerance::Strict</code> as well: a venue this module has not been taught about is safer strict than
+silently lenient.</p>
+<p><strong><code>RELAXED</code> cannot reach the nix sandbox, and that is what makes the fallback do the work.</strong>
+<code>checks.nextest</code> in <code>flake.nix</code> builds this crate's tests inside a <code>nix build</code> derivation, which
+is a pure evaluation with no <code>--impure</code> anywhere <code>nix build .#checks.*.nextest</code> is invoked in
+this repository (<code>.github/workflows/ci.yml</code>, <code>justfile</code>, <code>nix/run-gate.sh</code> all read) - so
+<code>builtins.getEnv</code> there always answers <code>""</code> and there is no way to thread the invoking shell's
+<code>GITHUB_ACTIONS</code> into that build even when it IS a real GitHub Actions runner. The derivation
+declares no <code>RELAXED</code> either, so a test running inside it sees neither variable and lands on
+<code>Tolerance::Strict</code> by the same default this module already needs for an unrecognised venue -
+which is exactly the leg the reported reds happened in. Only <code>justfile</code>'s <code>test</code> and <code>causality</code>
+recipes export <code>RELAXED</code>, because only the ordinary dev shell they run in is the crowded one:
+<code>sutura_dev::requirement</code>'s own header states the parallel rule for a different variable - "only
+the thing that provisions ... knows that it did", so it opts in, and nothing else does.</p>
+<p><strong>Locally, <code>RELAXED</code> cannot be un-set either - <code>justfile</code>'s own export wins.</strong> <code>just test</code> and
+<code>just causality</code> <code>export SUTURA_DEV_RELAXED_TOLERANCE=1</code> inside their own recipe body, after the
+shell that invokes <code>just</code> has already started, so stripping the variable from the invoking
+shell (<code>env -u SUTURA_DEV_RELAXED_TOLERANCE just test</code>) changes nothing - the recipe sets it
+again regardless. <strong>The only lever that reaches <code>decide</code> first is <code>GITHUB_ACTIONS=true</code></strong>,
+which wins over <code>RELAXED</code> unconditionally (this module's own belt-and-suspenders case, and
+<code>decide</code>'s own test names it): <code>GITHUB_ACTIONS=true just test</code> is how a developer asks what CI
+would enforce, and there is presently no other way to. Measured, not designed in: the first
+attempt at exactly this ask silently ran the RELAXED path anyway.</p>
+<h3 id="enum-tolerance"><code>enum Tolerance</code><a class="headerlink" href="#enum-tolerance" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-86-1"><a id="__codelineno-86-1" name="__codelineno-86-1" href="#__codelineno-86-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tolerance</span>
+</span></code></pre></div>
+<p>Which wall-clock margin a deadline assertion should use.</p>
+<h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Strict</code> - CI's own margin - an isolated runner, one job, no other lane's build sharing its cores.</li>
+<li><code>Relaxed</code> - A wider margin for a shared machine, chosen so the assertion still fails a deadline that stopped enforcing entirely, and read - never measured - so the same tree gives the same verdict every time it runs here.</li>
+</ul>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ceiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">strict</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>Picks <code>strict</code> or <code>relaxed</code> for this venue, and announces the second choice on stderr - the
+<code>SKIPPED</code>-in-the-first-column convention <code>sutura_dev::provisioned</code> already uses for the same
+reason: a developer reading a passing run must not mistake a relaxed margin for CI's own.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The venue this process is running in, read once.</p>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-decide_1"><code>fn decide</code><a class="headerlink" href="#fn-decide_1" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">github_actions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed_opt_in</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Tolerance</span>
+</span></code></pre></div>
+<p>The decision, over the two values rather than over the environment.</p>
+<p>Testable without mutating the process environment - the same reason
+<code>sutura_dev::requirement::decide</code> takes a value rather than reading <code>std::env</code> itself.</p>
+<p><strong><code>GITHUB_ACTIONS</code> is checked before <code>RELAXED</code>, and wins.</strong> A developer's shell exporting the
+relaxed opt-in for a local run must not be able to widen CI's own margin if it were ever run
+there directly - belt-and-suspenders over the fact that CI here only ever reaches these tests
+through the nix sandbox, which sets neither variable.</p>
+<h3 id="constant-relaxed"><code>constant RELAXED</code><a class="headerlink" href="#constant-relaxed" title="Permanent link">&para;</a></h3>
+<p>Set by <code>justfile</code>'s <code>test</code> and <code>causality</code> recipes, and nothing else - naming both callers
+rather than leaving a reader to grep for a third.</p>
 
 
 
