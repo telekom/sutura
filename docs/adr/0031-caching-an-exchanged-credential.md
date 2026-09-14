@@ -19,7 +19,7 @@ synchronous inner loop `github.com/telekom/sutura#378`'s chain puts on it.
 **Cache the exchanged material, not the decision to mint.** `sutura_exec_bigquery::WorkloadIdentityBroker`
 
 - the one broker that performs a network round trip - gains an optional, per-process,
-  per-`(subject, audience, scope)` map in `src/sts/cache.rs`, consulted and populated inside its own
+  per-`(chain, audience, scope)` map in `src/sts/cache.rs`, consulted and populated inside its own
   `mint`. Nothing outside that one file knows the cache exists; `sutura-domain` and `sutura-app` are
   untouched.
 

@@ -103,14 +103,19 @@ pub(crate) fn build_broker(
     for (alias, workload) in impersonating {
         broker = broker.impersonating(alias, workload);
     }
-    // The identity skill's own rule: the startup log prints the limit beside the mode. "Off by
-    // default" is otherwise held by nothing but reading this function, the same shape `#684`'s
-    // spend ledger states plainly of its own switch - this line is the mechanism, one this crate's
-    // own test reads back.
     if credential_cache.enabled() {
         broker = broker.with_cache(credential_cache.capacity(), credential_cache.window().duration());
+    }
+    // The identity skill's own rule: the startup log prints the limit beside the mode. Read from
+    // `broker.cache_capacity()` - THE BROKER'S OWN STATE - rather than `credential_cache` again, so
+    // the line cannot say "off" while a cache sits attached above it: the two would have to drift
+    // apart on purpose, not just by one `if` arm changing without the other. "Off by default" is
+    // otherwise held by nothing but reading this function, the same shape `#684`'s spend ledger
+    // states plainly of its own switch - this line, and the accessor it reads, are the mechanism,
+    // and this crate's own test asserts the accessor beside the rendered line.
+    if let Some(capacity) = broker.cache_capacity() {
         tracing::info!(
-            capacity = credential_cache.capacity().get(),
+            capacity = capacity.get(),
             window_seconds = credential_cache.window().duration().as_secs(),
             "credential_cache: on"
         );

@@ -221,6 +221,12 @@ impl CredentialCache {
         }
     }
 
+    /// The bound this cache was built with - read back by a composition root's boot line, never by
+    /// anything inside this crate that could instead hold the field.
+    pub(super) const fn capacity(&self) -> NonZeroUsize {
+        self.capacity
+    }
+
     /// A live entry for `chain`/`workload` at `now_unix_seconds`, or `None` - either for having
     /// nothing stored or for finding only something already past [`Entry::valid_until_unix`].
     ///
@@ -296,7 +302,7 @@ mod tests {
 
     use sutura_domain::identity::{
         Actor, ActorChain, CredentialBroker as _, Expiry, Minted, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
-        SubjectId,
+        SubjectId, TaskId,
     };
     use sutura_domain::model::SourceName;
 
@@ -432,10 +438,26 @@ mod tests {
         let broker = broker_with_cache(exchange, 8, 300);
         let context = context_for(subject("alice"));
 
-        let _first = broker.mint(&context, &one_source()).expect("a fixture mint does not error");
-        let _second = broker.mint(&context, &one_source()).expect("a fixture mint does not error");
+        let first = broker.mint(&context, &one_source()).expect("a fixture mint does not error");
+        let second = broker.mint(&context, &one_source()).expect("a fixture mint does not error");
 
         assert_eq!(calls.get(), 1, "the second mint must be served from the cache");
+
+        // Not just fewer round trips: a hit must hand back the credential's OWN deadline, the same
+        // one a fresh mint would have reported, never a refreshed-looking or unbounded one - that is
+        // what keeps an audit record over a cached leg honest, and what the domain's own
+        // already-dead check reads.
+        let Minted::Granted { credentials: first } = first else {
+            panic!("a fixture mint over one shared source always grants");
+        };
+        let Minted::Granted { credentials: second } = second else {
+            panic!("a fixture mint over one shared source always grants");
+        };
+        assert_eq!(
+            second.not_after(),
+            first.not_after(),
+            "a cache hit must report the same deadline the original mint did, not a fresh or unbounded one"
+        );
     }
 
     #[test]
@@ -660,6 +682,37 @@ mod tests {
             calls.get(),
             2,
             "the same subject acting through a different agent, with a different assertion, must pay its own round trip"
+        );
+    }
+
+    #[test]
+    fn the_same_subject_on_a_different_task_pays_its_own_round_trip() {
+        // The chain's THIRD position, closing the class row 2 of a round-2 review found unheld by
+        // any cell: `PrincipalChain`'s derived `Eq`/`Hash` already covers `task`, but nothing in
+        // this module exercised it until now, so a manual `Eq`/`Hash` dropping the task position
+        // would have survived silently.
+        let (exchange, calls) = CountingExchange::lasting(600);
+        let broker = broker_with_cache(exchange, 8, 300);
+        let alice = subject("alice");
+
+        let first_task = TaskId::parse("nightly-reconciliation").expect("a test task is a task");
+        let first = RequestContext::with_assertion(
+            PrincipalChain::of(alice.clone()).for_task(first_task),
+            Secret::new("alice-task-a-token"),
+        );
+        let _first = broker.mint(&first, &one_source()).expect("a fixture mint does not error");
+
+        let second_task = TaskId::parse("hourly-refresh").expect("a test task is a task");
+        let second = RequestContext::with_assertion(
+            PrincipalChain::of(alice).for_task(second_task),
+            Secret::new("alice-task-b-token"),
+        );
+        let _second = broker.mint(&second, &one_source()).expect("a fixture mint does not error");
+
+        assert_eq!(
+            calls.get(),
+            2,
+            "the same subject under a different task must pay its own round trip"
         );
     }
 }

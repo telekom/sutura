@@ -320,6 +320,18 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
         self.cache = Some(Arc::new(CredentialCache::new(capacity, window)));
         self
     }
+
+    /// The capacity a composition root's boot line names, read from THIS broker's own state rather
+    /// than the setting that (maybe) built it - `None` when [`Self::with_cache`] was never called.
+    ///
+    /// A boot line built from the setting alone can drift from what the broker actually holds: the
+    /// two agree only because one `if` gates both today, and nothing stops a future edit widening
+    /// one arm without the other. Reading it back through this accessor is what keeps the printed
+    /// line and the broker's own state the same fact.
+    #[must_use]
+    pub fn cache_capacity(&self) -> Option<NonZeroUsize> {
+        self.cache.as_ref().map(|cache| cache.capacity())
+    }
 }
 
 impl<E, C> CredentialBroker for WorkloadIdentityBroker<E, C>

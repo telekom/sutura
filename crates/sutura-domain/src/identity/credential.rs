@@ -877,7 +877,7 @@ pub trait CredentialBroker {
     /// question**, and N audience-restricted exchanges inside it for a plan reading N sources -
     /// which is the reason the port takes the whole [`SourceSet`] in one call rather than one call
     /// per leg. **`docs/adr/0031` is that architecture decision, taken by exactly one implementor:**
-    /// `sutura_exec_bigquery::WorkloadIdentityBroker` now caches what it exchanged, per subject,
+    /// `sutura_exec_bigquery::WorkloadIdentityBroker` now caches what it exchanged, per chain,
     /// entirely inside its own adapter - nothing at this port changed to let it, and every other
     /// implementor still pays the round trip described below on every call.
     ///
