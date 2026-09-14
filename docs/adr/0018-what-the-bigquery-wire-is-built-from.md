@@ -164,7 +164,8 @@ than asserted.
 **Corrected: that overstates the manifest side.** `sutura-cli`'s own manifest declares the edge -
 `Cargo.toml:55`'s `bigquery` feature and `:87`'s `sutura-exec-bigquery = { workspace = true, optional
 = true }` - and `nix/shipped.nix:161-164` packages `sutura-serve` as a release artifact, published as
-the tarball `nix/shipped.nix:194` names. What holds is narrower than "none of them link either half":
+the tarball `.github/workflows/release.yml:435` uploads. What holds is narrower than "none of them
+link either half":
 no artifact in the table below LINKS `sutura-exec-bigquery` or `ureq` in its DEFAULT build, because
 every one of them builds with the `bigquery` feature off.
 
@@ -178,9 +179,10 @@ every one of them builds with the `bigquery` feature off.
 | `sutura-serve`                                 | nothing - **it is built by no release package at all**, because the flake's release derivations name `sutura-cli` only | no                            | no            |
 
 **Corrected: `sutura-serve` IS built by a release package.** `nix/shipped.nix:161-164` names it as a
-shipped binary (`bin = "sutura-serve"`, `package = "sutura-serve"`), and `:194` names the published
-`sutura-serve-<target>.tar.gz`. The flake's release derivations are not `sutura-cli`-only; the table's
-own "no" columns for this row still hold, because that package builds with the `bigquery` feature off.
+shipped binary (`bin = "sutura-serve"`, `package = "sutura-serve"`), and
+`.github/workflows/release.yml:435` uploads the published `sutura-serve-<target>.tar.gz`. The flake's
+release derivations are not `sutura-cli`-only; the table's own "no" columns for this row still hold,
+because that package builds with the `bigquery` feature off.
 
 `crates/sutura-cli/Cargo.toml` declares no edge to `sutura-exec-bigquery`, and the root manifest
 keeps the crate out of `[workspace.dependencies]` on purpose - `cargo xtask unused-deps` is what
@@ -191,7 +193,7 @@ resolution any of them performs.
 **Corrected: the edge exists, feature-gated.** `Cargo.toml:55` is `bigquery =
 ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]` and `:87` is `sutura-exec-bigquery =
 { workspace = true, optional = true }` - an edge, inherited from the workspace and off unless a build
-asks for the `bigquery` feature. The root manifest's own `[workspace.dependencies]` (`Cargo.toml:104`)
+asks for the `bigquery` feature. The root manifest's own `[workspace.dependencies]` (`Cargo.toml:105`)
 carries the crate too, with its own comment saying why: the entry left when nothing linked the crate
 and is back because something does. `cargo xtask unused-deps` is what keeps that entry honest in
 either direction, not what keeps it out.

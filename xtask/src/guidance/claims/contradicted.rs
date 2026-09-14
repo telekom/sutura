@@ -683,4 +683,38 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // 0018 states the old value and amends it directly below.
         except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
     },
+    Contradicted {
+        // github.com/telekom/sutura#159, raised in review of #714. Three sites in this ADR
+        // understated the manifest and release side of the same crate: the artifact table's own
+        // heading said no artifact links either half, the `sutura-serve` row said it is built by
+        // no release package at all, and the paragraph below the table said the crate has no edge
+        // and stays out of `[workspace.dependencies]`. All three are false the same way: the
+        // `bigquery` feature is off by default, not absent from the manifests.
+        name: "no shipped artifact links either half of the BigQuery crate",
+        wordings: &[
+            "none of them link either half of this crate",
+            "it is built by no release package at all",
+            "declares no edge to `sutura-exec-bigquery`, and the root manifest keeps the crate out \
+             of `[workspace.dependencies]`",
+        ],
+        evidence: &[
+            Evidence {
+                path: "nix/shipped.nix",
+                holds: "bin = \"sutura-serve\"",
+            },
+            Evidence {
+                path: "crates/sutura-cli/Cargo.toml",
+                holds: "dep:sutura-exec-bigquery",
+            },
+        ],
+        instead: "`sutura-cli`'s manifest declares the `bigquery` feature and the edge \
+                  (`Cargo.toml:55`, `:87`), `nix/shipped.nix` packages `sutura-serve` as a release \
+                  artifact, and `.github/workflows/release.yml:435` uploads its tarball. The root \
+                  manifest's `[workspace.dependencies]` carries the crate too. What survives: no \
+                  artifact links either half in its DEFAULT build, because the `bigquery` feature \
+                  is off unless a build asks for it",
+        only: &[],
+        // 0018 states all three old values and amends each one in place directly below it.
+        except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
+    },
 ];
