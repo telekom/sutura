@@ -1281,9 +1281,8 @@ has to do.
 
 ### What the cell is, and the one sentence that keeps it honest
 
-`two_principals.rs` (withdrawn, fourteenth amendment below - named without its path here because
-that path no longer exists), reached by `just bigquery-two-principals` and
-by `nix run .#bigquery-two-principals`. One `QueryPlan` value, borrowed twice, so **the statement is
+`two_principals.rs` (withdrawn, fourteenth amendment below - named without its path or its task
+citations here, because none of the three exists any more). One `QueryPlan` value, borrowed twice, so **the statement is
 the same statement and not two that resemble each other** - and each leg presents a bearer minted
 from that principal's own service-account key through this crate's own `Credential`, which is issue
 #123's second bullet answered by reusing the credential path a deployment runs rather than by
