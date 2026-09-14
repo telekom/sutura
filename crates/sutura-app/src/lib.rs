@@ -90,17 +90,16 @@ pub mod assemble;
 pub mod capability;
 
 // Asking every open data system whether it holds the tables the bundle names, once, for both
-// composition roots that ask it. Here for `warehouses`' reason applied one step on: the DECISION is
-// application logic - which data systems to ask, what a set of absent tables means, and which of two
-// failures is a refusal - while the sentence an operator reads and the sink it goes to belong to the
-// root, which is why nothing in this module prints. Review measured the alternative: the two helpers
-// under it were byte-identical in the two roots.
+// composition roots that ask it - and comparing the bundle being served against what was actually
+// attached behind it. Here for `warehouses`' reason applied one step on: the DECISION is
+// application logic - which data systems to ask, what a set of absent tables means, and which of
+// two failures is a refusal - while the sentence an operator reads and the sink it goes to belong
+// to the root, which is why nothing in this module prints. Review measured the alternative every
+// time something moved in: each helper underneath was byte-identical in the two roots first.
 pub mod preflight;
 
-mod boot_root;
 mod proof;
 
-pub use crate::boot_root::{BootIdentity, BootRoot};
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 
@@ -557,7 +556,8 @@ where
             // The deadline, after the two size bounds and before the identity refusal - the order
             // `docs/adr/0029` states. An adapter's own failure IS the stopped question here, unlike
             // the two checks above this function makes on its own: this one only ever answers what
-            // the adapter reports, because in this slice no adapter stops on the deadline at all.
+            // the adapter reports - Postgres now stops on the deadline itself (`SET LOCAL
+            // statement_timeout`); the engine and BigQuery still do not.
             if warehouse.deadline_exceeded(&cause) {
                 return Ok(Answered::under(
                     &credentials,

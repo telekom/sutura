@@ -18,8 +18,8 @@
 # against the parsers a caller or a catalog author reaches. `panic = "abort"` is on every shipped
 # profile, so a panic inside a third-party parser is the process dying rather than an error a caller
 # sees - and clippy at `-D warnings` (which denies `unwrap_used`, `expect_used`, `panic`,
-# `indexing_slicing`) does not reach inside those third-party parsers. These two targets close the
-# two caller-facing gaps the design scoped to:
+# `indexing_slicing`) does not reach inside those third-party parsers. These three targets close
+# caller-facing gaps - the first two are what that sweep scoped to, and `token` was added after it:
 #
 #   * `sql_expression`  - `sutura_sql::expression::compile`, the boundary that turns an authored
 #     SQL fragment into a checked AST. It runs `polyglot-sql`'s parser over the fragment text - a

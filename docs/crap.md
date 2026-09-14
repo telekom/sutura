@@ -78,8 +78,14 @@ profile. This is the part that varies with the scope, which is why it is the par
 
 The workspace row is a lower bound: that run never reached a test. Coverage instrumentation is a
 separate profile, so DataFusion, Arrow and DuckDB are all recompiled and none of the cached
-artifacts help. On a four-vCPU runner that is twenty minutes and up, added to a `ci` job whose
-timeout is 75 minutes, and which a cap of 60 once killed mid-`Tests`.
+artifacts help. The extrapolation that used to follow is void and is not replaced with a guess: it
+read "on a four-vCPU runner that is twenty minutes and up", and the `ci` job runs on
+`rust-mcp-16core` - the same core count the 6m18 measurement was taken at. So the measured wall
+applies as measured, added to a `ci` job whose timeout is 75 minutes, and which a cap of 60 once
+killed mid-`Tests`. That claim was written down in more than one place - `.github/workflows/ci.yml`
+and `xtask/src/crap.rs` each carried their own copy - and **no gate pairs them**, which is how one
+could be corrected while the others stood. Every copy this sweep found is corrected; the sweep is
+`rg`, not a mechanism, so a copy it missed is still possible.
 
 **Where the tests live.** Coverage scoped to one package sees only that package's tests. For
 `sutura-domain` that is the whole truth - its unit tests are its real test suite and they

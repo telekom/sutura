@@ -457,7 +457,7 @@ pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::S
 ///
 /// `catalog` is handed over rather than a bundle rebuilt, because the constructor loads it again and
 /// re-runs every anchor - that is its contract - so the two loads cannot disagree about the version
-/// or the source name. [`crate::sources::refuse_unattached`] closes the one gap that remains: a
+/// or the source name. [`sutura_app::preflight::refuse_unattached`] closes the one gap that remains: a
 /// model added to the catalog directory between a caller's own load and the load inside `start`
 /// would otherwise be served with no table registered behind it, failing its first question at query
 /// time. Skipped for a data system nothing was attached to, which is the narrowing
@@ -494,7 +494,8 @@ where
     )
     .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
     if let Some(attached) = opened.attached {
-        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
     }
     Ok(service)
 }

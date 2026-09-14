@@ -249,9 +249,9 @@ fn narrower_than_main_push(gate: &str) -> bool {
 }
 
 /// One step of a workflow or composite action, and the line a failure should name.
-struct Step<'a> {
+pub(super) struct Step<'a> {
     /// One-based, so a reader can open `ci.yml:258`.
-    line: usize,
+    pub(super) line: usize,
     lines: Vec<&'a str>,
 }
 
@@ -279,7 +279,7 @@ impl Step<'_> {
     /// must restore on every event and so can only be gated by `save:`. A `save: false` is a
     /// constant rather than a condition and is refused as such - restore-only everywhere would mean
     /// nothing ever writes, which is what the anchor above exists to catch.
-    fn gate(&self) -> Option<String> {
+    pub(super) fn gate(&self) -> Option<String> {
         self.lines.iter().find_map(|line| {
             let key = key_of(line)?;
             let value = key.strip_prefix("if:").or_else(|| key.strip_prefix("save:"))?.trim();
@@ -295,7 +295,7 @@ impl Step<'_> {
     ///
     /// Distinct from [`Step::has`] because the key rules read the `primary-key` TEXT rather than
     /// ask whether it exists: an empty one and a key hashing one lockfile are both present.
-    fn input(&self, key: &str) -> Option<&str> {
+    pub(super) fn input(&self, key: &str) -> Option<&str> {
         self.lines
             .iter()
             .find_map(|line| Some(key_of(line)?.strip_prefix(key)?.trim()))
@@ -408,7 +408,7 @@ fn key_of(line: &str) -> Option<&str> {
 /// nonempty line no deeper than its marker. Workflows and composite actions write steps at
 /// different columns, so the depth comes from the marker rather than from a constant - a composite
 /// action's `runs.steps` sits two levels shallower than a job's.
-fn steps(text: &str) -> Vec<Step<'_>> {
+pub(super) fn steps(text: &str) -> Vec<Step<'_>> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate() {

@@ -5,7 +5,12 @@ description: How the semantic compiler gets tested across catalogs and data syst
 
 # Conformance packs for inputs and adapters
 
-Status: **accepted as the shape. None of it is built.**
+Status: **accepted, and built in part.** This line read *"accepted as the shape. None of it is
+built."* until the code caught up with it, and the old sentence is quoted rather than dropped because
+`check-guidance` exempts this page from the rule that forbids it - an exemption over a page that no
+longer holds the quote is a rule registered against a sentence nobody wrote. *Corrected* directly
+below is what is built and what holds it; the paragraph after that is the limit, and it is the one to
+read before citing this record.
 
 **Corrected: most of it is built now.** `crates/sutura-conformance` exists as the dev-only packs
 crate this record specifies; `execute_packs!` binds it to three data systems
@@ -20,6 +25,17 @@ with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two joi
 which is in the corpus yet; the corpus itself, which is code today rather than the files this
 record specifies; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is not yet
 bound to the packs.
+
+**The limit, next to the claim, because the shape is further along than the coverage.** A case is a
+value in `crates/sutura-conformance/src/corpus.rs` rather than a file, so adding one is still a code
+change - *The corpus data is a file; cases are code* below is where that stands. **None of the three
+cases under *Cases the corpus must contain by name* is written**, and that module's own header says
+so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
+bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
+`corpus::posture()` returns `SourcePosture::SharedServiceUser` - which is the one to read before
+citing this record as evidence that a source executed as the asking subject. It is not. What a green
+conformance run does NOT establish is enumerated in that crate's own module header; this paragraph is
+not a substitute for it.
 
 The requirement is that every metadata input and every data adapter conforms to the **same tests and
 functions**, so a new connector proves itself by registering and declaring rather than by anyone

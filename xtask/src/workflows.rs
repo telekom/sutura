@@ -115,6 +115,12 @@ mod with_keys;
 // limits - what it cannot prove about a shell parse, and the half of the grammar it does not hold.
 mod image_records;
 
+// THE STEPS WHOSE OBLIGATION MUST NOT BE SKIPPABLE. Its own module because the subject is what a
+// step OWES rather than what it resolves to, and because the claim it holds - that a line in the
+// step is the mechanism and a position is not - was asserted by a comment before anything checked
+// it. See its header for which form survives a red and which survives a cancellation.
+mod obligations;
+
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
 // the question, not the line count: that module answers *which attributes does this block
@@ -244,8 +250,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) reachable by a line rather than by their position, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
+            obligations::held(),
             walked.len(),
             walked.join(", ")
         );
@@ -290,6 +297,26 @@ fn check_gates(
         eprintln!("permanently pending merge. Which of the two a job is belongs in the record, not in");
         eprintln!("a reader's assumption - see the header of devco/required-contexts for what that");
         eprintln!("record can and cannot hold.");
+        return Some(Verdict::Fail);
+    }
+
+    // WHETHER AN UNCONDITIONAL OBLIGATION IS ACTUALLY REACHABLE. A failed step ends the job, so a
+    // step with no condition runs only while every step above it is green - which is how the
+    // authoritative secret scan came to be skipped by a rustfmt violation. The condition that
+    // fixes it is one line, and until this rule existed nothing required that line to stay.
+    let unreachable_obligations = obligations::problems(root);
+    if !unreachable_obligations.is_empty() {
+        eprintln!(
+            "xtask check-workflows: FAILED - {} step obligation(s) are held by nothing\n",
+            unreachable_obligations.len()
+        );
+        for problem in &unreachable_obligations {
+            eprintln!("  {problem}");
+        }
+        eprintln!();
+        eprintln!("A position is not a mechanism: the next reorder loses a position and keeps a line.");
+        eprintln!("Which form survives a red and which survives a cancellation is measured in the");
+        eprintln!("header of xtask/src/workflows/obligations.rs, beside the limit it does not reach.");
         return Some(Verdict::Fail);
     }
 

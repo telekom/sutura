@@ -4,7 +4,8 @@
 //! shape applies here: `now` arrives as an argument to [`Deadline::remaining_at`] rather than being
 //! read, so the one comparison this module makes lives here and not at whichever call site happens
 //! to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
-//! port and not yet enforced by any adapter this release links.
+//! port and enforced by Postgres (`SET LOCAL statement_timeout`) - the engine and BigQuery still
+//! accept the parameter and ignore it.
 
 use std::time::{Duration, Instant};
 

@@ -13,8 +13,13 @@
 //!   ([`tls::client_config`]). Which source gets which is `sutura_config::sources::transport`'s
 //!   decision and never this adapter's, so a caller that builds no config gets a cleartext
 //!   connection - including to a server that offers TLS.
-//! - A `statement_timeout` is set at connect, so a slow server statement cannot hold a
-//!   blocking-pool thread past the caller's request deadline.
+//! - **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+//!   `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
+//!   a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
+//!   query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
+//!   `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
+//!   deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
+//!   this record adds only classifying that stop.
 
 pub mod connection;
 /// The fixture tier's credential - a value that cannot exist unconfigured.
@@ -160,6 +165,18 @@ pub enum PostgresError {
         #[source]
         cause: tokio_postgres::Error,
     },
+    /// The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's
+    /// own fixed literal text, never the caller's, the same as [`Self::RawTransaction`].
+    #[error("the per-statement deadline transaction could not be opened")]
+    Transaction {
+        #[source]
+        cause: tokio_postgres::Error,
+    },
+    /// The deadline was already spent once [`PostgresWarehouse::execution_lock`] was acquired -
+    /// refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call
+    /// check.
+    #[error("the deadline was already spent by the time the connection's lock was acquired")]
+    DeadlineSpent,
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -235,6 +252,9 @@ pub struct PostgresWarehouse {
     /// `tokio::sync::Mutex<()>` (`clippy.toml` disallows `std::sync::Mutex`), held across the whole
     /// `block_on` - two certified `run`s wait too, the shared-connection cost `docs/adr/0013` states.
     execution_lock: tokio::sync::Mutex<()>,
+    /// The `SET statement_timeout` sent once at connect, kept so a per-statement `SET LOCAL` can be
+    /// clamped to it - `docs/adr/0029`'s outer bound. Zero (disabled) reads as no ceiling at all.
+    statement_timeout_ceiling_ms: u32,
 }
 
 /// Locks [`PostgresWarehouse::execution_lock`]. `blocking_lock` panics off a blocking-pool thread
@@ -340,6 +360,7 @@ impl PostgresWarehouse {
             runtime,
             client,
             execution_lock: tokio::sync::Mutex::new(()),
+            statement_timeout_ceiling_ms: timeout_ms,
         })
     }
 
@@ -568,46 +589,6 @@ impl PostgresWarehouse {
             ),
             _ => Err(unsupported("a type this adapter does not map")),
         }
-    }
-
-    /// Runs a statement and collects its rows.
-    ///
-    /// The column names and types are read from the PREPARED statement, so an answer with no rows
-    /// still carries its projection - the same reason `sutura-exec-duckdb` reads labels from the
-    /// executed statement rather than guessing.
-    fn run(&self, query: &GeneratedQuery) -> Result<RowSet, PostgresError> {
-        let bound = Self::bind(query.params());
-        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = bound.iter().map(PgParam::as_ref).collect();
-        let _guard = lock_execution(&self.execution_lock);
-        let (columns, rows) = self.runtime.block_on(async {
-            let statement = self
-                .client
-                .prepare(query.sql())
-                .await
-                .map_err(|cause| PostgresError::Prepare { cause })?;
-            let columns: Vec<(String, Type)> = statement
-                .columns()
-                .iter()
-                .map(|column| (column.name().to_owned(), column.type_().clone()))
-                .collect();
-            let rows = self
-                .client
-                .query(&statement, refs.as_slice())
-                .await
-                .map_err(execute_err_mapped)?;
-            Ok::<_, PostgresError>((columns, rows))
-        })?;
-        let labels: Vec<String> = columns.iter().map(|(name, _)| name.to_owned()).collect();
-        let width = labels.len();
-        let mut out: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
-        for row in rows {
-            let mut cells = Vec::with_capacity(width);
-            for (index, (label, column_type)) in columns.iter().enumerate() {
-                cells.push(Self::cell(label, column_type, &row, index)?);
-            }
-            out.push(cells);
-        }
-        RowSet::new(labels, out).map_err(|cause| PostgresError::Shape { cause })
     }
 }
 
@@ -937,27 +918,23 @@ impl Warehouse for PostgresWarehouse {
     /// byte-denominated budget would need a conversion this adapter does not attempt.
     /// `docs/adr/0030` names this honest absence rather than a guess.
     ///
-    /// The deadline is carried, not enforced here; see `docs/adr/0029`. Setting
-    /// `statement_timeout` from what is left of it is a later slice behind
-    /// `telekom/sutura#160`; the connect-time `SUTURA_DEV_STATEMENT_TIMEOUT_MS` stays the boot-path
-    /// bound until then.
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<PreFlight, Self::Error> {
+    /// **`SET LOCAL statement_timeout` is what is left of `deadline`, scoped to a transaction this
+    /// call opens and always rolls back** - `docs/adr/0029`'s Postgres row. The lock is acquired
+    /// FIRST, then the deadline is re-checked: the wait for it is itself outside the deadline, so a
+    /// caller queued behind a slow statement can arrive already spent, refused locally as
+    /// `DeadlineSpent` rather than sent to the server.
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let _guard = lock_execution(&self.execution_lock);
-        drop(
-            self.runtime
-                .block_on(self.client.prepare(query.sql()))
-                .map_err(|cause| PostgresError::Prepare { cause })?,
-        );
+        self.prepare_with_deadline(&query, deadline)?;
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
-    /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    /// `SET LOCAL statement_timeout` is what is left of `deadline` - `docs/adr/0029`'s Postgres row.
+    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.run(&query)
+        self.run_with_deadline(&query, deadline)
     }
 
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -990,11 +967,22 @@ impl Warehouse for PostgresWarehouse {
     fn source_refused(&self, error: &Self::Error) -> bool {
         raw::source_refused(error)
     }
+
+    /// `57014 query_canceled` (via `Prepare`/`Execute`) or a local `DeadlineSpent` - see
+    /// `deadline::deadline_exceeded` for the match itself, the same split `raw::source_refused`
+    /// draws for its own two codes.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        deadline::deadline_exceeded(error)
+    }
 }
 
 // `docs/adr/0013`'s raw SQL tool's own execution path - carved out because this file hit the
 // thousand-line limit `cargo xtask max-lines` enforces.
 mod raw;
+
+// `docs/adr/0029`'s per-statement `SET LOCAL statement_timeout` mechanism - carved out for the same
+// reason.
+mod deadline;
 
 #[cfg(test)]
 mod tests;
