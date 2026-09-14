@@ -668,6 +668,33 @@ Why a string is not usable as an access token.
 
 Why a deployment mode declaration is not usable.
 
+## `use InvalidOutbound`
+
+Why a `security.outbound` declaration was not usable.
+
+## `use OutboundAnchors`
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+**Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
+and deliberately a second, smaller type rather than the same one reused: a per-source declaration
+is refused when the source's own kind has no dial target the anchor could attach to
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
+settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
+There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
+on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
+declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+
+**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
+not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+
+Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
+anchors: these clients always speak TLS regardless of configuration, and an absent block means
+"verify against `ureq`'s own compiled-in roots", which is today's (and every prior release's)
+behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
+`InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
+argument `security.inbound` with no `mode` already makes.
+
 ## `use SecuritySettings`
 
 The access posture, and the declaration that goes with a non-loopback bind.
@@ -3538,6 +3565,59 @@ Why a deployment mode declaration is not usable.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum OutboundAnchors`
+
+```rust
+pub enum OutboundAnchors
+```
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+**Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
+and deliberately a second, smaller type rather than the same one reused: a per-source declaration
+is refused when the source's own kind has no dial target the anchor could attach to
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
+settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
+There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
+on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
+declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+
+**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
+not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+
+Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
+anchors: these clients always speak TLS regardless of configuration, and an absent block means
+"verify against `ureq`'s own compiled-in roots", which is today's (and every prior release's)
+behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
+`InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
+argument `security.inbound` with no `mode` already makes.
+
+#### Variants
+
+- `Bundle` - A PEM bundle at this absolute path.
+- `System` - The host's own trust store, chosen by name.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidOutbound`
+
+```rust
+pub enum InvalidOutbound
+```
+
+Why a `security.outbound` declaration was not usable.
+
+#### Variants
+
+- `NoAnchors` - `security.outbound` was written with no `transport_anchors`.
+- `RelativePath` - A `security.outbound.transport_anchors` path that is relative.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct SecuritySettings`
 
 ```rust
@@ -3645,7 +3725,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -3658,6 +3738,20 @@ because the shape here cannot hold "a mode nobody named".
 
 The metrics token is an `Option` the same way: a deployment that chooses not to gate
 `/metrics` is making a posture, not leaving a gap.
+
+`outbound` is `None` for the ordinary deployment - see `OutboundAnchors`'s own doc for why
+that is not a gap either.
+
+```rust
+pub const fn outbound(&self) -> Option<&OutboundAnchors>
+```
+
+The deployment-wide trust anchors a fixed-host outbound client verifies against, if declared.
+
+`None` means every such client verifies against its own compiled-in roots - see
+`OutboundAnchors`. A composition root reads this once at boot and hands the resolved
+material to `WireAgent::secured` (or its equivalent) rather than each call site reading
+settings for itself.
 
 ```rust
 pub const fn tls_termination(&self) -> TlsTermination

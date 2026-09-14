@@ -165,6 +165,7 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
             &engine_declared(),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "a catalog reading an undeclared source must not get an engine",
     );
@@ -203,6 +204,7 @@ fn two_declared_sources_both_open_and_each_carries_its_own_posture() {
         &two,
         one_worker(),
         default_timeout(),
+        None,
     ));
     assert_eq!(
         opened
@@ -228,6 +230,7 @@ fn two_declared_sources_both_open_and_each_carries_its_own_posture() {
         &two,
         one_worker(),
         default_timeout(),
+        None,
     ));
     assert_eq!(
         routed
@@ -299,6 +302,7 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
         &registry(&entry("warehouse", "shared-service-user", "")),
         one_worker(),
         default_timeout(),
+        None,
     ));
     assert_eq!(opened.attached, tables(&["dim_customer"]));
 }
@@ -323,6 +327,7 @@ fn opened_bigquery(entries: &str) -> Result<OpenedSources, String> {
         &registry(entries),
         one_worker(),
         default_timeout(),
+        None,
     )
 }
 
@@ -355,6 +360,7 @@ fn opened_postgres(entries: &str) -> Result<OpenedSources, String> {
         &registry(entries),
         one_worker(),
         default_timeout(),
+        None,
     )
 }
 
@@ -580,6 +586,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
             &registry(&bigquery_entry("warehouse", "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "an anchor on an impersonating source with no verification identity must not start",
     );
@@ -600,6 +607,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
             &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "the credential is still not there, so the deployment still does not start",
     );
@@ -634,6 +642,7 @@ fn a_catalog_reading_two_kinds_of_source_does_not_start() {
             &registry(&both),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "one process opens one kind of data system at a time",
     );
@@ -669,6 +678,7 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
             &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "an impersonating posture on an adapter that cannot impersonate must not start",
     );
@@ -698,6 +708,7 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
             &engine_declared(),
             one_worker(),
             default_timeout(),
+            None,
         )
         .expect("a shared source on a file engine is the ordinary case"),
     );
@@ -721,6 +732,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "an anchor with no identity to re-run it as must not boot",
     );
@@ -748,6 +760,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             )),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "the capability cross-check still stops this build",
     );
@@ -766,6 +779,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             &engine_declared(),
             one_worker(),
             default_timeout(),
+            None,
         )
         .expect("a shared source's anchors run as the shared identity"),
     );
@@ -779,7 +793,7 @@ fn a_catalog_declaring_no_models_starts_nothing() {
     // service starts and refuses every question as an unknown metric, which reads as a question
     // problem rather than as a catalog directory holding no models.
     let error = refusal(
-        open_engine(&bundle_over(&[]), &engine_declared(), one_worker(), default_timeout()),
+        open_engine(&bundle_over(&[]), &engine_declared(), one_worker(), default_timeout(), None),
         "a catalog with no models opens nothing",
     );
     assert!(error.contains("declares no models"), "{error}");
@@ -801,6 +815,7 @@ fn a_model_with_no_file_behind_it_starts_nothing() {
             &engine_declared(),
             one_worker(),
             default_timeout(),
+            None,
         ),
         "a model with no file behind it must not open",
     );
@@ -926,6 +941,7 @@ fn the_boot_line_names_the_credential_cache_as_off_by_default() {
             &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
             default_timeout(),
             sutura_config::CredentialCacheSettings::default(),
+            None,
         )
     })
     .expect("a shared bigquery source with a declared ceiling builds a broker");

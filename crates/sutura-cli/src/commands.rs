@@ -398,6 +398,9 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let pinned = catalog.load().map_err(|e| render(&e))?;
         let question = read_question(Path::new(&question_path))?;
         let settings = crate::sources::configured()?;
+        // Read ONCE and shared by every `WireAgent` this command builds - `security.outbound`,
+        // `github.com/telekom/sutura#125`.
+        let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
         // **The exhaustive match is the caller's, and that is what erasing later would have cost.**
         // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the answer path is monomorphised
         // per kind; naming both arms here is what makes a third linked adapter a compile error at
@@ -409,6 +412,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             settings.runtime(),
             settings.server().request_timeout(),
             data.as_deref(),
+            outbound.as_ref(),
         )? {
             crate::sources::Opened::Files(opened) => answered(
                 &catalog,

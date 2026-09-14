@@ -31,8 +31,8 @@ use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, Unk
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{
-    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
-    UnknownTlsTermination,
+    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, SecuritySettings,
+    TlsTermination, UnknownTlsTermination,
 };
 use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
@@ -236,6 +236,12 @@ pub enum SettingsError {
     CredentialCache {
         #[source]
         cause: crate::identity_cache::InvalidCredentialCacheSettings,
+    },
+    /// A `security.outbound` block exists and is not usable.
+    #[error("`security.outbound` is not usable")]
+    Outbound {
+        #[source]
+        cause: InvalidOutbound,
     },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
@@ -780,6 +786,9 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         raw.security.credential_cache.window_seconds,
     )
     .map_err(|cause| SettingsError::CredentialCache { cause })?;
+    // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
+    // PRESENT empty block is.
+    let outbound = crate::settings::outbound::parse_outbound(raw.security.outbound.as_ref())?;
     Ok(SecuritySettings::new(
         token,
         termination,
@@ -787,6 +796,7 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         identity,
         metrics_token,
         credential_cache,
+        outbound,
     ))
 }
 
@@ -965,6 +975,9 @@ fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
 
 /// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
+
+/// Reading the outbound trust declaration. Carved out for the same reason.
+mod outbound;
 
 mod layers;
 

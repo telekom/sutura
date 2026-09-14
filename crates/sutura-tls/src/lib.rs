@@ -151,7 +151,14 @@ pub fn load_anchors(anchors: &Anchors) -> Result<LoadedAnchors, LoadError> {
 /// store of nothing verifies nothing, and [`LoadedAnchors::parse`] is the only constructor, refusing
 /// an empty list with the caller's own refusal (`AnchorsEmpty` for a bundle, `SystemStoreEmpty` for
 /// the host store) rather than letting each source repeat the check.
-#[derive(Debug)]
+///
+/// **`Clone`, unlike [`LoadedIdentity`].** `CertificateDer` is public material by construction (a
+/// certificate, never a key), and a deployment-wide declaration is read ONCE and then handed to every
+/// fixed-host client that needs it - `github.com/telekom/sutura#125`'s `security.outbound` covers the
+/// `BigQuery` wire and the STS exchange from a single boot-time read, so a composition root needs one
+/// loaded value it can give to more than one [`crate`]-external constructor without re-reading the
+/// bundle or the host store per call site.
+#[derive(Debug, Clone)]
 pub struct LoadedAnchors(Vec<CertificateDer<'static>>);
 
 impl LoadedAnchors {

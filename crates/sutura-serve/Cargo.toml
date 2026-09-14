@@ -70,6 +70,10 @@ sutura-catalog-local = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-exec-datafusion = { workspace = true }
+# `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - resolved ONCE in
+# `main::outbound_anchors` regardless of which adapter feature is on, the same way this crate's own
+# `sutura-config` dependency is unconditional.
+sutura-tls = { workspace = true }
 # The BigQuery adapter, behind the `bigquery` feature above. Optional is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds need.
 sutura-exec-bigquery = { workspace = true, optional = true }

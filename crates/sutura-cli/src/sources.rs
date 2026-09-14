@@ -199,6 +199,36 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
     .map_err(|cause| unservable(&cause))
 }
 
+/// Reads `security.outbound.transport_anchors`, once, and loads it - `github.com/telekom/sutura#125`.
+///
+/// `None` is the ordinary deployment: every fixed-host outbound client (today, the `BigQuery` wire and
+/// the STS exchange) verifies against `ureq`'s own compiled-in roots, unchanged from every release
+/// before this. `Some` is loaded through `sutura_tls::load_anchors` here, ONCE, so every call site
+/// that builds a [`sutura_exec_bigquery::wire::WireAgent`] shares one read rather than re-reading a
+/// bundle or the host store per source.
+///
+/// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
+/// shape `security.credential_cache` is in on that build. See `docs/adr/0010`'s amendment for the
+/// limit: a declaration with no linked adapter is read and unused, not refused, because refusing it
+/// would mean this settings crate knowing which features a binary was built with.
+///
+/// # Errors
+///
+/// The declared bundle or the host trust store cannot be read, is empty, or (a bundle) is not valid
+/// PEM.
+pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Result<Option<sutura_tls::LoadedAnchors>, String> {
+    let Some(declared) = settings.security().outbound() else {
+        return Ok(None);
+    };
+    let anchors = match declared {
+        sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
+        sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
+    };
+    sutura_tls::load_anchors(&anchors)
+        .map(Some)
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))
+}
+
 /// A settings failure, said in terms a person running a COMMAND can act on.
 ///
 /// The refusals underneath are a deployment's and are rendered unchanged - they name their own keys,
@@ -272,6 +302,7 @@ pub(crate) fn open_engine(
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
     data: Option<&Path>,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let named = match sources.as_slice() {
@@ -304,7 +335,7 @@ pub(crate) fn open_engine(
     let Some(declared) = registry.get(&named) else {
         return files::from_the_built_in_declaration(pinned, &named, data, runtime);
     };
-    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout)
+    from_the_registry(pinned, &named, declared, data, registry, runtime, request_timeout, outbound)
 }
 
 /// Opens a source the deployment declared, under the identity that declaration names.
@@ -320,6 +351,7 @@ fn from_the_registry(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<Opened, String> {
     let identity = configured
         .identity()
@@ -360,7 +392,7 @@ fn from_the_registry(
                     given.display()
                 ));
             }
-            bigquery::open(source, configured, registry, request_timeout)
+            bigquery::open(source, configured, registry, request_timeout, outbound)
         }
         sutura_config::SourceKind::Postgres => {
             if let Some(given) = data {
@@ -634,6 +666,7 @@ mod tests {
                 runtime(),
                 timeout(),
                 None,
+                None,
             )
             .expect("a declared files source opens"),
         );
@@ -672,6 +705,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("data")),
+            None,
         )
         .map(|_| ())
         .expect_err("an undeclared source must not get the built-in declaration's engine");
@@ -698,6 +732,7 @@ mod tests {
                 runtime(),
                 timeout(),
                 Some(&example().join("data")),
+                None,
             )
             .expect("the example catalog opens with nothing declared"),
         );
@@ -745,7 +780,7 @@ mod tests {
         // `dim_customer.csv` does not have, which review also measured.
         let pinned = crate::commands::load(&example().join("catalog")).expect("the example catalog loads");
         let opened = files_of(
-            open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), timeout(), None)
+            open_engine(&pinned, &declaring_files(BUILT_IN_SOURCE), runtime(), timeout(), None, None)
                 .expect("the example catalog opens through a declared files source"),
         );
         let validated = sutura_app::verify_and_validate(pinned, &opened.engines).expect("every anchor reproduces");
@@ -796,6 +831,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("data")),
+            None,
         )
         .map(|_| ())
         .expect_err("a data directory for a dataset source is refused");
@@ -816,6 +852,7 @@ mod tests {
             &nothing_declared(),
             runtime(),
             timeout(),
+            None,
             None,
         )
         .map(|_| ())
@@ -842,6 +879,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("data")),
+            None,
         )
         .map(|_| ())
         .expect_err("a catalog spanning two data systems must not get an engine");
@@ -886,6 +924,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("data")),
+            None,
         )
         .map(|_| ())
         .expect_err("a catalog with no models opens nothing");

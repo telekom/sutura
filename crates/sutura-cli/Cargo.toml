@@ -73,6 +73,12 @@ sutura-catalog-local = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }
+# `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the shared bundle-or-
+# system-store read, resolved ONCE in `crate::sources::resolve_outbound_anchors` regardless of which
+# adapter feature is on, the same way `sutura-config` itself is unconditional: a declaration is read
+# and, on a build with no linked fixed-host client, simply unused - never a second per-feature copy
+# of this dependency line.
+sutura-tls = { workspace = true }
 # Rendering, and this binary IS a SQL consumer: `sutura compile` exists to print the statement for a
 # dialect somebody named on the command line, without opening a data system at all. So the
 # generator is in this binary's tree deliberately and by a declared edge, which is the difference

@@ -265,6 +265,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("catalog")),
+            None,
         )
         .map(|_| ())
         .expect_err("a declaration and a DIFFERENT argument for one data system is a refusal");
@@ -301,6 +302,7 @@ mod tests {
                 runtime(),
                 timeout(),
                 Some(&example().join("data")),
+                None,
             )
             .expect("a declared directory and the same one on the command line is not a conflict"),
         );
@@ -330,7 +332,7 @@ mod tests {
             ),
             "impersonation-at-source",
         );
-        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, runtime(), timeout(), None)
+        let error = open_engine(&bundle_naming(BUILT_IN_SOURCE), &registry, runtime(), timeout(), None, None)
             .map(|_| ())
             .expect_err("a posture the linked engine cannot carry must not open");
         assert!(error.contains(BUILT_IN_SOURCE), "the refusal must name the source: {error}");
@@ -365,6 +367,7 @@ mod tests {
             runtime(),
             timeout(),
             Some(&example().join("data")),
+            None,
         )
         .map(|_| ())
         .expect_err("a model with no file behind it must not open");

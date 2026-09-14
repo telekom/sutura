@@ -138,8 +138,8 @@ pub use crate::runtime::{
     AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling, available_memory_bytes,
 };
 pub use crate::security::{
-    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
-    UnknownDeploymentIdentity, UnknownTlsTermination,
+    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, OutboundAnchors,
+    SecuritySettings, TlsTermination, UnknownDeploymentIdentity, UnknownTlsTermination,
 };
 pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,

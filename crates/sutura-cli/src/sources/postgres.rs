@@ -181,6 +181,7 @@ mod tests {
             runtime(),
             timeout(),
             None,
+            None,
         )
         .map(|_| ())
         .expect_err("a kind this binary linked no adapter for must not open");
@@ -207,6 +208,7 @@ mod tests {
             &declaring_postgres("shared-service-user", ""),
             runtime(),
             timeout(),
+            None,
             None,
         )
         .map(|_| ())
@@ -248,6 +250,7 @@ mod tests {
             &declaring_postgres("impersonation-at-source", &wif_for_postgres()),
             runtime(),
             timeout(),
+            None,
             None,
         )
         .map(|_| ())

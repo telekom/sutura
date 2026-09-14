@@ -29,7 +29,7 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # `[graph] all-features = true`. So the wire is compiled, linted, tested and audited on every run;
 # what the default buys is that a future composition root has to ASK for the outbound stack, in a
 # manifest line a reviewer can see, rather than inheriting it by depending on this crate.
-wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64"]
+wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64", "dep:sutura-tls"]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
@@ -135,6 +135,12 @@ ureq = { workspace = true, optional = true }
 # adapter refuses - and `serde` derives the fixed shapes around it.
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the same bundle-or-system
+# read `sutura-exec-postgres` already depends on, so the two adapters share the PEM/system-store read
+# rather than each holding a copy. This crate builds no `RootCertStore`; `crate::wire::tls` turns the
+# loaded certificates into `ureq::tls::RootCerts` directly, which is the whole reason this crate does
+# not also need `rustls` or `rustls-pki-types` as a direct dependency beyond what `sutura-tls` gives.
+sutura-tls = { workspace = true, optional = true }
 # The signature on a service-account assertion, and the base64url around it. Both are already resolved
 # in `Cargo.lock` - `ring` as the TLS provider, `base64` at the same version it was a dev-dependency at
 # - so neither adds a package. The root manifest carries the argument, including the alternative that
@@ -168,6 +174,16 @@ sutura-exec-datafusion = { workspace = true }
 # executed every question a second time - so this is a cost decision, not a layering one.
 sutura-semantic = { workspace = true }
 serde_norway = { workspace = true }
+# The hermetic fake-TLS server `wire::tests::tls` dials - `github.com/telekom/sutura#125`'s
+# `security.outbound` cells. `WireAgent`'s own `HOST` is a compile-time constant this crate cannot
+# redirect (the module header states why that is a security property, not an oversight), so these
+# cells reach the agent's own `ureq::Agent` through its `pub(crate)` accessor at a loopback address
+# instead - which is why the server, unlike every other TLS fixture in this workspace, lives here
+# rather than as a `nix`-provisioned tier. Both crates are already resolved at these versions for
+# `sutura-exec-postgres`'s and `sutura-tls`'s own fixtures, so this adds no new package to
+# `Cargo.lock` - only link time on this crate's own test binary.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true
