@@ -640,9 +640,12 @@ keycloak-served-test:
       -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
 # Mints one Google-issued ID token from a service-account key file, for the exchanged-identity cell
 # above - telekom/sutura#376. `key` is a path to the key, never its content; `out` is the path the
-# token is written to, never printed. Not a gate; a CI-only step invokes this per principal.
+# token is written to, never printed. Not a gate; a CI-only step invokes this per principal through
+# the flake app `nix run .#bigquery-mint-subject-assertion` (the workflow cannot run a bare cargo -
+# the job installs nix only). This recipe keeps the same mint available on a laptop, running that
+# same app.
 bigquery-mint-subject-assertion key target_audience out:
-    cargo run -q -p sutura-exec-bigquery --example mint_subject_assertion --features wire --profile ci -- \
+    nix run .#bigquery-mint-subject-assertion -- \
       "{{key}}" "{{target_audience}}" "{{out}}"
 
 # ------------------------------------------------------------------ dev flow ---

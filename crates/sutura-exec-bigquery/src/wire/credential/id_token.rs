@@ -47,6 +47,27 @@ struct IdTokenResponse {
 /// site, not a runtime branch inside one signature). Everything about HOW the assertion is built
 /// and signed is identical to `Credential::assertion`, which is why this is the only other place
 /// that reads `client_email`/`private_key_id`/`private_key` directly.
+/// Ten minutes, the same window `Credential::assertion` uses and for the same reason: an
+/// assertion is a bearer credential in flight, and its window is its replay window.
+const LIVES_FOR: u64 = 600;
+
+/// The unsigned claims of the minted assertion, as a pure function of its inputs.
+///
+/// Split out of [`id_token_assertion`] so the claim set and replay window can be pinned offline:
+/// the fixture cannot reach the signing half, which needs a real 2048-bit key, but the claims
+/// document is the decision and it needs none of them
+/// ([`tests::id_token_claims_are_exactly_the_minted_set_with_no_scope`]).
+fn id_token_claims(client_email: &str, target_audience: &str, now_unix_seconds: u64) -> serde_json::Value {
+    serde_json::json!({
+        "iss": client_email,
+        "sub": client_email,
+        "aud": TOKEN_ENDPOINT,
+        "target_audience": target_audience,
+        "iat": now_unix_seconds,
+        "exp": now_unix_seconds.saturating_add(LIVES_FOR),
+    })
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the private key has to be decoded to sign with it, exactly as `Credential::assertion` argues"
@@ -58,20 +79,9 @@ fn id_token_assertion(
     target_audience: &str,
     now_unix_seconds: u64,
 ) -> Result<String, TokenUnavailable> {
-    /// Ten minutes, the same window `Credential::assertion` uses and for the same reason: an
-    /// assertion is a bearer credential in flight, and its window is its replay window.
-    const LIVES_FOR: u64 = 600;
-
     let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let header = serde_json::json!({ "alg": "RS256", "typ": "JWT", "kid": private_key_id });
-    let claims = serde_json::json!({
-        "iss": client_email,
-        "sub": client_email,
-        "aud": TOKEN_ENDPOINT,
-        "target_audience": target_audience,
-        "iat": now_unix_seconds,
-        "exp": now_unix_seconds.saturating_add(LIVES_FOR),
-    });
+    let claims = id_token_claims(client_email, target_audience, now_unix_seconds);
     let mut signing_input = url.encode(header.to_string().as_bytes());
     signing_input.push('.');
     signing_input.push_str(&url.encode(claims.to_string().as_bytes()));
@@ -172,17 +182,112 @@ where
         .limit(MAX_ANSWER_BYTES)
         .read_to_string()
         .map_err(|cause| TokenUnavailable::Unreadable { cause: Box::new(cause) })?;
-    if !status.is_success() {
-        let refusal: TokenRefusal = serde_json::from_str(&body).unwrap_or(TokenRefusal { error: None });
+    decide_id_token_answer(status.as_u16(), &body)
+}
+
+/// Decides a token-endpoint answer given its status and body, with no transport involved.
+///
+/// Split out of [`exchange_id_token`] so a non-2xx refusal can be pinned offline - the wire half
+/// still lives where it lives, but the decision "a non-2xx status is a typed [`TokenUnavailable::Refused`],
+/// a 2xx body is the `id_token` document or nothing" needs no network and no key
+/// ([`tests::a_non_2xx_token_endpoint_answer_is_a_typed_refusal`]).
+fn decide_id_token_answer(status_code: u16, body: &str) -> Result<Secret, TokenUnavailable> {
+    if !(200..300).contains(&status_code) {
+        // A refusal document is best-effort: what is guaranteed is the status, and the code is
+        // read out of the body when the body is the document the provider documents.
+        let refusal: TokenRefusal = serde_json::from_str(body).unwrap_or(TokenRefusal { error: None });
         return Err(TokenUnavailable::Refused {
-            status: status.as_u16(),
+            status: status_code,
             named: crate::wire::bounded(refusal.error),
         });
     }
-    let response: IdTokenResponse = serde_json::from_str(&body).map_err(|cause| TokenUnavailable::NotADocument { cause })?;
+    let response: IdTokenResponse = serde_json::from_str(body).map_err(|cause| TokenUnavailable::NotADocument { cause })?;
     let token = response
         .id_token
         .filter(|t| !t.trim().is_empty())
         .ok_or(TokenUnavailable::NoToken)?;
     Ok(Secret::new(token))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::super::Document;
+    use super::{
+        Credential, LIVES_FOR, TOKEN_ENDPOINT, TokenUnavailable, decide_id_token_answer, id_token_claims, mint_id_token,
+    };
+    use crate::wire::{BytesBilledCeiling, CallDeadline, JobBounds, QueryDeadline, WireAgent};
+
+    /// The pinned client, the only kind this module accepts.
+    fn pinned() -> WireAgent {
+        WireAgent::pinned(JobBounds::of(
+            QueryDeadline::parse(30).expect("30 seconds is a deadline"),
+            BytesBilledCeiling::parse(1024 * 1024).expect("a mebibyte is a ceiling"),
+        ))
+    }
+
+    /// Where a refusal says the file was. A path that does not exist, never read.
+    fn at() -> std::path::PathBuf {
+        std::path::PathBuf::from("/nonexistent/credentials.json")
+    }
+
+    /// A complete `authorized_user`. None of these values is a credential; they are the shape.
+    fn authorized_user() -> Credential {
+        let document = Document {
+            kind: String::from("authorized_user"),
+            universe_domain: None,
+            client_id: Some(String::from("an-installed-app.apps.example")),
+            client_secret: Some(String::from("not-a-secret")),
+            refresh_token: Some(String::from("not-a-token")),
+            client_email: None,
+            private_key: None,
+            private_key_id: None,
+            project_id: None,
+        };
+        Credential::read_document(document, &at(), pinned()).expect("a complete user credential reads")
+    }
+
+    #[test]
+    fn id_token_claims_are_exactly_the_minted_set_with_no_scope() {
+        let claims = id_token_claims("a-robot@example.invalid", "https://aud.invalid", 1_700_000_000);
+        let map = claims.as_object().expect("claims are a JSON object");
+        let keys: BTreeSet<&str> = map.keys().map(String::as_str).collect();
+        assert_eq!(keys, BTreeSet::from(["iss", "sub", "aud", "target_audience", "iat", "exp"]));
+        assert!(!map.contains_key("scope"), "the ID-token grant carries no `scope`");
+        assert_eq!(map["iss"], "a-robot@example.invalid");
+        assert_eq!(map["sub"], "a-robot@example.invalid");
+        assert_eq!(map["aud"], TOKEN_ENDPOINT);
+        assert_eq!(map["target_audience"], "https://aud.invalid");
+        assert_eq!(map["iat"].as_u64(), Some(1_700_000_000));
+        // The replay window: a ten-minute bearer in flight.
+        assert_eq!(map["exp"].as_u64().unwrap() - map["iat"].as_u64().unwrap(), LIVES_FOR);
+        assert_eq!(LIVES_FOR, 600);
+    }
+
+    #[test]
+    fn an_authorized_user_credential_is_refused_by_name_with_no_socket() {
+        // `mint_id_token` returns before any exchange for a non-service-account, so no socket is
+        // opened and no deadline is spent: the refusal is by name, never attempted.
+        let user = authorized_user();
+        let within = CallDeadline::opened(QueryDeadline::parse(30).expect("30 seconds is a deadline"));
+        match mint_id_token(&user, "https://aud.invalid", 1_700_000_000, within) {
+            Err(TokenUnavailable::NotAServiceAccount) => {}
+            other => panic!("expected NotAServiceAccount, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_non_2xx_token_endpoint_answer_is_a_typed_refusal() {
+        // The decision carries the status and the provider's bounded code, never free text - the
+        // refusal vocabulary `TokenUnavailable::Refused` exists to hold.
+        let body = r#"{"error":"invalid_client","error_description":"the client is not valid"}"#;
+        match decide_id_token_answer(400, body) {
+            Err(TokenUnavailable::Refused { status, named }) => {
+                assert_eq!(status, 400);
+                assert_eq!(named, "invalid_client");
+            }
+            other => panic!("expected a typed refusal, got {other:?}"),
+        }
+    }
 }

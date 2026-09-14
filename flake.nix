@@ -821,6 +821,25 @@
               --run-ignored only -E 'binary(exchanged_identity)' "$@"
           '');
         };
+        # `nix run .#bigquery-mint-subject-assertion` - mints one Google-issued OIDC ID token per
+        # principal at job time, from the same service-account key `bq-test` already holds
+        # (telekom/sutura#376's "no new long-lived secret" design). The mint step of
+        # `.github/workflows/bigquery-exchanged-identity.yml` invokes this app in place of a bare
+        # `just`, which would need a cargo on the runner without the linker env this app sources -
+        # the install-nix-action job installs nix only, so a first dispatch would die at `just:
+        # command not found` (or at a bare cargo missing `cargoLinkEnv`). `just
+        # bigquery-mint-subject-assertion` is kept for a laptop and runs this same app. `key`, the
+        # pool audience and the `out` path are passed as arguments, never as `${{ }}` values.
+        apps.bigquery-mint-subject-assertion = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-mint-subject-assertion" ''
+            export PATH="${toolchain}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo run --profile ci -p sutura-exec-bigquery --example mint_subject_assertion --features wire -- "$@"
+          '');
+        };
         # `nix run .#bigquery-cross-dataset` / `.#bigquery-cross-project` - issue #118's two cross-resource venues: writable
         # per-run fixtures across two datasets, read-only preprovisioned mirrors across two projects. Two apps because each
         # needs inputs the other does not, and one demanding both would strand the runnable leg. **No workflow invokes either.**

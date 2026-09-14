@@ -26,6 +26,11 @@ permissions:
 jobs:
   bigquery-exchanged-identity:
     runs-on: rust-mcp-16core
+    # This file is `workflow_dispatch`-only, so no fork rule applies (GitHub will not run the base
+    # repository's workflow from a fork) - the scan `xtask/src/venues/acceptance.rs` reads the
+    # `on:` block to know that, and this `if:` is the line that states the on-demand contract in
+    # place of it. A person dispatches this job; nothing else ever reaches it.
+    if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 30
     # Same reason `bigquery-acceptance` names this environment: GitHub does not expose an
     # environment's secrets to a fork's `pull_request` run, and `workflow_dispatch` from a fork
@@ -73,13 +78,17 @@ jobs:
           SUTURA_BQ_PRINCIPAL_B_KEY: ${{ secrets.svc_suturua_bq_principal_b }}
         run: |
           set -eu
-          for tag in A B; do
-            var="SUTURA_BQ_PRINCIPAL_${tag}_KEY"
-            if [ -z "$(printenv "$var" || true)" ]; then
-              echo "the bq-test environment holds no svc_suturua_bq_principal_${tag,,} secret" >&2
-              exit 1
-            fi
-          done
+          # Named per key and not through `$(printenv ...)` - the acceptance scan refuses a print
+          # verb out of a substitution, and a named `-z` guard is how `ci.yml`'s job tests
+          # emptiness. The message names the secret in its own spelling, never the env var.
+          if [ -z "${SUTURA_BQ_PRINCIPAL_A_KEY:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_principal_a secret" >&2
+            exit 1
+          fi
+          if [ -z "${SUTURA_BQ_PRINCIPAL_B_KEY:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_principal_b secret" >&2
+            exit 1
+          fi
           umask 077
           printenv SUTURA_BQ_PRINCIPAL_A_KEY > "$RUNNER_TEMP/principal-a-key.json"
           printenv SUTURA_BQ_PRINCIPAL_B_KEY > "$RUNNER_TEMP/principal-b-key.json"
@@ -91,17 +100,28 @@ jobs:
       # as the cheapest form of `workload_allowed_audiences` to configure; if the stack's real value
       # differs, this line is what to repoint, not the example binary.
       #
-      # `just bigquery-mint-subject-assertion` never receives the key's or the token's own content
-      # through `${{ }}` - only paths and the (non-secret) audience string, all safe to appear in a
-      # runner's pre-execution `env:` dump.
+      # This step runs through `nix run .#bigquery-mint-subject-assertion`, NOT a bare `just`: the
+      # job's only package is nix (install-nix-action), so a bare `just` would die at "command not
+      # found" (or a bare cargo missing the linker env) on first dispatch. The flake app puts
+      # `$toolchain/bin` on PATH and sources `cargoLinkEnv`, like every app here; the same mint is
+      # available on a laptop as `just bigquery-mint-subject-assertion`, which runs this same app.
+      #
+      # `nix run .#bigquery-mint-subject-assertion` never receives the key's or the token's own
+      # content through `${{ }}` - only paths and the audience (a `secrets.*` value, so masked
+      # wherever `just` echoes the recipe line), all safe to appear in a runner's pre-execution
+      # `env:` dump.
       - name: Mint the two subject assertions
         env:
           SUTURA_BQ_WORKLOAD_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
         run: |
           set -eu
           umask 077
-          just bigquery-mint-subject-assertion "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
-          just bigquery-mint-subject-assertion "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
+          if [ -z "${SUTURA_BQ_WORKLOAD_AUDIENCE:-}" ]; then
+            echo "the bq-test environment holds no workload audience - it is what each mint targets" >&2
+            exit 1
+          fi
+          nix run .#bigquery-mint-subject-assertion -- "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
+          nix run .#bigquery-mint-subject-assertion -- "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
           # The raw keys are spent once minted; removed promptly rather than held for the rest of
           # the job, narrowing the window either sits in cleartext on this runner.
           rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
@@ -142,6 +162,14 @@ jobs:
           SUTURA_BQ_PRINCIPAL_B_ASSERTION_FILE: ${{ runner.temp }}/assertion-b.txt
         run: |
           set -eu
+          if [ -z "${SUTURA_BQ_PRINCIPAL_A_EMAIL:-}" ]; then
+            echo "the bq-test environment defines no email for the first expected principal" >&2
+            exit 1
+          fi
+          if [ -z "${SUTURA_BQ_PRINCIPAL_B_EMAIL:-}" ]; then
+            echo "the bq-test environment defines no email for the second expected principal" >&2
+            exit 1
+          fi
           nix run .#bigquery-exchanged-identity -- --no-capture
 
       - name: Remove the credentials

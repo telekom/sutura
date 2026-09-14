@@ -161,7 +161,7 @@ mod properties;
 mod tests_support;
 
 use properties::{credential_placement, one_credential_mechanism, unset_configuration_fails, what_reaches_the_log, who_may_run};
-use shape::{configured, is_comment, job, shell, under_runner_temp};
+use shape::{configured, is_comment, job as job_block, shell, under_runner_temp};
 
 /// The workflow that holds the acceptance venue's limit.
 pub(super) const WORKFLOW: &str = ".github/workflows/ci.yml";
@@ -169,22 +169,46 @@ pub(super) const WORKFLOW: &str = ".github/workflows/ci.yml";
 /// The job, at two spaces of indentation like every other job in that file.
 pub(super) const JOB: &str = "bigquery-acceptance";
 
-/// Everything wrong with the acceptance job.
+/// The exchanged-identity cell's own job (`telekom/sutura#376`), which places the CI credential,
+/// two principals' keys and two bearer files under `$RUNNER_TEMP`, has its own `printenv` lines,
+/// its own emptiness guards and its own cleanup step - so it earns the same scan as the
+/// acceptance job, and a discipline measured on one job and silently copied into another is the
+/// drift this gate exists to refuse.
+pub(super) const EXCHANGED_WORKFLOW: &str = ".github/workflows/bigquery-exchanged-identity.yml";
+
+/// The job in that file.
+pub(super) const EXCHANGED_JOB: &str = "bigquery-exchanged-identity";
+
+/// Every `(workflow, job)` that must hold the acceptance venue's discipline, read off in the
+/// caller's loop. The second pair is `workflow_dispatch`-only, which [`properties::who_may_run`]
+/// reads (a fork cannot dispatch the base repository's workflow) - everything else is the same
+/// scan, and the pair's own gate test below holds it to that claim.
+pub(super) const JOBS: &[(&str, &str)] = &[(WORKFLOW, JOB), (EXCHANGED_WORKFLOW, EXCHANGED_JOB)];
+
+/// The scan for the acceptance job, kept as the single-argument form the test suite drives against
+/// its own `ci.yml` fixture. Test-only: the caller drives [`scan`] over the pair list, so this
+/// single-arg form exists for the assertions alone and is compiled out of the shipped binary.
+#[cfg(test)]
+pub(super) fn problems(text: &str) -> Vec<String> {
+    scan(WORKFLOW, JOB, text)
+}
+
+/// Everything wrong with one `(workflow, job)` pair that must hold the acceptance discipline.
 ///
 /// One composition of four questions, and they are separate because they read different things:
 /// who may run this job at all, where the credential goes, whether unset configuration stops it,
 /// and what reaches the log.
-pub(super) fn problems(text: &str) -> Vec<String> {
-    let Some(block) = job(text, JOB) else {
+pub(super) fn scan(workflow: &str, job: &str, text: &str) -> Vec<String> {
+    let Some(block) = job_block(text, job) else {
         return vec![format!(
-            "{WORKFLOW} has no `{JOB}` job - it is the only venue in the map that runs against a \
-             real data system, and the map claims it exists"
+            "{workflow} has no `{job}` job - it is one of the pairs the venue map holds to the \
+             acceptance discipline, and the map claims it exists"
         )];
     };
     let bodies = shell(&block);
     if bodies.is_empty() {
         return vec![format!(
-            "{WORKFLOW}: the `{JOB}` job has no shell - the scan is broken, not the job"
+            "{workflow}: the `{job}` job has no shell - the scan is broken, not the job"
         )];
     }
     // What the job DOES, as against every line of its shell. A comment is a CLAIM: [`shell`] keeps
@@ -204,10 +228,19 @@ pub(super) fn problems(text: &str) -> Vec<String> {
     // check looks for are two answers to where the credential is.
     let credential_file = credential.and_then(under_runner_temp);
 
-    let mut problems = who_may_run(text, &block);
-    problems.extend(credential_placement(&commands, &config, credential, credential_file));
-    problems.extend(unset_configuration_fails(&commands, &config));
+    let mut problems = who_may_run(workflow, job, text, &block);
+    problems.extend(credential_placement(
+        workflow,
+        job,
+        &commands,
+        &config,
+        credential,
+        credential_file,
+    ));
+    problems.extend(unset_configuration_fails(workflow, job, &commands, &config));
     problems.extend(what_reaches_the_log(
+        workflow,
+        job,
         text,
         &block,
         &bodies,
@@ -215,7 +248,7 @@ pub(super) fn problems(text: &str) -> Vec<String> {
         &config,
         credential_file,
     ));
-    problems.extend(one_credential_mechanism(&block, &config));
+    problems.extend(one_credential_mechanism(workflow, job, &block, &config));
     problems
 }
 
@@ -225,7 +258,7 @@ mod tests {
     use super::tests_support::{
         CI, KEY_ENV, beside_the_write, condition, instead_of_the_write, with_google_exchange, with_id_token, with_nameless_step,
     };
-    use super::{JOB, WORKFLOW, problems};
+    use super::{EXCHANGED_JOB, EXCHANGED_WORKFLOW, JOB, WORKFLOW, problems, scan};
 
     #[test]
     fn the_acceptance_job_as_it_stands_passes() {
@@ -807,5 +840,46 @@ mod tests {
         let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect(WORKFLOW);
         assert!(workflow.contains(JOB), "{WORKFLOW} no longer declares `{JOB}`");
         assert_eq!(problems(&workflow), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_exchanged_identity_job_holds_the_same_scan_and_fails_a_place_then_leave_it_copy() {
+        // The second pair the gate now scans. Its job places more copies of a secret than the
+        // acceptance job - the CI credential, two principals' keys and two bearer files - so the
+        // same placement/print/cleanup discipline has to hold it rather than being copied by hand.
+        // `scan` named by pair, so a rename cannot leave this reading a job the map no longer
+        // means.
+        let root = crate::repo::root().expect("the repo root");
+        let workflow = std::fs::read_to_string(root.join(EXCHANGED_WORKFLOW)).expect(EXCHANGED_WORKFLOW);
+        assert!(
+            workflow.contains(EXCHANGED_JOB),
+            "{EXCHANGED_WORKFLOW} no longer declares `{EXCHANGED_JOB}`"
+        );
+        assert_eq!(scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &workflow), Vec::<String>::new());
+
+        // A fixture that FAILS it: a second copy of a principal key written under `$RUNNER_TEMP`
+        // by a line naming the secret and never removed - the exact hole `credential_placement`
+        // exists to refuse, and the reason the job's cleanup step is scanned rather than assumed.
+        let leak = workflow.replace(
+            "echo \"two resource names masked for the rest of this job\"",
+            "printenv SUTURA_BQ_PRINCIPAL_A_KEY > \"$RUNNER_TEMP/leaked-key.json\"",
+        );
+        let found = scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &leak);
+        assert!(
+            found.iter().any(|p| p.contains("leaked-key.json") && p.contains("no `rm`")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_dispatch_only_job_states_its_on_demand_contract_in_its_own_condition() {
+        // Finding 2's other half: the pair's job is `workflow_dispatch`-only, so the fork rule
+        // does not apply, but an `if: github.event_name == 'workflow_dispatch'` is still the line
+        // that states who may reach it. Remove it and the scan reads a job with no condition.
+        let root = crate::repo::root().expect("the repo root");
+        let workflow = std::fs::read_to_string(root.join(EXCHANGED_WORKFLOW)).expect(EXCHANGED_WORKFLOW);
+        let unconditioned = workflow.replace("    if: github.event_name == 'workflow_dispatch'\n", "");
+        let found = scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &unconditioned);
+        assert!(found.iter().any(|p| p.contains("no condition of its own")), "{found:?}");
     }
 }

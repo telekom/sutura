@@ -313,6 +313,44 @@ pub(super) fn cannot_be_a_fork(disjunct: &str) -> bool {
     subject.trim() == "github.event_name" && !event.is_empty() && !FORK_EVENTS.contains(&event)
 }
 
+/// Is this workflow reachable only by explicit dispatch, never by a fork or a push?
+///
+/// A `workflow_dispatch`-only file has no `on:` trigger a fork's pull request or a push can
+/// satisfy, so GitHub never runs it with this repository's secrets on a fork's behalf - the reason
+/// the acceptance scan's fork rule does not apply to it. Read off the `on:` block's own keys, not
+/// the whole file: an `if: github.event_name == 'push'` inside a step would otherwise answer for
+/// its whole file, and the step is not a trigger.
+pub(super) fn dispatch_only(text: &str) -> bool {
+    let Some(on) = keyed_block(text, "", "on") else {
+        return false;
+    };
+    let has_key = |prefix: &str| on.iter().any(|line| line.trim_start().starts_with(prefix));
+    has_key("workflow_dispatch") && !has_key("push") && !has_key("pull_request") && !has_key("pull_request_target:")
+}
+
+/// A job condition that runs only on a dispatch GitHub itself controls - never a fork.
+///
+/// For a [`dispatch_only`] workflow the honest statement of *who may run this job* is
+/// `github.event_name == 'workflow_dispatch'` in place of the fork rule: a fork cannot dispatch
+/// the base repository's workflow at all. Mirrors [`cannot_be_a_fork`] - an equality against a
+/// single non-fork event, and nothing else, so a `||` branch a fork could satisfy is still refused.
+pub(super) fn dispatch_condition(condition: &str) -> bool {
+    let trimmed = condition.trim();
+    let expression = trimmed
+        .strip_prefix("${{")
+        .and_then(|rest| rest.strip_suffix("}}"))
+        .unwrap_or(trimmed);
+    let mut matched = false;
+    for disjunct in expression.split("||") {
+        if cannot_be_a_fork(disjunct) {
+            matched = true;
+        } else {
+            return false;
+        }
+    }
+    matched
+}
+
 /// The credential's path below `$RUNNER_TEMP`, or nothing if it is not under it.
 ///
 /// **A substring test and a basename test were two answers where the message claimed one path.**
