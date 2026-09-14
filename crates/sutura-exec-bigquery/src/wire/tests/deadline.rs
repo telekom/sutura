@@ -142,7 +142,7 @@ fn the_bodys_two_timeouts_are_what_is_left_of_the_call_not_its_configured_ceilin
         QueryDeadline::parse(30).expect("30 seconds is a deadline"),
     );
 
-    let built = call_body::<CannotFail>(&request, DryRun::No, bounds(), call).expect("nine seconds is still left");
+    let (built, left) = call_body::<CannotFail>(&request, DryRun::No, bounds(), call).expect("nine seconds is still left");
     let sent = serde_json::to_value(built).expect("the body serializes");
     let timeout_ms = sent["timeoutMs"].as_u64().expect("timeoutMs is a number");
 
@@ -151,6 +151,10 @@ fn the_bodys_two_timeouts_are_what_is_left_of_the_call_not_its_configured_ceilin
         "the body carried something other than what is LEFT of the call: {sent}"
     );
     assert_eq!(sent["jobTimeoutMs"], timeout_ms, "the two timeout fields must agree: {sent}");
+    // The socket reads THIS `left`, returned alongside the body rather than re-derived - so it is
+    // exactly the value the body was built from, in milliseconds, not a second independent read.
+    let left_ms = u64::try_from(left.as_millis()).expect("nine seconds fits a u64 of milliseconds");
+    assert_eq!(left_ms, timeout_ms, "the returned `left` must be what the body carries");
 }
 
 #[test]

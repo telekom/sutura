@@ -33,10 +33,9 @@
 //!
 //! - **A job is bounded in TIME and in MONEY, and neither bound is a constant here.** [`JobBounds`]
 //!   carries both, [`WireAgent`] carries the `JobBounds`, and [`BigQueryWire`] can only be built from
-//!   a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
-//!   is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
-//!   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
-//!   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds it.
+//!   a `WireAgent`. `jobTimeoutMs` is what cancels a job (`timeoutMs` alone does NOT: it bounds the
+//!   client's own wait, and an expired one leaves the job running and billing); `maximumBytesBilled`
+//!   stops a question scanning a petabyte, which neither the row cap nor the one-page refusal does.
 //! - **The time bound is ONE ABSOLUTE DEADLINE PER ANSWER, opened by the port and not by this
 //!   adapter, and this bullet exists because the earlier two shapes were each the second thing while
 //!   claiming the first.** `timeout_global` on the agent once gave every HTTP operation a full budget
@@ -56,7 +55,8 @@
 //!   BEFORE the credential exchange too, since a spent caller should not spend it on an exchange
 //!   nobody waits for. **The boot path has no port `Deadline` to read** (`verify_anchor`, a fixture
 //!   load or drop, the identity read) and opens a fresh window from this adapter's own configured
-//!   [`JobBounds`] instead, exactly as every call did before this record.
+//!   [`JobBounds`] instead, exactly as every call did before this record. Pinned at [`call_body`];
+//!   that `submit` hands it the exchange's own `call` is READ, not measured (`HOST` is unreachable).
 //! - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
 //!   `totalRows` beside the rows rather than by the rows alone. The wire refuses a `pageToken`
 //!   (`WireError::MoreThanOnePage`) and a job that did not finish (`WireError::NotComplete`); the
@@ -259,6 +259,13 @@ type Wired<V, C> = Result<V, WireError<C>>;
 /// Named for the same reason [`Wired`] is: `Wired<Vec<Vec<Cell>>, C>` is over the threshold, and this
 /// is the one place in the crate where the nesting is unavoidable - a page is rows of cells.
 type Grid = Vec<Vec<Cell>>;
+
+/// One call's request body, and what was LEFT of its budget when it was built.
+///
+/// Named for the same reason [`Wired`]/[`Grid`] are: the tuple is over the `type_complexity`
+/// threshold. The duration travels beside the body so `submit` reads the socket's timeout from the
+/// SAME value the body was built from, not a second `call.remaining()`.
+type CallBody<'job> = (QueryBody<'job>, core::time::Duration);
 
 /// Whether a submission reads data or only validates.
 ///
@@ -546,15 +553,13 @@ where
     /// false`, which is this variant.
     ///
     /// **Not yet measured against a real endpoint, and that is stated here rather than implied.** An
-    /// acceptance cell that races a statement against a real deadline to reach exactly this reply
-    /// was tried and reverted - the corpus fixture `just bigquery-acceptance` runs against is a
-    /// handful of rows, so the round trip reliably finishes before any budget short enough to
-    /// matter, and a budget picked to "usually" lose that race flakes against a project that bills
-    /// for it. `tests/tests/deadline.rs`'s acceptance cell proves the narrower claim that holds
-    /// without racing anything instead - a spent port deadline refuses through the REAL wire and
-    /// credential before a request is sent - and states this variant's own shape as the open half,
-    /// closed only by a statement that reliably outruns a real budget without depending on fixture
-    /// size or network jitter, which this corpus does not yet provide.
+    /// acceptance cell that raced a statement against a real deadline to reach exactly this reply was
+    /// tried and reverted - the corpus fixture is a handful of rows, so the round trip reliably
+    /// finishes before any budget short enough to matter, and a budget picked to "usually" lose that
+    /// race flakes against a project that bills for it. `tests/tests/deadline.rs`'s cell proves the
+    /// narrower claim instead - a spent port deadline refuses through the REAL wire and credential
+    /// before a request is sent - and leaves this variant's own shape open, closed only by a
+    /// statement that reliably outruns a real budget without depending on fixture size or jitter.
     #[error("the job had not finished when the endpoint answered: {named}")]
     NotComplete { named: ReasonCode },
     /// The answer is one page of more than one.
@@ -658,10 +663,10 @@ pub struct BigQueryWire<C> {
 /// has nothing to be spent yet.
 ///
 /// **A free function of neither `self` nor the credential source, taking `now` as a parameter rather
-/// than reading a clock**, so a test can ask what two calls sharing one `Deadline` see at two
-/// different instants without sleeping through a real one - `Deadline` will not hand out its own
-/// opening instant, by design, which is why `now` has to arrive as an argument here exactly as it
-/// does at `Deadline::remaining_at` itself.
+/// than reading a clock**, so a test can ask what the `Boot` arm answers far in the future without
+/// sleeping through a real one - `wire::tests::deadline` proves the boot window stays the configured
+/// bound regardless of elapsed time. `now` arrives here for the same reason `Deadline::remaining_at`
+/// takes one rather than reading a clock itself.
 fn remaining_of_the_ports_deadline(
     clock: JobDeadline,
     bounds: JobBounds,
@@ -684,7 +689,7 @@ const fn configured_budget_seconds(clock: JobDeadline, bounds: JobBounds) -> u64
 }
 
 /// The request body for one call, built from what is LEFT of `call`'s own budget - never the whole
-/// of it.
+/// of it. See [`CallBody`] for why the remainder travels back with it.
 ///
 /// **A pure function, split out of `submit` so a test can pin `call` at a chosen instant and read the
 /// two timeout fields directly, with no socket.** `call` is opened already; this reads only
@@ -693,21 +698,21 @@ const fn configured_budget_seconds(clock: JobDeadline, bounds: JobBounds) -> u64
 /// not the configured ceiling `body` would carry if handed the whole budget instead.
 ///
 /// `budget_seconds`, for the refusal, still asks `request.deadline()` rather than `call` alone: a
-/// `CallDeadline` is a started instant and a duration, and does not say which of the port's own
-/// budget or this transport's configured one it was opened from - `configured_budget_seconds` does.
+/// `CallDeadline` does not say which of the port's own budget or this transport's configured one it
+/// was opened from - `configured_budget_seconds` does.
 fn call_body<'job, C>(
     request: &'job JobRequest<'job>,
     dry_run: DryRun,
     bounds: JobBounds,
     call: CallDeadline,
-) -> Wired<QueryBody<'job>, C>
+) -> Wired<CallBody<'job>, C>
 where
     C: core::error::Error + 'static,
 {
     let left = call.remaining().ok_or(WireError::DeadlineSpent {
         budget_seconds: configured_budget_seconds(request.deadline(), bounds),
     })?;
-    Ok(body(request, dry_run, bounds, left))
+    Ok((body(request, dry_run, bounds, left), left))
 }
 
 impl<C> BigQueryWire<C>
@@ -795,14 +800,10 @@ where
             Some(subject) => format!("Bearer {}", subject.expose_secret()),
             None => self.source_bearer(now, call)?,
         };
-        // What the exchange left. Every number below reads THIS rather than the whole budget: the two
-        // timeout fields in the request body and the socket the answer is waited for on.
-        let left = call.remaining().ok_or(WireError::DeadlineSpent { budget_seconds })?;
-        // Lifted into `call_body`, a pure function of `call` alone, so a test can pin `call` at a
-        // chosen instant and assert the two timeout fields carry what is LEFT rather than the
-        // configured ceiling, without a socket.
-        let serialized = serde_json::to_vec(&call_body(request, dry_run, self.agent.bounds(), call)?)
-            .map_err(|cause| WireError::RequestNotSerializable { cause })?;
+        // What the exchange left, read ONCE via `call_body` - see its own doc and [`CallBody`] for
+        // why `left` comes back alongside the body rather than a second `call.remaining()` below.
+        let (built, left) = call_body(request, dry_run, self.agent.bounds(), call)?;
+        let serialized = serde_json::to_vec(&built).map_err(|cause| WireError::RequestNotSerializable { cause })?;
         // `Secret::expose_secret` is the one greppable call that lets the token out, and it lets it out into
         // a header value the client parses rather than into a string it concatenates - so a token
         // carrying a newline is a refused request at `send` rather than a second header. That is the
@@ -926,10 +927,8 @@ where
     /// Two arms, and only the first is unconditionally true: [`WireError::DeadlineSpent`] is a fact
     /// about this adapter's own clock, checked before anything was sent, and cannot be anything else.
     /// [`WireError::NotComplete`] is the DOCUMENTED shape a job stopped at `jobTimeoutMs` answers
-    /// with - see that variant's own doc for the argument and for why this repository has not yet
-    /// measured it against a real endpoint. Every other variant is `false`, exhaustively: none of
-    /// them is reachable through this adapter's own clock or through the two timeout fields it
-    /// sends.
+    /// with - see that variant's own doc for the argument and the open measurement. Every other
+    /// variant is `false`, exhaustively.
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         matches!(*error, WireError::DeadlineSpent { .. } | WireError::NotComplete { .. })
     }

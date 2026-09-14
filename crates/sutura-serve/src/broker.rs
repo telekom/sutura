@@ -38,19 +38,27 @@ pub(crate) fn build_broker(
     // directly rather than dividing it - `docs/adr/0029` retired the arithmetic that used to,
     // `within_request_timeout`, and nothing in this exchange yet carries the port's own instant).
     //
-    // **`request_timeout.budget()` and NOT `.seconds()`.** The raw key would let this exchange's own
-    // socket window (`budget + CONNECT_MARGIN`, `crate::wire::bounds`) run a full `CONNECT_MARGIN`
-    // wider than the number the PORT's own `Deadline` derives from for the very same request - a
-    // widening a review measured (a thirty-second key giving a thirty-five-second socket, five
-    // seconds past the caller's own thirty-second wait). `.budget()` is the timeout minus the fixed
-    // one-second reply margin `sutura_config::RequestTimeout` already subtracts for the port, so this
-    // exchange's ceiling agrees with the port's own budget rather than exceeding it by that margin:
-    // a twenty-nine-second `QueryDeadline` here, a thirty-four-second socket window - still wider
-    // than the caller's own wait by `CONNECT_MARGIN`, which is `docs/adr/0029`'s own stated limit for
-    // every networked adapter's reply margin, not a new one this composition invents.
+    // **`request_timeout.budget()` and NOT `.seconds()`, and the number this widens FROM is main's,
+    // not a prior draft of this line.** On main, `within_request_timeout(30)` gave this exchange a
+    // ten-second `QueryDeadline` - a fifteen-second socket window. `.budget()` (the timeout minus the
+    // fixed one-second reply margin `sutura_config::RequestTimeout` already subtracts for the port)
+    // gives twenty-nine seconds - a thirty-four-second socket window, wider than main's by nineteen
+    // seconds, not by the five `CONNECT_MARGIN` alone: `StsOverHttp::exchange` opens its
+    // `CallDeadline` at ITS OWN start (`wire/sts.rs`), which is after admission, parsing and planning
+    // - `sutura_app::answer` mints the credential well after the port's own `Deadline` is already
+    // open - so the socket's own end is `exchange_start + 34s`, not `arrival + 34s`, and the true
+    // overrun past the caller's thirty-second wait depends on how late the exchange starts, not only
+    // on `CONNECT_MARGIN`. The tower `408` still bounds the caller either way; what widens is how
+    // long a STUCK exchange holds the admitted slot. Closing that for real means handing `mint` the
+    // request's own `Deadline` - a change to `WorkloadIdentityBroker`'s own trait, out of this fix's
+    // scope and worth its own row when it lands; this line only stops the exchange's own ceiling from
+    // exceeding the port's budget, which is the narrower thing it can do without that trait change.
     // The ceiling is irrelevant to an STS metadata call - it is never sent to a billing endpoint - so
     // rather than invent one it is taken from the first declared `BigQuery` source, of which there is
     // always at least one here: `one_kind` has already refused a deployment with none.
+    // `Zero`/`TooLarge` are unreachable here in practice: `RequestTimeout::parse` already refuses a
+    // timeout that cannot afford the one-second reply margin and caps the key at 300s, so
+    // `budget().seconds()` can only ever be a value `QueryDeadline::parse` accepts.
     let deadline = QueryDeadline::parse(request_timeout.budget().seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` leaves no token-exchange deadline: {cause}"))?;
 
