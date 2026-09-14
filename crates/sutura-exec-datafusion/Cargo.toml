@@ -34,6 +34,10 @@ sutura-conformance = { workspace = true }
 # finishes on its own. Already in the graph via `sutura-exec-postgres`, so this is a new edge, not
 # a new crate.
 futures-util = { workspace = true }
+# `sutura_dev::tolerance`: the deadline tests' wall-clock margin widens on a shared dev machine and
+# stays CI's own strict number everywhere else. Already in the graph via `sutura-exec-postgres`'s
+# own dev-dependencies, so this is a new edge, not a new crate.
+sutura-dev = { workspace = true }
 
 [features]
 fixtures = ["sutura-domain/fixtures"]

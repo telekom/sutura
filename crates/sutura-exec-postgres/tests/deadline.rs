@@ -25,6 +25,7 @@ mod deadline {
 
     use sutura_conformance::corpus;
     use sutura_dev::provisioned::{self, Provisioned};
+    use sutura_dev::tolerance::Tolerance;
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, TableName};
     use sutura_domain::plan::{
@@ -219,8 +220,12 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a statement stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
+        // CI's own margin, or a wider one on a shared machine - see `sutura_dev::tolerance`. Both
+        // stay well under the 2s `pg_sleep` and the 15s connect-time ceiling this cell must land
+        // inside of, not merely inside of *a* number.
+        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_millis(1800));
         assert!(
-            elapsed < Duration::from_secs(1),
+            elapsed < ceiling,
             "stopped at ~300ms plus tolerance, not run to completion (2s) or to the 15s ceiling: {elapsed:?}"
         );
     }
@@ -253,8 +258,11 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "the ceiling firing must classify as deadline_exceeded too: {error}"
         );
+        // Both bounds stay under the statement's own 20s `pg_sleep`, which is the ceiling this
+        // cell has to prove happened BEFORE - answering past it is a different failure entirely.
+        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(18), Duration::from_millis(19_500));
         assert!(
-            elapsed < Duration::from_secs(18),
+            elapsed < ceiling,
             "stopped at the ~15s default ceiling plus tolerance, not run to the statement's own 20s: {elapsed:?}"
         );
     }
@@ -314,11 +322,26 @@ mod deadline {
             seen_ms < 15_000,
             "the per-statement value must be smaller than the connect-time ceiling: saw {seen_ms}ms"
         );
-        // Some slack for the time between opening the deadline and this statement reaching the
-        // server - never more, since `SET LOCAL` cannot see a LARGER budget than was opened with.
+        // Never above 4321: `SET LOCAL` cannot see a LARGER budget than the deadline was opened
+        // with, which is exact arithmetic and not a margin - true at any load, so it needs no
+        // venue to pick a number for it.
         assert!(
-            (4321 - 200..=4321).contains(&seen_ms),
-            "expected close to the 4321ms budget, saw {seen_ms}ms"
+            seen_ms <= 4321,
+            "the per-statement value must not exceed the budget it was opened with: saw {seen_ms}ms"
+        );
+        // How far BELOW 4321 is the actual margin, and it IS a margin: the round trip between
+        // opening the deadline and the statement reaching the server takes real time, and a
+        // 200ms allowance for it reddened under load (`telekom/sutura#140`'s comment thread: `saw
+        // 4051ms` against a 4121ms floor). CI keeps the original 200ms; a shared machine gets
+        // 1000ms - see `sutura_dev::tolerance`. The exact-value claim this slack used to be the
+        // only proof of is held by `tests::deadline_statement_timeout` in `src/tests.rs`, hermetic
+        // and load-independent, so this window is checking the WIRING reaches the real server
+        // close to the budget, not re-proving the arithmetic.
+        let slack_ms = Tolerance::from_env().ceiling(Duration::from_millis(200), Duration::from_millis(1000));
+        let slack_ms = i64::try_from(slack_ms.as_millis()).expect("a millisecond slack of a few seconds fits an i64");
+        assert!(
+            seen_ms >= 4321 - slack_ms,
+            "expected close to the 4321ms budget within {slack_ms}ms, saw {seen_ms}ms"
         );
     }
 
@@ -379,8 +402,12 @@ mod deadline {
             warehouse.deadline_exceeded(&error),
             "a PREPARE stopped by SET LOCAL statement_timeout must classify as deadline_exceeded: {error}"
         );
+        // 3s stays far short of the ~15s a disabled per-statement narrowing measures here (this
+        // file's own mutation table), so either number still tells a stopped `PREPARE` apart from
+        // one left blocked on the lock.
+        let ceiling = Tolerance::from_env().ceiling(Duration::from_secs(1), Duration::from_secs(3));
         assert!(
-            elapsed < Duration::from_secs(1),
+            elapsed < ceiling,
             "stopped at ~300ms plus tolerance, not left blocked on the lock: {elapsed:?}"
         );
     }

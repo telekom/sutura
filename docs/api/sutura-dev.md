@@ -1349,3 +1349,102 @@ listening on a port I expected" is not an identity, and neither is "whatever hol
 file names": a PID is reused. The check is the process's own working directory, resolved and
 compared against this repository's root, because that is the one property a colliding stranger
 cannot accidentally have.
+
+## Module `tolerance`
+
+Whether a wall-clock assertion runs under CI's own margin, or a wider one for a shared machine.
+
+`telekom/sutura#140`: a deadline cell asserting `elapsed < budget + a_few_hundred_ms` reddened
+three times in one evening, on branches that could not have touched the code it exercises - the
+host was running several other lanes' builds at once. The margin itself is not wrong on an
+isolated runner; it is wrong on a machine sharing its cores with work this repository's own
+multi-lane workflow expects. So the number this module hands back depends on which of those two
+machines is asking, and **not on how busy the machine actually is right now** - a bound keyed on
+measured load gives the same tree a different verdict on different runs, which is worse than a
+flaky cell because it stops being reproducible at all.
+
+**CI wins unconditionally, and everything unrecognised is CI too.** `decide` checks
+`GITHUB_ACTIONS` first and returns `Tolerance::Strict` the moment it reads `"true"` - the exact
+spelling `crates/sutura-exec-bigquery/tests/corpus.rs`'s own `ci_run_id` cell already holds
+(`GITHUB_ACTIONS=false was read as CI` is asserted there as a failure, so `"true"` is the only
+reading, not a truthy list). Only past that check does `RELAXED` get read, and an absent or
+unrecognised environment - not exactly one of those two branches - falls through to
+`Tolerance::Strict` as well: a venue this module has not been taught about is safer strict than
+silently lenient.
+
+**`RELAXED` cannot reach the nix sandbox, and that is what makes the fallback do the work.**
+`checks.nextest` in `flake.nix` builds this crate's tests inside a `nix build` derivation, which
+is a pure evaluation with no `--impure` anywhere `nix build .#checks.*.nextest` is invoked in
+this repository (`.github/workflows/ci.yml`, `justfile`, `nix/run-gate.sh` all read) - so
+`builtins.getEnv` there always answers `""` and there is no way to thread the invoking shell's
+`GITHUB_ACTIONS` into that build even when it IS a real GitHub Actions runner. The derivation
+declares no `RELAXED` either, so a test running inside it sees neither variable and lands on
+`Tolerance::Strict` by the same default this module already needs for an unrecognised venue -
+which is exactly the leg the reported reds happened in. Only `justfile`'s `test` and `causality`
+recipes export `RELAXED`, because only the ordinary dev shell they run in is the crowded one:
+`sutura_dev::requirement`'s own header states the parallel rule for a different variable - "only
+the thing that provisions ... knows that it did", so it opts in, and nothing else does.
+
+**Locally, `RELAXED` cannot be un-set either - `justfile`'s own export wins.** `just test` and
+`just causality` `export SUTURA_DEV_RELAXED_TOLERANCE=1` inside their own recipe body, after the
+shell that invokes `just` has already started, so stripping the variable from the invoking
+shell (`env -u SUTURA_DEV_RELAXED_TOLERANCE just test`) changes nothing - the recipe sets it
+again regardless. **The only lever that reaches `decide` first is `GITHUB_ACTIONS=true`**,
+which wins over `RELAXED` unconditionally (this module's own belt-and-suspenders case, and
+`decide`'s own test names it): `GITHUB_ACTIONS=true just test` is how a developer asks what CI
+would enforce, and there is presently no other way to. Measured, not designed in: the first
+attempt at exactly this ask silently ran the RELAXED path anyway.
+
+### `enum Tolerance`
+
+```rust
+pub enum Tolerance
+```
+
+Which wall-clock margin a deadline assertion should use.
+
+#### Variants
+
+- `Strict` - CI's own margin - an isolated runner, one job, no other lane's build sharing its cores.
+- `Relaxed` - A wider margin for a shared machine, chosen so the assertion still fails a deadline that stopped enforcing entirely, and read - never measured - so the same tree gives the same verdict every time it runs here.
+
+#### Methods
+
+```rust
+pub fn ceiling(self, strict: Duration, relaxed: Duration) -> Duration
+```
+
+Picks `strict` or `relaxed` for this venue, and announces the second choice on stderr - the
+`SKIPPED`-in-the-first-column convention `sutura_dev::provisioned` already uses for the same
+reason: a developer reading a passing run must not mistake a relaxed margin for CI's own.
+
+```rust
+pub fn from_env() -> Self
+```
+
+The venue this process is running in, read once.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `fn decide`
+
+```rust
+pub fn decide(github_actions: Option<&str>, relaxed_opt_in: Option<&str>) -> Tolerance
+```
+
+The decision, over the two values rather than over the environment.
+
+Testable without mutating the process environment - the same reason
+`sutura_dev::requirement::decide` takes a value rather than reading `std::env` itself.
+
+**`GITHUB_ACTIONS` is checked before `RELAXED`, and wins.** A developer's shell exporting the
+relaxed opt-in for a local run must not be able to widen CI's own margin if it were ever run
+there directly - belt-and-suspenders over the fact that CI here only ever reaches these tests
+through the nix sandbox, which sets neither variable.
+
+### `constant RELAXED`
+
+Set by `justfile`'s `test` and `causality` recipes, and nothing else - naming both callers
+rather than leaving a reader to grep for a third.
