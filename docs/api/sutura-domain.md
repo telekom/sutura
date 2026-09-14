@@ -2933,7 +2933,11 @@ shape of the rejected input; the principal itself is personal data and this erro
 
 ### `use PrincipalChain`
 
-Human, then agent, then task - ordered, and with both tail positions absent today.
+Human, then agent, then task - ordered.
+
+The task position is absent today - nothing in this workspace parses one onto a chain yet - but
+the agent position is populated wherever an inbound gate reads an RFC 8693 `act` claim
+(`sutura_http::inbound::token`).
 
 This is what a call is recorded under, and what a budget would be keyed on **if a budget
 existed**. There is no budget port in this workspace; the chain is the key and nothing consumes it
