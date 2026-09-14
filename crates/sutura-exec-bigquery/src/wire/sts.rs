@@ -42,7 +42,7 @@ struct Request<'a> {
 /// text. Unlike `BigQuery`'s `totalRows` (`string`/`uint64`), which genuinely needs the
 /// text-shaped type this crate uses for it.
 ///
-/// **Named rather than left to the derive**, so [`tests`] can pin the shape directly instead of
+/// **Named rather than left to the derive**, so `tests` can pin the shape directly instead of
 /// through the whole [`Response`] document - the same seam `wire::document::estimated_bytes` is
 /// for `BigQuery`'s own dry-run estimate. The derive's own generic type-mismatch error is what a
 /// quoted value is refused with; nothing here widens it, which is the property
