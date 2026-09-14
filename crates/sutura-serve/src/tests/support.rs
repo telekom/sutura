@@ -14,12 +14,12 @@ use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersio
 use super::{ENGINE_SOURCE, entry, registry};
 
 /// The ordinary declaration: the engine source, shared, over the example data.
-pub(crate) fn engine_declared() -> sutura_config::SourceRegistry {
+pub(super) fn engine_declared() -> sutura_config::SourceRegistry {
     registry(&entry(ENGINE_SOURCE, "shared-service-user", ""))
 }
 
 /// One model as a catalog document names it: the model, its data system, its table.
-pub(crate) type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+pub(super) type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
 
 /// A pinned bundle over exactly the models given, and no metrics.
 ///
@@ -62,7 +62,7 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// that an anchor exists and which source the metric's model sits on. The model is
 /// `dim_customer`, so the table behind it is a real file - which keeps a refusal about identity
 /// from being satisfied by a missing CSV.
-pub(crate) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
+pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, AnchorValue, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};

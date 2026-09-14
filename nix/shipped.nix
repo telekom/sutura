@@ -168,10 +168,12 @@ let
       # starts the server, which is what a platform scheduling it will do.
       cmd = [ ];
       description = "identity-aware semantic data runtime for AI agents: the HTTP surface";
-      # EMPTY, and deliberately: this binary's `tls` and `bigquery` features are the same shape
-      # and the same risk, and probing both would triple a job that already compiles the whole
-      # dependency closure per target. The CLI is the one issue #121 owes a measurement for; what
-      # this list says is that adding serve's is an entry rather than a design.
+      # EMPTY, and deliberately: this binary's `tls`, `bigquery` and `postgres` features are the
+      # same shape and the same risk, and probing all three would multiply a job that already
+      # compiles the whole dependency closure per target. The CLI is the one issue #121 owes a
+      # measurement for; the `postgres` probe added above already links that closure
+      # (`tokio-postgres-rustls`, `rustls`, `ring`) through the CLI on both PR triples, so what
+      # this list says is that adding serve's OWN combination is an entry rather than a design.
       probeFeatures = [ ];
       # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds the PLACEMENT - no catalog adapter and
       # no compiler crate may reach `sutura-sql` - but a normal dependency added straight to
