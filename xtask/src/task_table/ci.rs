@@ -26,6 +26,17 @@ pub(crate) const TASKS: &[Task] = &[
         run: workflows::run,
     },
     Task {
+        // The gate's own remedy names this: `with_keys::problems` refuses an action pinned to a
+        // sha `devco/action-inputs` does not name, and cannot fetch a manifest to fix that itself
+        // - it runs inside `checks.hygiene`, a network-less nix sandbox. `Standalone` because it
+        // takes an argument and reaches the network, neither of which the `hygiene` sweep allows.
+        name: "refresh-action-inputs",
+        description: "file a pinned action's declared inputs into devco/action-inputs; <owner>/<repo>@<sha>",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: workflows::action_manifest::run,
+    },
+    Task {
         // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
         // checked against the thing it claims, over a file no other gate reads. `check-scope`
         // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
