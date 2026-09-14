@@ -4,7 +4,7 @@
 //! end-to-end example, and 'working' means a test runs it. Not a README describing what would
 //! happen"* - and `github.com/telekom/sutura#130` measured what it looks like when nothing holds
 //! it: `examples/multi-player` was a README and nothing else, describing a shape no binary here
-//! could open. Both examples satisfy the rule today. Nothing made them.
+//! could open. Every example directory satisfies the rule today. Nothing made them.
 //!
 //! **A README is the failure this catches**, because a directory of prose under `examples/` reads
 //! as something you can run. So the rule is: for each `examples/<name>`, some line of TEST CODE A
@@ -18,7 +18,7 @@
 //!
 //! * **What is code** is [`code_lines`](crate::serde_parse::scan::code_lines): every line with its
 //!   comments and its multi-line string interiors blanked out. A doc comment naming a path is a
-//!   claim; a line of code naming it is a read - and both examples here are named in prose several
+//!   claim; a line of code naming it is a read - and every example here is named in prose several
 //!   times over, so a rule that accepted a comment would have passed the README-only directory it
 //!   exists to catch. Rust has THREE comment forms and `!line.starts_with("//")` saw one: measured
 //!   on this tree, one sentence about a README-only variant written as `code; // ...` or inside

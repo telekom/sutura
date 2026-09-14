@@ -220,12 +220,24 @@ fn tokens(line: &str) -> Vec<(usize, &str)> {
 /// A whole Markdown line is prose, so the answer is 0 there. Everywhere else a version sits in a
 /// VALUE legitimately - that value is the pin - so only the comment is read, which is what makes
 /// `Cargo.toml`, `rust-toolchain.toml` and a pinned `uses:` need no exemption.
+///
+/// **`Dockerfile` has no extension to key on**, which used to mean [`Path::extension`] returned
+/// `None` and this whole function did too - `demo/Dockerfile` and the root `Dockerfile` were never
+/// scanned at all, comments included. Keyed on the basename instead, for that one name; a
+/// `Dockerfile` comment is `#`, same marker as the shell/YAML/nix group below.
+///
+/// **This still does not see a version written in an `ARG` default or a `--build-arg` value** -
+/// those are the pin, not a copy of it, exactly like a dependency version in a manifest. Two ARG
+/// defaults that are meant to name the same thing with nothing comparing them (`demo/Dockerfile`'s
+/// `SUTURA_DEMO_BASE_IMAGE` default and `demo/start.sh`'s `--build-arg` for it) is a duplicate-pin
+/// problem this module's comment scan cannot reach by construction - it would need to parse a
+/// second language's grammar, not widen a comment marker.
 fn comment_start(rel: &str, line: &str) -> Option<usize> {
-    let extension = std::path::Path::new(rel).extension().and_then(std::ffi::OsStr::to_str)?;
-    if extension.eq_ignore_ascii_case("md") {
+    let extension = std::path::Path::new(rel).extension().and_then(std::ffi::OsStr::to_str);
+    if extension.is_some_and(|e| e.eq_ignore_ascii_case("md")) {
         return Some(0);
     }
-    if extension.eq_ignore_ascii_case("rs") {
+    if extension.is_some_and(|e| e.eq_ignore_ascii_case("rs")) {
         // `://` is a URL in a string literal, not a comment. The rest of that class is the
         // stated limit: this reads a `//` inside any other literal as a comment.
         let mut rest = line;
@@ -241,10 +253,8 @@ fn comment_start(rel: &str, line: &str) -> Option<usize> {
             at = after;
         }
     }
-    if ["nix", "yml", "yaml", "sh", "toml"]
-        .iter()
-        .any(|k| extension.eq_ignore_ascii_case(k))
-    {
+    let dockerfile = extension.is_none() && rel.rsplit('/').next().unwrap_or(rel).eq_ignore_ascii_case("Dockerfile");
+    if dockerfile || extension.is_some_and(|e| ["nix", "yml", "yaml", "sh", "toml"].iter().any(|k| e.eq_ignore_ascii_case(k))) {
         let indent = line.len().saturating_sub(line.trim_start().len());
         if line.trim_start().starts_with('#') {
             return Some(indent.saturating_add(1));
@@ -668,6 +678,13 @@ mod tests {
         assert_eq!(comment_start("x.toml", "prek = \">=0.4.14,<0.5\""), None);
         assert_eq!(comment_start("x.md", "prek 0.4.14 prints"), Some(0));
         assert_eq!(comment_start("x.lock", "prek 0.4.14"), None);
+        // `Dockerfile` has no extension to key on - RED before this basename case existed, because
+        // `Path::extension()` returned `None` and the whole function did too, comments included.
+        assert_eq!(comment_start("demo/Dockerfile", "  # prek 0.4.14"), Some(3));
+        assert_eq!(comment_start("Dockerfile", "# prek 0.4.14"), Some(1));
+        // The stated limit: an ARG default or a `--build-arg` value is the pin, not a comment
+        // about it, so this reads `None` for it exactly like a manifest's `version = "…"` line.
+        assert_eq!(comment_start("demo/Dockerfile", "ARG SUTURA_DEMO_BASE_IMAGE=x/y:1.2.3"), None);
     }
 
     #[test]
@@ -702,6 +719,29 @@ mod tests {
         // And with the offset at the front, the same line IS refused - so the empty answer above
         // is the offset working rather than the walk failing to find anything.
         assert_eq!(refused(line, 0, &names()), vec![("9.9.9", "duckdb")]);
+    }
+
+    #[test]
+    fn a_version_beside_a_pinned_name_in_a_dockerfile_comment_is_reached() {
+        // End-to-end through `comment_versions`, not just `comment_start` in isolation - the
+        // pairing this repo actually cares about is a scan that REACHES the file, and a unit test
+        // on the helper alone would not have caught #674-3 (`comment_start` returned early on the
+        // extension before ever reaching this line).
+        let tree = crate::scratch_tree::Tree::of(
+            "versions-dockerfile",
+            &[
+                ("Cargo.toml", b"[dependencies]\nfoo = \"1.0\"\n"),
+                ("Dockerfile", b"# pin foo 9.9.9 here until the base image catches up\n"),
+            ],
+        );
+        let files = vec![String::from("Cargo.toml"), String::from("Dockerfile")];
+        let (problems, _scan) = super::comment_versions(tree.root(), &files);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.starts_with("Dockerfile:1:") && p.contains("9.9.9") && p.contains("foo")),
+            "a Dockerfile comment beside a pinned name must be refused: {problems:#?}"
+        );
     }
 
     #[test]
