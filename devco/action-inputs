@@ -15,12 +15,14 @@
 # holds - and when a pin moves, the sha below stops matching and the gate fails closed until
 # somebody re-reads the new manifest. That refresh is the review moment this record buys.
 #
-# HOW TO REFRESH ONE ENTRY. Read the top-level `inputs:` keys of `action.yml` (or `action.yaml`) at
-# the new sha - `https://raw.githubusercontent.com/<owner>/<repo>/<sha>/action.yml` answers 200 for
-# a public action with no credential - and replace that block. Nothing is derived: the names below
-# are the manifest's own keys, in the manifest's own order.
+# HOW TO REFRESH ONE ENTRY. `cargo xtask refresh-action-inputs <owner>/<repo>@<sha>` fetches that
+# sha's `action.yml` (or `action.yaml`) - `https://raw.githubusercontent.com/<owner>/<repo>/<sha>/action.yml`
+# answers 200 for a public action with no credential - and appends its top-level `inputs:` keys
+# below. It never touches an entry already filed. Nothing is derived by hand either way: the names
+# below are the manifest's own keys, in the manifest's own order.
 #
-# READ ON 2026-09-10, each from the sha it is filed under.
+# READ ON 2026-09-10, each from the sha it is filed under - except where a line just above an
+# entry names a later date, because that entry was added after the rest.
 #
 # WHAT THIS RECORD CANNOT SAY, next to the claim:
 #
@@ -40,7 +42,10 @@
 # FORMAT: a line at column zero is `<owner>/<repo>@<sha>`; the indented lines under it are that
 # sha's declared input names. Blank lines and `#` comments are ignored.
 
-DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+# READ ON 2026-09-14, from the manifest at this sha (its own `inputs:` block, fetched fresh -
+# not carried over from the `908b263f...` entry this replaced, which declared two keys fewer:
+# no `source-checksums-url` or `source-checksums-sha256`).
+DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7
   use-gha-cache
   listen
   upstream-cache
@@ -57,6 +62,8 @@ DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c624
   source-revision
   source-tag
   source-url
+  source-checksums-url
+  source-checksums-sha256
   _internal-strict-mode
 
 actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8

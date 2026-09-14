@@ -107,6 +107,12 @@ mod cross_link;
 // declared inputs, `devco/action-inputs`. See its header for what it cannot hold.
 mod with_keys;
 
+// THE OTHER HALF OF `with_keys`, developer-invoked rather than gated: fetching a newly pinned
+// sha's manifest and filing its declared inputs, which the gate above cannot do from inside a
+// network-less nix sandbox. `pub(crate)` so `crate::task_table` can register it as a `Standalone`
+// task. See its header for what it does and does not hold.
+pub(crate) mod action_manifest;
+
 // DOES A READER OF `image-digests.txt` ANCHOR ON THE RECORD KIND? Six readers re-implemented that
 // file's grammar across `grep`, `awk` and Rust; five skipped its `#` header as a side effect of
 // anchoring and the sixth did not, refused on line 1, and cost a release. Its own file because the
@@ -463,9 +469,9 @@ fn check_gates(
         }
         eprintln!();
         eprintln!("A `with:` key an action does not declare is a warning on the runner and then that");
-        eprintln!("action's default - green step, green job, discarded value. Record each pinned sha's");
-        eprintln!("declared inputs in devco/action-inputs (its header carries the refresh procedure),");
-        eprintln!("or fix the key - see xtask/src/workflows/with_keys.rs.");
+        eprintln!("action's default - green step, green job, discarded value. `cargo xtask");
+        eprintln!("refresh-action-inputs <owner>/<repo>@<sha>` files a missing action's declared inputs");
+        eprintln!("into devco/action-inputs, or fix the key - see xtask/src/workflows/with_keys.rs.");
         return Some(Verdict::Fail);
     }
     None

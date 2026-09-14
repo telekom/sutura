@@ -50,7 +50,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// The record: each pinned sha's declared input names. Its header carries the refresh procedure.
-const RECORD: &str = "devco/action-inputs";
+///
+/// `pub(crate)` so [`super::action_manifest`] writes the same path this module reads - one
+/// constant, not two strings that could drift apart.
+pub(crate) const RECORD: &str = "devco/action-inputs";
 
 /// Above this many declared inputs the failure names the count instead of the list - one action
 /// here declares 62, and a wall of names buries the key that is actually wrong.
@@ -97,7 +100,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             seen.insert(action.clone());
             if !declared.contains_key(&action) {
                 found.push(format!(
-                    "{}:{line}  `uses: {action}` has no entry in {RECORD} - read the top-level `inputs:` keys of that sha's own action.yml and file them, or this gate is passing over the one action nobody checked",
+                    "{}:{line}  `uses: {action}` has no entry in {RECORD} - run `cargo xtask refresh-action-inputs {action}` to file its declared inputs, or this gate is passing over the one action nobody checked",
                     source.label
                 ));
             }

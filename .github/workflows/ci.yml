@@ -1449,6 +1449,15 @@ jobs:
   # the head repository rather than on `github.event_name`, because a pull request from a BRANCH of
   # this repository can see the secret and should be held to it.
   #
+  # **A DEPENDABOT PULL REQUEST SKIPS TOO, for the same reason as a fork rather than a new one.**
+  # GitHub does not pass repository or environment secrets to a workflow run a Dependabot
+  # `pull_request` event triggers - they live in a separate Dependabot secrets store - so
+  # `bq-test`'s secret is empty on that run even though the branch is IN this repository and
+  # `github.event.pull_request.head.repo.full_name == github.repository` reads true. Held on
+  # `github.event.pull_request.user.login`, the PR's author, fixed for the run's lifetime -
+  # never `github.triggering_actor`, which changes if a human re-runs the same workflow and would
+  # then read this job as reachable on a run whose secret is still absent.
+  #
   # It waits for `ci`, so the dependency closure that job fills is available before this one asks the
   # cache for it and a red local gate spends no cloud request. Nothing needs this job, so an endpoint
   # failure still does not hold the cross matrix; whether it becomes required is a branch-protection
@@ -1463,11 +1472,12 @@ jobs:
   bigquery-acceptance:
     needs: [ci]
     # Runs only when the diff selected the BigQuery category (or fell open to `core`), AND the
-    # event can reach the `bq-test` environment secret (an in-repo pull request, or a push). A
-    # branch that touches no BigQuery adapter or dialect - or a fork, or the merge queue - pays
-    # nothing for the dataset-serialising acceptance leg. `ci-aggregate` holds that this job may be
-    # skipped ONLY when its category is not selected, or the event cannot run it, never silently.
-    if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true'
+    # event can reach the `bq-test` environment secret (an in-repo pull request opened by a human,
+    # or a push). A branch that touches no BigQuery adapter or dialect - or a fork, or the merge
+    # queue, or a Dependabot pull request - pays nothing for the dataset-serialising acceptance
+    # leg. `ci-aggregate` holds that this job may be skipped ONLY when its category is not
+    # selected, or the event cannot run it, never silently.
+    if: github.event_name == 'push' && needs.ci.outputs.data_source_bigquery == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.ci.outputs.data_source_bigquery == 'true' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: rust-mcp-16core
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
@@ -1665,6 +1675,7 @@ jobs:
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           REPO: ${{ github.repository }}
         run: |
           set -eu
@@ -1679,10 +1690,12 @@ jobs:
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"
           fi
-          # Whether this event can physically run bigquery-acceptance: an in-repo PR or a push
-          # (which carries the secret); a fork PR and the merge queue cannot, so a skip there is
-          # the event, not a filter bug.
-          if [ "$EVENT" = "push" ] || { [ "$EVENT" = "pull_request" ] && [ "$PR_HEAD" = "$REPO" ]; }; then
+          # Whether this event can physically run bigquery-acceptance: an in-repo PR not opened by
+          # Dependabot, or a push (both carry the secret); a fork PR, the merge queue and a
+          # Dependabot PR cannot - GitHub withholds repository and environment secrets from a
+          # Dependabot-triggered `pull_request` run, in a separate store this workflow never sees -
+          # so a skip in any of the three is the event, not a filter bug.
+          if [ "$EVENT" = "push" ] || { [ "$EVENT" = "pull_request" ] && [ "$PR_HEAD" = "$REPO" ] && [ "$PR_AUTHOR" != "dependabot[bot]" ]; }; then
             can_run_bq=true
           else
             can_run_bq=false
