@@ -1,0 +1,8 @@
+---
+kind: glossary
+term: subscription count
+synonyms:
+  - number of subscriptions
+means: { metric: subscription_count }
+---
+The scaffold's own metric, spelled the way a person writes it rather than the way it is declared.

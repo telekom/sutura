@@ -34,18 +34,11 @@ use super::tests_support::{
     TransientlyBrokenWarehouse,
 };
 use super::{
-    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, exceeds_row_cap,
-    verify_anchors, verify_and_validate,
+    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, SpendLedger, Warehouses,
+    exceeds_row_cap, verify_anchors, verify_and_validate,
 };
 
-/// Bare `answer`, with the working-set ceiling pinned to 1 GiB and a generous deadline for every
-/// unit answer here.
-///
-/// `answer` gained a sixth argument - the ceiling the federated combiner counts against - and a
-/// seventh - the port's deadline - and no test in this module but the deadline's own needs either
-/// varied, so this local wrapper keeps two dozen call sites on their original five arguments rather
-/// than touching each. Deliberately not imported as `super::answer`, or the wrapper below and the
-/// import would collide on the name.
+/// Bare `answer`, pinned to a 1 GiB working set, no spend ceiling - not imported as `super::answer`.
 fn answer<W, B>(
     definitions: &super::Validated<PinnedDefinitions>,
     query: &sutura_domain::query::Query,
@@ -57,7 +50,16 @@ where
     W: sutura_domain::warehouse::Warehouse,
     B: sutura_domain::identity::CredentialBroker,
 {
-    super::answer(definitions, query, context, broker, warehouses, 1 << 30, test_deadline())
+    super::answer(
+        definitions,
+        query,
+        context,
+        broker,
+        warehouses,
+        1 << 30,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+    )
 }
 
 /// A generous deadline for every unit answer in this crate's own tests that is not about the
@@ -901,19 +903,16 @@ fn a_refusal_naming_a_source_nobody_asked_about_is_a_failure_rather_than_a_refus
     );
 }
 
-#[test]
-fn a_bundle_whose_anchor_could_not_run_does_not_come_back_validated() {
-    // The other half of the invariant, and the half a report could not carry: the ONLY way to a
-    // `Validated` bundle runs the anchors, so a data system that answers nothing yields no
-    // bundle at all. Before this operation existed, the same situation was a report a caller was
-    // free to ignore - and `Validated::new` was happy to be handed a different one.
-    let error = verify_and_validate(bundle(), &Warehouses::of(FixedWarehouse::new(source(), shared())))
-        .expect_err("a data system that fails every statement cannot validate a bundle");
-    let NotValidated::AnchorNotExecuted { ref metric, .. } = error else {
-        panic!("a failed anchor check is a not-executed verdict, not {error:?}");
-    };
-    assert_eq!(metric, &self::metric());
-}
+/// Split out for `max-lines`. `#[cfg(test)]` on the declaration itself is `telekom/sutura#657`'s
+/// fix: a bare `mod` line reads as nothing to `xtask test-causality`'s scan, so a later diff would
+/// silently orphan this module instead of failing loud; the attribute reads as `TestModule`.
+#[cfg(test)]
+mod not_validated;
+
+/// `crate::answer` under a REAL, configured `SpendLedger` - the local `answer` wrapper above is
+/// pinned to `SpendLedger::no_budget()`. `#[cfg(test)]` for `not_validated`'s reason above.
+#[cfg(test)]
+mod spend_test;
 
 #[test]
 fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {

@@ -2,7 +2,8 @@
 //! complexity weighed against coverage - independent of what language it is written in.
 //!
 //! Separate from `architecture` because these rules do not read meaning. `max-lines` is the cap
-//! that moved this table out of `main.rs`; it does not report how close any file is to refusing.
+//! that moved this table out of `main.rs`, and its `ok` verdict names the files closest to
+//! refusing next - `github.com/telekom/sutura#626`.
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{crap, jscpd, line_endings, max_lines, text};

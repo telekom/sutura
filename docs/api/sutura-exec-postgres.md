@@ -22,8 +22,13 @@ through `sutura-sql` (`Dialect::Postgres`); nothing here is compiled or translat
   (`tls::client_config`). Which source gets which is `sutura_config::sources::transport`'s
   decision and never this adapter's, so a caller that builds no config gets a cleartext
   connection - including to a server that offers TLS.
-- A `statement_timeout` is set at connect, so a slow server statement cannot hold a
-  blocking-pool thread past the caller's request deadline.
+- **`dry_run` and `execute` stop at the port's deadline**, with `SET LOCAL statement_timeout` -
+  `docs/adr/0029`'s Postgres row. The wait for `execution_lock` is itself outside the deadline;
+  a caller already spent once the lock is held is refused locally as `DeadlineSpent`. `57014
+  query_canceled` is also what a manual `pg_cancel_backend` produces - indistinguishable to
+  `deadline_exceeded`. The raw SQL tool's own path (`execute_raw`) carries no per-request
+  deadline; it is stopped by the connect-time `SET statement_timeout` that already existed, and
+  this record adds only classifying that stop.
 
 ## `enum PostgresError`
 
@@ -45,6 +50,10 @@ Why this data system could not answer.
 - `NotADate` - A day came back that is not a date this build can represent.
 - `Shape`
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
+
+  A defect in the rendering or in this adapter's value mapping rather than anything about the
+  data - two aggregates over no group produce one row of two integers - and it travels as an
+  `Err` from the port, which the boot path reads as *this declaration went unchecked*.
 - `Render`
 - `Fixture` - A fixture import failed.
 - `FixtureRead`
@@ -52,7 +61,14 @@ Why this data system could not answer.
 - `FixtureSchema` - The shared conformance fixture schema could not be inferred.
 - `InvalidSchemaName` - A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
 - `InvalidStatementTimeout` - The dev-only `statement_timeout` tuning value is not a `u32` millisecond count.
+
+  The value becomes a `SET statement_timeout = N` line verbatim, so it is parsed at the
+  boundary and refused if it is not a number or exceeds the `u32` ceiling - a value that
+  cannot be a timeout must not reach the statement as uninterpreted text. The cause
+  survives so the operator sees the number did not parse, not a plain refusal.
 - `RawTransaction` - The raw SQL tool's own `BEGIN READ ONLY` or `ROLLBACK` did not run - sutura's own fixed text on the simple query protocol (`docs/adr/0013`), never the caller's.
+- `Transaction` - The certified path's own per-statement transaction (`docs/adr/0029`) did not open - sutura's own fixed literal text, never the caller's, the same as `Self::RawTransaction`.
+- `DeadlineSpent` - The deadline was already spent once `PostgresWarehouse::execution_lock` was acquired - refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `LegWithoutCombiner` - A leg without a combiner.
@@ -202,7 +218,7 @@ The fixture tier's credential - a value that cannot exist unconfigured.
 
 **Behind the default-off `fixtures` feature**, because both callers are tests
 (`crates/sutura-exec-postgres/tests/conformance.rs` and
-`crates/sutura-app/tests/adapters/mod.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
+`crates/sutura-app/tests/adapters/adapters.rs`) and `nix/shipped.nix` builds cargo's DEFAULT set: so
 no artefact a release publishes contains this module or the connection config over it, which
 deletes the *reachable from a consumer* half rather than hardening it. `--all-features` compiles,
 lints and tests it on every run.

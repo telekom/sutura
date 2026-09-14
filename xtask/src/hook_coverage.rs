@@ -137,9 +137,13 @@ const MEASURED_STAGES: &[&str] = &[hooks::COMMIT, hooks::PUSH];
 
 /// Stages a diff-scoped run cannot be asked about, with the reason each is out of scope.
 ///
-/// `commit-msg` inspects the commit MESSAGE. It reads no file, so it covers no surface and a log
-/// of it would measure nothing about a diff - and `ship-check` judges a committed range rather
-/// than writing a commit, so there is no message for it to run against.
+/// `commit-msg` inspects the commit MESSAGE. It reads a file - the one git hands it - but never a
+/// file IN the diff, so there is no surface for it to cover and a log of it would measure nothing
+/// about a change. **The premise is the part worth getting right:** *reads no file* would be plainly
+/// wrong, and this sentence is the only thing a reader consults before asking whether that read is
+/// exercised anywhere. The conclusion survives; the reason for it does not depend on there being no
+/// read. `ship-check` judges a committed range rather than writing a commit, so there is no message
+/// for it to run against.
 const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
 mod surfaces;

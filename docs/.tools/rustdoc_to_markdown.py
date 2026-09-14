@@ -394,14 +394,19 @@ def struct_or_enum_body(doc: Doc, page: Page, item: dict, level: int) -> None:
         if variants:
             page.heading(level, "Variants")
             for variant in variants:
+                # EVERY paragraph, not just the first. A one-line summary on the bullet dropped
+                # the rest silently, so a rationale written on a variant - which is where this
+                # repository puts a refusal's reason and a limit beside its claim - was authored,
+                # reviewed and never published. The continuation is indented by two spaces so it
+                # stays inside the bullet rather than ending the list.
+                paras = paragraphs(variant.get("docs"))
+                summary = paras[0].replace("\n", " ") if paras else ""
                 page.add(
-                    f"- `{variant['name']}`"
-                    + (
-                        f" - {one_line(variant.get('docs'))}"
-                        if variant.get("docs")
-                        else ""
-                    )
+                    f"- `{variant['name']}`" + (f" - {summary}" if summary else "")
                 )
+                for para in paras[1:]:
+                    page.add()
+                    page.add("  " + para.replace("\n", "\n  "))
             page.add()
 
     methods: list[dict] = []
@@ -441,11 +446,6 @@ def struct_or_enum_body(doc: Doc, page: Page, item: dict, level: int) -> None:
         page.heading(level, "Implements")
         page.add(", ".join(f"`{t}`" for t in sorted(set(traits))))
         page.add()
-
-
-def one_line(text: str | None) -> str:
-    body = clean_docs(text)
-    return body.split("\n\n")[0].replace("\n", " ") if body else ""
 
 
 def render_module(doc: Doc, page: Page, module_id: str, level: int) -> None:
@@ -548,6 +548,8 @@ def selftest_fixture() -> dict:
     target_id = "fixture-widget"
     reexport_id = "fixture-reexport"
     module_id = "fixture-root"
+    enum_id = "fixture-choice"
+    variant_id = "fixture-variant"
     return {
         "format_version": EXPECTED_FORMAT_VERSION,
         "root": module_id,
@@ -557,7 +559,7 @@ def selftest_fixture() -> dict:
                 "name": "sutura_fixture",
                 "visibility": "public",
                 "docs": None,
-                "inner": {"module": {"items": [reexport_id]}},
+                "inner": {"module": {"items": [reexport_id, enum_id]}},
             },
             reexport_id: {
                 "id": reexport_id,
@@ -588,12 +590,35 @@ def selftest_fixture() -> dict:
                     }
                 },
             },
+            enum_id: {
+                "id": enum_id,
+                "name": "Choice",
+                "visibility": "public",
+                "docs": None,
+                "inner": {
+                    "enum": {
+                        "generics": {},
+                        "variants": [variant_id],
+                        "impls": [],
+                        "has_stripped_variants": False,
+                        "is_non_exhaustive": False,
+                    }
+                },
+            },
+            variant_id: {
+                "id": variant_id,
+                "name": "Refused",
+                "visibility": "public",
+                "docs": "THE VARIANT SUMMARY.\n\nTHE VARIANT RATIONALE, which is a second paragraph.",
+                "inner": {"variant": {"kind": "plain", "discriminant": None}},
+            },
         },
     }
 
 
 def selftest() -> None:
-    """The behavioral fixture: a public re-export renders its name and its target's docs.
+    """The behavioral fixture: a public re-export renders its name and target docs, and a
+    variant's prose publishes in full rather than its first paragraph alone.
 
     Fails on the broken renderer - which prints `use None` for an item with null outer name and
     docs and never reaches the target - and passes once the re-export is wired to `inner.use`.
@@ -603,13 +628,18 @@ def selftest() -> None:
     assert "`use Widget`" in text, text
     assert "THE WIDGET DOCUMENTATION" in text, text
     assert "use None" not in text, text
+    # A variant's prose is published in FULL. The summary alone passing is what shipped for as
+    # long as the bullet was built from a one-line slice, so both halves are asserted.
+    assert "THE VARIANT SUMMARY." in text, text
+    assert "THE VARIANT RATIONALE, which is a second paragraph." in text, text
 
 
 def main(argv: list[str]) -> int:
     if "--self-test" in argv:
         selftest()
         print(
-            "rustdoc_to_markdown: ok - a public re-export renders its name and target docs"
+            "rustdoc_to_markdown: ok - a public re-export renders its name and target docs, "
+            "and a variant's prose publishes in full"
         )
         return 0
     if len(argv) < 2:

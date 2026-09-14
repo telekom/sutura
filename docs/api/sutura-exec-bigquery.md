@@ -114,17 +114,72 @@ an owned `#[source]`.
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
 - `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
+
+  **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
+  leg run with nothing above it returns rows at a finer grouping than the question asked for,
+  which is a wrong number under a certified name.
 - `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and there is no such mechanism here.
+
+  **The narrow half of a refusal that used to be wholesale, and it has to stay refused.** This
+  adapter declares `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
+  `SubjectToken` rides as this job's bearer, so the
+  dataset evaluates the statement under whoever the token is. `BigQuery` has no proxy-user or
+  `SET ROLE` equivalent for a `SubjectPrincipal`,
+  so a leg carrying one has no material to send - and
+  `agrees_with` passes it, because the two shapes are
+  the same POSTURE. Accepting
+  it would submit the job under the credential the transport already holds while provenance,
+  read off this source's posture, reported the answer as impersonated: every row as the
+  process, recorded as the asker.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `UnmappedType` - A column came back as a type this adapter does not map.
+
+  It NAMES the type rather than answering null, which is the whole reason
+  `FieldType::Unmapped` carries the endpoint's own
+  spelling.
 - `NotAnInteger` - A cell declared `INT64` did not parse as one.
+
+  **Two variants rather than one carrying a `&'static str`, because the CAUSE differs.** The
+  endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
+  two facts, and the standard-library error that says why is worth keeping on the chain.
 - `NotADouble` - A cell declared `FLOAT64` did not parse as one.
 - `NotABool` - A cell declared `BOOL` was neither `true` nor `false`.
+
+  No `#[source]`: there is no parse behind it, because the check is a comparison against the two
+  spellings the endpoint documents. A variant with an invented cause would be worse than none.
 - `NotFinite` - A double came back non-finite.
+
+  **What this arm actually guards, on THIS target, is narrower than the two SQL adapters
+  agreeing.** In `GoogleSQL` the `/` operator raises on a zero divisor for every numeric type -
+  only `IEEE_DIVIDE` answers `inf`/`NaN` - so an unguarded zero-division ratio fails at the
+  service first, as `Self::Endpoint` with the same `503` as a dead data system. What reaches
+  this arm is a non-finite value STORED in a `FLOAT64` column, and the check keeps that stored
+  `Infinity` from answering a real under a certified metric name. It is `sutura-exec-duckdb`'s
+  same arm that gives `zero_denominator: fails` its meaning, because there the unguarded `/`
+  does answer `inf`; the sentence that credits this arm with the ratio case belongs to `DuckDB`.
 - `NotADate` - A cell declared as a date did not parse as one.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
+
+  Distinct from `Self::Shape`: this one is the ENDPOINT disagreeing with itself, caught before
+  a row is built, so the position of the offending row is reportable.
 - `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
+
+  `jobs.query` answers one page at a time, and completeness is stated as `totalRows` beside the
+  rows - never by the rows alone. A first page, or an incomplete job's empty `rows`, would read
+  to `answer()` as *under the cap, not truncated*: a wrong number under a certified name, through
+  the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
+  reported total is refused here, at the seam, rather than certified.
 - `NoIdentityInTheAnswer` - The identity read came back as something other than one row of one text cell.
+
+  Its own variant rather than `Self::RowWidth` or `Self::Shape`, because what a caller does
+  about it is different: those two are a result set this adapter could not map, and this is
+  *the endpoint did not tell us who ran the job* - which for the one caller that asks
+  (`BigQueryWarehouse::session_user`) is the whole
+  answer rather than a cell of it.
+
+  **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
+  contain is an account identifier, and the venue that reads it writes to a public log - so a
+  refusal that quoted what came back would be the disclosure the read exists to check for.
 - `Shape` - The result set could not be built.
 
 ### Implements
@@ -682,9 +737,45 @@ preflight decides whether it leaves a requested table unaccounted for and refuse
 #### Variants
 
 - `Unreported` - The document carried no total at all, so an empty listing and an empty dataset are one value.
+
+  **Where every boot stood before the field was decoded**, and where one stands again the day
+  the service stops sending it - which is why this is a variant rather than a zero.
 - `Unreadable` - It carried a total this crate could not read as a count.
+
+  Distinct from `Self::Unreported` on purpose: *the service said nothing* and *the service
+  said something this crate did not understand* are different findings, and the second is
+  itself a shape change worth being able to see. Nothing of the value is kept - a foreign
+  scalar is not something this crate carries around to print.
+
+  Beside zero readable IDs, preflight returns a count-free unreadable-inventory refusal.
+  A readable ID rejected by `usable_table_id` still counts, so a legitimately dropped name
+  cannot be mistaken for an inventory from which no ID was readable.
 - `Accounted` - It reported a total, and carried a readable table id for every table the total claims.
+
+  *At least* every one: `reported` may be below the number of ids the document carried without
+  anything being wrong, because a total read off a dataset being written to is a moving number.
 - `Short` - It reported MORE tables than the same document carried readable table ids for.
+
+  **On a document that carried no readable id at all this is the shape change** - a dataset
+  that answered with tables the listing did not name, or with entries this crate could read no
+  id out of - which is exactly what an empty `tables` array cannot be told from an empty
+  dataset without. Where `Shortfall::identified` is non-zero it is weaker: a table created
+  between the total and the array, or a page contract this transport read differently than the
+  service meant it.
+
+  **What it does not separate, so a decision does not read it as more:** an identified count
+  of zero merges *the array was empty* with *no entry carried a readable id*, because the raw
+  entry count is not kept. Both are the same finding for the caller that has one - no ids
+  beside a non-zero total - so nothing needs the third number today, and a decision that wants
+  to tell those two apart has to add it rather than read this one harder.
+
+  What a pre-flight produces from this reading is
+  `TablesPresent::Unaccounted` rather than an absence: a table the bundle names that this
+  listing did not name may be sitting in the gap, so a boot refuses without saying the catalog
+  is wrong. A VALUE and not an `Err`, because `preflight_was_refused` puts everything that is
+  not a `401`/`403` in the warning half. `docs/adr/0018` carries the argument and
+  `telekom/sutura#275` is where it was taken. `Self::Unreadable` can also refuse, but has no
+  shortfall and does so only beside zero readable IDs. The other readings retain ordinary absence.
 
 #### Implements
 
@@ -800,6 +891,9 @@ Why a resource name this adapter was handed is not usable.
 
 - `Empty` - Nothing was written, or only whitespace was.
 - `Character` - A character that could leave the part of a request this value is written into.
+
+  **The position is carried and the value is not.** A project id is one of the things this
+  repository does not print, so a refusal says where the problem is rather than quoting it.
 
 #### Implements
 
@@ -1274,20 +1368,86 @@ every other variant and `clippy::result_large_err` is on.
 
 - `Credential` - No token could be produced, so nothing was sent.
 - `Expired` - A token was produced and its deadline had already passed.
+
+  **Checked here rather than trusted, and it is the one check that would be pointless if
+  anything were cached.** A source that hands back an expired token is a source with a clock
+  problem, and presenting it turns that into a `401` from the data system - which reads to an
+  operator as a permissions fault.
 - `NoClock` - This process could not read a wall clock.
+
+  Reachable only on a machine whose clock is before the epoch. It is a variant rather than a
+  fallback because the alternative is presenting a token whose deadline nothing compared.
 - `DeadlineSpent` - This call's budget was gone before the job could be submitted.
+
+  **Refused rather than sent with whatever budget was left, because there was none.** One call
+  does a token exchange and then a job against one absolute deadline - see `CallDeadline` - so an
+  exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
+  anyway would either mean an unbounded wait or a job the service keeps running after the client
+  has stopped waiting, which is the pair of failures this whole shape exists to rule out.
 - `RequestNotSerializable` - The request could not be serialized.
+
+  **A defect-only path, and it is named rather than unwrapped.** Everything in the body is a
+  string, a bool or a number, so nothing here can fail the serializer; the variant exists
+  because `unwrap` is denied and a silent `unwrap_or_default` would send a different query.
 - `Unreachable` - The endpoint was not reached.
 - `Unreadable` - The endpoint answered and the answer could not be read.
 - `Refused` - The endpoint refused.
+
+  The status, the endpoint's reason mapped to `ReasonCode` in `named`, and its MESSAGE in
+  `detail`. An absent or unrecognized reason carries a static local marker rather than provider
+  text, which is honest: the status is what is guaranteed.
+
+  **This used to say the message was deliberately not carried, and the field beside it was
+  built from `error.message`.** The wrong half mattered: `detail` is free text the endpoint
+  writes, it quotes the resource and the principal it refused, and `Display` interpolated it -
+  so anything that rendered this variant into a public log leaked both. `ci.yml`'s masking step
+  exists because of exactly that, and `tests/exchanged_identity.rs` prints `status` and `named`
+  and never `detail` for the same reason.
+
+  **`Display` does NOT render `detail`.** It prints the status and the closed reason code, and
+  nothing else: a cause-chain walk that flattens every link with `Display` - which is what the
+  transports' sinks do - carries the same pair and never endpoint-owned text.
+  `detail` is an `EndpointMessage`, whose `Debug` is redacted and whose raw value is reached
+  only through an explicit accessor a caller has to opt into. Each of the three renderings
+  this error can meet is therefore one of those, and the one that leaks is the one a caller
+  cannot write by accident. `docs/adr/0018` carries this decision and its limit.
 - `NotADocument` - The answer was not the document a query response is.
 - `NotComplete` - The job had not finished when the endpoint answered.
+
+  **Refused rather than polled.** The alternative is `getQueryResults`, which needs a `location`
+  this deployment does not declare - see the module header - and a partial answer is a wrong
+  number under a certified name.
+
+  **It should now be reachable only through a defect or a cancellation**, because the request
+  carries `jobTimeoutMs` equal to the client's own wait: the service cancels the job at the same
+  instant the client stops waiting for it, so an incomplete answer is no longer a live job this
+  adapter walked away from. `named` carries the endpoint's reason as a closed `ReasonCode`,
+  which for a cancelled job is the useful half.
 - `MoreThanOnePage` - The answer is one page of more than one.
 - `NoTotal` - A complete job that stated no total.
+
+  **Refused rather than read as zero**, because zero is what a complete empty result and a
+  missing field both look like, and only one of them is an answer this adapter may certify.
+
+  This is also where a FAILED job lands: the endpoint reports one as complete with no total, so
+  `named` carries the endpoint's reason as a closed `ReasonCode` and is the whole diagnostic.
+  That is why failure is derived from the shape here rather than from `errors` being non-empty -
+  see `reported`.
 - `NotATotal` - The total was not a number.
+
+  It arrives as text, because the endpoint writes 64-bit integers as JSON strings.
 - `NotAnEstimate` - `totalBytesProcessed` was present and not a number.
+
+  Same reason as `Self::NotATotal`: the endpoint writes this 64-bit count as a JSON string
+  too. Refused rather than read as `None` - which is reserved for the field being ABSENT -
+  because a value that arrived and did not parse is a shape this adapter does not understand,
+  not a dry run that declined to price.
 - `NoSchema` - A complete job with rows and no schema to read them against.
 - `NotAScalar` - A cell that is neither a string nor a null.
+
+  Every scalar the endpoint returns is JSON text whatever its declared type; an array or an
+  object is a `REPEATED` or `RECORD` column, which is outside `crate::transport::FieldType`'s closed
+  vocabulary. It names the position rather than the value, because the value is a row.
 - `NotAListing` - The answer to a table listing was not one. Distinct from `Self::NotADocument`, the same failure for a query answer: two documents, two shapes, and one message per request.
 - `UnusablePageToken` - The service handed back a page token this transport will not write into a URL. **Refused rather than filtered**, and `tables::usable_token` carries the argument; the token travels through `bounded`, which keeps a foreign string out of a log unbounded.
 - `ListingDidNotFinish` - A dataset that did not finish listing inside the page bound. **A failure rather than a short listing**: this feeds *these tables are absent*, so a cut-off listing reports a table that is there as missing.
@@ -1538,6 +1698,10 @@ Why a bound this adapter was handed is not usable.
 - `Zero` - Zero, which would refuse every question rather than bounding one.
 - `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
 - `NoBudget` - A transport's request timeout too short to leave a job any budget at all.
+
+  See `QueryDeadline::within_request_timeout`: one answer spends the budget
+  `QueryDeadline::CALLS_PER_ANSWER` times and each spend costs connection setup on top, so a
+  request timeout below that leaves nothing to bound.
 
 ##### Implements
 
@@ -1893,11 +2057,28 @@ because a 16 KiB file can put 16 KiB of newlines there and this string reaches a
 
 - `Unreadable` - The file could not be opened or read.
 - `TooLarge` - The file is larger than any credential document is.
+
+  Bounded before it is parsed, which is the ordering *secure by design* asks for: the cheap
+  check that stops work proportional to the input runs first. A credential file is a few
+  kilobytes at most.
 - `NotADocument` - The file is not the JSON document this expects.
 - `UnknownKind` - The file names a credential shape this build does not implement.
+
+  **It names the shape rather than saying "unsupported"**, because each named shape has a
+  different answer: the metadata server needs no file at all, and a federated credential is the
+  per-subject step. The module header lists both.
 - `Incomplete` - A document missing one of the fields its own kind needs.
 - `AnotherUniverse` - The credential was minted against a different service universe than the one this build talks to.
+
+  **Refused rather than tried.** The endpoints this crate reaches are compile-time constants in
+  the default universe, so a credential minted for another one would be presented to a service it
+  was not issued for - which is a credential sent to the wrong recipient, whatever the answer
+  turns out to be.
 - `UnreadableKey` - The private key is not a `PKCS#8` PEM block holding a key this build can sign with.
+
+  **Nothing from the key reaches the message.** The whole value is key material, so there is no
+  half of it that would be safe to quote - which is why the context is a typed `KeyUnusable`
+  naming the STAGE that refused rather than any part of the value.
 
 ##### Implements
 
@@ -1939,12 +2120,30 @@ Why no token came back.
 - `Unreachable` - The token endpoint did not answer.
 - `Unreadable` - The token endpoint answered, and the answer could not be read.
 - `Refused` - The token endpoint refused.
+
+  **The status and the provider's own short code, and not its description.** The two `OAuth`
+  fields are a fixed vocabulary - `invalid_grant`, `invalid_client` - which is what an operator
+  needs; the description is free text from another service, and this repository does not put
+  unbounded foreign text where a log will read it.
 - `NotADocument` - The answer was not the JSON document a token response is.
 - `NoToken` - The answer carried no token.
 - `AlreadyExpired` - The answer's own deadline had already passed when it arrived.
+
+  A token that is expired on delivery is a clock disagreeing with a clock, and presenting it
+  anyway would turn one clear failure into a `401` from the data system.
 - `DeadlineSpent` - The call's budget was gone before the exchange could be attempted.
+
+  **Reachable only where something before the exchange spent the whole call**, which today means a
+  clock read and a signature. It is a variant rather than a send with no timeout because a zero
+  budget handed to the client underneath means *no timeout at all* - see
+  `CallDeadline::remaining`.
 - `Unsigned` - The assertion could not be signed.
+
+  Only reachable for a `service_account`. The cause is kept: `ring`'s own error says whether the
+  key was rejected, and that is the difference between a bad key and a bad build.
 - `NotSigned` - The signature itself failed.
+
+  `ring` reports this opaquely on purpose, so there is nothing to carry beyond the fact.
 
 ##### Implements
 

@@ -44,6 +44,14 @@ impl PostgresWarehouse {
     /// writes - `INSERT`/`UPDATE`/`DELETE`/most DDL - and says nothing about a VOLATILE function's own
     /// side effects once the connecting role may call it. Naming such a function in the statement is
     /// outside both this transaction and the role grant it sits beside.
+    ///
+    /// **What stops a slow caller statement here is the connect-time `SET statement_timeout`**
+    /// (`docs/adr/0029`'s Postgres row), unchanged by `docs/adr/0029`'s own record and already true
+    /// on `main` before it: `Warehouse::execute_raw` carries no per-request `Deadline` at all, so
+    /// there is nothing here for a `SET LOCAL` to narrow the session default with - adding one would
+    /// send exactly the value already in effect (`telekom/sutura#687`'s review, finding 5). What
+    /// `docs/adr/0029` adds for this path is [`crate::deadline::deadline_exceeded`] recognising the
+    /// `57014` that ceiling produces, so `Warehouse::deadline_exceeded` answers `true` for it too.
     pub(crate) fn run_raw(
         &self,
         statement: &sutura_domain::raw::RawStatement,

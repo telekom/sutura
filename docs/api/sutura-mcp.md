@@ -125,6 +125,12 @@ throw away the only description of the fault that exists.
 ### Variants
 
 - `Handshake` - The peer never completed the protocol handshake.
+
+  Boxed, and the reason is a lint this workspace keeps on deliberately: the SDK's own
+  initialize error is nearly five hundred bytes, and `result_large_err` is denied here because
+  *"a service whose public surface is `ToolOutcome::Refusal` wants to know when the error half
+  of every `Result` grows"*. The indirection costs an allocation on a path that has already
+  failed, and `Box<E>` is still an `Error`, so the `#[source]` chain is unchanged.
 - `Interrupted` - The task driving the session did not finish.
 
 ### Implements
@@ -612,7 +618,13 @@ Why an arguments object is not a question.
 #### Variants
 
 - `NotAnObject` - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.
-- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value except where it already failed an identifier parse - see that type's own documentation. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+
+  **The one variant with no HTTP analogue**, which is why it lives here rather than in
+  `sutura_domain::question`: Axum's JSON extractor rejects a body that fails to deserialize
+  before `TryFrom<QuestionBody> for Query` is ever reached, so `sutura-http`'s own
+  `MalformedQuestion` has no arm for this case and does not need one. MCP's own
+  `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
+- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
 
 #### Implements
 

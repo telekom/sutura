@@ -96,10 +96,7 @@ const MAX_RELATIONSHIP_PREFIX_LEN: usize = 45;
 /// Refuses whitespace before the shared parser can trim it from a physical identifier.
 fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
     if let Some(offending) = raw.chars().find(|character| character.is_whitespace()) {
-        return Err(InvalidIdentifier::IllegalCharacter {
-            value: String::from(raw),
-            offending,
-        });
+        return Err(InvalidIdentifier::IllegalCharacter { offending });
     }
     Ok(raw)
 }

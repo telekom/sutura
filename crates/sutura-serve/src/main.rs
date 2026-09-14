@@ -197,6 +197,7 @@ fn run() -> Result<(), String> {
     // rather than answered under the deployment's own identity** - the fallback the port exists to
     // make unrepresentable.
     let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
+    let spend_budget = settings.spend_budget();
     // **One `Arc<dyn Surface>` out of two adapter types, and the erasure is where it always was.**
     // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the service is monomorphised per kind
     // - and `ServiceState` takes `Arc<dyn Surface>`, so the two shapes meet one line later either
@@ -206,7 +207,7 @@ fn run() -> Result<(), String> {
         OpenedSources::Files(files) => {
             let broker = StaticCredentialBroker::from_registry(settings.sources());
             (
-                started(&catalogs, files.engines, broker, working_set_ceiling_bytes)?,
+                started(&catalogs, files.engines, broker, working_set_ceiling_bytes, spend_budget)?,
                 Some(files.attached),
             )
         }
@@ -236,7 +237,10 @@ fn run() -> Result<(), String> {
             // same pinned agent and bounds the source composition already declares, so the exchange
             // and the job share one connection pool and one set of pins - see `crate::broker`.
             let broker = broker::build_broker(settings.sources(), settings.server().request_timeout())?;
-            (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
+            (
+                started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
+                None,
+            )
         }
         #[cfg(feature = "postgres")]
         OpenedSources::Postgres(engines) => {
@@ -254,7 +258,10 @@ fn run() -> Result<(), String> {
             // broker is exactly that: every declared `shared-service-user` source is served as
             // itself, and nothing is ever exchanged.
             let broker = StaticCredentialBroker::from_registry(settings.sources());
-            (started(&catalogs, engines, broker, working_set_ceiling_bytes)?, None)
+            (
+                started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
+                None,
+            )
         }
     };
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
@@ -278,7 +285,8 @@ fn run() -> Result<(), String> {
     // between this root's two loads is caught below on `files` and is not caught at all on
     // `bigquery`.
     if let Some(attached) = attached {
-        boot::refuse_unattached(&boot::served_tables(service.definitions()), &attached)?;
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
     }
     tracing::info!(
         definition_version = %pinned.version(),
@@ -540,7 +548,7 @@ pub(crate) enum OpenedSources {
     /// A `BigQuery` dataset per source, reached over the wire.
     ///
     /// Nothing is attached, so there is no table set beside it - see the note at the call site of
-    /// [`boot::refuse_unattached`], which states what that costs.
+    /// [`sutura_app::preflight::refuse_unattached`], which states what that costs.
     #[cfg(feature = "bigquery")]
     BigQuery(sutura_app::Warehouses<BigQuerySource>),
     /// A `PostgreSQL` connection per source, reached over the declared channel.
@@ -590,6 +598,7 @@ fn started<W, B>(
     engines: sutura_app::Warehouses<W>,
     broker: B,
     working_set_bytes: u64,
+    spend_budget: Option<sutura_config::SpendBudget>,
 ) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -598,8 +607,14 @@ where
     B::Error: Send + Sync,
 {
     LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-        .map(|service| Arc::new(service) as Serving)
+        .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
         .map_err(flatten)
+}
+
+/// The spend ledger this replica answers under: unbounded if `governance.per_replica_spend_ceiling`
+/// is absent, which is `docs/adr/0030`'s decision for every deployment before this key existed.
+fn spend_ledger(spend_budget: Option<sutura_config::SpendBudget>) -> sutura_app::SpendLedger {
+    sutura_app::SpendLedger::new(spend_budget.map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())))
 }
 
 /// Starts the engine and registers one file per model, returning what it attached.
@@ -609,7 +624,7 @@ where
 /// and a CSV has to be sniffed.
 ///
 /// The set of tables comes back with the engine because it is evidence rather than bookkeeping: it is
-/// what [`boot::refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
+/// what [`sutura_app::preflight::refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
 ///
 /// **`with_worker_threads` and not `new`, and that is the whole of what `runtime.engine_worker_threads`
 /// does.** The engine drives its own runtime and every request `block_on`s it from a blocking-pool

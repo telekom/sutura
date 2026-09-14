@@ -119,6 +119,10 @@ by the compiler at one end and by `census` at the other.
 - `PreFlight` - A pre-flight that accepted the plan is followed by an answer.
 - `Leg` - A leg is executed, or refused, as the adapter's declaration says.
 
+  One behaviour and two directions rather than two behaviours: exactly one of them applies to
+  any adapter, and which one is decided by `EXECUTES_LEGS`. The direction is in the emitted
+  test's NAME, which is where a reviewer reads it.
+
 ### Methods
 
 ```rust
@@ -166,6 +170,10 @@ behaviour that can be declined.
 ### Variants
 
 - `OffersNoPreFlight` - `dry_run` answered `NotAsked` for every case, so nothing was checked before the rows were read.
+
+  The port's own default, and the honest answer for an adapter where checking costs what
+  running costs. Nothing about the check has been established, which is why this is a
+  declination and not a pass.
 
 ### Implements
 
@@ -263,7 +271,11 @@ a corpus of many says which one.
 - `PreFlightRefused` - The pre-flight refused a plan the adapter is expected to be able to execute.
 - `AcceptedThenDidNotAnswer` - The pre-flight accepted the plan and the execution then failed.
 - `ALegWasAnswered` - An adapter that declares it does not execute a leg executed one.
+- `EstimateDisagreesWithCapability` - The pre-flight's estimate disagreed with what `Warehouse::PRICES_DRY_RUN` declares.
 - `EmptyCorpus` - The corpus has no cases, so nothing could be asked.
+
+  Reachable only from a pack that needs a case to establish the adapter is live. `census`
+  fails on the same condition for every other behaviour.
 
 ### Implements
 
@@ -868,6 +880,11 @@ per adapter; nothing here panics, so a pack can also be called directly.
 - **Which error an adapter refused with.** `Self::Error` is the adapter's own type, so a pack
   sees only that a call failed. `a_leg_is_refused` is written around that limit rather than
   through it - see its own doc.
+- **That `BigQueryWarehouse`'s real endpoint prices a dry run correctly.** It is the only
+  adapter declaring `Warehouse::PRICES_DRY_RUN` true, and it has no `crate::execute_packs`
+  binding (`telekom/sutura#618`), so `a_preflight_that_accepts_is_followed_by_an_answer`'s new
+  estimate check never runs against it - only against the three adapters that always declare
+  `false` and always answer `None`.
 
 ### `fn labels_are_the_plans_own`
 
@@ -936,9 +953,16 @@ can execute, and one that accepts a plan the adapter then cannot answer.
 **An adapter that answers `PreFlight::NotAsked` DECLINES this behaviour**, and the declination
 is the honest reading rather than a pass: nothing was checked, so nothing about the check has
 been established. The limit worth stating next to it - the declination is observed at run time
-rather than read off a typed declaration, because the port has no capability constant for a
-pre-flight the way it has one for a leg. Where that constant exists the pack would select on it
-and a mismatched declaration would not build.
+rather than read off a typed declaration, because the port has no capability constant for
+WHETHER a pre-flight happens the way it has one for a leg. Where that constant exists the pack
+would select on it and a mismatched declaration would not build.
+
+**What an accepted pre-flight's estimate carries IS read off a typed declaration**:
+`Warehouse::PRICES_DRY_RUN`. An adapter that declares `false` and answers `Some(_)`, or
+declares `true` and answers `None`, is `Fault::EstimateDisagreesWithCapability` rather than a
+silent pass - closing the gap `Warehouse::PRICES_DRY_RUN`'s own doc names, that nothing used to
+require this port's `None`-vs-`Some(0)` distinction to mean what it says for any adapter this
+pack binds.
 
 ### `fn a_leg_is_executed`
 
@@ -989,7 +1013,7 @@ The same behaviour, over cases a caller supplies.
 `crate::Fault::EmptyCorpus` is what stops this behaviour being green over nothing - the guard
 `crate::census` provides for every other behaviour and the one place it is a `Fault` instead -
 and with the corpus reached through `corpus::cases` alone no fake could empty it, so the
-variant was unprovokable and the claim *every fault is provoked* was seven of eight.
+variant was unprovokable and the claim *every fault is provoked* was eight of nine.
 
 It is the beginning of what a file-backed corpus needs anyway: a corpus the pack is handed
 rather than one it calls. Every other behaviour still reads `corpus::cases` directly, so this

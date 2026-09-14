@@ -91,6 +91,11 @@ mod sources;
 
 use sources::{invoked, test_names, test_tasks};
 
+// The pairing of the two tables onto each other, which is the first property this file's header
+// claims. Split out when the rule stopped being a `for` loop: it claimed a column NAMES its venue
+// and held that the column's words are substrings of the name, and an empty column named anything.
+mod pairing;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
@@ -125,22 +130,7 @@ fn page_problems(text: &str, tests: &BTreeSet<String>, invoked: &BTreeSet<String
         return problems;
     }
 
-    for (venue, column) in listed.iter().zip(&columns) {
-        let name = key(&venue.name);
-        let unmatched: Vec<&str> = column
-            .split_whitespace()
-            .map(|word| word.trim_matches(|c: char| !c.is_ascii_alphanumeric()))
-            .filter(|word| !word.is_empty() && !name.contains(&word.to_lowercase()))
-            .collect();
-        if !unmatched.is_empty() {
-            problems.push(format!(
-                "{PAGE}: the claims column `{column}` does not name the venue in the same position \
-                 (`{}`) - {unmatched:?} appears in neither. The two tables are paired by ORDER, so \
-                 a reorder in one of them silently moves every limit",
-                venue.name
-            ));
-        }
-    }
+    problems.extend(pairing::problems(&listed, &columns));
 
     if claims.len() < 5 {
         problems.push(format!(
@@ -893,8 +883,8 @@ Not built.
 
         // **And the direction that gets a gate disabled, which a universal rule got wrong here.**
         // This workspace's suite runs in CI as a nix CHECK, so `just test` is genuinely run by CI
-        // and invisible to the invocation reader - requiring an invocation of it refused the two
-        // `in process` venues, whose claims are answered on every push. Their token says so, and
+        // and invisible to the invocation reader - requiring an invocation of it refused every
+        // `in process` venue, whose claims are answered on every push. Their token says so, and
         // the rule reads it: no complaint about the in-process venue with no CI at all.
         let found = problems_with_ci(MAP, &["bigquery-acceptance"]);
         assert!(

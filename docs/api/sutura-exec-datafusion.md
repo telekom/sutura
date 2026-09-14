@@ -58,23 +58,102 @@ map" send a reader to three different places.
 ### Variants
 
 - `Runtime` - The runtime this adapter executes on could not be built.
+
+  One runtime is built per adapter and kept, so this happens once at construction or not at
+  all. The engine is async all the way down and `futures::executor::block_on` panics at
+  collect time with "no reactor running", so there is no runtime-free path to fall back to.
 - `Environment` - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.
+
+  Separate from `Self::Runtime`, which is the *tokio* runtime: one is a thread pool and one is
+  the memory bound, and a deployment that cannot start needs to know which. Like `Runtime` it
+  happens once at construction or not at all.
 - `Attach`
 - `QualifiedTableUnreachable` - A model names a table this engine has nowhere to look for.
+
+  **This engine registers one file per model in its own table registry - there is no catalog and
+  no schema above it - so a `dataset.table` or a `project.dataset.table` path names nothing it
+  holds.** Refused by name rather than by dropping the qualifier and reading the table of that
+  name from the registry, which is the wrong-number failure issue #83 reports: a plausible answer
+  under a certified metric, off a table nobody asked for.
+
+  A typed error and not a `RefusalReason`, because no question a caller could ask produces one:
+  a table path comes from a catalog document. `sutura-serve` refuses the same thing at BOOT, so a
+  deployment reaches this only if a model arrived after the engine was opened.
+
+  `sutura_sql::Dialect::qualification` declares the same limit for the rendering side, where
+  `DuckDb` is `TableOnly` for exactly this reason.
 - `Build` - A logical plan could not be assembled from the query plan.
+
+  A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
 - `Analyze` - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
 - `Execute`
 - `UnsupportedType` - A column came back as a type this adapter does not map.
+
+  An error rather than a stringified fallback, for the reason the `DuckDB` adapter gives: a
+  nested type rendered with `Debug` would flow into an answer looking like data, and an anchor
+  comparison against it would pass or fail for reasons nobody could read.
 - `Downcast` - The schema said one Arrow type and the array was another.
+
+  Unreachable through the engine, and reported rather than skipped anyway: the alternative is
+  substituting a null for a value that exists.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
+
+  **What `zero_denominator: fails` actually produces.** A ratio measure choosing that word is
+  translated as an unguarded division with the numerator cast to `Float64`, so the division is
+  IEEE float division: dividing by zero answers `inf` here rather than failing, and zero divided
+  by zero answers `NaN`. `Real` refuses all three, which is what makes the word `fails` true of
+  the metric that chose it instead of the string `inf` arriving under a certified name.
+
+  The cause names which of the three it was; this variant names the column.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
+
+  Checked rather than papered over. `QueryPlan::result_labels` is the one definition both
+  adapters build from, so a disagreement here means the projection is not what we think it is,
+  and answering from it would return a number from a column nobody chose.
 - `KeyCounts` - A key probe's result was not the pair of counts its aggregate projects.
+
+  A defect in this crate's aliasing or in its value mapping rather than anything about the
+  data - two aggregates over no group produce one row of two integers - and it travels as an
+  `Err` from the port, which the boot path reads as *this declaration went unchecked*.
 - `MissingParam` - A predicate named a parameter index the plan does not have.
+
+  Predicates are resolved by their recorded index rather than by position, so this is what a
+  plan built with a stale index looks like instead of a silently wrong comparison.
 - `NoPredicate` - A plan with no predicate at all.
+
+  Unreachable: a plan always carries the two bounds of its `TimeRange`, which cannot be
+  unbounded. Written as a branch rather than an assertion because the SQL path refuses the
+  same shape, and an adapter that quietly ran it unfiltered would disagree with the other one
+  about an unbounded scan.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+
+  **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
+  was wrong: it is a wiring defect between the broker and the source declaration, and offering
+  it as a refusal would invite a client to retry a deployment bug until something works.
+  `docs/adr/0008` part 4 states both directions and says which one is silent - an adapter that
+  quietly *accepted* material it cannot use would report a leg as impersonated that ran shared.
+
+  This adapter is one process reading local files under one operating-system identity, which is
+  what `Warehouse::IMPERSONATION` declares, so the only shape it can be handed is the
+  deployment's own identity for that source. A configuration that asked for anything else does
+  not boot - `SourcePosture::deliverable_by` refuses it in the composition root - so reaching
+  this arm in production means the broker ignored the declaration it reads.
 - `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
+
+  **The check above answers a different question, and a review found the gap.**
+  `NoPlaceForASubject` compares what arrived against what this CODE can carry - the
+  `Warehouse::IMPERSONATION` constant - and says nothing about the posture the composition
+  root handed this adapter. So a shared leg carrying a *different* operator acknowledgement
+  matched the variant and was accepted, and provenance - which is read off `posture` - then
+  reported this adapter's own declaration rather than the acknowledgement the broker actually
+  presented.
+
+  The comparison is a real one rather than a value against itself: the broker reads the settings
+  tree and this adapter holds what the root handed it. An `Err` for the reason the variant above
+  is one - a wiring defect between the broker and the source declaration, which no caller may
+  retry into an answer. The typed cause carries which disagreement it was.
 - `DeadlineExceeded` - The deadline ran out: found spent before a call, or `tokio::time::timeout` fired around the whole `rows` future - `Warehouse::deadline_exceeded` names only this variant. A `SpawnedTask` aborts on `Drop` (`datafusion-common-runtime-55.0.0/src/common.rs:108-111`), and `EnsureCooperative` (`datafusion-physical-plan-55.0.0/src/coop.rs:65-67`) yields every non-cooperative leaf.
 
 ### Implements

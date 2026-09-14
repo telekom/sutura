@@ -125,9 +125,19 @@ pub(crate) fn run(args: &[String]) -> TaskVerdict {
         eprintln!("  (the `commit-msg` hook passes it; run it via prek, not by hand)");
         return TaskVerdict::Usage;
     };
-    let Ok(message) = std::fs::read_to_string(path) else {
-        eprintln!("xtask commit-msg: could not read {path}");
-        return TaskVerdict::Fail;
+    // The path is read AS HANDED, and that is measured rather than assumed: git passes this hook
+    // an absolute path exactly when `.git` is a file, which is every linked worktree, and a
+    // relative one only in the primary checkout where `.git` is a directory. So there is nothing
+    // here to resolve. A fallback that retried a relative path against `git rev-parse --git-dir`
+    // was built and then deleted: no caller can produce the input it existed for.
+    let message = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(why) => {
+            // The CAUSE, not just the path. `Not a directory` versus `No such file` is the whole
+            // difference between a path that resolved somewhere wrong and a message that is absent.
+            eprintln!("xtask commit-msg: could not read {path}: {why}");
+            return TaskVerdict::Fail;
+        }
     };
 
     let subject = subject_of(&message);

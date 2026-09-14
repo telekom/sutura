@@ -43,6 +43,7 @@ fn a_federated_answer_shares_one_instant_and_the_second_leg_sees_what_is_left() 
         &warehouses,
         FEDERATED_BUDGET,
         almost_spent,
+        &SpendLedger::no_budget(),
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -64,7 +65,7 @@ fn a_federated_answer_shares_one_instant_and_the_second_leg_sees_what_is_left() 
 
 #[test]
 fn a_federated_leg_that_times_out_is_refused_not_a_503() {
-    // `docs/adr/0029` D2's federated call site: `execute_leg` must map an `execute` failure that
+    // `docs/adr/0029` D2's federated call site: `run_leg` must map an `execute` failure that
     // satisfies `deadline_exceeded` to `RefusalReason::DeadlineExceeded`, the same as the mono
     // path's `running_out_of_time_is_a_refusal_and_not_a_503` - never into `LegError::Failure`,
     // which the transport answers `503`, inviting a retry that spends the whole budget again.
@@ -88,6 +89,7 @@ fn a_federated_leg_that_times_out_is_refused_not_a_503() {
         &warehouses,
         FEDERATED_BUDGET,
         test_deadline(),
+        &SpendLedger::no_budget(),
     )
     .expect("a stopped deadline is a refusal, not an error")
     .into_outcome();
@@ -104,7 +106,7 @@ fn a_federated_leg_that_times_out_is_refused_not_a_503() {
 
 #[test]
 fn a_federated_legs_pre_flight_that_times_out_is_refused_not_a_503() {
-    // The `dry_run`-failure sibling of the cell above, for `execute_leg`'s own pre-flight arm - an
+    // The `dry_run`-failure sibling of the cell above, for `dry_run_leg`'s own pre-flight arm - an
     // adapter can report the deadline as fired while CHECKING a leg's statement, not only while
     // running it.
     let shared = shared();
@@ -129,6 +131,7 @@ fn a_federated_legs_pre_flight_that_times_out_is_refused_not_a_503() {
         &warehouses,
         FEDERATED_BUDGET,
         test_deadline(),
+        &SpendLedger::no_budget(),
     )
     .expect("a stopped deadline is a refusal, not an error")
     .into_outcome();

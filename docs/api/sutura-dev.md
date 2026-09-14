@@ -233,6 +233,11 @@ Why an endpoint could not be learned, or could not be recorded.
 #### Variants
 
 - `NotProvisioned` - No discovery file. Nothing has provisioned this worktree, or teardown removed it.
+
+  **It names no task, and that is the fix rather than an omission.** This variant carries a
+  path and nothing else - no service, no worktree - so it cannot ask which venue answers. The
+  remedy belongs to `provisioned::Absent`, which derives one; why this line used to cite
+  `just dev-up` too is recorded at `provisioned::Venue::advice`.
 - `Unreadable` - The file exists and could not be read.
 - `Malformed` - The file is not the shape this module writes.
 - `UnknownService` - A service nobody provisioned.
@@ -259,7 +264,15 @@ that has to match on prose has no contract.
 - `NoServices` - No `services` object.
 - `ServiceEntry` - A service entry without a readable `host` and `port`.
 - `HostNeitherLoopbackNorSocket` - A service host that is neither loopback nor a `/`-prefixed socket directory.
+
+  The docker tier connects on loopback, the nix tier on a socket path. Anything else would
+  let a discovery file hand a harness an arbitrary host, so it is refused rather than trusted.
 - `ServiceProvisioner` - An entry no provisioner can be attributed to.
+
+  Refused rather than defaulted, and the reason is `forget`: a provisioner withdraws its own
+  entries and leaves every other one alone, so an entry it cannot attribute is one it would
+  have to guess about - and both guesses are wrong. Leaving it would strand a claim over a
+  dead server; taking it would delete a live tier's address.
 
 #### Implements
 
@@ -831,6 +844,9 @@ Two variants and no third, because the fail direction does not return: see `here
 - `At` - It is up, and this is where. Read from the discovery file, which is the only place a host port for this worktree exists.
 - `Skipped` - Nothing to connect to, on a machine class where that is not a failure.
 
+  **The notice has already been written to stderr** by the time this is returned. A skip a
+  reader cannot see is a green run that tested nothing, which is worse than a red one.
+
 #### Methods
 
 ```rust
@@ -1013,6 +1029,9 @@ Whether a missing tier is fatal.
 #### Variants
 
 - `Required` - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting `FORCE`: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.
+
+  **Not implied by `CI`.** No CI job provisions the tier today, so keying on that variable made
+  a missing tier fatal in the one place it is expected - see `decide`.
 - `Optional` - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.
 
 #### Methods
@@ -1161,6 +1180,10 @@ Why a worktree root could not become a scope.
 #### Variants
 
 - `NotResolvable` - The path could not be canonicalised - it does not exist, or a component is not readable.
+
+  Canonicalisation is not a nicety here: it resolves symlinks and returns the on-disk
+  spelling, which is what makes one directory reached two ways one worktree rather than two.
+  A scope over an unresolved path would namespace containers by how somebody typed a path.
 
 #### Implements
 

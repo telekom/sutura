@@ -262,10 +262,20 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         eprintln!("sutura: configuration from {}", settings.layers());
         let (prose, instructions) = prompt_inputs(settings.prompt())?;
         let pinned = load(Path::new(&root))?;
-        // Every operation, because the HTTP surface mounts every operation. A transport that hid one
-        // passes the subset it mounts and the workflow drops the step rather than telling an agent
-        // to call something that is not there.
-        let inputs = PromptInputs::new(Tool::ALL, prose, instructions.as_deref());
+        // Every certified operation, because the HTTP surface mounts every one of them
+        // unconditionally. A transport that hid one passes the subset it mounts and the workflow
+        // drops the step rather than telling an agent to call something that is not there.
+        //
+        // `run_sql` is added on top rather than folded into `Tool::ALL`: it is off by default and a
+        // deployment turns it on separately (`tools.run_sql.enabled`), so this command reads the
+        // SAME settings the service would boot with - the ones already loaded above - rather than
+        // assuming every deployment mounts it. A configuration this command was not told about
+        // cannot make the rendered prompt describe a tool the deployment cannot call.
+        let mut tools = Tool::ALL.to_vec();
+        if settings.tools().run_sql_enabled() {
+            tools.push(Tool::RunSql);
+        }
+        let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
         print!("{}", sutura_app::prompt::render(&pinned, &inputs));
         Ok(())
     })())
@@ -406,6 +416,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 opened,
                 settings.runtime(),
                 settings.server().request_timeout(),
+                settings.spend_budget(),
             ),
             #[cfg(feature = "bigquery")]
             crate::sources::Opened::BigQuery(opened) => answered(
@@ -414,6 +425,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 opened,
                 settings.runtime(),
                 settings.server().request_timeout(),
+                settings.spend_budget(),
             ),
             #[cfg(feature = "postgres")]
             crate::sources::Opened::Postgres(opened) => answered(
@@ -422,6 +434,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 opened,
                 settings.runtime(),
                 settings.server().request_timeout(),
+                settings.spend_budget(),
             ),
         }
     })())
@@ -447,7 +460,7 @@ pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::S
 ///
 /// `catalog` is handed over rather than a bundle rebuilt, because the constructor loads it again and
 /// re-runs every anchor - that is its contract - so the two loads cannot disagree about the version
-/// or the source name. [`crate::sources::refuse_unattached`] closes the one gap that remains: a
+/// or the source name. [`sutura_app::preflight::refuse_unattached`] closes the one gap that remains: a
 /// model added to the catalog directory between a caller's own load and the load inside `start`
 /// would otherwise be served with no table registered behind it, failing its first question at query
 /// time. Skipped for a data system nothing was attached to, which is the narrowing
@@ -470,11 +483,15 @@ pub(crate) fn started<W>(
     catalog: &LocalCatalog,
     opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
+    spend_budget: Option<sutura_config::SpendBudget>,
 ) -> Result<Composed<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
+    let spend_ledger = sutura_app::SpendLedger::new(
+        spend_budget.map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
+    );
     let service = LocalService::start(
         catalog,
         opened.engines,
@@ -482,9 +499,11 @@ where
         opened.broker,
         runtime.working_set().bytes().get() as u64,
     )
+    .map(|service| service.with_spend_ledger(spend_ledger))
     .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
     if let Some(attached) = opened.attached {
-        crate::sources::refuse_unattached(&crate::sources::served_tables(service.definitions()), &attached)?;
+        sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
+            .map_err(|changed| changed.to_string())?;
     }
     Ok(service)
 }
@@ -500,12 +519,13 @@ fn answered<W>(
     opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
+    spend_budget: Option<sutura_config::SpendBudget>,
 ) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let service = started(catalog, opened, runtime)?;
+    let service = started(catalog, opened, runtime, spend_budget)?;
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
     //

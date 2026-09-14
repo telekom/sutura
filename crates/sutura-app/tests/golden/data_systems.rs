@@ -82,6 +82,7 @@ where
             &warehouse,
             1 << 30,
             crate::adapters::deadline(),
+            &sutura_app::SpendLedger::no_budget(),
         );
         settings(W::NAME).bind(|| match answered.map(sutura_app::Answered::into_outcome) {
             Ok(ToolOutcome::Refusal { ref reason }) => {
@@ -203,6 +204,7 @@ where
             &warehouse,
             1 << 30,
             crate::adapters::deadline(),
+            &sutura_app::SpendLedger::no_budget(),
         )
         .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME))
         .into_outcome();
@@ -284,6 +286,7 @@ where
         &warehouse,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
@@ -319,6 +322,7 @@ where
         &warehouse,
         1 << 30,
         crate::adapters::deadline(),
+        &sutura_app::SpendLedger::no_budget(),
     )
     .expect("a non-zero denominator answers")
     .into_outcome();

@@ -17,9 +17,18 @@
 //! an unmapped path or a registry the derive could not read all set `core`, and `core` subsumes
 //! every category. A new adapter arrives by registering it in the registry (or by being a crate);
 //! no workflow line is asked to know its name in advance.
+//!
+//! **That fail-open is held at the OUTPUT boundary, not only in `Categories::needs`, and the
+//! difference is the whole reason `crate_categories` exists.** A workflow condition reads an
+//! emitted line; a name that is never emitted is not `false` but ABSENT, renders `''`, and matches
+//! no `== 'true'` - so the leg SKIPS. `needs` answering `true` for a category no line names buys
+//! nothing. Whatever `declared` holds is therefore the list of legs that can be switched on, and an
+//! empty one on a registry failure turned the guarantee above into a silent skip for every category
+//! the diff did not itself select.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
+use std::path::Path;
 
 use crate::conformance::scan;
 
@@ -100,17 +109,27 @@ fn print_report(cats: &Categories) {
 }
 
 fn derive(paths: &[String]) -> Categories {
+    let root = Path::new(".");
+    derive_from(paths, registry_categories(root), root)
+}
+
+/// [`derive()`] with the registry read handed in, so a test can BREAK that read and compare the
+/// emitted lines against a successful one. Injected rather than reached for: the property this
+/// module documents is about what a *failed* read emits, and a read that only fails when the
+/// working tree is damaged is a property nothing can assert.
+fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, root: &Path) -> Categories {
     let (mut core, selected, mut reasons) = select(paths);
-    let declared = match registry_categories() {
+    let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
             set
         }
         Err(why) => {
-            // Fail open: a registry the derive cannot read is not a reason to skip a leg.
+            // Fail open: a registry the derive cannot read is not a reason to skip a leg - and
+            // that takes a set of NAMES here, not just `core`, per the boundary note above.
             core = true;
             reasons.push(why);
-            BTreeSet::new()
+            crate_categories(root, &mut reasons)
         }
     };
     Categories {
@@ -154,23 +173,50 @@ fn crate_tail(path: &str, prefix: &str) -> Option<String> {
 }
 
 /// The categories the registry declares, joined by the crate each adapter type names.
-fn registry_categories() -> Result<BTreeSet<String>, String> {
-    let text = std::fs::read_to_string(REGISTRY).map_err(|e| format!("could not read {REGISTRY}: {e}"))?;
-    let exec_adapters = exec_adapters()?;
+fn registry_categories(root: &Path) -> Result<BTreeSet<String>, String> {
+    let path = root.join(REGISTRY);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read {REGISTRY}: {e}"))?;
+    let exec_adapters = exec_adapters(root)?;
     categories_from_registry(&text, &exec_adapters)
 }
 
 /// Every `sutura-exec-<name>` crate dir present, so a dialect maps to a data source only when the
 /// matching execution crate exists - a category planning for a nonexistent cell is noise.
-fn exec_adapters() -> Result<BTreeSet<String>, String> {
-    let entries = std::fs::read_dir("crates/").map_err(|e| format!("could not list crates/: {e}"))?;
+fn exec_adapters(root: &Path) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::new();
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("could not list crates/: {e}"))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
+    for name in crate_dirs(root)? {
         if let Some(tail) = name.strip_prefix(DATA_SOURCE_PREFIX) {
             out.insert(tail.to_owned());
         }
+    }
+    Ok(out)
+}
+
+/// The adapter categories the crate DIRECTORIES name, plus `identity`: the floor the emission
+/// falls back to when the registry cannot be read.
+///
+/// A superset of anything a registry can declare, because every category name is derived from a
+/// crate prefix in the first place - and readable when the registry file is not, which is the one
+/// situation it is for. A listing that fails too is REPORTED rather than swallowed: `core` is
+/// already set by then, so the run is not wrong, but a floor smaller than the tree is exactly the
+/// #619 shape where the gate's own output hides how little it looked at.
+fn crate_categories(root: &Path, reasons: &mut Vec<String>) -> BTreeSet<String> {
+    let mut out = BTreeSet::from([String::from(IDENTITY)]);
+    match crate_dirs(root) {
+        Ok(names) => out.extend(names.iter().filter_map(|name| category_from_crate(name))),
+        Err(why) => reasons.push(format!("{why} - the category floor is `identity` alone")),
+    }
+    out
+}
+
+/// The crate directory names, read once for both of the callers above.
+fn crate_dirs(root: &Path) -> Result<Vec<String>, String> {
+    let dir = root.join("crates");
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("could not list crates/: {e}"))?;
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("could not list crates/: {e}"))?;
+        out.push(entry.file_name().to_string_lossy().into_owned());
     }
     Ok(out)
 }
@@ -231,15 +277,16 @@ fn category_from_crate(crate_name: &str) -> Option<String> {
         .or_else(|| crate_name.strip_prefix(CATALOG_PREFIX).map(|tail| format!("catalog_{tail}")))
 }
 
-/// Emit `name=true|false` category lines for CI to read. Silent when not running under Actions.
-fn write_github_output(cats: &Categories) {
-    let Ok(path) = std::env::var("GITHUB_OUTPUT") else {
-        return;
-    };
+/// The `name=true|false` category lines CI reads, as text.
+///
+/// Separated from the write so a test can assert on the EMITTED SET rather than on `declared`: an
+/// emitted line is what a workflow condition can see, and the two disagreeing is the defect this
+/// split exists to make visible.
+fn output_body(cats: &Categories) -> String {
     let mut body = String::new();
-    // Every category the registry declares (or the diff selected, when the registry failed), one
-    // line each, valued `core || selected` so a `core` diff flips every leg on and a skipped leg
-    // can never satisfy one.
+    // Every category the registry declares (or the crate floor, when the registry failed), plus
+    // whatever the diff selected, one line each, valued `core || selected` so a `core` diff flips
+    // every leg on and a skipped leg can never satisfy one.
     let mut names: BTreeSet<String> = cats.declared.clone();
     names.extend(cats.selected.iter().cloned());
     for name in &names {
@@ -251,6 +298,15 @@ fn write_github_output(cats: &Categories) {
     body.push_str("core=");
     body.push_str(super::flag(cats.core));
     body.push('\n');
+    body
+}
+
+/// Emit `name=true|false` category lines for CI to read. Silent when not running under Actions.
+fn write_github_output(cats: &Categories) {
+    let Ok(path) = std::env::var("GITHUB_OUTPUT") else {
+        return;
+    };
+    let body = output_body(cats);
     match std::fs::OpenOptions::new().append(true).create(true).open(&path) {
         Ok(mut f) => {
             if let Err(e) = f.write_all(body.as_bytes()) {
@@ -401,6 +457,79 @@ macro_rules! registered {
         assert!(!cats.contains("data_source_clickhouse"), "{cats:?}");
         assert!(cats.contains("data_source_datafusion"));
         assert!(cats.contains("catalog_datahub"));
+    }
+
+    /// The category names `ci.yml` actually reads off the classify step.
+    ///
+    /// An INDEPENDENT oracle, and that is the point: a list derived from this module's own loop
+    /// cannot witness that loop narrowing (#414), so the expectation is read from the consumer.
+    fn categories_ci_reads(root: &Path) -> BTreeSet<String> {
+        const MARKER: &str = "steps.classify.outputs.";
+        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read .github/workflows/ci.yml");
+        let mut out = BTreeSet::new();
+        // `split` rather than `match_indices` plus a slice: indexing a `str` by byte offset is
+        // `clippy::string_slice`, a restriction lint that only `-D warnings` surfaces.
+        for after in ci.split(MARKER).skip(1) {
+            let name: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            // The area axis (`run_all`, `nix`, ...) comes from `changes.rs`; only these are ours.
+            if name == IDENTITY || name.starts_with("data_source_") || name.starts_with("catalog_") {
+                out.insert(name);
+            }
+        }
+        out
+    }
+
+    /// The names the emission actually writes - parsed back out of the body, so the assertion is
+    /// about what a workflow can READ rather than about `declared`.
+    fn emitted_names(cats: &Categories) -> BTreeSet<String> {
+        output_body(cats)
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name.to_owned()))
+            .collect()
+    }
+
+    /// Breaking the registry read may not shrink the emitted set, because an unemitted name is
+    /// ABSENT rather than `false` and a workflow condition on it is then never true.
+    ///
+    /// The read is broken by injection rather than by damaging the tree, and the expectation comes
+    /// from `ci.yml`. Before the crate floor existed this failed on both halves: the emitted set
+    /// collapsed to the one category the diff selected, and every other leg - the identity tier and
+    /// `bigquery-acceptance`, which has no `run_all` fallback at all - lost its line.
+    #[test]
+    fn breaking_the_registry_read_never_shrinks_the_emitted_set() {
+        let root = crate::repo::root().expect("the repo root");
+        let gated = categories_ci_reads(&root);
+        assert!(
+            gated.len() > 1,
+            "the oracle matched nothing in ci.yml, so this test would pass over anything: {gated:?}"
+        );
+
+        let paths = vec![String::from("crates/sutura-exec-duckdb/src/lib.rs")];
+        let read = derive_from(&paths, registry_categories(&root), &root);
+        let broken = derive_from(&paths, Err(String::from("planted: the registry could not be read")), &root);
+
+        assert!(!read.core, "one adapter path selects one category");
+        assert!(broken.core, "a registry the derive cannot read must fail open");
+        let (before, after) = (emitted_names(&read), emitted_names(&broken));
+        // A superset rather than equality: the floor is the crate directories, which may legitimately
+        // be wider than what the registry declares. What it may never be is narrower.
+        assert!(
+            after.is_superset(&before),
+            "breaking the registry read dropped {:?} from the emitted set",
+            before.difference(&after).collect::<Vec<_>>()
+        );
+        for name in &gated {
+            assert!(
+                after.contains(name),
+                "ci.yml gates a leg on `{name}` and no line emits it: {after:?}"
+            );
+        }
+        for line in output_body(&broken).lines() {
+            assert!(
+                line.ends_with("=true"),
+                "a failed read must switch every leg ON, not off: {line}"
+            );
+        }
     }
 
     #[test]

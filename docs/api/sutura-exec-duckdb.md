@@ -39,17 +39,89 @@ Why this data system could not answer.
 - `Prepare`
 - `Execute`
 - `UnsupportedType` - A column came back as a type this adapter does not map.
+
+  An error rather than a stringified fallback. A `LIST` or a `STRUCT` rendered with `Debug`
+  would flow into an answer looking like data, and an anchor comparison against it would pass
+  or fail for reasons nobody could read.
+
+  The column is named by its LABEL rather than by its position, which is also what the engine
+  does. The two adapters answer one plan, so an error from either has to be readable against the
+  same projection, and "column 1" is a fact about a result set nobody has in front of them.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
+
+  **What `zero_denominator: fails` actually produces.** The generator emits that ratio's
+  division unguarded and casts the numerator to `DOUBLE` first, so the division is IEEE float
+  division: `CAST(3 AS DOUBLE) / 0` is `inf` here rather than an error, and `0 / 0` is `NaN`.
+  `Real` refuses all three, so the word `fails` is true of the metric that chose it instead of
+  answering the string `inf` under a certified name.
+
+  The cause names which of the three it was; this variant names the column.
 - `NotADate` - A day number came back that is not a date this build can represent.
+
+  The cause is kept rather than discarded: "not a date" and "a date in the year 40 000" send a
+  reader to different places.
 - `Shape`
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
+
+  A defect in the rendering or in this adapter's value mapping, never anything about the data:
+  the probe projects two aggregates over no group, so one row of two integers is the only shape
+  it can have. It travels as an `Err` from the port, which the boot path reads as *this
+  declaration went unchecked* rather than as a violated one.
 - `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
+
+  **An error rather than an empty projection, and the empty projection was the bug.** This was
+  `unwrap_or_default()`, which turns a missing schema into a zero-column result - and a
+  `RowSet` with no columns and N rows is a shape `RowSet::new` ACCEPTS, because every row
+  then has no cells either and the thing is rectangular. So a question would have been answered
+  with a result set that had silently lost its projection, under a certified name and with
+  provenance attached. Refusal beats degradation on a shape check: nothing downstream can tell
+  "this metric has no columns" from "this driver told us nothing".
+
+  No `#[source]`, because there is nothing to preserve: the handle is an `Option` and the
+  absent case carries no cause. That is the whole of what the driver said.
 - `Render` - The plan could not be rendered as SQL.
+
+  This adapter speaks SQL, so it asks the compiler to render the plan for its own dialect. An
+  adapter that executes a plan directly - the in-process engine - never reaches this.
 - `FixtureRead` - The fixture CSV could not be read to name its column types.
+
+  `attach_fixture_csv` reads the bytes to type the
+  columns before the query; a file that cannot be read is a fixture defect, not a number to
+  answer.
 - `FixtureSchema` - The fixture CSV did not satisfy the shared schema boundary.
 - `Attach`
 - `NoPlaceForASubject` - One leg of a federated answer, rendered here and assembled above by the combiner.
+
+  **Not a refusal and not a default body.** `Warehouse::execute` takes an
+  `Executable`, so this adapter's match over what it can be handed is exhaustive. A
+  `LegPlan` renders through `generate_leg` and runs like any
+  other statement; it carries no row cap, because a leg is not an answer - the combiner above
+  it applies `MAX_ROWS`.
+
+  The credential broker handed this adapter subject material it has nowhere to put.
+
+  **An `Err` and never a refusal.** Nothing about the question was wrong: it is a wiring defect
+  between the broker and the source declaration, and a refusal would invite a client to retry a
+  deployment bug. `docs/adr/0008` part 4 is the decision, and the same variant exists on the
+  engine adapter for the same reason - two implementors of one port, each answering for what it
+  was handed, because neither may reach into the other for a shared check.
+
+  One process holding one connection under one operating-system identity, which is what
+  `Warehouse::IMPERSONATION` declares here, so the only shape this can be handed is the
+  deployment's own identity for that source.
 - `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
+
+  **A different question from the variant above, and a review found that only the first was
+  being asked.** `NoPlaceForASubject` compares what arrived against what this CODE can carry -
+  the `Warehouse::IMPERSONATION` constant - and reads `posture` not at all. So a shared leg
+  carrying a *different* operator acknowledgement matched the variant this adapter accepts and
+  was executed, while provenance, which is read off `posture`, reported this adapter's own
+  declaration instead.
+
+  The two values compared are genuinely independent: the broker reads the settings tree and this
+  adapter holds what the composition root handed it. An `Err` rather than a refusal, for the
+  reason the variant above is one. The same variant exists on the engine adapter, because neither
+  implementor of this port may reach into the other for a shared check.
 
 ### Implements
 

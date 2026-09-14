@@ -5,16 +5,37 @@ description: How the semantic compiler gets tested across catalogs and data syst
 
 # Conformance packs for inputs and adapters
 
-Status: **accepted as the shape. None of it is built.**
+Status: **accepted, and built in part.** This line read *"accepted as the shape. None of it is
+built."* until the code caught up with it, and the old sentence is quoted rather than dropped because
+`check-guidance` exempts this page from the rule that forbids it - an exemption over a page that no
+longer holds the quote is a rule registered against a sentence nobody wrote. *Corrected* directly
+below is what is built and what holds it; the paragraph after that is the limit, and it is the one to
+read before citing this record.
 
 **Corrected: most of it is built now.** `crates/sutura-conformance` exists as the dev-only packs
 crate this record specifies; `execute_packs!` binds it to three data systems
 (`sutura-exec-duckdb`, `sutura-exec-postgres`, `sutura-exec-datafusion` - the engine); compile packs
 run behind the harness crate's default-off `compile` feature; and `cargo xtask
 check-conformance-bindings` (`xtask/src/conformance.rs`) is the gate the *Consequences* section
-below asks for, holding the registry and the macro invocation in step. What is still unbuilt, per
-the record's own later corrections further down: a per-pack timing aggregate, `cargo-insta`'s
-unreferenced-snapshot check, and a data adapter beyond the three bound today.
+below asks for, holding the registry and the macro invocation in step. What is still unbuilt,
+named individually rather than counted because an earlier version of this sentence undercounted
+it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check, both decided as a
+plan further down rather than built; the three named corpus cases (a filter on a remote dimension
+with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys), none of
+which is in the corpus yet; the corpus itself, which is code today rather than the files this
+record specifies; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is not yet
+bound to the packs.
+
+**The limit, next to the claim, because the shape is further along than the coverage.** A case is a
+value in `crates/sutura-conformance/src/corpus.rs` rather than a file, so adding one is still a code
+change - *The corpus data is a file; cases are code* below is where that stands. **None of the three
+cases under *Cases the corpus must contain by name* is written**, and that module's own header says
+so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
+bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
+`corpus::posture()` returns `SourcePosture::SharedServiceUser` - which is the one to read before
+citing this record as evidence that a source executed as the asking subject. It is not. What a green
+conformance run does NOT establish is enumerated in that crate's own module header; this paragraph is
+not a substitute for it.
 
 The requirement is that every metadata input and every data adapter conforms to the **same tests and
 functions**, so a new connector proves itself by registering and declaring rather than by anyone
@@ -390,7 +411,7 @@ capability declaration without touching a pack body.
 - A new dev-only workspace crate holds the packs and the macro. It is never shipped, and it depends on
   the domain's ports rather than on any adapter.
 - **The harness duplication this would have extracted does not exist on this branch yet.** An earlier
-  draft cited `crates/sutura-cli/tests/federation.rs` and about ninety duplicated lines "at two
+  draft cited a `federation.rs` under `crates/sutura-cli/tests` and about ninety duplicated lines "at two
   corpora, so this is the third". That file is not here - `crates/sutura-cli/tests` holds `example.rs`
   and its snapshots - and the claim came from a branch that was never merged. What is true: the golden
   and refusal corpora in `sutura-app/tests` are the first corpora, and the shared module is therefore
@@ -407,7 +428,7 @@ capability declaration without touching a pack body.
 - The existing `tests/adapters` registry becomes the place an adapter is registered for the matrix,
   and the macro invocation is what registers it for the packs. One registration, not two - **and as
   built it was two, with nothing relating them.** A data system is named in
-  `crates/sutura-app/tests/adapters/mod.rs` and bound again in its own crate's
+  `crates/sutura-app/tests/adapters/adapters.rs` and bound again in its own crate's
   `tests/conformance.rs`, and no gate compared the two lists: deleting a binding left every check
   green.
 

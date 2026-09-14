@@ -18,8 +18,8 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. `422` - where four of them land -
-//! is documented the other way round: "Clients that receive a `422` response should expect that
+//! convention are `429` and `408`, and no refusal maps to either. 6 refusal reasons land on `422`,
+//! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
 //! **What the `200` actually cost is what nobody priced.** A refusal answered `200` is
@@ -187,7 +187,21 @@ const TAG: &str = "query";
                            carries the limit.",
             body = OutcomeBody
         ),
-        (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
+        (
+            status = 429,
+            description = "TWO THINGS, and `code` tells them apart - and they do not share a body \
+                           shape, so `body` below names only one of them. `rate_limited`: too many \
+                           requests from this address - that body carries no detail and is this \
+                           row's `ProblemBody`. `budget_exhausted` (`outcome: refusal`, the \
+                           `422` row's `OutcomeBody` shape instead): the asking subject has spent \
+                           this deployment's per-replica byte ceiling for the current window - \
+                           `Retry-After` names the seconds until it resets, and the SAME question \
+                           asked again after that is USUALLY answered rather than refused, unlike \
+                           every other refusal on this route - unless that question's own estimate \
+                           is itself over the ceiling, in which case it is refused every window and \
+                           narrowing it is the only remedy.",
+            body = crate::problem::ProblemBody
+        ),
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,

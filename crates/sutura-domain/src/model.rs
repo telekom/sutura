@@ -114,8 +114,24 @@ const MAX_IDENTIFIER_LEN: usize = 63;
 
 /// Why a name was rejected.
 ///
-/// The variants carry the offending input as typed fields rather than a formatted sentence: the
-/// variant is the contract and the `#[error]` text is a convenience for a human.
+/// **No variant carries the rejected input, and that is a control rather than a style choice.**
+/// This is a leaf error raised by one parser that cannot know who reads it, and both transports
+/// render a malformed question by walking its whole cause chain into a message the caller gets
+/// back - an RFC 7807 `detail` on the HTTP surface, `invalid_params` in an agent's context on the
+/// agent one. An input echoed here is therefore an input reflected there, and the character set
+/// that rejected it is no bound on it: `parse_name` checks the character set BEFORE the length,
+/// so the two variants a non-name reaches admit any byte at any length, and [`Self::TooLong`] held
+/// the whole of an input it had measured only against the limit that input broke.
+///
+/// What each variant carries is the diagnosis and not the evidence - which rule was broken, the one
+/// offending character, the measured length against the limit. A reader who needs the input names it
+/// themselves, and every wrapper of this error over text that did not ship inside this repository
+/// already does, because a wrapper knows whose text it holds and this parser does not:
+/// `RdbmsError::ColumnName` names the column it read from a dictionary, and
+/// [`crate::question::MalformedQuestion`] names the request field and deliberately not its value.
+/// Three wrappers over text that DID ship inside this repository carry neither, because whoever
+/// reads one already has the file: `PostgresError::InvalidColumnName`'s CSV fixture,
+/// `FixtureNotUsable::Header`'s `BigQuery` fixture, and `sutura-conformance`'s `FixtureError::Names`.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidIdentifier {
     /// Empty or whitespace-only. An unnamed column is a modelling mistake, not a wildcard.
@@ -123,16 +139,16 @@ pub enum InvalidIdentifier {
     Empty,
     /// Starts with something other than a letter or underscore. A leading digit is legal in some
     /// dialects and not others, so accepting it would make a model portable by luck.
-    #[error("a name must start with a letter or underscore: {value:?} starts with {first:?}")]
-    BadFirstCharacter { value: String, first: char },
+    #[error("a name must start with a letter or underscore, and this one starts with {first:?}")]
+    BadFirstCharacter { first: char },
     /// Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the
     /// one worth reporting: a message naming all of them tells the reader less.
-    #[error("a name may contain only letters, digits and underscore: {value:?} contains {offending:?}")]
-    IllegalCharacter { value: String, offending: char },
+    #[error("a name may contain only letters, digits and underscore, and this one contains {offending:?}")]
+    IllegalCharacter { offending: char },
     /// Longer than a target data system will keep. The limit is 63 characters, the tightest among
     /// the data systems targeted here.
-    #[error("a name may be at most {limit} characters, {value:?} has {len}")]
-    TooLong { value: String, len: usize, limit: usize },
+    #[error("a name may be at most {limit} characters, and this one has {len}")]
+    TooLong { len: usize, limit: usize },
     /// Ends in a hyphen.
     ///
     /// **Only [`Hyphens::Allowed`] can produce this**, and there is exactly one name shape in this
@@ -143,8 +159,8 @@ pub enum InvalidIdentifier {
     /// Its own variant rather than folded into `IllegalCharacter`, because the offending character
     /// is legal *elsewhere in the same name*: reporting `-` as illegal in `my-project-` would be a
     /// message the parse of `my-project` contradicts.
-    #[error("a name must not end in a hyphen: {value:?} does")]
-    TrailingHyphen { value: String },
+    #[error("a name must not end in a hyphen, and this one does")]
+    TrailingHyphen,
 }
 
 /// Whether a hyphen is a character this name may contain.
@@ -206,29 +222,20 @@ pub(crate) fn parse_name(raw: &str, hyphens: Hyphens) -> Result<String, InvalidI
         return Err(InvalidIdentifier::Empty);
     };
     if !(first.is_ascii_alphabetic() || first == '_') {
-        return Err(InvalidIdentifier::BadFirstCharacter {
-            value: String::from(trimmed),
-            first,
-        });
+        return Err(InvalidIdentifier::BadFirstCharacter { first });
     }
     if let Some(offending) = trimmed.chars().find(|c| !hyphens.admits(*c)) {
-        return Err(InvalidIdentifier::IllegalCharacter {
-            value: String::from(trimmed),
-            offending,
-        });
+        return Err(InvalidIdentifier::IllegalCharacter { offending });
     }
     // After the character set, because a hyphen at the end of something that is not a name at all is
     // the less useful thing to report. Unreachable under `Hyphens::Rejected`, where the check above
     // has already refused every hyphen.
     if trimmed.ends_with('-') {
-        return Err(InvalidIdentifier::TrailingHyphen {
-            value: String::from(trimmed),
-        });
+        return Err(InvalidIdentifier::TrailingHyphen);
     }
     // Every character is ASCII by now, so byte length is character length.
     if trimmed.len() > MAX_IDENTIFIER_LEN {
         return Err(InvalidIdentifier::TooLong {
-            value: String::from(trimmed),
             len: trimmed.len(),
             limit: MAX_IDENTIFIER_LEN,
         });
@@ -476,10 +483,7 @@ mod tests {
         // that can carry a quote can end the quoting and start being syntax.
         assert_eq!(
             ColumnName::parse("a\"; DROP TABLE t; --").unwrap_err(),
-            InvalidIdentifier::IllegalCharacter {
-                value: String::from("a\"; DROP TABLE t; --"),
-                offending: '"',
-            }
+            InvalidIdentifier::IllegalCharacter { offending: '"' }
         );
     }
 
@@ -489,10 +493,7 @@ mod tests {
         // let a caller name a table the model never declared.
         assert_eq!(
             ColumnName::parse("orders.amount").unwrap_err(),
-            InvalidIdentifier::IllegalCharacter {
-                value: String::from("orders.amount"),
-                offending: '.',
-            }
+            InvalidIdentifier::IllegalCharacter { offending: '.' }
         );
     }
 
@@ -501,10 +502,7 @@ mod tests {
         // Legal in ClickHouse, not in Postgres. Accepting it makes a model portable by luck.
         assert_eq!(
             ModelName::parse("1st_orders").unwrap_err(),
-            InvalidIdentifier::BadFirstCharacter {
-                value: String::from("1st_orders"),
-                first: '1',
-            }
+            InvalidIdentifier::BadFirstCharacter { first: '1' }
         );
     }
 
@@ -516,9 +514,8 @@ mod tests {
         assert_eq!(
             MetricName::parse(&long).unwrap_err(),
             InvalidIdentifier::TooLong {
-                value: long.clone(),
                 len: long.len(),
-                limit: MAX_IDENTIFIER_LEN,
+                limit: MAX_IDENTIFIER_LEN
             }
         );
         drop(MetricName::parse("a".repeat(MAX_IDENTIFIER_LEN)).expect("exactly the limit is fine"));
@@ -557,10 +554,7 @@ mod tests {
         // The macro exists for this: the resolver treats these names interchangeably, so a parser
         // that differed for one of them would be a bug visible only through that one.
         let bad = "a b";
-        let expected = InvalidIdentifier::IllegalCharacter {
-            value: String::from(bad),
-            offending: ' ',
-        };
+        let expected = InvalidIdentifier::IllegalCharacter { offending: ' ' };
         assert_eq!(ModelName::parse(bad).unwrap_err(), expected);
         assert_eq!(TableName::parse(bad).unwrap_err(), expected);
         assert_eq!(ColumnName::parse(bad).unwrap_err(), expected);

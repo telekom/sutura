@@ -31,8 +31,8 @@ pinned bundle, or from a file an operator named.
 | A refusal is an answer, not an error                   | Every `RefusalReason` variant, with what it means and what to change. The most load-bearing section in the document                                                                                                                       |
 | Terms this deployment records as NOT defined           | **The pinned bundle's knowledge**, `not_defined` kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing |
 | The bounds a question is held to                       | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS` and `MAX_ROWS`, read from the code rather than typed                                                                                                                                                   |
-| What this surface has no field for                     | Fixed text, and deliberately short - see below                                                                                                                                                                                            |
-| The operations you have                                | **The tool list**, rendered from the same slice the workflow was composed from                                                                                                                                                            |
+| What this surface has no field for                     | Fixed text, and deliberately short - see below. Gains one sentence, only where a deployment turned on `docs/adr/0013`'s raw SQL tool, pointing at the exception rather than leaving the fixed text to contradict the operations list      |
+| The operations you have                                | **The tool list**, rendered from the same slice the workflow was composed from. `run_sql` appears here, framed as ungoverned and never as certified, only where a deployment set `tools.run_sql.enabled: true` - see below                |
 | What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from                                                                |
 | The words a question may arrive in                     | **The pinned bundle's knowledge**, `glossary` kind. Rendered so the *agent* does the resolving; there is no field on a question a phrase fits in                                                                                          |
 | Physical structure is not a certified metric           | **The pinned definitions.** Present only when the bundle has models and has no metrics; it explains authored prose and the semantic promotion path without exposing a table or column name                                                |
@@ -54,14 +54,23 @@ rather than the first.
 
 ## What it deliberately does not say
 
-**Nothing about composing SQL.** The reference implementation this design is modelled on spends most
-of its length teaching an agent to write SQL against semantic model names, to avoid raw database
-tables, and to dry-plan a complex statement before running it. None of that transfers. A question
-here names a metric, a grain, a bounded period, up to four dimensions and equality filters over
-declared values, and there is no field for anything else - so the guidance would teach an agent to
-attempt something the surface refuses by construction. What replaces it is one short section saying
-the field does not exist and that there is no way to widen it. A long section about what is absent
-would hand an agent a long list of things to try.
+**Nothing about composing SQL against the certified surface.** The reference implementation this
+design is modelled on spends most of its length teaching an agent to write SQL against semantic
+model names, to avoid raw database tables, and to dry-plan a complex statement before running it.
+None of that transfers to `query`: a question there names a metric, a grain, a bounded period, up to
+four dimensions and equality filters over declared values, and there is no field for anything else -
+so the guidance would teach an agent to attempt something that surface refuses by construction. What
+replaces it is one short section saying the field does not exist and that there is no way to widen
+it. A long section about what is absent would hand an agent a long list of things to try.
+
+**The one deliberate exception.** Where a deployment turned on `docs/adr/0013`'s off-by-default
+`run_sql` tool, the document DOES say something about SQL: one paragraph under "The operations you
+have", framed as ungoverned - it runs under the deployment's own role, never the caller's, and its
+result carries no provenance of the kind a `query` answer carries. It is never framed as certified,
+in either direction. "What this surface has no field for" gains one sentence pointing at this
+exception rather than staying silent about it, because a document that both said "there is no way in"
+and separately advertised `run_sql` would be internally inconsistent - worse than either sentence
+alone.
 
 **No column, table, model or measure expression.** Of what a metric *is*, the prompt renders what
 `GET /v1/catalog` renders and no further field: a caller needs a metric's name, prose, grains,

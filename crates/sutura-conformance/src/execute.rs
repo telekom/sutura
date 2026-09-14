@@ -23,6 +23,11 @@
 //! - **Which error an adapter refused with.** `Self::Error` is the adapter's own type, so a pack
 //!   sees only that a call failed. [`a_leg_is_refused`] is written around that limit rather than
 //!   through it - see its own doc.
+//! - **That `BigQueryWarehouse`'s real endpoint prices a dry run correctly.** It is the only
+//!   adapter declaring `Warehouse::PRICES_DRY_RUN` true, and it has no [`crate::execute_packs`]
+//!   binding (`telekom/sutura#618`), so [`a_preflight_that_accepts_is_followed_by_an_answer`]'s new
+//!   estimate check never runs against it - only against the three adapters that always declare
+//!   `false` and always answer `None`.
 
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
@@ -142,9 +147,16 @@ where
 /// **An adapter that answers [`PreFlight::NotAsked`] DECLINES this behaviour**, and the declination
 /// is the honest reading rather than a pass: nothing was checked, so nothing about the check has
 /// been established. The limit worth stating next to it - the declination is observed at run time
-/// rather than read off a typed declaration, because the port has no capability constant for a
-/// pre-flight the way it has one for a leg. Where that constant exists the pack would select on it
-/// and a mismatched declaration would not build.
+/// rather than read off a typed declaration, because the port has no capability constant for
+/// WHETHER a pre-flight happens the way it has one for a leg. Where that constant exists the pack
+/// would select on it and a mismatched declaration would not build.
+///
+/// **What an accepted pre-flight's estimate carries IS read off a typed declaration**:
+/// [`Warehouse::PRICES_DRY_RUN`]. An adapter that declares `false` and answers `Some(_)`, or
+/// declares `true` and answers `None`, is [`Fault::EstimateDisagreesWithCapability`] rather than a
+/// silent pass - closing the gap [`Warehouse::PRICES_DRY_RUN`]'s own doc names, that nothing used to
+/// require this port's `None`-vs-`Some(0)` distinction to mean what it says for any adapter this
+/// pack binds.
 pub fn a_preflight_that_accepts_is_followed_by_an_answer<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
@@ -160,9 +172,14 @@ where
             })?;
         match checked {
             PreFlight::NotAsked => {}
-            // The estimate is not this pack's business: what is under test here is that a pre-flight
-            // and an execution cannot disagree about what an adapter accepts, not what either priced.
-            PreFlight::Accepted { .. } => {
+            PreFlight::Accepted { estimated_bytes } => {
+                if estimated_bytes.is_some() != W::PRICES_DRY_RUN {
+                    return Err(Fault::EstimateDisagreesWithCapability {
+                        case: case.name(),
+                        prices_dry_run: W::PRICES_DRY_RUN,
+                        estimated_bytes,
+                    });
+                }
                 accepted = accepted.saturating_add(1);
                 warehouse
                     .execute(executable, &corpus::presented(), corpus::deadline())
@@ -233,7 +250,7 @@ where
 /// [`crate::Fault::EmptyCorpus`] is what stops this behaviour being green over nothing - the guard
 /// [`crate::census`] provides for every other behaviour and the one place it is a `Fault` instead -
 /// and with the corpus reached through [`corpus::cases`] alone no fake could empty it, so the
-/// variant was unprovokable and the claim *every fault is provoked* was seven of eight.
+/// variant was unprovokable and the claim *every fault is provoked* was eight of nine.
 ///
 /// It is the beginning of what a file-backed corpus needs anyway: a corpus the pack is handed
 /// rather than one it calls. Every other behaviour still reads [`corpus::cases`] directly, so this

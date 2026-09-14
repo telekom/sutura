@@ -18,13 +18,16 @@ sentence below - *"the `403`s are not a statement about a credential"* - stopped
 that sentence is, and the status table below carries the new row. A review is what found this record
 unamended while the code that amended it had already merged.
 
-**Prospectively amended by [Where a budget lives](0030-where-a-budget-lives.md), ahead of the code
-that will land it.** The Context sentence below - *"the two \[statuses retried by convention, `429`
-and `408`\] and no refusal maps to either"* - and `crates/sutura-http/src/wire/refusal.rs`'s own
-header comment, which repeats it, both stop being true the day `feat/budget-refusal` lands a spent
-budget as a `RefusalReason` at `429`. 0030 decides the status now; this record and `refusal.rs`'s
-header get their own edit - a status-table row and a rewritten sentence, not this note - in the
-commit that lands the variant.
+**Amended by [Where a budget lives](0030-where-a-budget-lives.md).** The Context sentence below used
+to say *"the two \[statuses retried by convention, `429` and `408`\] and no refusal maps to either"* -
+false as of `RefusalReason::BudgetExhausted`, the first refusal in this enum that maps to `429`
+because it is the first one that USUALLY self-heals: the same question asked again after the window
+this counter tracks rolls over is usually a different answer, which is exactly what `429`'s retry
+convention states and what every other row in the table below does not have. The exception is a
+question whose own estimate is over the ceiling by itself - that one is refused every window,
+forever, and only narrowing it helps; `crates/sutura-http/src/wire/refusal.rs`'s own header comment,
+which used to repeat the unqualified sentence, is amended in the same commit. The status table below
+carries the new row.
 
 ## Context
 
@@ -51,18 +54,41 @@ checked against the current documentation of four:
 | Go `net/http`                                                   | The `Client`, `Transport` and `RoundTripper` reference documents no status-driven retry at all                                                                                                                                                 |
 
 Nothing mainstream retries a `4xx` by default. The two statuses retried by convention are `429` and
-`408`, and no refusal maps to either. `422`, where the refusals that ask a caller to narrow the
-question land - `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`,
-`duplicate_dimension` and `resources_exhausted` - is documented the other way round from the premise:
-clients receiving a `422` "should expect that repeating the request without modification will fail
-with the same error".
+`408`, and at the time this record was written no refusal mapped to either. **Amended by
+[0030](0030-where-a-budget-lives.md): one now does.** `budget_exhausted` is `429` precisely because it
+is USUALLY the one refusal here that self-heals - the same question asked again after its window
+resets is usually a different answer, which is what a `429`'s retry convention states and no other
+row in this enum's table can say. The exception is stated where the row itself is: a question priced
+over the ceiling by itself never self-heals by waiting. `422`, where the refusals that ask a caller
+to narrow the question land - `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`,
+`duplicate_dimension`, `resources_exhausted` and `deadline_exceeded` - is documented the other way
+round from the premise: clients receiving a `422` "should expect that repeating the request without
+modification will fail with the same error".
 
-**Corrected:** this said *"four of the eleven refusal codes"*. Both numbers had gone stale - the
-codes are named rather than counted now, because nothing in this repository derives either number
-and a count nobody derives is a count that goes stale again. `crates/sutura-http/src/wire/refusal.rs`
-still carries the same stale figure in two of its own comments; correcting them is held against the
-entry in `check-guidance`'s contradicted-claims table that currently keys on one of them, so the two
-have to move in the same change as that table and did not move here.
+**Corrected twice, and the second correction is a mechanism rather than another hand-fix.** This said
+*"four of the eleven refusal codes"*, was corrected to five by a `CONTRADICTED` entry that registered
+the figure as prose, and went stale AGAIN under two hours later when the deadline refusal arrived as a
+sixth arm of the same match - documented at length in `github.com/telekom/sutura#603`, `#670` and
+`#676`, the last of which measured the registered entry itself as the fourth stale site. The entry
+that registered "five" is deleted rather than corrected to "six": `xtask/src/guidance/claims/counts.rs`
+now holds a `Counted` entry that derives the number from `StatusCode::UNPROCESSABLE_ENTITY` occurrences
+in `refusal.rs`'s exhaustive match - truncated at `#[cfg(test)]` so the fixture that repeats the
+literal once per case does not inflate the count - and refuses `check-guidance` if any of four
+registered sites disagrees with it: `docs/serving.md`, `refusal.rs`'s own two comments, and
+`routes/v1/query.rs`. `check-guidance`'s claim scope is `md`, `nix`, `yml`, `yaml`, `toml` and `sh`,
+which is why the first two are read as `mentioned_in` and the two `.rs` sites need `also_stated_in` -
+an explicit, narrowly-named exception to that scope rather than a widening of it, because a `Counted`
+marker carries no forbidden sentence the way a `CONTRADICTED` wording would.
+
+**The residual this correction narrows rather than closes.** The count is now compared to the tree
+that decides it, which the previous correction never did - `Evidence::stands` for a `CONTRADICTED`
+entry proves a comment is PRESENT, never that it is TRUE, and that gap is what let "five" stay
+registered while the code said six. It is closed for this one claim and stays open for every other
+`CONTRADICTED` entry in the table, each still keyed on a comment nothing compares to the code it
+describes - `github.com/telekom/sutura#603`'s own generalisable point. And the mechanism is a literal
+text match, not a compiler-checked count: a fifth site stating this number in different words, or a
+seventh arm reached through a macro or a re-export rather than a literal `StatusCode::UNPROCESSABLE_ENTITY`
+in this match, is not caught by it.
 
 **And the `200` cost something the argument never priced.** A governance refusal answered `200` is
 indistinguishable from an answer to everything that reads a status and not a body:
@@ -116,6 +142,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.
 | `SourceRefused`                 | `403`  | **Added after this record was accepted, when a data-source refusal became a class of its own, distinct from a transient failure.** The data system itself refused the statement, which is neither this deployment declining to answer nor the data system being down. `403` rather than `503`: retrying changes nothing, because the decision was made at the far end                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `LegsDecideIdentityDifferently` | `409`  | **Added after this record was accepted, with the rule that one answer's legs must decide identity the same way.** Two legs of one answer would run under different identity postures, so the answer is refused rather than combined and disclosed. The same grouping as the `409`s above and for the same reason: answerable in principle, and this deployment will not express it as one answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `DeadlineExceeded`              | `422`  | **Added by [0029](0029-where-a-deadline-lives.md).** This answer ran out of the time it was given - at the data system, or found already spent before it was ever asked. `422` under this record's own rule: the deployment decided the bound and the data system enforced it, so something WAS judged, and repeating the request unchanged spends the whole budget again. Not `503` or `408`, for the reasons `ResourcesExhausted` already established for a configured bound. The sentence names the configured budget in seconds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `BudgetExhausted`               | `429`  | **Added by [0030](0030-where-a-budget-lives.md), and the first row in this table that is not permanent.** The asking subject has spent more than this replica's per-window byte ceiling. Not `422`: that status's own rule is *narrowing helps and repeating does not*, and here narrowing USUALLY does not help and repeating usually **does**, once the window this replica tracks resets - which is what `429`'s retry convention states and no other row here can. The one exception: a question whose OWN estimate exceeds the ceiling by itself is refused every window, forever, and there `422`'s rule is the true one - narrowing is the only remedy and repeating never is. Not `403`: `CredentialUnavailable` and `SourceRefused` are permanent grants, and reusing their status would teach a caller that this deployment's `403` sometimes means "come back later". Carries the seconds until the window resets, which is also what `Retry-After` reports                                                                                                                                                                                                           |
 
 **Corrected:** the three rows above were missing while the exhaustive match in
 `sutura_http::wire::refusal` already decided all three, which made the claim above this table - *one

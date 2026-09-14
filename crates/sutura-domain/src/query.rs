@@ -478,6 +478,49 @@ pub enum RefusalReason {
     /// would have taken, which nobody knows, and not which leg spent it, which would tell a caller
     /// how a deployment's sources compare.
     DeadlineExceeded { budget_seconds: u64 },
+    /// The asking subject has spent more than this replica's configured byte ceiling inside the
+    /// current window.
+    ///
+    /// **The first refusal in this enum that self-heals, and `docs/adr/0030` is the record.** Every
+    /// other 4xx row here is permanent in the sense that matters to a client: the same question
+    /// refused now is refused again on an identical retry, because nothing about the refusal
+    /// changes with time. This one is not - the same question asked again after the window this
+    /// replica tracks rolls over is a different answer, because nothing about the question changed,
+    /// only that time passed. That is what `429` states and what `422`
+    /// ([`ResourcesExhausted`](RefusalReason::ResourcesExhausted), whose row says *narrowing helps
+    /// and repeating does not* - here narrowing does not help and repeating does) and `403`
+    /// ([`CredentialUnavailable`](RefusalReason::CredentialUnavailable),
+    /// [`SourceRefused`](RefusalReason::SourceRefused) - permanent grants) do not.
+    ///
+    /// **It amends `docs/adr/0005`**, whose Context section says "the two \[statuses retried by
+    /// convention, `429` and `408`\] and no refusal maps to either" - false from this variant on.
+    ///
+    /// **Keyed on the subject `PrincipalChain::attribution()` names, never the whole chain** - an
+    /// agent acting for a subject spends that subject's own budget, not one of its own, so a
+    /// caller's own retrying tool can exhaust the allowance their own next direct question needed.
+    /// The actor chain does not disappear: it travels on the audit record beside this refusal, which
+    /// is always written under the full chain regardless of outcome, so *whose* retry spent the
+    /// budget is answerable after the fact even though the counter did not key on it in advance.
+    ///
+    /// **The counter is per-replica, in-process, and this variant does not say otherwise.** A
+    /// deployment with N replicas gives N times the configured ceiling before every replica has
+    /// independently refused, and the counter resets on a restart in addition to its own window.
+    /// `governance.per_replica_spend_ceiling` is the settings key, named to say so.
+    ///
+    /// **What is summed to trigger it, and what is not.** The estimate is
+    /// [`crate::warehouse::PreFlight::Accepted`]'s own `estimated_bytes`, read after a dry run and
+    /// before `execute`; a federated answer sums both legs' `Some` estimates and checks the total
+    /// against the ceiling before either leg executes, so a two-source answer is refused
+    /// all-or-nothing rather than after one leg has already spent. An adapter whose dry run answers
+    /// `None` - every adapter but `BigQuery` today - counts nothing toward this ceiling, which is
+    /// stated as "not counted" rather than implied as "free": the ceiling governs only the spend
+    /// this deployment could price, not the spend that happened.
+    ///
+    /// Carries the seconds until this replica's window resets, the same reason
+    /// [`DeadlineExceeded`](RefusalReason::DeadlineExceeded) carries its budget: a number this
+    /// replica computed, the same meaning for every caller, safe in a log - and enough for a
+    /// transport to answer `Retry-After` with a fact rather than a guess.
+    BudgetExhausted { reset_after_seconds: u64 },
 }
 
 impl RefusalReason {
@@ -517,6 +560,7 @@ impl RefusalReason {
             Self::SourceRefused { .. } => "source_refused",
             Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
+            Self::BudgetExhausted { .. } => "budget_exhausted",
         }
     }
 }
@@ -626,10 +670,22 @@ impl ResponseByteLimit {
     ///
     /// **Unmeasured, and stated as such rather than dressed up as a derived cost.** 8 MiB is a
     /// round number, not a figure timed against `Outcome::from` building a wire body of that size -
-    /// no such measurement exists in this codebase yet. Lowering it trades headroom for encode
-    /// latency on the async executor thread the wire body is still built on after the blocking
-    /// closure returns; raising it trades the other way. Either direction is a decision the next
-    /// change to this constant should measure rather than guess at twice.
+    /// no such measurement exists in this codebase yet. Lowering it trades encode latency on the
+    /// async executor thread the wire body is still built on after the blocking closure returns;
+    /// raising it trades the other way. Either direction is a decision the next change to this
+    /// constant should measure rather than guess at twice.
+    ///
+    /// **What this bounds is the RENDERED text, and the wire body is up to six times larger.**
+    /// [`crate::warehouse::RowSet::new`] validates row WIDTH only, so a returned
+    /// [`crate::warehouse::Value::Text`] may hold C0 bytes that `serde_json` must escape as
+    /// `\u00XX` - six wire bytes for one rendered byte. Measured once, during review of the change
+    /// that added this constant: 1024 rendered bytes serialized as 6146 JSON bytes, a factor of
+    /// six. So 8 MiB here admits roughly 48 MiB of HTTP body, and on the agent surface that again
+    /// alongside it, because `sutura-mcp` sends a text block AND structured content built from the
+    /// same `OutcomeContent`. **Neither number is re-measured by any cell in this workspace** -
+    /// the factor is a worst case for one shape of value, recorded so that whoever next changes
+    /// this constant knows which side of the encode they are choosing, not a bound this type
+    /// enforces on a transport.
     pub const DEFAULT: Self = Self(8 * 1024 * 1024);
 
     /// Reads a byte ceiling.
@@ -846,6 +902,7 @@ mod tests {
                 postures: crate::source::SourcePosture::NAMES.iter().copied().collect(),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
+            RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         ]
     }
 

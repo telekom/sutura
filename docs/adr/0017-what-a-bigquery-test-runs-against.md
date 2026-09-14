@@ -177,7 +177,7 @@ for an environment reason on somebody else's machine.
 
 ## Consequences
 
-- The `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` gains **no** BigQuery entry.
+- The `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` gains **no** BigQuery entry.
   That registry's own rule is that an entry is something somebody could deploy, and a cell that cannot
   execute reads as coverage. The **dialect** axis gains one, unconditionally.
 - A developer who wants to try it against their own project needs the transport, which does not exist
@@ -624,7 +624,7 @@ rather than anything this repository can carry.
   **Corrected: `IMPERSONATION` is `PerSubjectCredential` now** - this leg's own credential is still
   one identity for everybody who asks, so the sentence's conclusion about THIS run survives; its
   premise about the constant does not.
-- **The `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` still gains no entry**, and
+- **The `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` still gains no entry**, and
   the *Consequences* below still hold on that point: a cell in that registry runs inside `just test`,
   and this cannot, because the nix sandbox has no network. The corpus leg is a second `#[ignore]`d
   integration target in the adapter's own crate, reached by the same app.
@@ -716,7 +716,7 @@ change moved row ORDER and nothing else.
 
 **What it still does not claim, and it is unchanged by the measurement.** `just validate`'s sandbox has
 no network, so the corpus leg compiles and is skipped there - a developer's terminal is not where this
-is decided, and the `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` still gains no
+is decided, and the `data_systems:` axis of `crates/sutura-app/tests/adapters/adapters.rs` still gains no
 entry for the reason the third amendment gives. `ClickHouse` and `Postgres` null placement is still
 answered by nothing: both are rendered and parse-checked and neither has ever executed, so their arm of
 the table above is read off documented behaviour rather than measured. And identity is untouched.

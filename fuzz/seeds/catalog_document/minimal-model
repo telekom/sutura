@@ -1,0 +1,8 @@
+---
+kind: model
+name: customers
+source: local
+table: dim_customer
+columns: [customer_key, segment]
+---
+One row per customer.

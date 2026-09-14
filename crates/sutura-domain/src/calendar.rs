@@ -46,16 +46,21 @@ pub struct Date {
 /// Each variant carries what was wrong as typed fields rather than a formatted sentence, and the
 /// numeric parse failure keeps its cause: a discarded cause is the difference between "the month is
 /// not a number" and knowing which character stopped it.
+///
+/// **None of them carries the rejected text**, for the reason
+/// [`crate::model::InvalidIdentifier`]'s own note gives in full: a caller's date string reaches
+/// this parser through [`crate::question::parse_query`], and both transports render that failure by
+/// walking its cause chain into a message the caller reads. A date is not an identifier and has no
+/// character set to be bounded by, so the layout it failed is the whole of what is worth saying.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidDate {
     /// Not `YYYY-MM-DD`. Exactly one layout is accepted, because a parser that guesses between
     /// `03-04-2026` and `2026-04-03` guesses wrong for half the world.
-    #[error("a date must be written YYYY-MM-DD: {value:?}")]
-    Malformed { value: String },
+    #[error("a date must be written YYYY-MM-DD")]
+    Malformed,
     /// A component was not a number at all.
-    #[error("the {component} in {value:?} is not a number")]
+    #[error("the {component} is not a number")]
     NotANumber {
-        value: String,
         component: &'static str,
         #[source]
         cause: core::num::ParseIntError,
@@ -132,22 +137,16 @@ impl Date {
         let raw = raw.as_ref().trim();
         let mut parts = raw.split('-');
         let (Some(y), Some(m), Some(d), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
-            return Err(InvalidDate::Malformed {
-                value: String::from(raw),
-            });
+            return Err(InvalidDate::Malformed);
         };
         if y.len() != 4 || m.len() != 2 || d.len() != 2 {
-            return Err(InvalidDate::Malformed {
-                value: String::from(raw),
-            });
+            return Err(InvalidDate::Malformed);
         }
         // A layout error, not a number that came out wrong, which is why it is `Malformed` and not
         // `NotANumber`: `+026` is not a four-digit year written badly, it is three digits and a
         // sign in a field that has room for four digits.
         if !(is_all_ascii_digits(y) && is_all_ascii_digits(m) && is_all_ascii_digits(d)) {
-            return Err(InvalidDate::Malformed {
-                value: String::from(raw),
-            });
+            return Err(InvalidDate::Malformed);
         }
         // Parsed straight into the target width rather than through a wider type: four digits
         // cannot exceed `i16::MAX` and two cannot exceed `u8::MAX`, so there is no narrowing
@@ -159,20 +158,16 @@ impl Date {
         // and both ways of not handling one are banned in this workspace: `map_err(|_| ..)` throws
         // away the cause and `expect` is a panic path reachable from a catalog file.
         let year = y.parse::<i16>().map_err(|cause| InvalidDate::NotANumber {
-            value: String::from(raw),
             component: "year",
             cause,
         })?;
         let month = m.parse::<u8>().map_err(|cause| InvalidDate::NotANumber {
-            value: String::from(raw),
             component: "month",
             cause,
         })?;
-        let day = d.parse::<u8>().map_err(|cause| InvalidDate::NotANumber {
-            value: String::from(raw),
-            component: "day",
-            cause,
-        })?;
+        let day = d
+            .parse::<u8>()
+            .map_err(|cause| InvalidDate::NotANumber { component: "day", cause })?;
         Self::new(year, month, day)
     }
 
@@ -478,34 +473,14 @@ mod tests {
         // The bug this prevents: accepting `26-06-01` and reading the year as 26 puts the date two
         // thousand years off, and every bounded predicate built from it silently matches nothing,
         // which reads as "there is no data" rather than as a mistake.
-        assert_eq!(
-            Date::parse("26-06-01").unwrap_err(),
-            InvalidDate::Malformed {
-                value: String::from("26-06-01")
-            }
-        );
-        assert_eq!(
-            Date::parse("2026-6-1").unwrap_err(),
-            InvalidDate::Malformed {
-                value: String::from("2026-6-1")
-            }
-        );
+        assert_eq!(Date::parse("26-06-01").unwrap_err(), InvalidDate::Malformed);
+        assert_eq!(Date::parse("2026-6-1").unwrap_err(), InvalidDate::Malformed);
         // And the form that defeated the width check while satisfying it. `i16::from_str` and
         // `u8::from_str` accept a leading `+`, so `+026` is four bytes wide and parses as 26: the
         // sign padded the field out to the width instead of a digit, and the caller got a bounded
         // range two thousand years in the past that every predicate matches nothing in.
-        assert_eq!(
-            Date::parse("+026-06-01").unwrap_err(),
-            InvalidDate::Malformed {
-                value: String::from("+026-06-01")
-            }
-        );
-        assert_eq!(
-            Date::parse("2026-+6-+1").unwrap_err(),
-            InvalidDate::Malformed {
-                value: String::from("2026-+6-+1")
-            }
-        );
+        assert_eq!(Date::parse("+026-06-01").unwrap_err(), InvalidDate::Malformed);
+        assert_eq!(Date::parse("2026-+6-+1").unwrap_err(), InvalidDate::Malformed);
     }
 
     #[test]
@@ -513,12 +488,7 @@ mod tests {
         // Fixed widths are what stop `-` reaching the number parser. Without them `2026--6-01`
         // would parse a negative month and only fail later, in a range check that reports the wrong
         // thing.
-        assert_eq!(
-            Date::parse("2026--6-01").unwrap_err(),
-            InvalidDate::Malformed {
-                value: String::from("2026--6-01")
-            }
-        );
+        assert_eq!(Date::parse("2026--6-01").unwrap_err(), InvalidDate::Malformed);
     }
 
     #[test]
@@ -526,13 +496,13 @@ mod tests {
         // Dates reach the statement as bind parameters, but they are parsed here first: a type that
         // accepted arbitrary text would leave the parameterisation as the only defence, and then a
         // single generator that forgot to bind would be an injection.
-        drop(Date::parse("2026-06-01' OR '1'='1").expect_err("a quote must not survive into a date"));
-        drop(Date::parse("").expect_err("empty is not a date"));
+        Date::parse("2026-06-01' OR '1'='1").expect_err("a quote must not survive into a date");
+        Date::parse("").expect_err("empty is not a date");
         // A layout error rather than a number that came out wrong: nothing but ASCII digits reaches
         // the number parser, so `20xx` is refused by shape and the variant says so.
         let malformed = Date::parse("20xx-06-01").expect_err("letters are not a year");
         assert!(
-            matches!(malformed, InvalidDate::Malformed { .. }),
+            matches!(malformed, InvalidDate::Malformed),
             "letters must be refused by layout, not by the number parser: {malformed:?}"
         );
     }
@@ -543,13 +513,7 @@ mod tests {
         // layout error. `NotANumber` is therefore unreachable through `parse` by construction -
         // which is the point of the digit gate, not an oversight in it.
         for raw in ["2026-ab-01", "20xx-06-01", "+026-06-01", "2026-+6-01", "2026-06-+1"] {
-            assert_eq!(
-                Date::parse(raw).expect_err("not digits"),
-                InvalidDate::Malformed {
-                    value: String::from(raw)
-                },
-                "{raw}"
-            );
+            assert_eq!(Date::parse(raw).expect_err("not digits"), InvalidDate::Malformed, "{raw}");
         }
         // The variant survives anyway, because `from_str` still returns a `Result` and neither
         // `map_err(|_| ..)` nor `expect` is allowed to absorb one here. This asserts the half of it
@@ -557,7 +521,6 @@ mod tests {
         // cannot be dropped from the field without a failure here.
         let cause = "ab".parse::<u8>().expect_err("letters are not a number");
         let err = InvalidDate::NotANumber {
-            value: String::from("2026-ab-01"),
             component: "month",
             cause,
         };
@@ -582,7 +545,7 @@ mod tests {
             Date::new(2026, 13, 1).unwrap_err(),
             InvalidDate::MonthOutOfRange { month: 13 }
         );
-        drop(Date::new(2026, 6, 0).expect_err("there is no zeroth of June"));
+        Date::new(2026, 6, 0).expect_err("there is no zeroth of June");
     }
 
     #[test]
@@ -604,9 +567,9 @@ mod tests {
                 .day(),
             29
         );
-        drop(Date::new(1900, 2, 29).expect_err("1900 is not a leap year"));
-        drop(Date::new(2100, 2, 29).expect_err("2100 is not a leap year"));
-        drop(Date::new(2026, 2, 29).expect_err("2026 is not a leap year"));
+        Date::new(1900, 2, 29).expect_err("1900 is not a leap year");
+        Date::new(2100, 2, 29).expect_err("2100 is not a leap year");
+        Date::new(2026, 2, 29).expect_err("2026 is not a leap year");
     }
 
     #[test]
@@ -677,8 +640,8 @@ mod tests {
     fn a_day_number_outside_the_year_range_is_rejected_rather_than_wrapping() {
         // The loop is bounded by YEAR_RANGE, so an absurd day count is an error rather than a very
         // long wait or a wrapped year.
-        drop(Date::from_days_since_epoch(i32::MAX).expect_err("year 5 million is not a year"));
-        drop(Date::from_days_since_epoch(i32::MIN).expect_err("neither is its negative"));
+        Date::from_days_since_epoch(i32::MAX).expect_err("year 5 million is not a year");
+        Date::from_days_since_epoch(i32::MIN).expect_err("neither is its negative");
     }
 
     #[test]

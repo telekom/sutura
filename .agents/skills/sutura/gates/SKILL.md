@@ -102,8 +102,16 @@ Registration has headroom again. `TASKS` lives in `xtask/src/task_table.rs` sinc
 `max-lines` enforces - a cap `crates/` and `xtask/` cannot be exempted from, because
 `UNEXEMPTABLE_PREFIXES` is exactly those two. **No line count is repeated here**, because a
 measurement copied into prose rots: three files carried 999 against a tree measuring 992. `just
-hygiene` reports the cap's verdict, and it is the only current answer. **What it does not report is
-how close any file is to refusing**, so the next near-cap file is as invisible as that one was.
+hygiene` reports the cap's verdict, and it is the only current answer. **Its `ok` line also names
+the files closest to the cap and how much each has left** - `github.com/telekom/sutura#626`, filed
+because a binary gate says nothing until it refuses, so the next near-cap file was as invisible as
+that one had been. A READOUT AND NOT A WARNING: nothing fails or warns below the cap, and the
+figures are computed on every run instead of written here. The defect recurred while that readout
+was being built - a six-line test fixture took `crates/sutura-exec-datafusion/src/lib.rs` over the
+cap, refusing a commit mid-slice, and counted at `a96440c8` THREE files were tighter than it was.
+That is why the readout names five rather than one, and it is a count at a named commit rather than
+a rank for the reason #626's own correction gives: a rank is a function of every other file's
+length, so it rots without anything editing the file it describes.
 
 **And when a new gate reads `flake.nix` for a name, LEX it - do not search the text.** `flake.nix`
 declares `apps.<name>` and `checks.<name>` for overlapping sets of names, so *does the file mention
@@ -437,10 +445,17 @@ panic-free.
   glob, and the check holds nothing when no page states the value. The count was in that state
   after the router rewrite carried the invariants table out of `AGENTS.md` and its `mentioned_in`
   list stayed behind. **A glob matching nothing was already a failure**; what is new is that a
-  value no page states is a failure too, so the comparison cannot run over an empty set. The other
+  value no page states is a failure too, so the comparison cannot run over an empty set. Another
   silent-green mode is granularity: an entry counting FILES over a literal that can repeat inside
   one is right only by coincidence, which is why each entry declares files or occurrences rather
-  than inheriting a default.
+  than inheriting a default. A third is scope: an entry whose `mentioned_in` names one path rather
+  than the shared doc/config glob only reads that file, so the exact registered wording restated
+  anywhere else escapes it - measured as `check-guidance: ok` against a planted duplicate before
+  the glob was widened. A fourth is the `stop_before` boundary a fixture-heavy file needs: it cuts
+  text, not tokens, so a second occurrence of the same marker earlier in the file - inside a doc
+  comment explaining the mechanism, say - truncates there instead. That one fails LOUD rather than
+  silent, which is the design's own case for it: cutting to zero trips the zero-count floor and
+  cutting mid-file trips the mismatch, so the wrong boundary is a red run, not a quiet one.
 - **THE VERSION SHAPE WAS THAT SAME CHECK AND IS GONE, because it REQUIRED the copy it was
   guarding.** One pin, the compiler, compared against every page naming `rust-toolchain.toml`
   beside a version - so its vacuity arm demanded that some page state one, and for a while SIX
@@ -466,12 +481,29 @@ panic-free.
   rest - because a measurement beside the name of the thing it was measured on is exactly the
   content this check protects, and no file holds a measurement. Measured, that retreat spares TWO
   lines in the whole tree, and both are inside `UNITS`' own doc comment - so it costs no refusal
-  over any prose a person wrote. **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
+  over any prose a person wrote. **A PRINTED FLOAT is not one either, and that retreat was a
+  measured false positive of the check as it merged:** a round-trip artefact has no unit for the
+  rule above to spare it by, and the token reader strips a possessive, so the name of the engine
+  is adjacent in ordinary prose - *rather than duckdb's 0.30000000000000004* was refused as a
+  version of a thing that has never had one. It is keyed on a field WIDER than an `f64` carries
+  significant digits, because such a decimal was printed rather than chosen; the widest field any
+  version in this workspace's lock carries is five digits. **A SHORT decimal beside a pinned name
+  is still refused and that is deliberate** - a rendered `0.3` and a version `0.3` are the same
+  bytes, no text rule separates them, and the remedy is a word between the two or a unit after the
+  figure. Both halves are pinned by a test, so widening either one is a red rather than a hole.
+  **And the harvest reaches NAMES, not every spelling of a pinned thing:** it reads
   dependency keys, flake inputs, `apps.<name>`, pixi dependency tables, compose image names and
   the `nix/` module basenames, so **a tool named only as a nix CHECK is outside all six** -
   `checks.nextest` is not `apps.nextest`, and nine transcriptions of nextest's version survived
   the branch's first sweep until they were removed by hand. **So the gate is a ratchet, not a
   proof that no copy is left**, and a green run means no copy the harvest can SEE.
+  **One uncompared claim has FOUR carriers, and only the first is refusable by a text scan:**
+  the version itself, the qualifier *the pinned X*, the TENSE - `reads` asserts a standing
+  property where the measurement was one observation - and *at the resolved version*. Each
+  says *this is true of what is pinned now* and nothing compares any of them, so removing
+  only the digits moves the claim rather than settling it. Keep a currency claim in any of
+  the four shapes only where a measurement was taken against what is pinned NOW; otherwise
+  state what was observed, and date it.
   **The trailing tag on a SHA-pinned action is out of scope by OWNER DECISION - dependabot
   maintains its own tags - and nobody here reproduced what dependabot writes.** It is implemented
   structurally, by a `#` breaking adjacency rather than by a list of those lines, so the exclusion
@@ -653,9 +685,15 @@ panic-free.
   silence. The cause was `if let Ok(entries) = read_dir(..)` plus `.flatten()` on the `ReadDir`:
   two silent drops in the DOOR into the tree, one level below every count. **Ask which arm
   DISCOVERS the subject, and read that one before believing any pair of numbers above it.** The
-  same shape is live in `repo.rs`' three shared walkers (`all_files`, `collect_files`,
-  `collect_text_files`, 25 production call sites), where `chmod 000 docs/adr` - the directory
-  holding the ADR this gate's own remedies cite - is still exit 0 and silent.
+  same shape was live one level below, in `repo.rs`' shared walkers, and **the remedy was made
+  there rather than per gate**: every door returns a `Census` and the walk RECORDS what it could
+  not reach instead of returning a shorter list. Measured on this branch with `chmod 000 docs/adr`
+  - the directory holding the ADR this gate's own remedies cite - `check-shipped-binaries` and
+  `check-docs` both refuse at exit 1 naming `docs/adr`. **That is not this change's delta**: the
+  same seal against the PR's base, `70d5665f`, already refuses byte-for-byte identically, because
+  neither `xtask/src/docs.rs` nor `xtask/src/shipped/documented.rs` is touched here - both gates
+  route through the same `repo::collect_files(...).into_listing(...)` this fix changed, and were
+  already fail-closed on it before this branch existed.
 - **A FLOOR COMPUTED INSIDE THE THING IT POLICES IS NOT A FLOOR.** The same gate grew a substring
   sighting of its key, subtracted from the lines its parser accounted for, so a spelling the
   parser does not recognise is a verdict rather than a silence - which is what reached

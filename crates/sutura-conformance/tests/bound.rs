@@ -8,7 +8,7 @@
 //! 1. **The binding.** `mod conformance` invokes the macro twice, once per leg declaration, so a
 //!    behaviour that lost its test or a declaration that disagrees with the adapter's own constant
 //!    fails the build or the census rather than reducing the count quietly.
-//! 2. **The faults.** All eight `Fault` variants are provoked - seven by a fake distorted in
+//! 2. **The faults.** All nine `Fault` variants are provoked - eight by a fake distorted in
 //!    exactly one way, and `EmptyCorpus` through `execute::a_leg_is_refused_over`, the seam that
 //!    variant needed to be reachable at all. The pack is called DIRECTLY, because through the macro
 //!    a fault is a panic - so a variant that stopped being reachable would leave a pack that
@@ -26,6 +26,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// How a fake's answer differs from the corpus's.
@@ -53,6 +54,9 @@ enum Check {
     NotAsked,
     /// Asked and accepted.
     Accepted,
+    /// Accepted with a real estimate, though this fake declares `PRICES_DRY_RUN = false` - the
+    /// mismatch `Fault::EstimateDisagreesWithCapability` exists to catch.
+    AcceptedWithAnEstimate,
     /// Asked and refused, which for a plan the adapter is held to answer is a fault.
     Refused,
 }
@@ -78,8 +82,11 @@ enum FakeFailure {
 ///
 /// `LEGS` is a const parameter rather than two types, because `EXECUTES_LEGS` is an associated
 /// constant and one distortion axis should not be written twice to vary it. `Fake<true>` and
-/// `Fake<false>` are what the two bindings below are instantiated at.
-struct Fake<const LEGS: bool> {
+/// `Fake<false>` are what the two bindings below are instantiated at. `PRICES` is the same move
+/// for `PRICES_DRY_RUN`, defaulted `false` so every existing `Fake<LEGS>` use site keeps compiling
+/// unchanged - only `a_missing_estimate_from_an_adapter_that_declares_it_prices_is_a_fault` below
+/// names the other value.
+struct Fake<const LEGS: bool, const PRICES: bool = false> {
     source: SourceName,
     posture: SourcePosture,
     distortion: Distortion,
@@ -89,7 +96,7 @@ struct Fake<const LEGS: bool> {
     answers_a_leg_anyway: bool,
 }
 
-impl<const LEGS: bool> Fake<LEGS> {
+impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
     /// A fake that answers the corpus faithfully, checks nothing, and honours its declaration.
     fn faithful() -> Self {
         Self {
@@ -154,11 +161,12 @@ impl<const LEGS: bool> Fake<LEGS> {
     }
 }
 
-impl<const LEGS: bool> Warehouse for Fake<LEGS> {
+impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
     type Error = FakeFailure;
 
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
     const EXECUTES_LEGS: bool = LEGS;
+    const PRICES_DRY_RUN: bool = PRICES;
 
     fn source(&self) -> &SourceName {
         &self.source
@@ -177,6 +185,9 @@ impl<const LEGS: bool> Warehouse for Fake<LEGS> {
         match self.check {
             Check::NotAsked => Ok(PreFlight::NotAsked),
             Check::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
+            Check::AcceptedWithAnEstimate => Ok(PreFlight::Accepted {
+                estimated_bytes: Some(EstimatedBytes::parse(1)),
+            }),
             Check::Refused => Err(FakeFailure::PreFlightRefused),
         }
     }
@@ -374,6 +385,31 @@ mod faults {
         let fault =
             execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake).expect_err("accepted then silent is a fault");
         assert!(matches!(fault, Fault::AcceptedThenDidNotAnswer { .. }), "{fault:?}");
+    }
+
+    /// An adapter that declares `PRICES_DRY_RUN = false` and answers `Some(_)` anyway is a fault:
+    /// the estimate claims more than the adapter is held to know how to price.
+    #[test]
+    fn an_estimate_from_an_adapter_that_declares_it_cannot_price_is_a_fault() {
+        let fake = Fake::<false>::checking(Check::AcceptedWithAnEstimate);
+        let fault = execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake)
+            .expect_err("PRICES_DRY_RUN is false and the estimate is Some");
+        assert!(matches!(fault, Fault::EstimateDisagreesWithCapability { .. }), "{fault:?}");
+    }
+
+    /// The other direction of the same contract: an adapter that declares `PRICES_DRY_RUN = true`
+    /// and answers `None` anyway is a fault too - it claimed it could price and then did not.
+    ///
+    /// Without this cell, `execute.rs:176`'s comparison against `W::PRICES_DRY_RUN` is reached only
+    /// through the `false`/`Some(_)` direction above: every adapter `execute_packs!` binds declares
+    /// `false`, so nothing here provoked the `true`/`None` half before now, and the capability side
+    /// of the comparison could be deleted with the suite still green.
+    #[test]
+    fn a_missing_estimate_from_an_adapter_that_declares_it_prices_is_a_fault() {
+        let fake = Fake::<false, true>::checking(Check::Accepted);
+        let fault = execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake)
+            .expect_err("PRICES_DRY_RUN is true and the estimate is None");
+        assert!(matches!(fault, Fault::EstimateDisagreesWithCapability { .. }), "{fault:?}");
     }
 
     /// **The declination, and that it is not a pass.**

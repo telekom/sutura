@@ -337,7 +337,10 @@ fn report(
         ));
     }
     if failures.is_empty() {
-        println!("xtask check-fuzz: ok - {} target(s) declared, seeded and run", sources.len());
+        println!(
+            "xtask check-fuzz: ok - {} target(s) declared, seeded and named in the workflow matrix",
+            sources.len()
+        );
         return Verdict::Pass;
     }
     eprintln!("xtask check-fuzz: {} problem(s)", failures.len());

@@ -477,7 +477,7 @@ fn profile_args(profile: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Run the generator's own behavioral re-export fixture, once, before any page is compared.
+/// Run the generator's own behavioral fixture, once, before any page is compared.
 ///
 /// `check-api-docs` byte-compares the committed pages against a fresh generation, which proves
 /// the pages are CURRENT - and, as `github.com/telekom/sutura#470` measured, does NOT prove the
@@ -488,6 +488,13 @@ fn profile_args(profile: Option<&str>) -> Vec<String> {
 /// name and the target's documentation appear, so a future renderer regression fails here even if
 /// every crate happened to change. It is the same script and the same pixi/python interpreter as
 /// [`generate`], because the gate and the fix must exercise the same code path.
+///
+/// **The fixture asserts more than one property, so the refusal below may not name the one that
+/// failed.** It also holds that an enum variant's prose is published in FULL: the renderer used to
+/// emit only the first paragraph, with the gate green, which is the same shape as `use None` - a
+/// page that reads as complete over documentation the renderer dropped. A refusal naming only the
+/// re-export half would send a reader looking in the wrong place, which is why it names neither
+/// and points at the assertion instead.
 fn selftest_renderer(root: &Path, generator: &Path) -> Result<(), String> {
     let override_path = std::env::var(PYTHON_ENV).ok();
     let (program, mut argv) = python_command(override_path.as_deref());
@@ -503,9 +510,10 @@ fn selftest_renderer(root: &Path, generator: &Path) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "the generator's re-export self-test failed. A public re-export must render its \
-         caller-visible name and its target's documentation, not `use None`; run `{GENERATOR} \
-         --self-test` the way this gate does to see the assertion."
+        "the generator's self-test failed. It holds two properties: a public re-export renders \
+         its caller-visible name and its TARGET's documentation rather than `use None`, and an \
+         enum variant's prose is published in full rather than truncated to its first paragraph. \
+         Run `{GENERATOR} --self-test` the way this gate does - the assertion says which one."
     ))
 }
 

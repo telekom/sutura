@@ -373,8 +373,9 @@ pub enum InvalidSourceRegistry {
     /// The declared transport of a source was not usable.
     ///
     /// The transport is the whole channel a source is reached over, so its refusals (an unknown
-    /// `transport_mode` word, TLS with no anchors, a partial client certificate, a relative path) surface
-    /// here as a single parse refusal naming the source. The `cause` names the key.
+    /// `transport_mode` word, TLS with no anchors, a key the declared mode would not read, a
+    /// partial client certificate, a relative path) surface here as a single parse refusal naming
+    /// the source. The `cause` names the key.
     #[error("`sources.{alias}` declares a transport sutura cannot use")]
     Transport {
         alias: SourceName,

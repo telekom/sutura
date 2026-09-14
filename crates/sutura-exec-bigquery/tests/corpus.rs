@@ -33,7 +33,7 @@
 //!   which are one identity for everybody who asks. `BigQueryWarehouse::IMPERSONATION` reads
 //!   `NoPlaceForASubject`, and a green here is *accepted, and correct for that identity*.
 //! - **A registered data system.** The `data_systems:` axis of
-//!   `crates/sutura-app/tests/adapters/mod.rs` still gains no entry, and that registry's own rule is
+//!   `crates/sutura-app/tests/adapters/adapters.rs` still gains no entry, and that registry's own rule is
 //!   why: a cell in it runs inside `just test`, and this one cannot - the nix sandbox has no network.
 //! - **That a SHIPPED binary would do any of this.** The branch below this one gives the adapter a
 //!   composition root, so *nothing links the crate* has stopped being true - but it is behind a
@@ -172,7 +172,7 @@
 
 // The corpus reaches OUTSIDE this crate, into `examples/single-player`. The source filter in
 // `flake.nix` names `crates/*/tests` and `examples/` separately, so this leg depends on BOTH clauses -
-// the same dependency `crates/sutura-app/tests/adapters/mod.rs` documents. It does not matter for a
+// the same dependency `crates/sutura-app/tests/adapters/adapters.rs` documents. It does not matter for a
 // nix CHECK, since acceptance is a `nix run` app reading the real tree, but it would the day somebody
 // tried to make it one.
 
@@ -188,6 +188,18 @@ mod support;
 #[path = "naming/naming.rs"]
 mod naming;
 
+// `the_corpus_rows_agree_with_the_engine`, split out of `mod tests` below for the same `max-lines`
+// reason `naming` is its own file - and declared HERE, at this file's top level, rather than
+// nested inside `mod tests {}`: `crates/sutura-serve/tests/served.rs` states why at its own `mod
+// harness` (a `#[path]` inside an inline module resolves against that module's own directory, not
+// this file's), and `xtask/src/causality`'s resolver additionally assumes a top-level declaration
+// - a nested one read as pre-existing tests newly enabled and failed `xtask test-causality`
+// outright. Reading `tests`'s own fixtures from a sibling rather than a child is why the handful
+// it needs are `pub(crate)` below instead of private.
+#[cfg(test)]
+#[path = "tests/agreement.rs"]
+mod agreement;
+
 // `cfg(test)` around the whole file, which is the house pattern rather than a preference: clippy
 // honours `allow-expect-in-tests` only for code inside a `#[cfg(test)]` item, and
 // `tests_outside_test_module` wants the `#[test]` functions there too.
@@ -198,7 +210,7 @@ mod tests {
     use sutura_domain::model::{InvalidIdentifier, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
-    use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::query::Query;
     use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
     use sutura_domain::warehouse::{PreFlight, RowSet, Value, Warehouse as _};
 
@@ -209,7 +221,7 @@ mod tests {
 
     /// The port's deadline this leg's own answers execute under - a generous budget, since this
     /// leg is about the corpus agreeing with the engine and not about time.
-    fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
+    pub(crate) fn deadline() -> sutura_domain::warehouse::deadline::Deadline {
         sutura_domain::warehouse::deadline::Deadline::opened_at(
             std::time::Instant::now(),
             sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(60)).expect("60s"),
@@ -244,7 +256,7 @@ mod tests {
     }
 
     /// The adapter, opened to LOAD - the long deadline, and nothing else different.
-    fn loader() -> Wired {
+    pub(crate) fn loader() -> Wired {
         opened(source(), Connection::required(), loading_bounds())
     }
 
@@ -279,7 +291,7 @@ mod tests {
     /// Every question in the corpus, in sorted order.
     ///
     /// Sorted so the corpus is a function of the directory rather than of the filesystem.
-    fn questions() -> Vec<PathBuf> {
+    pub(crate) fn questions() -> Vec<PathBuf> {
         let dir = example_root().join("questions");
         let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
             .expect("the questions directory is there")
@@ -291,18 +303,18 @@ mod tests {
         found
     }
 
-    fn read_question(path: &Path) -> Query {
+    pub(crate) fn read_question(path: &Path) -> Query {
         let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
         serde_norway::from_str(&text).unwrap_or_else(|e| panic!("{} is not a question: {e}", path.display()))
     }
 
-    fn stem(path: &Path) -> String {
+    pub(crate) fn stem(path: &Path) -> String {
         path.file_stem()
             .map_or_else(|| String::from("unnamed"), |s| s.to_string_lossy().into_owned())
     }
 
     /// The bundle, read through the same catalog adapter every other suite here reads it through.
-    fn bundle() -> PinnedDefinitions {
+    pub(crate) fn bundle() -> PinnedDefinitions {
         let version = DefinitionVersion::parse(VERSION).expect("the pinned version is a version");
         let name = SourceName::parse("local").expect("the example catalog name is a name");
         sutura_catalog_local::LocalCatalog::new(name, example_root().join("catalog"), version)
@@ -346,7 +358,7 @@ mod tests {
     /// written as a literal rather than read from that crate, for the reason the golden suite gives:
     /// this leg must not acquire a dependency on the settings tree to obtain one number. The corpus is
     /// a few hundred rows, so no question in it comes near the bound.
-    fn engine(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions) -> Engine {
+    pub(crate) fn engine(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions) -> Engine {
         let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
         let engine = Engine::new(
             source(),
@@ -362,7 +374,7 @@ mod tests {
         engine
     }
 
-    fn source() -> SourceName {
+    pub(crate) fn source() -> SourceName {
         SourceName::parse(SOURCE).expect("the example source name is a name")
     }
 
@@ -386,7 +398,7 @@ mod tests {
     /// Never returned: this broker mints from a constant.
     #[derive(Debug, thiserror::Error)]
     #[error("this leg's credential broker cannot fail")]
-    struct BrokerCannotFail;
+    pub(crate) struct BrokerCannotFail;
 
     /// A broker that grants what the adapter it is asked about was opened with.
     ///
@@ -394,11 +406,11 @@ mod tests {
     /// convenient.** `Presented::agrees_with` compares the acknowledgement witness on the leg against
     /// the one the adapter was opened with, so a single shared witness would have made the two sides
     /// agree by construction about a thing they are not supposed to share.
-    struct GrantsWhatEachSideDeclares {
+    pub(crate) struct GrantsWhatEachSideDeclares {
         /// A function rather than a value, because `Presented` is deliberately not `Clone` - it
         /// carries an operator's acknowledgement, and a type that hands out copies of one invites a
         /// call site to present a witness it was not given.
-        presented: fn() -> sutura_domain::identity::Presented,
+        pub(crate) presented: fn() -> sutura_domain::identity::Presented,
     }
 
     impl sutura_domain::identity::CredentialBroker for GrantsWhatEachSideDeclares {
@@ -431,7 +443,7 @@ mod tests {
 
     /// `Subject::TheDeploymentItself`, which is the honest value: this leg has no transport, so
     /// nothing established a caller.
-    fn a_caller() -> sutura_domain::identity::RequestContext {
+    pub(crate) fn a_caller() -> sutura_domain::identity::RequestContext {
         sutura_domain::identity::RequestContext::of(sutura_domain::identity::PrincipalChain::of(
             sutura_domain::identity::Subject::TheDeploymentItself,
         ))
@@ -447,7 +459,7 @@ mod tests {
     /// runs - or this leg's own three tests under nextest's default parallelism - replace only their
     /// own tables. Each `CREATE` also carries a 24-hour expiration, so a cancelled run's tables
     /// self-delete even though `panic = "abort"` skips the explicit DROP.
-    fn load_the_corpus(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions, warehouse: &Wired) -> usize {
+    pub(crate) fn load_the_corpus(committed: &PinnedDefinitions, suffixed: &PinnedDefinitions, warehouse: &Wired) -> usize {
         let mut loaded = 0_usize;
         for (table, csv) in run_fixtures(committed, suffixed) {
             let rows = warehouse
@@ -472,7 +484,7 @@ mod tests {
     ///
     /// It is never reached on a cancelled run - `panic = "abort"` skips it - which is exactly why
     /// the expiration, not this method, is the guarantee.
-    fn drop_the_corpus(suffixed: &PinnedDefinitions, warehouse: &Wired) {
+    pub(crate) fn drop_the_corpus(suffixed: &PinnedDefinitions, warehouse: &Wired) {
         for table in suffixed.definitions().models().values().map(|m| m.table_name().clone()) {
             warehouse
                 .drop_table(&table)
@@ -502,7 +514,7 @@ mod tests {
     /// them. It returns nothing, because there is no longer a second degree of agreement for a caller
     /// to count - see *What its first real run FOUND* in the module header for the one that used to be
     /// here and what closed it.
-    fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) {
+    pub(crate) fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) {
         if let Err(disagreement) = agree_on_content(from_engine, from_bigquery, RealTolerance::DIFFERENTIAL) {
             panic!("{name}: the engine and BigQuery returned different rows - {disagreement}");
         }
@@ -565,7 +577,7 @@ mod tests {
     /// `Display` on a `thiserror` enum prints the outermost message and stops, and the outermost
     /// message from the service is "the data system did not answer" - true of an outage, a rejected
     /// statement and a cell that could not be carried alike.
-    fn chain(error: &dyn core::error::Error) -> String {
+    pub(crate) fn chain(error: &dyn core::error::Error) -> String {
         let mut out = error.to_string();
         let mut cursor = error.source();
         while let Some(cause) = cursor {
@@ -580,7 +592,7 @@ mod tests {
     ///
     /// The module header carries the argument. Named by stem so the exclusion is one literal a reviewer
     /// can grep for, rather than a condition spelled out at the assertion.
-    const DIVIDES_BY_ZERO: &str = "revenue-per-churned-subscription-january";
+    pub(crate) const DIVIDES_BY_ZERO: &str = "revenue-per-churned-subscription-january";
 
     /// The re-entrancy fix, tested locally without ever touching a dataset.
     ///
@@ -814,128 +826,6 @@ mod tests {
 
     #[test]
     #[ignore = "needs a real BigQuery project and dataset, named in the developer's own environment"]
-    fn the_corpus_rows_agree_with_the_engine() {
-        // **`docs/adr/0017`'s second bullet, which is the one the smoke leg cannot reach at all.** One
-        // plan, computed by the engine over Arrow and pushed down to `BigQuery` as `GoogleSQL`, rows
-        // compared. A wrong number has to be produced twice, the same way, by two things that share
-        // nothing below the plan.
-        //
-        // This is the check that reaches `ISOWEEK` and `DATE_TRUNC`'s argument order. Both render and
-        // parse cleanly when wrong - `docs/adr/0017` measured that - so a golden cannot see them and
-        // this can: a Sunday bucketed into the wrong week is a different row here.
-        // Every table is named with THIS run's token and a per-test leg suffix, so this test and
-        // its two siblings run under nextest's default parallelism without touching each other's
-        // tables. The plan is compiled against the suffixed bundle, the engine reads the same
-        // suffixed names, and the tables are dropped when the test finishes.
-        let token = run_token();
-        let committed = bundle();
-        let pinned = suffixed_bundle(&committed, &token, "rows");
-        let warehouse = opened(source(), Connection::required(), bounds());
-        let loaded = load_the_corpus(&committed, &pinned, &loader());
-        assert!(
-            loaded > 1000,
-            "the example corpus is over a thousand rows and {loaded} loaded"
-        );
-
-        let engine = sutura_app::Warehouses::of(engine(&committed, &pinned));
-        let there = sutura_app::Warehouses::of(warehouse);
-        let validated = sutura_app::verify_and_validate(pinned.clone(), &engine).expect("the anchors hold against the engine");
-        let locally = GrantsWhatEachSideDeclares {
-            presented: posture_of_the_engine_presented,
-        };
-        let remotely = GrantsWhatEachSideDeclares { presented };
-
-        let mut compared = 0_usize;
-        let mut refused = 0_usize;
-        let mut excluded = 0_usize;
-        for path in questions() {
-            let name = stem(&path);
-            let question = read_question(&path);
-            let from_engine = sutura_app::answer(&validated, &question, &a_caller(), &locally, &engine, 1 << 30, deadline());
-            let from_bigquery = sutura_app::answer(&validated, &question, &a_caller(), &remotely, &there, 1 << 30, deadline());
-
-            let (here, over_there) = match (from_engine, from_bigquery) {
-                (Ok(one), Ok(other)) => (one.into_outcome(), other.into_outcome()),
-                (Err(ref locally), Err(ref remotely)) => {
-                    // **The one excluded question, and it is excluded from the COMPARISON and not from
-                    // the run.** Both sides fail and the reasons legitimately differ: the engine
-                    // returns `inf` and the port refuses a non-finite value, while `GoogleSQL` raises
-                    // on a zero divisor and the endpoint answers `400`. Each side is checked against
-                    // its own expected reason rather than against the other's, which is what makes
-                    // this an assertion instead of a shrug.
-                    assert_eq!(name, DIVIDES_BY_ZERO, "{name}: both sides failed and only one question may");
-                    let here = chain(locally);
-                    assert!(
-                        here.contains("is not a finite number"),
-                        "{name}: the engine failed otherwise:\n{here}"
-                    );
-                    let over_there = chain(remotely);
-                    // The endpoint's own words are not asserted on - Hyrum's Law applies to a service's
-                    // message as much as to ours, and this repository does not pin one. What is
-                    // asserted is that the failure came from the DATA SYSTEM rather than from the
-                    // compiler or the credential path.
-                    assert!(
-                        over_there.contains("the data system did not answer"),
-                        "{name}: BigQuery failed somewhere other than at the data system:\n{over_there}"
-                    );
-                    println!("bigquery-corpus: {name} failed on both sides, for their own reasons");
-                    excluded = excluded.saturating_add(1);
-                    continue;
-                }
-                (one, other) => {
-                    panic!("{name}: one side answered and the other did not\n  engine: {one:?}\n  bigquery: {other:?}");
-                }
-            };
-
-            match (here, over_there) {
-                (ToolOutcome::Answer { rows: ref a, .. }, ToolOutcome::Answer { rows: ref b, .. }) => {
-                    agreement_between(&name, a, b);
-                    compared = compared.saturating_add(1);
-                }
-                (ToolOutcome::Refusal { reason: ref a }, ToolOutcome::Refusal { reason: ref b }) => {
-                    // A refusal is decided by the compiler, above both adapters, so the two must always
-                    // agree. If they ever do not, something below the plan is deciding governance.
-                    assert_eq!(
-                        format!("{a:?}"),
-                        format!("{b:?}"),
-                        "{name}: the engine and BigQuery refused for different reasons"
-                    );
-                    refused = refused.saturating_add(1);
-                }
-                (one, other) => {
-                    panic!("{name}: one side answered and the other refused\n  engine: {one:?}\n  bigquery: {other:?}");
-                }
-            }
-        }
-        // **The counts have to add up to the corpus, and that identity is what stops this test
-        // silently shrinking.** A floor alone ("more than eight agreed") would pass a run that
-        // `continue`d past half the corpus; a fixed expected total would be a test edit every time a
-        // question is added. The sum is neither: it is a function of the directory.
-        let total = questions().len();
-        assert_eq!(
-            compared.saturating_add(refused).saturating_add(excluded),
-            total,
-            "{compared} agreed + {refused} refused + {excluded} excluded is not the {total} questions \
-             in the corpus"
-        );
-        assert!(compared > 8, "only {compared} questions produced rows from both sides");
-        assert!(
-            refused > 0,
-            "no question was refused by both sides, so the compile-side corpus proved nothing here"
-        );
-        assert_eq!(
-            excluded, 1,
-            "the divide-by-zero question is the only exclusion and it has to be reached"
-        );
-        drop_the_corpus(&pinned, &loader());
-        println!(
-            "bigquery-corpus: {compared} answers agreed exactly on content AND order, {refused} refusals \
-             agreed, {excluded} excluded, {total} in the corpus"
-        );
-    }
-
-    #[test]
-    #[ignore = "needs a real BigQuery project and dataset, named in the developer's own environment"]
     fn the_endpoint_reproduces_every_anchor_the_engine_does() {
         // **Not one of `docs/adr/0017`'s four bullets, and it is the strongest single claim available
         // here, which is why it is in.** An anchor is a number somebody CERTIFIED, written in the
@@ -985,7 +875,7 @@ mod tests {
     }
 
     /// The engine's own presented credential, read off the posture it is opened with.
-    fn posture_of_the_engine_presented() -> sutura_domain::identity::Presented {
+    pub(crate) fn posture_of_the_engine_presented() -> sutura_domain::identity::Presented {
         match posture_of_the_engine() {
             sutura_domain::source::SourcePosture::SharedServiceUser { declared } => {
                 sutura_domain::identity::Presented::SharedServiceUser { declared }

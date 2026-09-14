@@ -439,6 +439,15 @@ where
     /// An adapter that declares it does not execute a leg executed one.
     #[error("case `{case}`: the adapter declares it does not execute a leg and answered one with {rows} row(s)")]
     ALegWasAnswered { case: &'static str, rows: usize },
+    /// The pre-flight's estimate disagreed with what `Warehouse::PRICES_DRY_RUN` declares.
+    #[error(
+        "case `{case}`: PRICES_DRY_RUN is {prices_dry_run} and the pre-flight answered estimated_bytes = {estimated_bytes:?}"
+    )]
+    EstimateDisagreesWithCapability {
+        case: &'static str,
+        prices_dry_run: bool,
+        estimated_bytes: Option<sutura_domain::warehouse::estimate::EstimatedBytes>,
+    },
     /// The corpus has no cases, so nothing could be asked.
     ///
     /// Reachable only from a pack that needs a case to establish the adapter is live. [`census`]

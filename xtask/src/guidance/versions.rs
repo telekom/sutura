@@ -43,8 +43,9 @@
 //! repo does not pin, which has no home here to rot against. A bare version with no name beside
 //! it, which is indistinguishable from data. A fourth dotted field, so that an address is never
 //! refused. A bare `v<n>`, for the reason [`is_version`] gives. A figure followed by a unit, for
-//! the reason [`UNITS`] gives. And in Rust, a `//` inside a string literal that is not a URL
-//! scheme is read as a comment.
+//! the reason [`UNITS`] gives, and a PRINTED float for the field-width reason [`is_version`]
+//! gives beside it. And in Rust, a `//` inside a string literal that is not a URL scheme is read
+//! as a comment.
 //!
 //! **And the harvest reaches names, not every spelling of a pinned thing.** What it reads is
 //! listed in [`pinned_names`]: dependency keys, flake inputs, `apps.<name>`, pixi dependency
@@ -162,10 +163,18 @@ fn nightly(token: &str) -> bool {
 
 /// Is this token a version?
 ///
-/// Two or three dotted numbers, with an optional `v`. Three shapes are deliberately NOT one:
+/// Two or three dotted numbers, with an optional `v`. Four shapes are deliberately NOT one:
 ///
 /// * **Four fields**, because semver has no fourth and `127.0.0.1` and `10.0.0.7` are all over
 ///   this tree's comments.
+/// * **A field wider than an `f64` carries significant digits**, because such a decimal was
+///   PRINTED rather than chosen: it is the shortest round-trip of a value that is not exactly
+///   representable, which is what `0.1 + 0.2` comes back as. Sound rather than picked - the
+///   widest field any version in this workspace's lock has is FIVE digits (`1.10505.0`) and the
+///   artefacts are sixteen or seventeen - and it is the retreat this class needs, because a
+///   printed float carries no unit for [`UNITS`] to spare it by and [`bare`] strips a
+///   possessive, so `duckdb's 0.30000000000000004` read as a version of something that has
+///   never had one.
 /// * **A bare integer**, because `17` is a count far more often than a version.
 /// * **A bare `v<n>`**, MEASURED: `v1` and `v2` are an API route and a cgroup generation here,
 ///   and a planted `the duckdb v1 route` was the one false positive the probes found. Dropping
@@ -181,6 +190,10 @@ fn is_version(token: &str) -> bool {
         return false;
     }
     if !body.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return false;
+    }
+    // A printed float, not a version. See this function's doc for why the ceiling is `f64`'s.
+    if body.split('.').any(|field| field.len() > f64::DIGITS as usize) {
         return false;
     }
     matches!(body.split('.').count(), 2 | 3)
@@ -246,9 +259,14 @@ fn comment_start(rel: &str, line: &str) -> Option<usize> {
 /// Six sources because the pins live in six places, and a seventh list written here would be the
 /// second copy this whole module is about. `rust`, `rustc` and `cargo` are named because the
 /// toolchain's pin file holds a channel rather than a tool name.
-fn pinned_names(root: &Path, files: &[String]) -> BTreeSet<String> {
+///
+/// **`unreadable` rather than `unwrap_or_default`**, which is `max_lines::count_lines`' shape from
+/// `github.com/telekom/sutura#619` on a different subject: a pin file this cannot open contributes
+/// no names, every version written beside one of those names stops being a version this check
+/// knows about, and the gate reports the comment scan it did as if the name set were the tree's.
+fn pinned_names(root: &Path, files: &[String], unreadable: &mut Vec<String>) -> BTreeSet<String> {
     let mut names: BTreeSet<String> = ["rust", "rustc", "cargo"].iter().map(|n| String::from(*n)).collect();
-    let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap_or_default();
+    let mut read = |rel: &str| crate::repo::read_subject(root, rel, unreadable).unwrap_or_default();
     for rel in files {
         let base = rel.rsplit('/').next().unwrap_or(rel);
         if base == "Cargo.toml" {
@@ -421,14 +439,14 @@ fn refused<'line>(line: &'line str, start: usize, names: &BTreeSet<String>) -> V
 
 /// Every comment and prose line in the tree that writes a version nothing compares.
 pub(in crate::guidance) fn comment_versions(root: &Path, files: &[String]) -> (Vec<String>, Scan) {
-    let names = pinned_names(root, files);
     let mut problems = Vec::new();
+    let names = pinned_names(root, files, &mut problems);
     let mut comments = 0_usize;
     for rel in files {
         if repo::matches_any(EXEMPT, rel) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
+        let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
             continue;
         };
         let markdown = has_ext(rel, &["md"]);
@@ -577,6 +595,47 @@ mod tests {
         assert!(!fires("a median 16.1 core-hours per push on duckdb"));
         // And the version it must still refuse, one token apart from the same shape.
         assert!(fires("the pinned duckdb 1.5.5 answers it"));
+    }
+
+    #[test]
+    fn a_printed_float_is_content_even_beside_a_pinned_name() {
+        // MEASURED false positive of the adjacency rule, in ordinary prose rather than in a
+        // terse pair. `0.30000000000000004` is what `0.1 + 0.2` comes back as - a value no file
+        // in this repo holds, and one that cannot be a version of anything - and the possessive
+        // is what made it adjacent, because `bare` strips `'s` off the name.
+        assert!(!fires("rounds to 0.3 rather than duckdb's 0.30000000000000004"));
+        assert!(!fires("a duckdb 0.30000000000000004 artefact appears whenever"));
+        assert!(!fires("duckdb 0.10000000149011612 for an `f32`"));
+        // The line this was found on - `crates/sutura-domain/src/warehouse/tests.rs` when this
+        // was written, and asserted here as TEXT rather than by location, so the split that
+        // moved it out of `warehouse.rs` left the fixture covering the same bytes. Before the
+        // retreat, ADJACENCY was the only thing sparing it - its neighbour is `as` and the token
+        // ends the line - so naming the engine one word earlier reddened a measurement. Both
+        // shapes are content now, which is the point: it no longer turns on the word order.
+        assert!(!fires(
+            "Shortest round-trip: an exact decimal comes back as one rather than as 0.30000000000000004."
+        ));
+        // And the retreat is keyed on the FIELD WIDTH rather than on being a float, so it opens
+        // no hole on a real version. Five digits is the widest any version in this workspace's
+        // lock carries, and the fixture below is - observed 2026-09-12 - the resolved version of
+        // `duckdb` itself, beside its own name: the boundary is this repo's rather than a
+        // constructed one, so do not tidy that literal into a shorter version.
+        assert!(is_version("1.10505.0"), "five digits is a version this lock holds");
+        assert!(!is_version("0.30000000000000004"));
+        assert!(fires("the pinned duckdb 1.10505.0 answers it"));
+    }
+
+    #[test]
+    fn a_short_decimal_beside_a_pinned_name_stays_refused() {
+        // THE DELIBERATE LIMIT, pinned so that widening the retreat above is a red rather than a
+        // silent hole. A `0.3` written next to duckdb is a version claim and a rendered value in
+        // the same bytes, and no text rule separates them, so it stays refused. The remedy is a
+        // word between the two or a unit after the figure - which the last two assertions hold,
+        // and which this very comment had to use, because the gate refused its first wording.
+        assert!(fires("duckdb 0.3 rather than the artefact"));
+        assert!(fires("duckdb's 0.0001 tolerance holds for every cell"));
+        assert!(!fires("duckdb renders 0.3 rather than the artefact"));
+        assert!(!fires("duckdb 13.7 GB resident at the peak"));
     }
 
     #[test]
