@@ -3145,7 +3145,12 @@ as a refusal a caller would retry.</p>
 <li><code>AuthoredSqlNotPlanned</code> - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.</li>
 <li><code>NotAssembled</code> - A two-source plan this workspace compiled and could not then assemble.</li>
 <li><code>NotBound</code> - A plan this workspace compiled whose predicates and parameters did not resolve each other.</li>
+<li><code>NoRemoteJoin</code> - A2: the splitter ran with no remote dimension to join the fact leg through.</li>
 </ul>
+<p>Same limit as <code>NotAssembled</code> and <code>NotBound</code>: <code>plan</code> calls the splitter only when exactly one
+  remote source exists and a remote dimension has a join by construction, so nothing provokes
+  this either. It replaces a fabricated <code>RefusalReason::PlanSpansTooManySources { sources: 1,
+  limit: 2 }</code> a caller could not have narrowed their way out of.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>

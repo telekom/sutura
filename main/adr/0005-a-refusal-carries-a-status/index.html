@@ -3057,9 +3057,14 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td>A measure a single data system computes (a distinct count) cannot be recombined above two legs, so the splitter refuses it rather than pull its rows up through a combiner that would have to re-count</td>
 </tr>
 <tr>
+<td><code>FederatedAnswerNotWellFormed</code></td>
+<td><code>409</code></td>
+<td><strong>Added by D19 + A4.</strong> A non-finite ratio or an ambiguous join across two legs is the SAME plan against the SAME rows failing again, which is what <code>409</code> says and what the <code>503</code> this used to leave as - "worth retrying" - does not. The same grouping as the rows above: answerable in principle, and this deployment cannot certify this particular combine. Carries no cell: <code>FederatedAnswerRefusal</code> is a bare discriminant, never the join key or the float value that produced it. <strong>Limit stated where it belongs:</strong> the mono (single-source) path has no equivalent refusal yet - the same non-finite condition there still leaves as a retryable <code>503</code> through <code>SurfaceFailure::Warehouse</code> / <code>Failure::Unavailable</code>, out of scope for this row and named in <code>.agents/skills/sutura/invariants/SKILL.md</code></td>
+</tr>
+<tr>
 <td><code>PlanTablesShareAnIdentifier</code></td>
 <td><code>409</code></td>
-<td><strong>Added by <a href="../0019-a-table-outside-the-connections-dataset/">0019</a> Decision 5.</strong> Two tables the plan would read end their paths in one name, so a column qualified by it names neither. The same grouping as the rows above and for the same reason: answerable in principle, and this deployment cannot express it as one statement. Unlike those rows there usually <em>is</em> another question - a dimension needing no join - so the sentence says so, and it names the identifier and neither path: the identifier is what a person can act on, and a path carries the project and dataset a deployment reads</td>
+<td><strong>Added by <a href="../0019-a-table-outside-the-connections-dataset/">0019</a> Decision 5, corrected by D7.</strong> Two tables the plan would read end their paths in one name, so a column qualified by it names neither. The same grouping as the rows above and for the same reason: answerable in principle, and this deployment cannot express it as one statement. Unlike those rows there usually <em>is</em> another question - a dimension needing no join - so the sentence says so. <strong>D7: the sentence names neither the identifier nor either path.</strong> The identifier is the thing that must not reach the wire, not the thing a person acts on: it is a table name reaching an agent's own context exactly as a schema name in a generated prompt would, and this refusal is a tool output an agent reads. Both transports hold it out of their own sentence independently - re-interpolating <code>{table}</code> back into either reddens a dedicated redaction test</td>
 </tr>
 <tr>
 <td><code>ResultTooLarge</code></td>

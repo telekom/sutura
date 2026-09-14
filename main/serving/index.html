@@ -4900,10 +4900,10 @@ listener opened, and the sentence <code>sutura_config</code> renders for that de
 it. <code>crates/sutura-http/src/harness.rs</code> asserts the
 envelope one status at a time, in process and with no socket: the token gate, <code>sql</code> in a body as a
 <code>400</code> naming the field, the bounds, the rate-limit tiers, and the interface description served in
-development and not in production. It reaches ten of the eighteen refusal reasons; the exhaustive
-one is <code>crates/sutura-http/src/wire/refusal.rs</code>, which lists every variant's status and <code>code</code> and
-assigns them in a match with no wildcard arm, so a new refusal is a compile error until somebody
-decides what it is on the wire.</p>
+development and not in production. It reaches ten refusal reasons, a subset nothing here restates
+as a fraction of the whole list - the exhaustive one is <code>crates/sutura-http/src/wire/refusal.rs</code>,
+which lists every variant's status and <code>code</code> and assigns them in a match with no wildcard arm, so
+a new refusal is a compile error until somebody decides what it is on the wire.</p>
 <p><strong>What neither asserts, next to the claim:</strong> the startup banner's own wording. <code>announce_identity</code>
 in <code>crates/sutura-runtime/src/banner.rs</code> emits the <code>NO PER-CALLER IDENTITY</code> sentence from the
 config types, and no test compares it to a string - so quoting it on a page is a promise no gate
