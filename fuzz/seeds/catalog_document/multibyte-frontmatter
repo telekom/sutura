@@ -1,0 +1,15 @@
+---
+kind: metric
+name: mit_umlaut
+model: subscriptions
+measure:
+  simple: { aggregate: count_distinct, column: subscription_key }
+time_column: month
+grains: [month]
+dimensions:
+  - name: segment
+    column: segment
+    values: [geschäftskunde]
+    description: Ein Umlaut, damit die Grenze zwischen Zeichen und Byte belegt ist.
+---
+Ein Text mit ä, ö, ü damit ein Zeichenindex kein Byteindex ist.

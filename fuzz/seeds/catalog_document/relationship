@@ -1,0 +1,13 @@
+---
+kind: relationship
+name: subscription_product
+origin:
+  model: subscriptions
+  column: product_key
+target:
+  model: products
+  column: product_key
+join_type: many_to_one
+---
+Many subscriptions to one product. Many-to-one cannot duplicate a subscription row, so a metric on
+`subscriptions` may reach `products` as a dimension without changing what it measures.

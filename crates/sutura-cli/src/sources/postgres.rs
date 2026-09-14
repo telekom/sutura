@@ -217,4 +217,59 @@ mod tests {
         );
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     }
+
+    /// The `workload_identity` block an `impersonation-at-source` entry must carry.
+    ///
+    /// Its own helper rather than [`super::wif`], which is gated on `bigquery` - this root's
+    /// Postgres cell needs one under `postgres` alone, the same reason `files.rs`'s `wif_for_files`
+    /// is not shared either.
+    #[cfg(feature = "postgres")]
+    fn wif_for_postgres() -> String {
+        String::from(
+            "    workload_identity:\n      audience: \"//iam.googleapis.com/projects/1/locations/global/\
+             workloadIdentityPools/p/providers/sso\"\n      scope: \"https://www.googleapis.com/auth/\
+             bigquery.readonly\"\n",
+        )
+    }
+
+    /// The Postgres half of the cross-check `sutura-serve`'s composition root is held to
+    /// (`crates/sutura-serve/src/tests.rs`'s `a_postgres_source_configured_to_impersonate_refuses_
+    /// at_boot`) - proven here too, because #124's last comment framed the boot refusal over BOTH
+    /// composition roots and only `sutura-serve`'s had a cell.
+    ///
+    /// `PostgresWarehouse::IMPERSONATION` is `NoPlaceForASubject`, and this root's `open` runs the
+    /// check before it reads `password_file` or dials anything, so the refusal is reachable with no
+    /// server listening and no password file on disk.
+    #[test]
+    #[cfg(feature = "postgres")]
+    fn a_declared_postgres_source_configured_to_impersonate_refuses_at_boot() {
+        let error = open_engine(
+            &bundle_naming("warehouse"),
+            &declaring_postgres("impersonation-at-source", &wif_for_postgres()),
+            runtime(),
+            timeout(),
+            None,
+        )
+        .map(|_| ())
+        .expect_err("an impersonating posture with nowhere for a subject's credential to arrive must not start");
+        assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+        assert!(
+            error.contains("per-subject credential"),
+            "the refusal must say what the adapter cannot do: {error}"
+        );
+        assert!(
+            error.contains("no fallback"),
+            "the refusal must say there is no fallback: {error}"
+        );
+        // NOT the neighbouring arms: the entry is declared, the build DOES link the adapter, and the
+        // check fires before the connection step would name the unreadable password file.
+        assert!(
+            !error.contains("--features postgres"),
+            "this build DID link the adapter: {error}"
+        );
+        assert!(
+            !error.contains("password_file"),
+            "the capability cross-check fires before the password file is read: {error}"
+        );
+    }
 }

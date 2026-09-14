@@ -539,3 +539,9 @@ cargo build --release -p sutura-cli --features bigquery
 
 `sutura doctor` on the result says `bigquery, over the wire` where a published artefact says `none`,
 which is how somebody holding a binary finds out which of the two they have.
+
+A Postgres database is the same shape, over `--features postgres`:
+
+```bash
+cargo build --release -p sutura-cli --features postgres
+```

@@ -349,7 +349,9 @@ finds four rows explained and two silent will assume the silent two are the bad 
 ## Fuzzing = 0
 
 Real, and `#146` already holds it - *no parser that reads untrusted input is fuzzed, and
-`panic = abort` makes a panic process death*. Not duplicated here.
+`panic = abort` makes a panic process death*. Not duplicated here. As of `#697` five parsers
+are fuzzed; the open half of `#146` is the panic strategy at the parsing boundary, which
+nothing here decides.
 
 ## What this record does not do
 

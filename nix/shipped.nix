@@ -145,7 +145,13 @@ let
       # --features bigquery`, and before this entry nothing anywhere proved that configuration
       # LINKS on a triple this project publishes. `ureq`, rustls and `ring` are what it adds, and
       # `ring` compiles C and assembly, so the two musl triples are the answer worth having.
-      probeFeatures = [ "bigquery" ];
+      #
+      # `postgres` carries the same risk and was added later (`telekom/sutura#124`):
+      # `sutura-exec-postgres` is itself pure Rust, but this binary's `postgres` feature makes it a
+      # normal dependency and it is not optional there - `tokio-postgres-rustls` and `rustls` are
+      # what it adds, `ring` behind them, so the musl link is the same question `bigquery` already
+      # answers and had gone unasked for this feature.
+      probeFeatures = [ "bigquery" "postgres" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
@@ -162,10 +168,12 @@ let
       # starts the server, which is what a platform scheduling it will do.
       cmd = [ ];
       description = "identity-aware semantic data runtime for AI agents: the HTTP surface";
-      # EMPTY, and deliberately: this binary's `tls` and `bigquery` features are the same shape
-      # and the same risk, and probing both would triple a job that already compiles the whole
-      # dependency closure per target. The CLI is the one issue #121 owes a measurement for; what
-      # this list says is that adding serve's is an entry rather than a design.
+      # EMPTY, and deliberately: this binary's `tls`, `bigquery` and `postgres` features are the
+      # same shape and the same risk, and probing all three would multiply a job that already
+      # compiles the whole dependency closure per target. The CLI is the one issue #121 owes a
+      # measurement for; the `postgres` probe added above already links that closure
+      # (`tokio-postgres-rustls`, `rustls`, `ring`) through the CLI on both PR triples, so what
+      # this list says is that adding serve's OWN combination is an entry rather than a design.
       probeFeatures = [ ];
       # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds the PLACEMENT - no catalog adapter and
       # no compiler crate may reach `sutura-sql` - but a normal dependency added straight to

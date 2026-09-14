@@ -1,0 +1,9 @@
+---
+kind: caveat
+name: subscription_count_is_not_active_subscriptions
+about:
+  - { metric: subscription_count }
+---
+`subscription_count` counts every subscription row this model ever holds, not only the ones active
+today - a caveat the scaffold's own metric needs, so a question asking "how many now" is not
+answered with this one.

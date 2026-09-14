@@ -1,0 +1,10 @@
+---
+kind: metric
+name: active_subscriptions
+model: subscriptions
+measure:
+  simple: { aggregate: count_distinct, column: subscription_key }
+time_column: month
+grains: [month]
+---
+How many subscriptions were active.
