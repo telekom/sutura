@@ -275,6 +275,22 @@ Keyed by each adapter's own `Warehouse::source` rather than by a name the caller
 alongside it, so the key and the adapter cannot disagree about which source this is - the same
 reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
 
+## `use Asked`
+
+Everything one call was established to be: who is asking, and what it may invoke.
+
+**One constructor, `Asked::established`, and it takes the two halves already produced by a
+verification - it performs no verification of its own.** `sutura_http::capability::establish_asked`
+is the one place that calls it today, handing over what leg 1 already derived - a
+`VerifiedCaller`'s chain and scopes, or the deployment's own when there is none. The agent
+surface's own call arrives with PR2 of `telekom/sutura#378`; until then this type adds no third
+way to decide either half.
+
+`Clone` because a transport may need to hand the same value to a blocking-pool closure that
+outlives the request extension it was read from - `sutura_runtime::spawn_carrying_span` is the
+reason `RequestContext` is already `Clone`, and `Permitted` clones a `BTreeSet` of at most three
+elements today.
+
 ## `use Capability`
 
 One thing this surface can be asked to do.
@@ -1635,6 +1651,90 @@ notion of what a scope is.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `asked`
+
+Everything one call was established to be, on either transport - one value, not two.
+
+# Why one value rather than two independently-inserted ones
+
+`crate::surface::Surface::answer` needs *who is asking* (`RequestContext`) to reach
+`sutura_domain::identity::CredentialBroker::mint`, and it needs *what this caller may invoke*
+(`Permitted`) to reach the capability gate. Both are established by the same verification, at the
+same instant, from the same header - so a transport that inserted them as two separate values
+would have two places for a request in flight to carry caller A's context beside caller B's
+grant, if the two insertions were ever reordered or one forgotten. One value with one constructor
+makes that pairing a type rather than a convention two call sites happen to keep straight.
+
+# A caller may not state its own identity
+
+No `Deserialize`, for the same reason `sutura_http::inbound::VerifiedCaller` and
+`sutura_domain::identity::RequestContext` have none: there is no code that could turn
+caller-supplied bytes into one of these.
+
+```compile_fail
+// A transport that tried to read one off the wire does not compile.
+let asked: sutura_app::Asked = serde_json::from_str(r#"{"subject":"someone"}"#).expect("no");
+drop(asked);
+```
+
+The compiling twin, so the failure above cannot be passing for a typo - what a caller of
+`Asked::established` can do with one is read the two halves back:
+
+```
+use sutura_app::{Asked, Permitted};
+use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
+
+let asked = Asked::established(
+    RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)),
+    Permitted::every_capability(),
+);
+assert!(asked.permitted().includes(sutura_app::Capability::DescribeCatalog));
+```
+
+### `struct Asked`
+
+```rust
+pub struct Asked
+```
+
+Everything one call was established to be: who is asking, and what it may invoke.
+
+**One constructor, `Asked::established`, and it takes the two halves already produced by a
+verification - it performs no verification of its own.** `sutura_http::capability::establish_asked`
+is the one place that calls it today, handing over what leg 1 already derived - a
+`VerifiedCaller`'s chain and scopes, or the deployment's own when there is none. The agent
+surface's own call arrives with PR2 of `telekom/sutura#378`; until then this type adds no third
+way to decide either half.
+
+`Clone` because a transport may need to hand the same value to a blocking-pool closure that
+outlives the request extension it was read from - `sutura_runtime::spawn_carrying_span` is the
+reason `RequestContext` is already `Clone`, and `Permitted` clones a `BTreeSet` of at most three
+elements today.
+
+#### Methods
+
+```rust
+pub const fn context(&self) -> &RequestContext
+```
+
+Who this call is attributed to, and the credential it presented, if any.
+
+```rust
+pub const fn established(context: RequestContext, permitted: Permitted) -> Self
+```
+
+The only way to one of these: hand over what a transport's own verification already produced.
+
+```rust
+pub const fn permitted(&self) -> &Permitted
+```
+
+What this caller may invoke.
+
+#### Implements
+
+`Clone`, `Debug`
 
 ## Module `preflight`
 

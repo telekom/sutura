@@ -1563,10 +1563,35 @@ one note body is. Per-value caps alone let N conforming values do what one overs
 which is the same argument `crate::knowledge::MAX_KNOWLEDGE_BYTES` makes for notes.
 
 What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
-dimensions a metric declares or how many metrics a catalog holds, so the size of the whole
-rendered document is still a function of how much a catalog says. Those are the same shape of hole
-and want the same kind of fix; this is the one the review named, and the honest statement of what
-holds is better than a bound nobody measured.
+dimensions a metric declares or how many metrics a catalog holds. `MAX_DEFINITIONS_BYTES` is
+the fix for that other half.
+
+### `constant MAX_DEFINITIONS_BYTES`
+
+The most bytes a whole `Definitions` may carry of authored content beyond its own identifiers.
+
+Every column a model declares, every required filter and dimension value a metric declares, and
+every model's and metric's description count toward it.
+
+**The count `MAX_VALUES_PER_DIMENSION`'s own note names as missing**: that bound is one
+dimension's, and nothing capped how many dimensions a metric declares, how many required filters
+a metric declares, how many columns a model declares, or how many models and metrics a catalog
+holds. Per-item caps alone let N conforming declarations do what one oversized declaration
+cannot, the same argument `crate::knowledge::MAX_KNOWLEDGE_BYTES` makes for a bundle of notes,
+applied to the catalog that bundle is checked against.
+
+**Measured before it was chosen.** This repository's shipped `single-player` catalog - the larger
+of the two example catalogs - is the reference: its widest model (`subscriptions`) declares 8
+columns, no metric declares more than one required filter, and its columns, required filters and
+dimension values together sum under 1 KiB. Descriptions are the rest of it, at about 18 KiB across
+eleven metrics and four models - each individually inside `MAX_DESCRIPTION_BYTES`, and it is
+their COUNT that was uncapped.
+
+`MAX_DEFINITIONS_BYTES` is 128 KiB: about 6.5 times that reference catalog's ~19 KiB, more
+headroom than `crate::knowledge::MAX_KNOWLEDGE_BYTES`'s five times its own reference, because a
+definitions bundle also carries the identifiers a knowledge bundle does not. Argued the way
+`crate::query::MAX_RANGE_DAYS` is: what it bounds is the size of the document, not whether what
+is in it is worth reading.
 
 ## Module `definitions`
 
@@ -3236,18 +3261,21 @@ downstream of the render can tell a cut body from a short one. The module docume
 what was measured to choose the numbers.
 
 Newlines and tabs are content here, where `Phrase` refuses them: a body is a markdown block and
-its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
-the renderer, which is the one place that knows what it is rendering into - so the emptiness check
-is made on what the renderer will keep and a body that would draw nothing is refused rather than
-rendered as a heading over blank space.
+its paragraph breaks are the author's. **Every other control character is refused, not
+tolerated** - the emptiness check alone is made on what the renderer will keep, because a body
+made entirely of characters `sutura_app::prompt::quote` drops would render as a heading over
+blank space; one mixed into otherwise ordinary prose passes that check and would render one byte
+shorter than the text under the digest, which is `crate::catalog::Description`'s own argument
+for `first_altered_control` and is not a fact about that
+type alone.
 
-**What does NOT survive parsing is an invisible or direction-changing code point, and unlike a
-`Phrase` a body is not normalised** - it is refused, naming the character. The two types differ
-because what they are is different: a phrase is a key, so two spellings that read as one word have
-to become one value, and a body is prose a person reviewed, so silently editing it would make the
-rendered document differ from the text the definition digest certifies. This is the same argument
-`crate::expression::InvalidFragment::InvisibleCharacter` makes for authored SQL, at the one
-remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
+**What also does not survive parsing is an invisible or direction-changing code point, and unlike
+a `Phrase` a body is not normalised** - it is refused, naming the character. The two types
+differ because what they are is different: a phrase is a key, so two spellings that read as one
+word have to become one value, and a body is prose a person reviewed, so silently editing it would
+make the rendered document differ from the text the definition digest certifies. This is the same
+argument `crate::expression::InvalidFragment::InvisibleCharacter` makes for authored SQL, at the
+one remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
 `status = 'active'` in every terminal and every diff, saying something else, under a digest taken
 over text nobody read - CVE-2021-42574 with the fragment replaced by a paragraph.
 
@@ -3282,6 +3310,15 @@ Why a note body was rejected.
 #### Variants
 
 - `Empty` - Nothing a reader would see. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space - so this covers whitespace, control characters the renderer drops, and the zero-width code points that draw nothing, as well as the empty string.
+- `ControlCharacter` - A control character other than a newline or a tab, mixed into otherwise ordinary prose.
+
+  **The half `Self::Empty` cannot see.** A body made entirely of these is empty, and is
+  already refused above; one in the middle of a sentence passes that check and renders as a
+  body that is one character shorter than the text under the digest -
+  `crate::catalog::Description`'s own `InvalidDescription::ControlCharacter`'s argument,
+  applied to the second prose type held to the same renderer.
+
+  `InvalidDescription::ControlCharacter`: crate::catalog::InvalidDescription::ControlCharacter
 - `InvisibleCharacter` - One of them, mixed into prose. **Separate from `Self::Empty`, because a body made ENTIRELY of these characters was already refused and a body with one in the middle of a sentence was not** - and the second is the dangerous one: the first renders as a blank heading somebody notices, the second renders as a paragraph that reads correctly and is not what it says.
 
   It is a second refusal beside the emptiness check rather than a widening of it for the reason

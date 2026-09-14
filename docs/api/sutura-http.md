@@ -122,9 +122,15 @@ in `crate::openapi` compares it against the generated document's operation ident
 
 ## `use permitted_for`
 
-What this request's caller may do.
+What a caller `Asked` names may do.
 
-See the module documentation for the two cases and for why the second is not a fallback.
+See the module documentation for the two cases `Asked` itself carries, and for why the
+single-player one is not a fallback.
+
+**Takes the `sutura_app::Asked` `establish_asked` already derived, not the request - so an
+absent `Asked` cannot read as every-capability here.** `require_capability` is the only caller;
+it is the one place that reads one out of the extensions, and it refuses before this function is
+ever reached when there is none.
 
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is
@@ -137,8 +143,13 @@ capability this applies to; a second one gains a parameter here rather than a wi
 Refuses a request for a capability this caller was not granted.
 
 A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
-handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
-makes the extension available here - see `crate::router` for the whole order.
+handler to forget. Installed inside both `require_verified_caller` and `establish_asked` - see
+`crate::router` for the whole order - which is what makes `sutura_app::Asked` available here.
+
+**Reads `Asked` itself, and refuses rather than falls back, when it is absent.** That case cannot
+happen while `crate::router::assemble` installs `establish_asked` unconditionally ahead of this
+layer - it is the same "cannot happen, refuse anyway" shape `asked_for`'s own ungoverned-route
+arm already uses, not a second thing this file has to be tested for on its own.
 
 Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
 must be absent for every caller when a deployment never turned it on - see `permitted_for`.
@@ -368,9 +379,11 @@ who is asking and leg 2 does not exist. A caller granted `sutura:metrics.ask` an
 `sutura:catalog.read` cannot list the catalog and gets exactly the same numbers from a question as
 anybody else would.
 
-# Where the grant comes from, and the one honest hole in it
+# Where the grant comes from, and the two holes a reader should check for
 
-`permitted_for` is the whole derivation, and it is two cases:
+`permitted_for` takes the `sutura_app::Asked` `establish_asked` already derived - not the
+request - so there is no path left in this file where "no `Asked`" reads as "grant everything."
+What `Asked` itself carries is still two cases, from whatever leg 1 established:
 
 * A `crate::inbound::VerifiedCaller` in the request extensions - which only
   `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
@@ -380,13 +393,28 @@ anybody else would.
   ships as, and it is the correct answer rather than a fallback: a filter over an unverified claim
   looks like a control and is not one.
 
-**The hole a reader should check for, and why it is closed:** if the second case could be reached
-by a deployment that *meant* to establish an identity, this layer would be a control that silently
-turned itself off. It cannot be. `crate::router::assemble` returns
-`RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and no gate was
-attached, and the gate either refuses the request with a `401` or inserts the extension. So on a
-deployment that declares `security.inbound`, a request reaching a handler has been through the
-gate. `crate::inbound::tests::router` already asserts the assembly half and the `401`.
+Two different things could put a caller in the wrong case, and each is closed by its own
+mechanism:
+
+* **A deployment that *meant* to establish an identity reaches the single-player answer above
+  anyway.** Closed at ASSEMBLY: `crate::router::assemble` returns
+  `RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and no gate was
+  attached, so on a deployment that declares `security.inbound`, a request reaching a handler has
+  been through the gate. `crate::inbound::tests::router` asserts the assembly half and the `401`.
+* **`establish_asked` itself is skipped or reordered, so no `Asked` reaches this layer at
+  all.** Nothing at assembly time proves a middleware stack's order, so this is closed by
+  REFUSAL instead: `require_capability` answers `Failure::Internal` rather than falling back to
+  `Permitted::every_capability`, and the handler's own `axum::Extension<sutura_app::Asked>`
+  parameter - a REQUIRED extractor, never `Option` - answers `500` on its own account if a request
+  ever reached a handler without one. `crate::inbound::tests::router`'s
+  `a_verified_caller_reaches_only_the_routes_its_scopes_name` and
+  `a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing` are the mechanism that
+  proves the ORDER: a mutation moving `establish_asked` after this layer turns both red. Neither
+  holds the ARM inside this function on its own, since both go through a route whose handler ALSO
+  requires `Extension<sutura_app::Asked>` - `tests::a_skipped_establish_asked_is_refused_rather_than_answered_as_every_capability`
+  is the cell that holds the ARM: it builds `require_capability` over a route with no
+  `establish_asked` ahead of it at all, so the `500` it asserts can only be this function's own
+  refusal.
 
 # It fails closed, and the refusal is what makes that survivable
 
@@ -458,12 +486,18 @@ layer is installed on the versioned subtree only, and assembly proved every rout
 ### `fn permitted_for`
 
 ```rust
-pub fn permitted_for(request: &axum::extract::Request, run_sql_enabled: bool) -> sutura_app::Permitted
+pub fn permitted_for(asked: &sutura_app::Asked, run_sql_enabled: bool) -> sutura_app::Permitted
 ```
 
-What this request's caller may do.
+What a caller `Asked` names may do.
 
-See the module documentation for the two cases and for why the second is not a fallback.
+See the module documentation for the two cases `Asked` itself carries, and for why the
+single-player one is not a fallback.
+
+**Takes the `sutura_app::Asked` `establish_asked` already derived, not the request - so an
+absent `Asked` cannot read as every-capability here.** `require_capability` is the only caller;
+it is the one place that reads one out of the extensions, and it refuses before this function is
+ever reached when there is none.
 
 `run_sql_enabled` narrows the result AFTER either case, and deliberately not inside them: a
 deployment-level switch and a caller's own scope are two different reasons a capability is
@@ -480,8 +514,13 @@ pub async fn require_capability(__arg0: axum::extract::State<crate::state::Servi
 Refuses a request for a capability this caller was not granted.
 
 A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
-handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
-makes the extension available here - see `crate::router` for the whole order.
+handler to forget. Installed inside both `require_verified_caller` and `establish_asked` - see
+`crate::router` for the whole order - which is what makes `sutura_app::Asked` available here.
+
+**Reads `Asked` itself, and refuses rather than falls back, when it is absent.** That case cannot
+happen while `crate::router::assemble` installs `establish_asked` unconditionally ahead of this
+layer - it is the same "cannot happen, refuse anyway" shape `asked_for`'s own ungoverned-route
+arm already uses, not a second thing this file has to be tested for on its own.
 
 Takes the state now, for one reading: `settings.tools().run_sql_enabled()`. `docs/adr/0013`'s tool
 must be absent for every caller when a deployment never turned it on - see `permitted_for`.

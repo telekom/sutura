@@ -94,9 +94,27 @@ pub(crate) fn first_invisible(text: &str) -> Option<char> {
     text.chars().find(|character| is_invisible(*character))
 }
 
+/// The first control character a renderer would remove, if the text holds one.
+///
+/// Named for what it is about rather than for what it matches: the set is *the control characters
+/// `sutura_app::prompt::quote` does not keep*, which is every one of them but `\n` and `\t`. Written
+/// as the complement of the renderer's two exemptions rather than as its own list, so the two cannot
+/// drift the way this module's own header describes two copies of one rule drifting - if the
+/// renderer ever kept a third character, this refusal would be the thing to widen, and it says so
+/// in one place.
+///
+/// **Here, and not beside the one type it first guarded**, for the reason this module exists at
+/// all: [`crate::catalog::Description`] and [`crate::knowledge::NoteBody`] are two prose types held
+/// to the same renderer, and a copy of this predicate living next to the first of them is exactly
+/// the shape of duplication the module header above records having already cost this crate once.
+pub(crate) fn first_altered_control(text: &str) -> Option<char> {
+    text.chars()
+        .find(|character| character.is_control() && *character != '\n' && *character != '\t')
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{first_invisible, is_invisible};
+    use super::{first_altered_control, first_invisible, is_invisible};
     use crate::expression::{InvalidFragment, SqlFragment};
 
     /// One fragment holding exactly one candidate character, in the middle so that no parser trims
@@ -134,6 +152,17 @@ mod tests {
         assert_eq!(first_invisible("plain prose"), None);
         assert_eq!(first_invisible("act\u{200B}ive\u{202E}"), Some('\u{200B}'));
         assert_eq!(first_invisible("\u{FEFF}leading"), Some('\u{FEFF}'));
+    }
+
+    /// The renderer's two exemptions, and nothing else, are what this predicate lets through - both
+    /// directions, so a future exemption widened here without the renderer following would be a
+    /// failing test rather than a silent drift.
+    #[test]
+    fn only_a_newline_and_a_tab_are_not_an_altered_control() {
+        assert_eq!(first_altered_control("plain prose"), None);
+        assert_eq!(first_altered_control("two\nlines\tapart"), None);
+        assert_eq!(first_altered_control("a bell\u{7}mid-sentence"), Some('\u{7}'));
+        assert_eq!(first_altered_control("\rcarriage return"), Some('\r'));
     }
 
     /// What a caller of this predicate refuses is the whole of what this predicate names, and

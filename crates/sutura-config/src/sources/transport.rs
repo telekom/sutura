@@ -178,7 +178,7 @@ impl SourceTransport {
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidTransport {
     #[error("`sources.{alias}.transport_mode` does not name how the channel to this source is secured - one of: {known}")]
-    UnknownTransport { alias: SourceName, known: &'static str },
+    UnknownTransport { alias: SourceName, known: String },
     /// A key was written that the declared mode does not read, so nothing would honour it.
     ///
     /// **One refusal for both modes that discard something, and that is the point.** `plaintext`
@@ -233,8 +233,44 @@ pub enum InvalidTransport {
     },
 }
 
-/// The three accepted `transport_mode` spellings, for the refusal's "one of" sentence.
-const TRANSPORT_KNOWN: &str = "plaintext, verified, mutual";
+/// The `transport_mode` word, before it decides which [`SourceTransport`] it builds.
+///
+/// **Closed over exactly the spellings this schema accepts, and that closure is the mechanism
+/// `github.com/telekom/sutura#691` asks for.** [`parse`] matches every variant here exhaustively
+/// to decide the refusal each mode's material keys get - a fourth variant added to [`Self::ALL`]
+/// without adding its arm to that match is `error[E0004]`, not a spelling accepted with nobody
+/// having decided what it refuses. A `&str` match had no such arm: a mutation that added a fourth
+/// pattern calling no refusal at all left every test in this module passing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransportModeWord {
+    Plaintext,
+    Verified,
+    Mutual,
+}
+
+impl TransportModeWord {
+    /// Every accepted spelling, in the order the refusal's "one of" sentence lists them.
+    const ALL: [Self; 3] = [Self::Plaintext, Self::Verified, Self::Mutual];
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plaintext => "plaintext",
+            Self::Verified => "verified",
+            Self::Mutual => "mutual",
+        }
+    }
+
+    fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|candidate| candidate.as_str() == word)
+    }
+
+    /// The "one of" sentence's word list, DERIVED from [`Self::ALL`] rather than a second constant
+    /// kept in step by hand - the second half of #691: a spelling `parse` accepts can no longer be
+    /// missing from what the refusal claims to accept, because both read the same variants.
+    fn known() -> String {
+        Self::ALL.iter().map(|word| word.as_str()).collect::<Vec<_>>().join(", ")
+    }
+}
 
 /// Reads one source's transport from its written fields, refusing the combinations ADR 0010 says
 /// a closed type must refuse.
@@ -255,11 +291,17 @@ pub fn parse(
     client_key: Option<&str>,
 ) -> Result<SourceTransport, InvalidTransport> {
     let mode = mode.trim();
-    // The three words are closed: `plaintext`, or one of the two TLS modes. Anything else is unknown.
-    match mode {
+    let Some(word) = TransportModeWord::parse(mode) else {
+        return Err(InvalidTransport::UnknownTransport {
+            alias: alias.clone(),
+            known: TransportModeWord::known(),
+        });
+    };
+    // Exhaustive over `TransportModeWord`, not over `&str` - see the type's own documentation.
+    match word {
         // A `plaintext` channel that also names anchors or a client identity is a configuration
         // nobody can see. Refused rather than ignored.
-        "plaintext" => {
+        TransportModeWord::Plaintext => {
             refuse_unread_keys(
                 alias,
                 "plaintext",
@@ -274,22 +316,18 @@ pub fn parse(
         // the pair could be honoured. Accepting it started a deployment with mutual TLS silently
         // absent - the exact failure the `plaintext` arm above already refuses, and the asymmetry
         // is `github.com/telekom/sutura#659`. The refusal names `mutual` as the remedy.
-        "verified" => {
+        TransportModeWord::Verified => {
             refuse_unread_keys(alias, "verified", client_identity_keys(client_certificate, client_key))?;
             let anchors = TrustAnchors::parse(alias, anchors)?;
             Ok(SourceTransport::Verified { anchors })
         }
         // The one mode that reads all three material keys, so nothing is discarded here and nothing
         // is refused for being unread.
-        "mutual" => {
+        TransportModeWord::Mutual => {
             let anchors = TrustAnchors::parse(alias, anchors)?;
             let identity = parse_client_identity(alias, client_certificate, client_key)?;
             Ok(SourceTransport::Mutual { anchors, identity })
         }
-        _ => Err(InvalidTransport::UnknownTransport {
-            alias: alias.clone(),
-            known: TRANSPORT_KNOWN,
-        }),
     }
 }
 
@@ -501,10 +539,18 @@ mod tests {
 
     #[test]
     fn an_unknown_transport_word_is_refused() {
-        assert!(matches!(
+        // The WHOLE list, not `.contains("plaintext")` - a `contains` assertion cannot see a
+        // spelling missing from `known()`, which is exactly the drift `TransportModeWord::known`
+        // deriving from `ALL` closes. Compared against `TransportModeWord::known()` itself and not
+        // a copied literal, so this test cannot pass by agreeing with a wrong derivation.
+        assert_eq!(
             parse(&source("pg"), "require", None, None, None),
-            Err(InvalidTransport::UnknownTransport { alias, known }) if alias == source("pg") && known.contains("plaintext")
-        ));
+            Err(InvalidTransport::UnknownTransport {
+                alias: source("pg"),
+                known: TransportModeWord::known(),
+            })
+        );
+        assert_eq!(TransportModeWord::known(), "plaintext, verified, mutual");
     }
 
     #[test]

@@ -42,7 +42,7 @@
 //! `sutura_domain::catalog::DimensionValue` - because the module is the unit of API and the files are
 //! not. Same arrangement as [`crate::knowledge`]'s `note` and `bundle`.
 
-use crate::text::first_invisible;
+use crate::text::{first_altered_control, first_invisible};
 
 /// The longest declared dimension value, in characters.
 ///
@@ -284,22 +284,6 @@ fn has_unreadable_spacing(raw: &str) -> bool {
         return true;
     }
     raw.contains("  ")
-}
-
-/// The first control character a renderer would remove, if the text holds one.
-///
-/// Named for what it is about rather than for what it matches: the set is *the control characters
-/// `sutura_app::prompt::quote` does not keep*, which is every one of them but `\n` and `\t`. Written
-/// as the complement of the renderer's two exemptions rather than as its own list, so the two cannot
-/// drift the way [`crate::text`]'s module documentation describes two copies of one rule drifting -
-/// if the renderer ever kept a third character, this refusal would be the thing to widen, and it
-/// says so in one place.
-///
-/// A free function here rather than a predicate in [`crate::text`]: that module owns the rule EVERY
-/// authored type agrees on, and this is one type's agreement with one renderer.
-fn first_altered_control(raw: &str) -> Option<char> {
-    raw.chars()
-        .find(|character| character.is_control() && *character != '\n' && *character != '\t')
 }
 
 /// Delegates to [`DimensionValue::parse`]: one constructor is the source of truth, and

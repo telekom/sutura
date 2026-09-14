@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Dimension, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
 use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
@@ -207,6 +207,15 @@ pub enum InconsistentDefinitions {
         label: String,
         table: TableName,
     },
+    /// The aggregate cap over every column, required filter, dimension value and description this
+    /// bundle carries. What [`MAX_DEFINITIONS_BYTES`] bounds.
+    ///
+    /// A model's own column count and a metric's own required-filter count are both uncapped, so a
+    /// catalog of many small, individually-legal declarations is not a catalog any per-item cap can
+    /// see - the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes over a bundle of
+    /// notes.
+    #[error("this catalog's definitions carry {bytes} authored bytes, and the limit is {limit}")]
+    DefinitionsTooLarge { bytes: usize, limit: usize },
 }
 
 impl Definitions {
@@ -245,11 +254,27 @@ impl Definitions {
             }
         }
 
-        Ok(Self {
+        let assembled = Self {
             models: model_map,
             relationships: relationship_map,
             metrics: metric_map,
-        })
+        };
+        let bytes = assembled.authored_bytes();
+        if bytes > MAX_DEFINITIONS_BYTES {
+            return Err(InconsistentDefinitions::DefinitionsTooLarge {
+                bytes,
+                limit: MAX_DEFINITIONS_BYTES,
+            });
+        }
+        Ok(assembled)
+    }
+
+    /// The authored bytes across the whole bundle. What [`MAX_DEFINITIONS_BYTES`] bounds.
+    fn authored_bytes(&self) -> usize {
+        let models = sum_bytes(self.models.values().map(model_bytes));
+        let relationships = sum_bytes(self.relationships.values().map(relationship_bytes));
+        let metrics = sum_bytes(self.metrics.values().map(metric_bytes));
+        models.saturating_add(relationships).saturating_add(metrics)
     }
 
     fn check_relationship(
@@ -502,4 +527,44 @@ impl Definitions {
     pub fn relationship(&self, name: &RelationshipName) -> Option<&Relationship> {
         self.relationships.get(name)
     }
+}
+
+/// The authored bytes behind one model beyond its own name: every column it declares, and its
+/// description.
+fn model_bytes(model: &Model) -> usize {
+    sum_bytes(model.columns().iter().map(|column| column.as_str().len())).saturating_add(model.description().len())
+}
+
+/// The authored bytes behind one relationship beyond its own name: the two columns it joins on.
+fn relationship_bytes(relationship: &Relationship) -> usize {
+    relationship
+        .origin_column()
+        .as_str()
+        .len()
+        .saturating_add(relationship.target_column().as_str().len())
+}
+
+/// The authored bytes behind one metric beyond its own name: every required filter as it would
+/// render, every dimension it declares, and its description.
+fn metric_bytes(metric: &Metric) -> usize {
+    let filters = sum_bytes(metric.required_filters().iter().map(|filter| filter.to_string().len()));
+    let dimensions = sum_bytes(metric.dimensions().values().map(dimension_bytes));
+    filters.saturating_add(dimensions).saturating_add(metric.description().len())
+}
+
+/// The authored bytes behind one dimension beyond its own name: every allowed value, and its
+/// description.
+fn dimension_bytes(dimension: &Dimension) -> usize {
+    let values = dimension
+        .allowed_values()
+        .map_or(0, |values| sum_bytes(values.iter().map(|value| value.as_str().len())));
+    values.saturating_add(dimension.description().len())
+}
+
+/// Saturating, because a count of authored bytes must not be able to wrap into a small number and
+/// pass the cap it exists to fail. The same rule [`crate::knowledge`]'s own `sum_bytes` holds, kept
+/// as a second copy rather than a shared one: that one is `knowledge`'s private helper, and a public
+/// seam for three lines of arithmetic is a bigger change than the duplication it would remove.
+fn sum_bytes(counts: impl Iterator<Item = usize>) -> usize {
+    counts.fold(0, usize::saturating_add)
 }

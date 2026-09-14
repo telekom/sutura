@@ -80,20 +80,20 @@ for gh_name, f in paths.items():
 VARS = {
     "SUTURA_BQ_DATASET": "ci_dataset",
     "SUTURA_BQ_TABLE": "ci_table",
-    # The five the two-principal cell has to be pointed at: the policied dataset and table, the
-    # column the two row access policies filter on, and the grouping value each policy grants. Vars
-    # rather than secrets: none of them is credential material, and the cell's own workflow step
-    # masks the two resource names before anything in the job can print them.
+    # The policied dataset `cross_resource.rs`'s live fixture reads alongside `SUTURA_BQ_RLS_PROJECT`
+    # (`crates/sutura-exec-bigquery/tests/cross_resource_fixture/live.rs`) - still live, unrelated to
+    # the two-principal cell.
     #
     # The policied dataset is NOT the one the acceptance legs run against, and that is an assertion
     # here only because `__main__.py` refuses `dataset == ci_dataset` - it used to be four
     # independent config keys distinct by placeholder value alone. The reason it has to hold: the
     # acceptance legs render `CREATE OR REPLACE TABLE`, which drops a table's row access policies.
+    #
+    # Four names used to sit beside this one - `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`,
+    # `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` - the withdrawn two-principal cell's
+    # own five (telekom/sutura#123: sutura does not re-verify a source's row-level security). Nothing
+    # reads them now; dropped rather than left to describe a cell that no longer exists.
     "SUTURA_BQ_RLS_DATASET": "dataset",
-    "SUTURA_BQ_RLS_TABLE": "table",
-    "SUTURA_BQ_GROUP_COLUMN": "group_column",
-    "SUTURA_BQ_PRINCIPAL_A_ROWS": "principal_a_rows",
-    "SUTURA_BQ_PRINCIPAL_B_ROWS": "principal_b_rows",
 }
 need(*VARS.values())
 for gh_name, out in VARS.items():

@@ -149,6 +149,9 @@ fi
 # build here, so this script passes the Nix package as a read-only build context and builds the
 # derived image BEFORE Compose asks for it. The final tag is keyed by the canonical worktree path,
 # so concurrent worktrees cannot replace one another's image between build and startup.
+# The chat client base image and tag. The ONLY place this is written - `demo/Dockerfile`'s
+# matching ARG has no default, because this script is its only caller.
+base_image="openwebui/open-webui:0.11.3"
 registry="${SUTURA_IMAGE_REGISTRY:-docker.io}"
 worktree_key="$(printf '%s' "$root" | git hash-object --stdin)"
 export SUTURA_DEMO_IMAGE_TAG="demo-${worktree_key}"
@@ -165,7 +168,7 @@ serve_package="$(nix build ".#sutura-serve-${server_target}" --no-link --print-o
 printf 'demo: building %s\n' "$demo_image" >&2
 docker build \
     --build-context "sutura-server=${serve_package}" \
-    --build-arg "SUTURA_DEMO_BASE_IMAGE=${registry}/openwebui/open-webui:0.11.3" \
+    --build-arg "SUTURA_DEMO_BASE_IMAGE=${registry}/${base_image}" \
     -t "$demo_image" \
     -f demo/Dockerfile \
     . >&2

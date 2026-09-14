@@ -9,7 +9,11 @@
 # named Nix server package context; a release publishes the server image on its own. A compose
 # service may not build here (see
 # `no_service_in_the_tier_is_built_here`), so `demo/start.sh` still owns this derived build.
-ARG SUTURA_DEMO_BASE_IMAGE=docker.io/openwebui/open-webui:0.11.3
+#
+# No default: `demo/start.sh` is the only caller (it also supplies `--build-context
+# sutura-server=...`, absent from every other invocation), and a default here would be a second
+# copy of the pinned tag with nothing comparing it to the one `demo/start.sh` passes.
+ARG SUTURA_DEMO_BASE_IMAGE
 
 FROM ${SUTURA_DEMO_BASE_IMAGE}
 

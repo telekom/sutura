@@ -1281,8 +1281,8 @@ has to do.
 
 ### What the cell is, and the one sentence that keeps it honest
 
-`crates/sutura-exec-bigquery/tests/two_principals.rs`, reached by `just bigquery-two-principals` and
-by `nix run .#bigquery-two-principals`. One `QueryPlan` value, borrowed twice, so **the statement is
+`two_principals.rs` (withdrawn, fourteenth amendment below - named without its path or its task
+citations here, because none of the three exists any more). One `QueryPlan` value, borrowed twice, so **the statement is
 the same statement and not two that resemble each other** - and each leg presents a bearer minted
 from that principal's own service-account key through this crate's own `Credential`, which is issue
 #123's second bullet answered by reusing the credential path a deployment runs rather than by
@@ -1545,3 +1545,17 @@ became the aarch64 pair - so the musl-link sentence above is true again for the 
 every pull request, and false for `aarch64-unknown-linux-musl` in ordinary CI. Priced against what
 it replaces: the reduction runs two cells on a pull request where four ran before this record's
 period and two ran after it, and two on `main` where four ran.
+
+## Fourteenth amendment, 2026-09-14: the two-principal cell is withdrawn
+
+The maintainer's decision on telekom/sutura#123: sutura does not re-verify a source's row-level
+security. A data system that enforces row-level security is trusted to implement it; sutura's
+narrower and provable claim - that the job ran as the asking subject - is leg 2's exchange, not this
+cell's row comparison.
+
+`two_principals.rs`, the `bigquery-two-principals` just task and nix app, and the "A real dataset
+under two keys" venue and claims-matrix column on `docs/where-identity-is-proven.md` are removed in
+the same change that records this. `test-infra/pulumi/google/__main__.py`'s `sa_a`/`sa_b` service
+accounts, their keys and their row access policies are left provisioned: deleting cloud state is a
+separate decision, and both accounts are candidates for the `iamcredentials` impersonation hop
+telekom/sutura#376's exchanged-identity cell still needs.
