@@ -33,109 +33,18 @@
 //! unadjudicated at exit 0 - both were measured green before that type existed.
 
 mod declared;
+mod registry;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use registry::ENROLLED;
+#[cfg(test)]
+use registry::{ALLOW_FILE, DECLARED_IN};
+
 use crate::causality::regions;
-use crate::refusals::declared::{Declared, Enrolled, Subject, variants};
+use crate::refusals::declared::{Declared, Enrolled, Subject};
 use crate::{Verdict, repo};
-
-/// Where the enum is declared. A constant so a move fails this gate loudly rather than making it
-/// check nothing.
-const DECLARED_IN: &str = "crates/sutura-domain/src/query.rs";
-
-/// Where a query variant with no name evidence is argued for.
-const ALLOW_FILE: &str = "devco/refusals-unprovoked-allow";
-
-/// One refused question: a caller asked something this deployment does not answer.
-const QUERY: Subject = Subject {
-    name: "RefusalReason",
-    declared_in: DECLARED_IN,
-    allow_file: ALLOW_FILE,
-    // 22: PR-1 (conf266 D19+A4) added `FederatedAnswerNotWellFormed`.
-    variants: variants(22),
-};
-
-/// One refused deployment: the settings are not fit to serve and the process does not start.
-const STARTUP: Subject = Subject {
-    name: "NotFitToServe",
-    declared_in: "crates/sutura-config/src/settings/posture.rs",
-    allow_file: "devco/startup-refusals-unprovoked-allow",
-    variants: variants(15),
-};
-
-/// One refused deployment again, and from the other side of the boot: the settings were fit and the
-/// pinned bundle is not validated, so `verify_and_validate` refuses and the process does not start.
-///
-/// **The asymmetry `github.com/telekom/sutura#428` is about.** A `RefusalReason` refuses one
-/// question; this refuses the whole deployment, and until it was enrolled the only thing holding
-/// its variants was whether an author happened to look. All seven are named by tests, which keeps
-/// the enrolment free: an eighth cannot arrive unnamed.
-const VALIDATION: Subject = Subject {
-    name: "NotValidated",
-    declared_in: "crates/sutura-domain/src/pinned.rs",
-    allow_file: "devco/validation-refusals-unprovoked-allow",
-    variants: variants(7),
-};
-
-/// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower
-/// vocabulary - a row cap, a data-system volume bound, a statement that did not complete, and the
-/// data system refusing at the identity/authorization level. Never `RefusalReason`'s: that
-/// vocabulary is keyed to a compiled plan, and a raw statement has none.
-const RAW: Subject = Subject {
-    name: "RawRefusalReason",
-    declared_in: "crates/sutura-domain/src/raw.rs",
-    allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(4),
-};
-
-/// Every enum this gate reads. Widening it is a diff here and nowhere else; see the module doc for
-/// the direction this list does NOT hold.
-const ENROLLED: [&Subject; 4] = [&QUERY, &STARTUP, &VALIDATION, &RAW];
-
-/// Two subjects sharing one allow file would share their exceptions, and
-/// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids
-/// it - a rule nothing compared until now, and invisible today only because all three lists are
-/// empty. A `const` block, so a duplicated path fails the build rather than a run.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "const-evaluated and guarded by the loop bound: an out-of-range index here is a compile error, not a panic in a run"
-)]
-const _: () = {
-    let mut outer = 0_usize;
-    while outer < ENROLLED.len() {
-        let mut inner = outer + 1;
-        while inner < ENROLLED.len() {
-            assert!(
-                !same_path(ENROLLED[outer].allow_file, ENROLLED[inner].allow_file),
-                "two enrolled subjects share an allow file, so their exceptions would cross"
-            );
-            inner += 1;
-        }
-        outer += 1;
-    }
-};
-
-/// Byte equality on two paths, in a `const` context.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "const-evaluated and guarded by the loop bound: an out-of-range index here is a compile error, not a panic in a run"
-)]
-const fn same_path(left: &str, right: &str) -> bool {
-    let (left, right) = (left.as_bytes(), right.as_bytes());
-    if left.len() != right.len() {
-        return false;
-    }
-    let mut at = 0_usize;
-    while at < left.len() {
-        if left[at] != right[at] {
-            return false;
-        }
-        at += 1;
-    }
-    true
-}
 
 /// One deliberate exception, as the allow file spells it.
 struct Excused {
@@ -747,7 +656,13 @@ mod tests {
         assert_eq!(verdict, Verdict::Pass);
         assert_eq!(
             reached,
-            ["RefusalReason", "NotFitToServe", "NotValidated", "RawRefusalReason"]
+            [
+                "RefusalReason",
+                "NotFitToServe",
+                "NotValidated",
+                "RawRefusalReason",
+                "TlsNotUsable"
+            ]
         );
     }
 
@@ -766,7 +681,7 @@ mod tests {
         assert_eq!(verdict, Verdict::Fail);
     }
 
-    /// The enrolled counts are held against the REAL enums, so a variant added to any of the three
+    /// The enrolled counts are held against the REAL enums, so a variant added to any enrolled enum
     /// is a red test as well as a red gate - and dropping a subject from `ENROLLED` is red here too.
     ///
     /// Driven THROUGH `Enrolled::each` rather than over the constant, so this test sees what the
@@ -791,7 +706,16 @@ mod tests {
             .expect("every enrolled subject reached");
         assert_eq!(verdict, Verdict::Pass);
         assert!(unresolved.is_empty(), "enrolled subjects that do not resolve: {unresolved:?}");
-        assert_eq!(names, ["RefusalReason", "NotFitToServe", "NotValidated", "RawRefusalReason"]);
+        assert_eq!(
+            names,
+            [
+                "RefusalReason",
+                "NotFitToServe",
+                "NotValidated",
+                "RawRefusalReason",
+                "TlsNotUsable"
+            ]
+        );
     }
 
     /// Fabricated variant names throughout, so this module's own fixtures cannot be read as
