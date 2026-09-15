@@ -55,7 +55,7 @@ mod tests {
             bounds(timeout_seconds, cap),
             // No declared `security.outbound` in the plaintext-loopback cases of this file - the
             // fake answers over `http://`, and the anchors arm of the constructor is exercised by
-            // the TLS cells in `src/http.rs`'s own `mod tests`.
+            // this file's own `tests::tls_anchors` cells.
             None,
         )
     }
@@ -401,9 +401,9 @@ mod tests {
         use rustls::pki_types::{CertificateDer, PrivateKeyDer};
         use sutura_tls::Anchors;
 
-        use super::{DEPLOYMENT_PROPERTY, GENEROUS_CAP, bounds, token};
+        use super::{DEPLOYMENT_PROPERTY, GENEROUS_CAP, bounds, http_cause, token};
         use sutura_catalog_datahub::AspectReader as _;
-        use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader};
+        use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError};
         use sutura_catalog_datahub::test_support::{Scripted, happy_path_answers};
 
         /// A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`),
@@ -585,9 +585,26 @@ mod tests {
             // the handshake wrongly trusts this peer, so only a genuine refusal turns this red.
             let server = TlsFakeServer::start(&presented, happy_path_answers());
             let instance = reader(&server.endpoint(), Some(declared(&scratch, "declared-root", &declared_ca)));
-            instance
+            let error = instance
                 .read()
                 .expect_err("a chain signed by an issuer the declared bundle does not name is refused");
+            // A bare `expect_err` would also pass on a malformed body read over a TRUSTED
+            // connection (a JSON-decode error is still an `Err`), which proves nothing about
+            // TRUST. Assert the refusal is the handshake's own `Unreachable { cause: Io(..) }`
+            // shape and that the io error names the certificate, the way `sutura-exec-bigquery`'s
+            // `wire/tests/tls.rs` cells hold their own trust refusals.
+            let cause = http_cause(&error);
+            let HttpReaderError::Unreachable { cause: io_cause, .. } = cause else {
+                panic!("a TLS trust refusal reaches this reader as Unreachable, got: {cause}");
+            };
+            assert!(
+                matches!(io_cause.as_ref(), ureq::Error::Io(_)),
+                "a trust refusal is the handshake's own io-layer error, not a decode error: {io_cause}"
+            );
+            assert!(
+                io_cause.to_string().contains("certificate"),
+                "the io error must name the certificate refusal, got: {io_cause}"
+            );
         }
 
         #[test]
@@ -596,9 +613,23 @@ mod tests {
             // See the sibling cell above for why this is the full corpus rather than an empty body.
             let server = TlsFakeServer::start(&issued, happy_path_answers());
             let instance = reader(&server.endpoint(), None);
-            instance
+            let error = instance
                 .read()
                 .expect_err("the compiled-in roots refuse a self-signed loopback peer");
+            // Same variant assertion as the sibling cell above: only a trust refusal, never a
+            // decode error, may satisfy this cell.
+            let cause = http_cause(&error);
+            let HttpReaderError::Unreachable { cause: io_cause, .. } = cause else {
+                panic!("a TLS trust refusal reaches this reader as Unreachable, got: {cause}");
+            };
+            assert!(
+                matches!(io_cause.as_ref(), ureq::Error::Io(_)),
+                "a trust refusal is the handshake's own io-layer error, not a decode error: {io_cause}"
+            );
+            assert!(
+                io_cause.to_string().contains("certificate"),
+                "the io error must name the certificate refusal, got: {io_cause}"
+            );
         }
     }
 }

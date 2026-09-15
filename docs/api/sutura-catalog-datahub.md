@@ -1067,7 +1067,7 @@ pub const fn status_code(&self) -> u16
 ```
 
 The status this scripted answer is served with - public so a TLS loopback variant of the
-fake (the `src/http.rs` anchors cells, a served-binary boot-line cell) can serve the SAME
+fake (`tests/http_reader.rs::tls_anchors`, a served-binary boot-line cell) can serve the SAME
 answers this server does, instead of a second worth of page-building. Named `status_code`
 rather than `status` because `Self::status` is already the constructor's name.
 

@@ -54,7 +54,7 @@ sutura-semantic = { workspace = true }
 # and a developer running `just test` without `--features http` should still get the first.
 sutura-dev = { workspace = true }
 ureq = { workspace = true }
-# The TLS handshake cells (`src/http.rs`'s `mod tests`, behind the `http` feature): a real
+# The TLS handshake cells (`tests/http_reader.rs::tls_anchors`, behind the `http` feature): a real
 # `rustls::ServerConnection` on a loopback `TcpListener` presenting an `rcgen`-issued self-signed
 # leaf, dialled by the reader's own `ureq::Agent` built from a declared bundle - the same fixture
 # shape `sutura-exec-bigquery`'s `wire/tests/tls.rs`, `sutura-tls`'s own suite and

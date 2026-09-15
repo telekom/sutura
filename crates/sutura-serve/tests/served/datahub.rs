@@ -219,13 +219,15 @@ mod tests {
         );
     }
 
-    /// **The boot-line cell that closes #742's review-held limit**: a `catalog.kind: datahub`
-    /// deployment whose endpoint dials an HTTPS loopback fake (leaf issued by a CA the deployment
-    /// declares as `security.outbound.transport_anchors`) BOOTS and answers - proving the served
-    /// binary threads its ONE boot-time `outbound` value into the catalog reader, whose handshake
-    /// against the declared CA is what lets the catalog load at all. A reader that ignored the
-    /// anchors (or a composition root that never handed them over) would refuse the self-signed
-    /// leaf at CATALOG LOAD and the process would never report listening.
+    /// **The boot-line cell that holds the CATALOG seam of #742's review-held limit**: a
+    /// `catalog.kind: datahub` deployment whose endpoint dials an HTTPS loopback fake (leaf issued
+    /// by a CA the deployment declares as `security.outbound.transport_anchors`) BOOTS and answers -
+    /// proving the served binary threads its ONE boot-time `outbound` value into the catalog reader,
+    /// whose handshake against the declared CA is what lets the catalog load at all. A reader that
+    /// ignored the anchors (or a composition root that never handed them over) would refuse the
+    /// self-signed leaf at CATALOG LOAD and the process would never report listening. This closes
+    /// only the CATALOG half of #742's limit; the STS/job seam (`broker.rs:101`) stays
+    /// review-held - handing the STS agent `None` still passes the whole suite.
     ///
     /// **RED/GREEN.** Removing the `outbound` threading from `sutura-serve/src/catalog.rs` (or
     /// dropping the `.tls_config(..)` arm from the reader) makes the boot handshake refuse the

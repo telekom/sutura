@@ -25,11 +25,11 @@
 //! module header.
 //!
 //! > **The fold is nearly verbatim the same as `sutura_exec_bigquery::wire::tls::root_certs`.**
-//! > `just ship-check`'s jscpd runs minutes in a build lane. If it flags this pair, the honest fix
-//! > is a tiny `sutura_tls` `pub fn` returning the DER list (`Vec<CertificateDer>`), which both
-//! > ureq adapters then feed to their own `RootCerts` - still no `ureq` edge into `sutura-tls`. Not
-//! > pre-built here because adding it changes an already-accepted adapter `wire/tls.rs` for lines a
-//! > gate has not yet measured; the build lane that sees the violation makes that call.
+//! > `jscpd` does not flag it - both folds sit below its 30-line / 250-token floor
+//! > (`xtask/src/jscpd.rs`), not above an unflagged threshold. The only honest dedupe would be a
+//! > shared leaf that hosts the ureq-specific `Certificate::from_der(..).to_owned()` map itself,
+//! > which cannot live in `sutura-tls` without the `ureq -> rustls -> ring` edge
+//! > `check-boundaries` forbids - declined here for 13 duplicated lines.
 
 use sutura_tls::LoadedAnchors;
 
