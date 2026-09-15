@@ -3694,8 +3694,9 @@ serialized form is pinned by snapshots, so the first commit of any such attempt 
 <p><strong>And a correction this record owes, because it claimed a stronger mechanism than exists.</strong> An earlier
 version of this paragraph said the definition digest is taken over that same serialized form, so such
 a change "moves goldens and moves the digest". <strong>The second half is false.</strong> <code>DefinitionDigest::of</code>
-takes the <code>Definitions</code> and the <code>Knowledge</code> and nothing else, so the digest covers what a catalog
-authored and not what the compiler decided; <code>QueryPlan</code> is not in it, and no change to <code>QueryPlan</code>
+takes the <code>Definitions</code>, the <code>Knowledge</code> and a <code>ContributionManifest</code>, and nothing else, so the digest
+covers what a catalog authored and not what the compiler decided; <code>QueryPlan</code> is not in it, and no
+change to <code>QueryPlan</code>
 moves a digest. The two are pinned by different snapshots on purpose - the plan by <code>plan@markdown</code>,
 the digest by <code>catalog_digest@markdown</code> - and conflating them made a plan-shape change sound like a
 provenance change. What is true and is the point that survives: the digest covers every model's

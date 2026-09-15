@@ -3097,7 +3097,7 @@ command is written here because a bare figure in prose is one nobody can re-chec
 <td><strong>0</strong>. <code>git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker</code> over a file <code>grep -c ''</code> reports at 471 lines</td>
 </tr>
 <tr>
-<td><code>crates/sutura-mcp/src/lib.rs:162</code></td>
+<td><code>crates/sutura-mcp/src/lib.rs:212</code></td>
 <td><code>pub async fn serve_stdio&lt;S&gt;(service, permitted, prose, admission, reply)</code> - <strong>no parameter a principal could arrive through</strong></td>
 </tr>
 <tr>
@@ -3114,18 +3114,18 @@ command is written here because a bare figure in prose is one nobody can re-chec
 </tr>
 <tr>
 <td>what capabilities that surface grants</td>
-<td><code>crates/sutura-cli/src/mcp.rs:133</code> and <code>:233</code> pass <code>Permitted::every_capability()</code>, fixed at construction</td>
+<td><code>crates/sutura-cli/src/mcp.rs:145</code> and <code>:257</code> pass <code>Permitted::every_capability()</code>, fixed at construction</td>
 </tr>
 <tr>
 <td>the same question on the HTTP surface</td>
-<td><code>crates/sutura-http/src/capability.rs:138</code> <code>pub fn permitted_for(request: &amp;Request) -&gt; Permitted</code>, <strong>per request</strong>, from the verified caller's scopes</td>
+<td><code>crates/sutura-http/src/capability.rs:172</code> <code>pub fn permitted_for(asked: &amp;Asked, run_sql_enabled: bool) -&gt; Permitted</code>, taking the <code>Asked</code> already derived rather than the raw request, <strong>per request</strong>, from the verified caller's scopes</td>
 </tr>
 </tbody>
 </table>
 <p>Two things follow, and they are different. The first is that the pipe is the cause: a <code>Permitted</code>
 fixed at construction and a <code>const fn</code> chain are both correct for a transport whose caller is
 whoever launched the process. The second is that the command-line tool's
-<code>StaticCredentialBroker</code> (<code>crates/sutura-cli/src/sources.rs:147</code>) is <strong>not</strong> a gap and must not be
+<code>StaticCredentialBroker</code> (<code>crates/sutura-cli/src/sources.rs:158</code>) is <strong>not</strong> a gap and must not be
 reported as one - a single-user tool's operator <em>is</em> the subject, and an exchange there would be
 impersonation of the person already at the keyboard.</p>
 <h2 id="the-two-shapes-and-the-one-that-was-taken">The two shapes, and the one that was taken<a class="headerlink" href="#the-two-shapes-and-the-one-that-was-taken" title="Permanent link">&para;</a></h2>
@@ -3231,7 +3231,7 @@ pipe it is empty, which is why it is bound to <code>_context</code> and why that
 <code>context.extensions.get::&lt;http::request::Parts&gt;()</code> and reach <code>parts.headers</code>, per request, with no
 macro and no SDK feature beyond the transport itself.</p>
 <h3 id="it-composes-with-the-router-this-repository-already-builds">It composes with the router this repository already builds<a class="headerlink" href="#it-composes-with-the-router-this-repository-already-builds" title="Permanent link">&para;</a></h3>
-<p><code>crates/sutura-http/src/router.rs:180</code> returns a <code>Result&lt;Router, RouterNotBuilt&gt;</code> over <code>axum</code>'s own
+<p><code>crates/sutura-http/src/router.rs:291</code> returns a <code>Result&lt;Router, RouterNotBuilt&gt;</code> over <code>axum</code>'s own
 <code>Router</code>. The SDK's service is a
 <code>tower_service::Service</code>:</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">impl</span><span class="o">&lt;</span><span class="n">RequestBody</span><span class="p">,</span><span class="w"> </span><span class="n">S</span><span class="p">,</span><span class="w"> </span><span class="n">M</span><span class="o">&gt;</span><span class="w"> </span><span class="n">tower_service</span><span class="p">::</span><span class="n">Service</span><span class="o">&lt;</span><span class="n">Request</span><span class="o">&lt;</span><span class="n">RequestBody</span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">StreamableHttpService</span><span class="o">&lt;</span><span class="n">S</span><span class="p">,</span><span class="w"> </span><span class="n">M</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
@@ -3336,7 +3336,7 @@ this decision to have settled.</p>
 <li><strong>It is not a claim that two callers get two answers.</strong> Nothing in the default suite asserts
   that two subjects read two different row sets: the scaffold for it is
   <code>two_subjects_with_different_grants_read_two_different_row_sets</code> at
-  <code>crates/sutura-exec-bigquery/tests/acceptance.rs:768</code>, <code>#[ignore]</code>d and needing a real project.
+  <code>crates/sutura-exec-bigquery/tests/acceptance.rs:791</code>, <code>#[ignore]</code>d and needing a real project.
   This record changes none of that.</li>
 <li><strong>It does not decide the exchange chain.</strong> See the next section: one hop is built, and the chain
   the requirement asks for is a separate design with its own failure modes.</li>
@@ -3360,15 +3360,15 @@ this decision to have settled.</p>
 <p>The requirement this record serves is that the agent surface takes the caller's token from
 whatever enterprise identity provider issued it and reaches a credential the data source accepts,
 through <strong>however many exchanges that takes</strong>.</p>
-<p>Measured at <code>5ae3bde</code>: the broker performs one. <code>crates/sutura-exec-bigquery/src/sts.rs:344</code>:</p>
+<p>Measured at <code>5ae3bde</code>: the broker performs one. <code>crates/sutura-exec-bigquery/src/sts.rs:420</code>:</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">credential</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">self</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span><span class="p">.</span><span class="n">exchange</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="p">.</span><span class="n">exchange</span><span class="p">(</span><span class="n">workload</span><span class="p">.</span><span class="n">audience</span><span class="p">(),</span><span class="w"> </span><span class="n">workload</span><span class="p">.</span><span class="n">scope</span><span class="p">(),</span><span class="w"> </span><span class="n">assertion</span><span class="p">)</span>
 </span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p">.</span><span class="n">map_err</span><span class="p">(</span><span class="o">|</span><span class="n">cause</span><span class="o">|</span><span class="w"> </span><span class="n">ExchangeUnusable</span><span class="p">::</span><span class="n">Provider</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">cause</span><span class="p">:</span><span class="w"> </span><span class="nb">Box</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">cause</span><span class="p">)</span><span class="w"> </span><span class="p">})</span><span class="o">?</span><span class="p">;</span>
 </span></code></pre></div>
-<p>against the port at <code>crates/sutura-exec-bigquery/src/sts.rs:111</code>,
+<p>against the port at <code>crates/sutura-exec-bigquery/src/sts.rs:116</code>,
 <code>fn exchange(&amp;self, audience: &amp;str, scope: &amp;str, subject_token: &amp;Secret) -&gt; Result&lt;StsCredential, Self::Error&gt;</code>,
-whose one non-test implementor is <code>StsOverHttp</code> at <code>crates/sutura-exec-bigquery/src/wire/sts.rs:95</code>.
+whose one non-test implementor is <code>StsOverHttp</code> at <code>crates/sutura-exec-bigquery/src/wire/sts.rs:114</code>.
 There is no second hop and nowhere to configure one:
 <code>git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs</code> returns
 nothing. Nor is any enterprise provider wired -

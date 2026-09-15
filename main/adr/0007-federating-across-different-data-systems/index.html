@@ -3515,7 +3515,7 @@ provider is a <code>SemanticCatalog</code>; a data system is a <code>Warehouse</
 record that recommends work nobody has done.</p>
 <p><strong>Run here:</strong> every dialect-rendering fact, from a throwaway crate with its own <code>[workspace]</code> table
 that renders this repository's own statement shape through the same three calls
-<code>crates/sutura-sql/src/generate.rs:302-307</code> makes. Every DuckDB fact, against the pinned
+<code>crates/sutura-sql/src/generate.rs:503-508</code> makes. Every DuckDB fact, against the pinned
 <code>v1.5.5 (Variegata) d8cdaa33fd</code> from <code>nix/duckdb.nix</code>. Every count over the corpus, the aggregate
 vocabulary and the dialect features, from the files.</p>
 <p><strong>Reasoned, not run:</strong> what BigQuery and Oracle do with a statement, because neither is reachable
@@ -3667,7 +3667,7 @@ library, which nixpkgs cannot supply freely, so there is no analogue of <code>ni
 from nixpkgs to a library, and <code>just validate</code> - which builds in the nix sandbox and is the only thing
 that counts as verified here - could not build it. Reasoned from the dependency situation, not
 attempted.</p>
-<p>Which is why <code>docs/architecture.md:104-105</code> already has the answer and this record adopts it:
+<p>Which is why <a href="../../architecture/#connectors-arrow-flight-not-a-driver-per-data-system">Connectors: Arrow Flight, not a driver per data system</a> already has the answer and this record adopts it:
 <strong>Arrow Flight SQL, uniformly, rather than a linked native driver each.</strong> Under that transport a
 leg's adapter is one crate parameterised by an endpoint and a <code>Dialect</code> rather than one crate per data
 system; the proprietary client lives in a gateway process outside our artifact; and the type mapping
@@ -3723,10 +3723,10 @@ is not sufficient now: pulling <code>CountDistinct</code> up means the fact leg 
 the shapes are enumerated here against the types that exist, and each is priced. <strong>The plan executes;
 this record decides.</strong></p>
 <p><strong>Read the existing type first, because it cannot express any of the three.</strong> <code>QueryPlan</code> at
-<code>crates/sutura-domain/src/plan.rs:319-332</code> holds twelve fields and four of them decide this section:
+<code>crates/sutura-domain/src/plan.rs:411-424</code> holds twelve fields and four of them decide this section:
 <code>bucket: PlanBucket</code> and <code>measure: PlanMeasure</code> are required and not <code>Option</code>; <code>measure_label</code> is one
 label; and <code>max_rows</code> is set to <code>MAX_ROWS</code> by the constructor, which takes no parameter for it.
-<code>generate</code> at <code>crates/sutura-sql/src/generate.rs:233</code> projects the keys, then one bucket expression,
+<code>generate</code> at <code>crates/sutura-sql/src/generate.rs:513</code> projects the keys, then one bucket expression,
 then <strong>exactly one</strong> measure expression; groups by the keys and the bucket; and always emits
 <code>LIMIT plan.row_limit()</code>.</p>
 <table>
@@ -3818,13 +3818,13 @@ leg with no bucket</em> both constructible - the checked shape, where this one i
 <li><strong><code>LegTerm</code> holds a <code>PlanTerm</code> and a label, and NOT a <code>PlanMeasure</code>. That is the mechanism, and it is
   a type rather than a convention.</strong> <code>PlanMeasure</code> has exactly two variants and the only one that
   carries two terms is the one that DIVIDES them: <code>measure_expression</code> at
-  <code>crates/sutura-sql/src/generate.rs:200</code> emits <code>CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)</code>
+  <code>crates/sutura-sql/src/generate.rs:345</code> emits <code>CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)</code>
   for a <code>Ratio</code>. So <strong>a decomposed <code>Avg</code> travelling as a sum and a count, and a ratio travelling as an
   undivided numerator and denominator, are not expressible by <code>PlanMeasure</code> at all</strong> - which makes
   Decision 2 a domain change rather than a generator one, and is the single sharpest reason a leg
   needs its own type. With <code>LegTerm</code> there is no <code>Ratio</code> shape a leg can carry, so <code>ZeroDenominator</code>
   cannot reach a leg's statement and a division per leg is not something a reviewer has to notice.
-  <code>PlanTerm</code> is reused unchanged, and that is free because <code>plan.rs:180-190</code> already mirrors <code>Term</code>
+  <code>PlanTerm</code> is reused unchanged, and that is free because <code>plan.rs:267-277</code> already mirrors <code>Term</code>
   at the plan level for exactly this reason - <em>"so an adapter that renders one half of a ratio and
   one that renders a whole measure reach for the same function"</em>.</li>
 </ul>
@@ -3861,8 +3861,9 @@ row cap"</code>, rather than trusting either line number.</p>
 <p><strong>And a correction this record owes, because it claimed a mechanism it does not have.</strong> An earlier
 version of the ordered plan said the lookup-leg plan type would be <em>"the first step that moves the
 definition digest, because a new domain type changes a serialized form"</em>. <strong>That is false.</strong>
-<code>DefinitionDigest::of</code> at <code>crates/sutura-domain/src/definitions.rs:91</code> takes the <code>Definitions</code> and the
-<code>Knowledge</code> and nothing else. <code>QueryPlan</code> is not under the digest, <code>LegPlan</code> will not be either, and no
+<code>DefinitionDigest::of</code> at <code>crates/sutura-domain/src/definitions.rs:91</code> takes the <code>Definitions</code>, the
+<code>Knowledge</code> and a <code>ContributionManifest</code>, and nothing else. <code>QueryPlan</code> is not under the digest,
+<code>LegPlan</code> will not be either, and no
 plan-shape change moves a digest. What a new plan type moves is its own new snapshots, and what moves a
 digest is a catalog edit - including moving a model to a second source, which is the fact that actually
 matters here and is stated correctly in <em>What does not change</em> below.</p>
@@ -3911,7 +3912,7 @@ that is unchanged: the combine is called by <code>sutura-app</code>, above every
 <p><strong>Every leg crosses it, so the record has to say where it is rather than leaving it to whoever writes
 the combine.</strong> The decision: <strong>the port's currency stays <code>RowSet</code> for the first federated milestone,
 and the conversion to Arrow lives in exactly one function inside the combiner crate.</strong></p>
-<p>Why not move the port to Arrow first, which is the direction <code>docs/architecture.md:113-127</code> records:
+<p>Why not move the port to Arrow first, which is the direction <a href="../../architecture/#connectors-arrow-flight-not-a-driver-per-data-system">Connectors: Arrow Flight, not a driver per data system</a> records:
 <code>arrow</code> is a framework the domain may not name, <code>sutura-arrow</code> does not exist, and the pinned <code>duckdb</code>
 and <code>datafusion</code> disagree on the Arrow major - <code>arrow 58.4.0</code> under the driver and <code>59.2.0</code> under the
 engine, both in <code>Cargo.lock</code> today - so an Arrow-typed boundary between them is either IPC bytes,
@@ -3981,7 +3982,7 @@ stated as a quantity rather than as "we pay the processing cost".</p>
 <h3 id="the-finding-that-decides-the-cost-two-of-six-aggregates-do-not-descend">The finding that decides the cost: two of six aggregates do not descend<a class="headerlink" href="#the-finding-that-decides-the-cost-two-of-six-aggregates-do-not-descend" title="Permanent link">&para;</a></h3>
 <p>Grouping the fact leg by a remote join key is a strictly finer grouping than the answer, so the
 combine has to aggregate again. Whether that is correct depends entirely on the aggregate.
-<code>Aggregate</code> is the six-variant closed enum at <code>crates/sutura-domain/src/model.rs:190-197</code>, and the
+<code>Aggregate</code> is the six-variant closed enum at <code>crates/sutura-domain/src/model.rs:350-357</code>, and the
 third column is what each one costs a leg:</p>
 <table>
 <thead>
