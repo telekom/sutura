@@ -67,10 +67,19 @@
 //! **What actually covers this path is `just validate`**, which every lane runs before its final
 //! step regardless of what any hook did or did not see - the same standing answer this module's
 //! header already gives for `git rebase`, one merge shape over. What was missing was not coverage;
-//! it was a mechanism saying which hook types are installed, so a future `pre-merge-commit`
-//! addition - or a silent drop of `commit-msg` or `pre-push` - is a diff [`decide`] reads rather
-//! than a fact resting on this paragraph. [`INSTALLED_HOOK_TYPES`] is that mechanism: it asserts
-//! the installed set is exactly the three `CONTRIBUTING.md` names, in both directions.
+//! it was a mechanism saying which hook types `.pre-commit-config.yaml` DECLARES, so a future
+//! `pre-merge-commit` addition - or a silent drop of `commit-msg` or `pre-push` - is a diff
+//! [`decide_install_types`] reads rather than a fact resting on this paragraph.
+//! [`DECLARED_HOOK_TYPES`] is that mechanism: it asserts the declared set is exactly the three
+//! `CONTRIBUTING.md` names, in both directions.
+//!
+//! **This is the declared set, not the installed one, and the gap between them is not this
+//! gate's to close.** There is no `.git` in the nix sandbox this gate runs in (`flake.nix:551`),
+//! so a text scan of the declared config is the only hermetically possible shape - reading
+//! `.git/hooks/` is not on the table. `telekom/sutura#660`'s actual defect is that
+//! `pre-merge-commit` is not INSTALLED on a real checkout; a gate over the declared set cannot
+//! see that a `prek install` was never run, or ran against a config this one already holds
+//! correct. That residue stays open on a real checkout and is not narrowed by anything below.
 
 use std::collections::BTreeMap;
 
@@ -90,13 +99,15 @@ pub(crate) const COMMIT: &str = "pre-commit";
 /// `default_stages:` is - a top-level scalar list above every hook.
 const INSTALL_TYPES_KEY: &str = "default_install_hook_types:";
 
-/// The hook types this repo installs, per `CONTRIBUTING.md`'s own line naming them: `pre-commit`,
-/// `pre-push`, `commit-msg` - and, load-bearing by its absence, no `pre-merge-commit`. This
-/// module's own header names what that absence costs on a clean forward merge and why no hook is
-/// the honest remedy; what this constant holds is narrower and mechanical: the installed set is
-/// exactly these three, in both directions, so an addition or a drop is a diff this gate reads
-/// rather than a fact resting on prose.
-const INSTALLED_HOOK_TYPES: &[&str] = &[COMMIT, PUSH, "commit-msg"];
+/// The hook types `.pre-commit-config.yaml` DECLARES, per `CONTRIBUTING.md`'s own line naming
+/// them: `pre-commit`, `pre-push`, `commit-msg` - and, load-bearing by its absence, no
+/// `pre-merge-commit`. This module's own header names what that absence costs on a clean forward
+/// merge and why no hook is the honest remedy; what this constant holds is narrower and
+/// mechanical: the declared set is exactly these three, in both directions, so an addition or a
+/// drop to the CONFIG is a diff this gate reads rather than a fact resting on prose. It says
+/// nothing about whether a given checkout actually ran `prek install` - that is the residue this
+/// module's header names and does not close.
+const DECLARED_HOOK_TYPES: &[&str] = &[COMMIT, PUSH, "commit-msg"];
 
 /// cargo subcommands that COMPILE first-party code. A pre-push hook whose entry names one proves
 /// the security-only rule was broken - the push stage must not compile anything.
@@ -177,7 +188,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
     // Checked first, and silently on success, so a reader sees exactly one `ok` line: the
-    // installed-types check below prints nothing when it passes.
+    // declared-types check below prints nothing when it passes.
     let types = decide_install_types(&text);
     if types != Verdict::Pass {
         return types;
@@ -201,20 +212,20 @@ fn decide_install_types(text: &str) -> Verdict {
         return Verdict::Fail;
     };
 
-    let missing: Vec<&str> = INSTALLED_HOOK_TYPES
+    let missing: Vec<&str> = DECLARED_HOOK_TYPES
         .iter()
         .copied()
         .filter(|wanted| !list.iter().any(|got| got == wanted))
         .collect();
     let extra: Vec<&String> = list
         .iter()
-        .filter(|got| !INSTALLED_HOOK_TYPES.contains(&got.as_str()))
+        .filter(|got| !DECLARED_HOOK_TYPES.contains(&got.as_str()))
         .collect();
     if missing.is_empty() && extra.is_empty() {
         return Verdict::Pass;
     }
 
-    eprintln!("xtask check-hook-tiers: `{INSTALL_TYPES_KEY}` is not exactly {INSTALLED_HOOK_TYPES:?}\n");
+    eprintln!("xtask check-hook-tiers: `{INSTALL_TYPES_KEY}` is not exactly {DECLARED_HOOK_TYPES:?}\n");
     eprintln!("  read: {list:?}");
     if !missing.is_empty() {
         eprintln!("  missing: {missing:?}");
@@ -228,7 +239,7 @@ fn decide_install_types(text: &str) -> Verdict {
     }
     eprintln!();
     eprintln!("CONTRIBUTING.md names exactly `pre-commit`, `pre-push` and `commit-msg`. Widening or");
-    eprintln!("narrowing the installed set is a tier-policy decision this module's own header argues");
+    eprintln!("narrowing the declared set is a tier-policy decision this module's own header argues");
     eprintln!("through, not a YAML edit that can pass unnoticed.");
     Verdict::Fail
 }
@@ -404,6 +415,9 @@ fn stages(list: &str) -> Vec<String> {
         .collect()
 }
 
+/// Stays inline rather than moving to `hooks/tests.rs`, deliberately: `test-causality` collapses
+/// a relocated split's `Moved::Partly` into plain `Green`, so a genuinely new test in a moved file
+/// reads as passing on base rather than as `NotRun` - `github.com/telekom/sutura#775`.
 #[cfg(test)]
 mod tests {
     use crate::Verdict;
