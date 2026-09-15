@@ -1561,7 +1561,7 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
 
-      # **Mask the three resource names, and this step exists because of a channel the rest of the job
+      # **Mask the five resource names, and this step exists because of a channel the rest of the job
       # would otherwise open.**
       #
       # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
@@ -1576,12 +1576,13 @@ jobs:
       # unredacted message runs the leg locally, where the log is theirs.
       #
       # **THE LIMIT, AND THIS COMMENT USED TO OVERSTATE IT (#527).** It said the names were masked
-      # "before anything can print them". For two of the three they are not. The runner prints a
+      # "before anything can print them". For four of the five they are not. The runner prints a
       # step's resolved `env:` block into that step's own `Run` group BEFORE it executes the body -
       # `PrintActionDetails` in `actions/runner`'s `src/Runner.Worker/Handlers/Handler.cs` emits
       # `env:` and every entry of the handler's environment, and `ActionRunner` calls it ahead of
-      # `RunAsync` - so `SUTURA_BQ_DATASET` and `SUTURA_BQ_TABLE` appear in cleartext ONCE, here, and
-      # are redacted from every occurrence after that. An overstated control is worse than an absent
+      # `RunAsync` - so `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_CROSS_DATASET` and
+      # `SUTURA_BQ_RLS_DATASET` appear in cleartext ONCE, here, and are redacted from every occurrence
+      # after that. An overstated control is worse than an absent
       # one, because a reader who believes the old sentence stops looking.
       #
       # **AND IT CANNOT BE FIXED BY MOVING THE MASK EARLIER**, which is why the shape below is the
@@ -1591,7 +1592,7 @@ jobs:
       # group, which is strictly worse - and a `${{ }}` read inside a `run:` body is printed too,
       # because the script is echoed with its expressions already resolved. There is no position in a
       # workflow from which a `vars` value can be masked ahead of its own first occurrence. The one
-      # thing that closes it is making these two environment SECRETS rather than variables: the runner
+      # thing that closes it is making these four environment SECRETS rather than variables: the runner
       # adds every secret to the masker before the first step runs, so the dump would read `***`. That
       # is a forge change no file here can make and NO GATE HERE CAN SEE.
       #
@@ -1607,12 +1608,12 @@ jobs:
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
           SUTURA_BQ_CROSS_DATASET: ${{ vars.SUTURA_BQ_CROSS_DATASET }}
-          SUTURA_BQ_CROSS_DATASET_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
         run: |
           set -eu
           python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
             2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
-          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE SUTURA_BQ_CROSS_DATASET SUTURA_BQ_CROSS_DATASET_PROJECT; do
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE SUTURA_BQ_CROSS_DATASET SUTURA_BQ_RLS_DATASET; do
             if [ -z "$(printenv "$name" || true)" ]; then
               echo "the bq-test environment defines no $name - it names a resource this leg has to be pointed at" >&2
               exit 1
@@ -1646,19 +1647,24 @@ jobs:
       # `check-workflows` verifies that the app output exists. The billing project and the RLS and
       # cross dataset all live in the project the CI key names (the cell's admission requires every
       # destination in the billing project), so `SUTURA_BQ_CROSS_BILLING_PROJECT` and
-      # `SUTURA_BQ_RLS_PROJECT` take the one provisioned `SUTURA_BQ_CROSS_DATASET_PROJECT`.
+      # `SUTURA_BQ_RLS_PROJECT` are derived from the key inside the body below, never read as a var -
+      # the project id is masked for this job before this step runs, and it stays out of every
+      # `${{ }}` and `env:` boundary on its way here.
       - name: Cross-dataset venue
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          K: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_CROSS_DATASET: ${{ vars.SUTURA_BQ_CROSS_DATASET }}
-          SUTURA_BQ_CROSS_DATASET_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
-          SUTURA_BQ_CROSS_BILLING_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
-          SUTURA_BQ_RLS_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
           SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
         run: |
           set -eu
-          for name in SUTURA_BQ_CROSS_DATASET SUTURA_BQ_CROSS_DATASET_PROJECT SUTURA_BQ_CROSS_BILLING_PROJECT SUTURA_BQ_RLS_PROJECT SUTURA_BQ_RLS_DATASET; do
+          # The three project-shaped reads all take the same value - the billing project the CI key
+          # names - so take it from the key itself, the same way the mask step above does, rather
+          # than provisioning it as a var that a step's `env:` dump could print before it is masked.
+          P="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])')"
+          export SUTURA_BQ_CROSS_DATASET_PROJECT="$P" SUTURA_BQ_CROSS_BILLING_PROJECT="$P" SUTURA_BQ_RLS_PROJECT="$P"
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_CROSS_DATASET SUTURA_BQ_CROSS_DATASET_PROJECT SUTURA_BQ_CROSS_BILLING_PROJECT SUTURA_BQ_RLS_PROJECT SUTURA_BQ_RLS_DATASET; do
             if [ -z "$(printenv "$name" || true)" ]; then
               echo "the bq-test environment defines no $name - it names a resource this venue has to be pointed at" >&2
               exit 1

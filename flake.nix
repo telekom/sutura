@@ -899,7 +899,9 @@
         };
         # `nix run .#bigquery-cross-dataset` / `.#bigquery-cross-project` - issue #118's two cross-resource venues: writable
         # per-run fixtures across two datasets, read-only preprovisioned mirrors across two projects. Two apps because each
-        # needs inputs the other does not, and one demanding both would strand the runnable leg. **No workflow invokes either.**
+        # needs inputs the other does not, and one demanding both would strand the runnable leg. `ci.yml`'s
+        # `bigquery-acceptance` job invokes the dataset app after the acceptance leg; nothing invokes the
+        # project app.
         apps.bigquery-cross-dataset = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-cross-dataset" ''
