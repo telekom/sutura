@@ -975,8 +975,6 @@ mod tests {
             ("examples/wave-one/question.yaml", "metric: revenue"),
             ("examples/wave-one/question.yaml", "start: 2026-06-01"),
             ("examples/wave-one/question.yaml", "end: 2026-07-01"),
-            ("examples/wave-one/refusal.json", "\"code\""),
-            ("examples/wave-one/refusal.json", "\"detail\""),
         ] {
             let text = page(rel);
             assert!(
@@ -985,5 +983,14 @@ mod tests {
                  without the other is caught here, the raw-sql README cell's split"
             );
         }
+        // The refusal's SHAPE by FIELD (not the mere presence of a `code`/`detail` key) - the same two `served/e2e.rs` pins.
+        let refusal: serde_json::Value =
+            serde_json::from_str(&page("examples/wave-one/refusal.json")).expect("refusal.json is valid JSON");
+        assert_eq!(
+            refusal["reason"]["status"],
+            serde_json::json!(404),
+            "refusal.json's status drifted"
+        );
+        assert_eq!(refusal["reason"]["code"], "metric_unknown", "refusal.json's code drifted");
     }
 }

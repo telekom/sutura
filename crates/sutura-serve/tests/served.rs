@@ -80,7 +80,8 @@ mod datahub;
 // `bigquery` source, a real Keycloak issuer. Gated on the two build features whose adapters it
 // composes plus the `bigquery` wire - `datahub` arrives with issue #202's serve PR. All the cells
 // are `#[ignore]`d and none is reached by `just test`; see e2e.rs's own header for the full
-// dependency split (#202 PR1+PR2, WKC, #376 P2 behind the maintainer's binding).
+// dependency split (#202 PR1+PR2, the provisioned Keycloak tier, #376 P2 behind the maintainer's
+// binding).
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "datahub")]

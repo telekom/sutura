@@ -859,10 +859,31 @@
             set -euo pipefail
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
 
+            # The SAME `--datahub fake|tier` switch `just e2e-datahub-bigquery` parses, so the two
+            # are mirrors rather than one accepting a flag the other silently forwards to nextest as
+            # a test filter. All arguments join into one string here, the way `just`'s variadic
+            # `*datahub` parameter does - so `--datahub tier` (two words) is one mode, exactly as
+            # typed, and there is nothing left over to forward once it is read.
+            if [ "$#" -eq 0 ]; then
+              mode="--datahub fake"
+            else
+              mode="$*"
+            fi
+            case "$mode" in
+              "--datahub fake") ;;
+              "--datahub tier")
+                echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
+                echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
+                exit 1 ;;
+              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+            esac
+
             ${cargoLinkEnv}
             ${cargoWarmStart}
+            rc=0
+            sutura-keycloak-tier status >/dev/null 2>&1 || rc=$?
             sutura-keycloak-tier start
-            trap 'sutura-keycloak-tier stop' EXIT
+            if [ "$rc" = 1 ]; then trap 'sutura-keycloak-tier stop' EXIT; fi
             # `exec` inside a SUBSHELL, not the outer script, for the same reason `apps.keycloak-
             # served-test` documents it: `check-warm-start` requires a live `exec cargo ` line, but
             # exec'ing the outer shell would replace it before the `trap` above fires, leaving the
@@ -870,7 +891,7 @@
             # its trap survive to run `sutura-keycloak-tier stop` once the subshell exits.
             (
               exec cargo nextest run --cargo-profile ci -p sutura-serve --all-features \
-                --run-ignored only -E 'test(the_wave_one_path_answers_as_the_asking_subject)' "$@"
+                --run-ignored only -E 'test(the_wave_one_path_answers_as_the_asking_subject)'
             )
           '');
         };

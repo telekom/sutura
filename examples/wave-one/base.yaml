@@ -1,9 +1,10 @@
-# The settings template for wave one - a `datahub` catalog, an impersonating `bigquery` source, a
-# real issuer. Copy this to your own `base.yaml`, replace every `<...>` placeholder, and serve it.
-# The `datahub` catalog keys and the served `catalog.kind: datahub` come from issue #202's served
-# PR; the `impersonation-at-source` source executes BigQuery AS the asking subject once the
-# workload-identity hop exists (the exchanged-identity half `docs/where-identity-is-proven.md`
-# keeps `unrun`). This file is the template `served/e2e.rs`'s settings builder produces verbatim.
+# The settings template for wave one - a `datahub` catalog, a `bigquery` source under one shared
+# credential, a real issuer. Copy this to your own `base.yaml`, replace every `<...>` placeholder,
+# and serve it. The `datahub` catalog keys and the served `catalog.kind: datahub` come from issue
+# #202's served PR. This is the shape `served/e2e.rs`'s runnable cell maps onto - `shared-service-
+# user`, one credential for whoever asks - and NOT the exchanged-identity shape: that source
+# executing AS the asking subject is the maintainer's binding (issue #376 P2), and
+# `docs/where-identity-is-proven.md` keeps it `unrun`.
 
 server:
   host: "127.0.0.1"
@@ -11,11 +12,8 @@ server:
 
 security:
   # The caller's identity arrives per request - the asker's own token, never the deployment's.
-  identity: "multi-user"
-  # One fresh exchange per ask. OFF on purpose: caching an exchanged credential would let a stale
-  # one mask a broken leg. See docs/adr/0031.
-  credential_cache:
-    enabled: false
+  identity: "single-user"
+  single_user_because: "one shared BigQuery credential answers this catalog's questions for whoever a real issuer verified"
   inbound:
     mode: "direct"
     # The audience this deployment validates - copies of the issuer's own discovery document.
@@ -42,12 +40,12 @@ catalogs:
     metric_property: "<your-metric-property>"
 
 sources:
-  warehouse:
+  # Named identically to the catalog above - the served `datahub` arm's fixed `bigquery`→name
+  # mapping resolves a harvested model to a physical table in THIS source's own dataset.
+  metrics:
     kind: "bigquery"
     billing_project: "<your-billing-project>"
     dataset: "<your-dataset>"
     credential_file: "/etc/sutura/bigquery.json"
-    posture: "impersonation-at-source"
-    workload_identity:
-      audience: "<your-workload-identity-provider>"
-      scope: "https://www.googleapis.com/auth/cloud-platform"
+    max_bytes_billed: 1073741824
+    posture: "shared-service-user"

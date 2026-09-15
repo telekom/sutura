@@ -1,28 +1,28 @@
 //! Wave one of the identity-aware E2E (`just e2e-datahub-bigquery`): `DataHub` carries the certified
-//! metric's definition, a REAL Keycloak issuer's token says who is asking, and a multi-source
-//! deployment answers it - over HTTP `/v1/query`, on the composed `sutura-serve` binary, with the
-//! same recorded corpus `served/datahub.rs` certifies against.
+//! metric's definition, a REAL Keycloak issuer's token says who is asking, and the certified
+//! question executes over HTTP `/v1/query`, on the composed `sutura-serve` binary, against a REAL
+//! `BigQuery` project - the same `orders`/`customers` corpus `served/datahub.rs` certifies against,
+//! loaded fresh into that project by this file rather than by a developer's own fixture.
 //!
-//! # The wave's claim, and how this file is split to hold it honestly
+//! # The wave's claim, and the one thing this file does not claim
 //!
-//! Issue #134's whole path is **data metadata → a real issuer's token → a source that executes AS
-//! the asking subject**. This file holds BOTH halves, but deliberately as TWO cells, because only
-//! one of them is runnable before the maintainer's binding (issue #376 P2) lands.
+//! Issue #134's whole path is **data metadata → a real issuer's token → a source that executes**.
+//! This one runnable cell proves the first two and the source's EXECUTION under one shared
+//! credential; it does not claim the source executes AS the asking subject - that per-subject leg
+//! (`SESSION_USER()` naming the caller) is `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`'s
+//! own `#[ignore]`d cell, behind the maintainer's binding (issue #376 P2), and this task does not
+//! invoke it. `docs/where-identity-is-proven.md` keeps that half `unrun`.
 //!
-//! - **`the_wave_one_path_answers_as_the_asking_subject`** - the runnable wave. It boots a
-//!   deployment once and asks it as principal A, with an uncertified request, and as principal B -
-//!   same binary, same settings file, same catalog, three asks. It proves the three claims PR 1
-//!   can: (1) a `catalog.kind: datahub` deployment serves the certified metric over a real
-//!   issuer's verified token; (2) an uncertified question is a typed refusal, never `200`; (3) two
-//!   different provisioned subjects produce two different audit `subject`s. `DataHub` is the
-//!   recorded fake (`#202`'s `test_support`), the source is `files` named identically to the
-//!   catalog (the served `datahub` arm's fixed `bigquery`→name mapping, exactly as
-//!   `served/datahub.rs` proves green), and the issuer is the provisioned Keycloak tier.
-//! - **`the_source_executes_as_the_asking_subject`** - the exchanged-identity half, **NOT invoked
-//!   by the task**. Reading `SESSION_USER()` as the subject, per subject, is exactly the row
-//!   `docs/where-identity-is-proven.md` keeps **`unrun`**: it needs the `iamcredentials` hop to a
-//!   service account (#376 P2) and per-subject assertions in `bq-test`, neither of which is shipped.
-//!   It stays `#[ignore]`d and says so rather than being written as if it could run.
+//! **`the_wave_one_path_answers_as_the_asking_subject`** boots a deployment once and asks it as
+//! principal A, with an uncertified request, and as principal B - same binary, same settings file,
+//! same catalog, three asks. It proves: (1) a `catalog.kind: datahub` deployment serves the
+//! certified metric, harvested from the fake `DataHub`, over a real issuer's verified token AND
+//! answered from a real `bigquery` source; (2) an uncertified question is a typed refusal, never
+//! `200`; (3) two different provisioned subjects produce two different audit `subject`s, even
+//! though the SOURCE executes as one shared identity for both. `DataHub` is the recorded fake
+//! (`#202`'s `test_support`), the source is `bigquery` named identically to the catalog (the served
+//! `datahub` arm's fixed `bigquery`→name mapping, exactly as `served/datahub.rs` proves green for
+//! `files`), and the issuer is the provisioned Keycloak tier.
 //!
 //! # What is ONE cell rather than three
 //!
@@ -36,34 +36,47 @@
 //! # The dependency split, stated next to the claim
 //!
 //! This file compiles only inside `served.rs`'s `#[cfg(feature = "datahub")]` +
-//! `#[cfg(feature = "bigquery")]` module declaration (the `datahub` gate is the reader crate, the
-//! `bigquery` gate that this is the wave whose source is the per-subject-capable adapter), and is
-//! `#[ignore]`d so none of it runs on `just test`. Each dependency marks its requirement:
+//! `#[cfg(feature = "bigquery")]` module declaration, and is `#[ignore]`d so none of it runs on
+//! `just test`. Each dependency marks its requirement:
 //!
 //! - **`// requires #202`** (PR1 `#720` landed, PR2 `#750` is the base) - `catalog.kind: datahub`
 //!   served, the settings keys `endpoint`/`token_file`/`metric_property`, and
 //!   `sutura_catalog_datahub::test_support::{FakeServer, happy_path_answers, DEPLOYMENT_PROPERTY}`.
-//! - **`// requires WKC`** - `harness::keycloak_settings` (the `KeycloakFixture`) and the realm the
-//!   tier writes at `start`.
-//! - **`// requires #376 P2`** - ONLY the exchanged-identity cell below, which is not run by the task.
+//! - **`// requires the provisioned Keycloak tier`** - `harness::keycloak_settings` (the
+//!   `KeycloakFixture`) and the realm the tier writes at `start`.
+//! - **A real `BigQuery` project** - `GOOGLE_APPLICATION_CREDENTIALS` and `SUTURA_BQ_DATASET` in the
+//!   environment `just e2e-datahub-bigquery` runs under (direnv, on a developer's machine). Read the
+//!   same way `crates/sutura-exec-bigquery/tests/support/support.rs`'s `Connection::required` reads
+//!   them, and FAILING the same way when either is absent: this cell would otherwise report PASS
+//!   over an engine that never touched `BigQuery`, which is the exact overstated control this wave
+//!   exists to not repeat.
 //!
 //! # RED/GREEN
 //!
-//! **The cells are `#[ignore]`d, so `just test` does not reach them** - the task
+//! **The cell is `#[ignore]`d, so `just test` does not reach it** - the task
 //! (`just e2e-datahub-bigquery`, or the nix app `apps.e2e-datahub-bigquery`) brings the Keycloak
-//! tier up and runs the runnable cell by name. Mutations this runnable cell guards: the served
-//! `datahub` arm rolled back to its unconditional refusal (RED - the deployment never boots, the
-//! `refused_to_start` shape); the Keycloak fixture or the realm reader removed (RED - does not
-//! compile / the provider is gone); the audit `subject` collapsing to the deployment's own (RED -
-//! two provisioned subjects no longer differ). GREEN is this file as written.
+//! tier up and runs it by name. Mutations this cell guards: the served `datahub` arm rolled back to
+//! its unconditional refusal (RED - the deployment never boots, the `refused_to_start` shape); the
+//! Keycloak fixture or the realm reader removed (RED - does not compile / the provider is gone); the
+//! audit `subject` collapsing to the deployment's own (RED - two provisioned subjects no longer
+//! differ); the `bigquery` source rolled back to `kind: "files"` (RED - the rows and `executed_as`
+//! this cell pins are read straight off the tables THIS file loads into `BigQuery`, so a `files`
+//! source reading nothing this file wrote answers wrong or not at all); `GOOGLE_APPLICATION_CREDENTIALS`
+//! or `SUTURA_BQ_DATASET` unset (FAILS by name, never silently skips). GREEN is this file as written.
 
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_catalog_datahub::test_support::{DEPLOYMENT_PROPERTY, FakeServer, happy_path_answers};
+    use sutura_domain::model::{SourceName, TableName};
+    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
+    use sutura_exec_bigquery::BigQueryWarehouse;
+    use sutura_exec_bigquery::transport::{DatasetId as BqDatasetId, ProjectId as BqProjectId};
+    use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+    use sutura_exec_bigquery::wire::{BigQueryWire, BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
 
-    // requires WKC
+    // requires the provisioned Keycloak tier
     use crate::harness::keycloak::KeycloakFixture;
     use crate::harness::{
         LOOPBACK, RECORD, VERSION, config_path, derived_beside, keycloak_settings, keycloak_subject_of, start_configured, v1,
@@ -82,10 +95,160 @@ mod tests {
     /// the harvested models. The same identity `served/datahub.rs` uses.
     const CATALOG: &str = "metrics";
 
+    /// The two `BigQuery` table names the fake's harvested schema names - `orders` (the measure, the
+    /// time column, the required filter) and `customers` (the dimension) - reused verbatim because
+    /// the served `datahub` arm resolves a harvested model to a PHYSICAL table of the same name in
+    /// the declared source's own dataset.
+    const ORDERS_TABLE: &str = "orders";
+    const CUSTOMERS_TABLE: &str = "customers";
+
+    /// One `BigQuery` environment variable, or a panic naming it.
+    ///
+    /// **Fail-not-skip, the same argument
+    /// `crates/sutura-exec-bigquery/tests/support/support.rs`'s `named` makes for the adapter's own
+    /// acceptance leg:** this cell is reached only by name (`#[ignore]`, run via
+    /// `just e2e-datahub-bigquery`), so a developer who asked for the real `BigQuery` leg and got a
+    /// green report over an engine that never touched it has been told the opposite of the truth.
+    fn bq_named(key: &str, what: &str) -> String {
+        match std::env::var(key) {
+            Ok(value) if !value.trim().is_empty() => value,
+            Ok(_) | Err(_) => panic!(
+                "{key} is not set - it names {what}. `the_wave_one_path_answers_as_the_asking_subject` \
+                 executes the certified metric over a real BigQuery project under one shared credential; \
+                 see docs/showcase-datahub-bigquery.md."
+            ),
+        }
+    }
+
+    /// The bounds every job this file submits runs under - the same 30s/1GiB shape
+    /// `crates/sutura-exec-bigquery/tests/support/support.rs`'s `bounds` uses, for the same reason:
+    /// this is the one path in this test suite that spends real money.
+    fn bounds() -> JobBounds {
+        JobBounds::of(
+            QueryDeadline::parse(30).expect("thirty seconds is a deadline"),
+            BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
+        )
+    }
+
+    /// The adapter this file loads/drops fixture tables through and the deployment's own settings
+    /// point the served binary at independently.
+    type Wired = BigQueryWarehouse<BigQueryWire<Credential>>;
+
+    /// The real `BigQuery` project this wave executes the certified metric against, read from the
+    /// environment the same way `crates/sutura-exec-bigquery/tests/support/support.rs`'s
+    /// `Connection::required` reads it: the credential's OWN project first, then
+    /// `SUTURA_BQ_BILLING_PROJECT`, and a panic naming whichever is missing.
+    struct BigQueryFixture {
+        billing_project: String,
+        dataset: String,
+        credential_file: PathBuf,
+        warehouse: Wired,
+    }
+
+    impl BigQueryFixture {
+        fn required() -> Self {
+            let credential_file = PathBuf::from(bq_named(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                "the service-account (or application-default) key this wave reads BigQuery under - \
+                 one shared credential, never a per-subject one",
+            ));
+            let dataset = bq_named(
+                "SUTURA_BQ_DATASET",
+                "the dataset this wave loads its own `orders`/`customers` fixture tables into and \
+                 answers the certified metric from",
+            );
+            let agent = WireAgent::pinned(bounds());
+            let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
+                .unwrap_or_else(|cause| panic!("GOOGLE_APPLICATION_CREDENTIALS names an unreadable credential: {cause}"));
+            // Printed so a green run says WHICH identity produced it - the same reason
+            // `support::Connection::required` prints it.
+            println!("e2e-datahub-bigquery: BigQuery credential kind {}", credentials.kind());
+            let billing_project = credentials.project().cloned().unwrap_or_else(|| {
+                bq_named(
+                    "SUTURA_BQ_BILLING_PROJECT",
+                    "this credential names no project of its own, so the billing project has to be set",
+                )
+            });
+            let posture = SourcePosture::SharedServiceUser {
+                declared: SharedIdentityDeclared::of(
+                    AcknowledgementReason::parse(
+                        "the wave's one shared credential reaching the dataset for whoever the real issuer verified",
+                    )
+                    .expect("an acknowledgement is an acknowledgement"),
+                ),
+            };
+            let warehouse = BigQueryWarehouse::new(
+                SourceName::parse(CATALOG).expect("metrics is a usable source name"),
+                posture,
+                BqProjectId::parse(&billing_project).expect("a project id parses"),
+                BqDatasetId::parse(&dataset).expect("a dataset id parses"),
+                BigQueryWire::new(agent, credentials),
+            );
+            Self {
+                billing_project,
+                dataset,
+                credential_file,
+                warehouse,
+            }
+        }
+    }
+
+    /// The wave's OWN two `BigQuery` tables - `orders` and `customers` - loaded fresh from the same
+    /// CSVs [`DataDir`] writes for the fake `DataHub`'s harvested schema, and removed when the test is
+    /// done.
+    ///
+    /// **Not a developer-provided table.** This wave creates what it reads, the same shape
+    /// `crates/sutura-exec-bigquery/tests/corpus.rs`'s `load_the_corpus`/`drop_the_corpus` use for
+    /// its own fixture tables, so the certified metric answers from a REAL project rather than from
+    /// a table nobody but a developer's own environment could point at.
+    struct LoadedFixture<'a> {
+        warehouse: &'a Wired,
+        orders: TableName,
+        customers: TableName,
+    }
+
+    impl<'a> LoadedFixture<'a> {
+        fn loaded(warehouse: &'a Wired, data: &DataDir) -> Self {
+            let orders = TableName::parse(ORDERS_TABLE).expect("orders is a usable table name");
+            let customers = TableName::parse(CUSTOMERS_TABLE).expect("customers is a usable table name");
+            let orders_rows = warehouse
+                .load_fixture(&orders, &data.orders_csv())
+                .unwrap_or_else(|cause| panic!("the orders fixture did not load into BigQuery: {cause:?}"));
+            assert!(orders_rows > 0, "the orders fixture carried no rows");
+            let customers_rows = warehouse
+                .load_fixture(&customers, &data.customers_csv())
+                .unwrap_or_else(|cause| panic!("the customers fixture did not load into BigQuery: {cause:?}"));
+            assert!(customers_rows > 0, "the customers fixture carried no rows");
+            println!(
+                "e2e-datahub-bigquery: loaded {orders_rows} rows into `{ORDERS_TABLE}`, {customers_rows} into `{CUSTOMERS_TABLE}`"
+            );
+            Self {
+                warehouse,
+                orders,
+                customers,
+            }
+        }
+    }
+
+    impl Drop for LoadedFixture<'_> {
+        fn drop(&mut self) {
+            // Best-effort: a drop failure is reported rather than a second panic over a value
+            // already unwinding. The 24-hour expiration `sutura_exec_bigquery::importer` sets on
+            // every `CREATE` is the backstop for whatever this cannot reach - the same guarantee
+            // `tests/corpus.rs` states for its own per-run tables.
+            if let Err(cause) = self.warehouse.drop_table(&self.orders) {
+                eprintln!("e2e-datahub-bigquery: the `{ORDERS_TABLE}` fixture table did not drop: {cause:?}");
+            }
+            if let Err(cause) = self.warehouse.drop_table(&self.customers) {
+                eprintln!("e2e-datahub-bigquery: the `{CUSTOMERS_TABLE}` fixture table did not drop: {cause:?}");
+            }
+        }
+    }
+
     /// The data directory this case owns and removes on every path out, the same promise
-    /// `served/datahub.rs`'s `DataDir` makes - it holds the CSV the `files` engine reads (named
-    /// after the model's `orders` table) plus the catalog's token file, a sibling of the settings
-    /// directory so `written()` (via `start_configured`) cannot wipe it.
+    /// `served/datahub.rs`'s `DataDir` makes - it holds the CSVs this file loads into REAL `BigQuery`
+    /// tables (named after the harvested models) plus the catalog's token file, a sibling of the
+    /// settings directory so `written()` (via `start_configured`) cannot wipe it.
     struct DataDir(PathBuf);
 
     impl DataDir {
@@ -117,6 +280,14 @@ mod tests {
         fn token_file(&self) -> PathBuf {
             self.0.join("token")
         }
+
+        fn orders_csv(&self) -> PathBuf {
+            self.0.join("orders.csv")
+        }
+
+        fn customers_csv(&self) -> PathBuf {
+            self.0.join("customers.csv")
+        }
     }
 
     impl Drop for DataDir {
@@ -125,18 +296,17 @@ mod tests {
         }
     }
 
-    /// The settings a wave-one deployment needs: the `datahub` catalog pointed at the fake
-    /// (`#202`'s recorded corpus, served), the `files` source under the catalog's own name (`kind:
-    /// files` - nothing here needs a real `BigQuery`, for the same reason `served/datahub.rs`
-    /// proves green: the fixed `bigquery`→name mapping only cares that the NAME matches), and the
-    /// Keycloak issuer's own `inbound` (`mode: direct`, so the caller's token IS the identity - no
-    /// `security.access_token`, because a deployment declaring both is refused as
-    /// `DeploymentTokenSharesTheHeader`).
+    /// The settings a wave-one deployment needs: the `datahub` catalog pointed at the fake (`#202`'s
+    /// recorded corpus, served), a REAL `bigquery` source under the catalog's own name (`kind:
+    /// bigquery`, `posture: shared-service-user` - one credential for whoever asks, never a claim
+    /// about executing AS them), and the Keycloak issuer's own `inbound` (`mode: direct`, so the
+    /// caller's token IS the identity - no `security.access_token`, because a deployment declaring
+    /// both is refused as `DeploymentTokenSharesTheHeader`).
     ///
     /// `dir`/`data_dir` on the catalog are the two path fields `CatalogSettings` requires non-empty
     /// for EVERY kind including `datahub`, unread by the datahub opener - the same obviously-unused
     /// placeholders `served/datahub.rs` declares.
-    fn settings(fixture: &KeycloakFixture, server: &FakeServer, data: &DataDir) -> String {
+    fn settings(fixture: &KeycloakFixture, server: &FakeServer, data: &DataDir, bq: &BigQueryFixture) -> String {
         let key_set = derived_beside(&config_path(CASE)).join("keycloak-jwks.json");
         format!(
             "server:\n\
@@ -157,13 +327,18 @@ mod tests {
                  metric_property: \"{DEPLOYMENT_PROPERTY}\"\n\
              sources:\n  \
                {CATALOG}:\n    \
-                 kind: \"files\"\n    \
-                 data_dir: \"{data_dir}\"\n    \
+                 kind: \"bigquery\"\n    \
+                 billing_project: \"{billing_project}\"\n    \
+                 dataset: \"{dataset}\"\n    \
+                 credential_file: \"{credential_file}\"\n    \
+                 max_bytes_billed: 1073741824\n    \
                  posture: \"shared-service-user\"\n",
             inbound = inbound_block(fixture, &key_set),
             endpoint = server.endpoint(),
             token_file = data.token_file().display(),
-            data_dir = data.0.display(),
+            billing_project = bq.billing_project,
+            dataset = bq.dataset,
+            credential_file = bq.credential_file.display(),
         )
     }
 
@@ -186,14 +361,15 @@ mod tests {
 
     /// The head of the `security:` block this deployment makes: `single-user` identity - the same
     /// head every other proving-green served cell in this suite uses (`served/datahub.rs`,
-    /// `harness/keycloak.rs`'s `settings_naming`) - so the source executes as this process, and who
-    /// is asking is still established per request through `inbound` and recorded in the audit
-    /// `subject`. **The per-subject EXECUTION is not claimed here**: that is the exchanged-identity
-    /// cell below, which stays `#[ignore]`d behind #376 P2, and `docs/where-identity-is-proven.md`
-    /// keeps `unrun`. `single-user` refuses a missing `single_user_because`, so one is written.
+    /// `harness/keycloak.rs`'s `settings_naming`) - so the source executes as this process under one
+    /// shared credential, and who is asking is still established per request through `inbound` and
+    /// recorded in the audit `subject`. **The per-subject EXECUTION is not claimed here**: that is
+    /// `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`'s own cell, behind #376 P2, and
+    /// `docs/where-identity-is-proven.md` keeps it `unrun`. `single-user` refuses a missing
+    /// `single_user_because`, so one is written.
     const SECURITY_HEAD: &str = "  identity: \"single-user\"\n  single_user_because: \"wave one's served \
-                                fixture reads its own recorded corpus as one identity, whoever asks - the \
-                                per-subject exchange is #376 P2\"\n";
+                                fixture reads a real BigQuery project as one shared credential, whoever \
+                                asks - the per-subject exchange is #376 P2\"\n";
 
     /// The one question this path asks as both principals, over exactly the certified metric's
     /// anchor range - the same shape `served/datahub.rs`'s `QUESTION` holds, so the answer this
@@ -205,6 +381,11 @@ mod tests {
     /// name is deliberately not one the recorded corpus defines.
     const UNCERTIFIED: &str =
         r#"{"metric":"definitely_not_certified","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+
+    /// The refusal `examples/wave-one/refusal.json` pins - compared by FIELD, not by the mere
+    /// presence of a `code`/`detail` key, so a status or code drift on either side is caught.
+    const REFUSAL_STATUS: u16 = 404;
+    const REFUSAL_CODE: &str = "metric_unknown";
 
     /// The `subject` field of one bunyan record line - the same read `served.rs`'s keycloak cell
     /// makes: two real Keycloak subjects mint two different `sub` claims, and this is how the audit
@@ -219,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs the Keycloak tier and the served datahub; run via `just e2e-datahub-bigquery`, which brings the tier up first"]
+    #[ignore = "needs the Keycloak tier and a real BigQuery project; run via `just e2e-datahub-bigquery`, which brings the tier up first"]
     fn the_wave_one_path_answers_as_the_asking_subject() {
         // One boot, three asks. The Keycloak fixture mints both subjects and writes the key set the
         // `inbound` block names; the datahub fake serves the recorded corpus twice - once for the
@@ -233,12 +414,18 @@ mod tests {
         // would wipe the just-fetched key set and the deployment would refuse a missing file.
         let data = DataDir::prepared(CASE);
         let fixture = keycloak_settings(CASE);
+        // The real BigQuery leg: read the environment (fail-not-skip), load THIS file's own
+        // `orders`/`customers` rows into it, and keep the loader alive so its `Drop` removes them
+        // once every ask below is done - on the happy path AND on a panic partway through.
+        let bq = BigQueryFixture::required();
+        let _loaded = LoadedFixture::loaded(&bq.warehouse, &data);
         let mut answers = happy_path_answers();
         answers.extend(happy_path_answers());
         let server = FakeServer::start(answers);
-        let deployment = start_configured(CASE, &settings(&fixture, &server, &data));
+        let deployment = start_configured(CASE, &settings(&fixture, &server, &data, &bq));
 
-        // Ask 1: principal A's Keycloak-minted token asks the certified DataHub-harvested metric.
+        // Ask 1: principal A's Keycloak-minted token asks the certified DataHub-harvested metric,
+        // answered from the REAL BigQuery table this test just loaded.
         let reply = deployment.post(
             &v1(sutura_http::constants::base_paths::QUERY),
             Some(&fixture.subject_a_token),
@@ -320,21 +507,28 @@ mod tests {
 
         // Ask 2b: a VALID principal token, but a question this catalog does not certify - a typed
         // refusal with its reason, never `200`. What is refused is the question, not the caller.
+        // Pinned against `examples/wave-one/refusal.json`'s own fields, not merely `!= 200` and not
+        // merely the presence of a `code`/`detail` key - a status or code drift on either side of
+        // that pairing is what this comparison exists to catch.
         let refused = deployment.post(
             &v1(sutura_http::constants::base_paths::QUERY),
             Some(&fixture.subject_a_token),
             UNCERTIFIED,
         );
-        assert_ne!(refused.status, 200, "an uncertified question was answered: {}", refused.body);
+        assert_eq!(
+            refused.status, REFUSAL_STATUS,
+            "an uncertified question answered with the wrong status: {}",
+            refused.body
+        );
         let refused_body = refused.json();
-        // A typed refusal: the `reason` object carries the stable `code` and the `detail` sentence -
-        // the contract `docs/serving.md` states. (The 401 above is the bearer gate's, whose `code`
-        // is top-level; this is the semantic refusal's, nested under its `reason`.)
-        assert!(
-            refused_body["reason"]["code"].is_string() && !refused_body["reason"]["code"].as_str().unwrap_or("").is_empty(),
+        assert_eq!(refused_body["outcome"], "refusal", "{}", refused.body);
+        assert_eq!(
+            refused_body["reason"]["status"],
+            serde_json::json!(REFUSAL_STATUS),
             "{}",
             refused.body
         );
+        assert_eq!(refused_body["reason"]["code"], REFUSAL_CODE, "{}", refused.body);
         assert!(refused_body["reason"]["detail"].is_string(), "{}", refused.body);
 
         // Ask 3: principal B, the same certified question - a different subject, so the audit
@@ -366,50 +560,5 @@ mod tests {
         // audit's masking lets collide 1 in 16): each of the two distinct provisioned subjects'
         // tokens produced a record carrying that subject's OWN mask, so no record was attributed
         // to the wrong principal.
-    }
-
-    // The exchanged-identity half of the wave, as its own cell so its dependency is legible. **It
-    // is NOT invoked by the task and this file keeps it `#[ignore]`d behind the maintainer's
-    // binding, saying so** - it is exactly the leg `docs/where-identity-is-proven.md` keeps `unrun`,
-    // because the shipped exchange yields only a federated workload-identity pool subject and there
-    // is no `iamcredentials` hop to a concrete service account (#376 P2). Written so the `unrun`
-    // row has a name its prose cites, and so a future binding has the assertion already shaped.
-    #[test]
-    #[ignore = "behind the maintainer's binding (#376 P2): SUTURA_BQ_PRINCIPAL_*_ASSERTION minted per subject and an iamcredentials hop to a service account"]
-    fn the_source_executes_as_the_asking_subject() {
-        // Reads `SESSION_USER()` the way `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`
-        // does, over a `bigquery` source under the catalog's own name with `posture:
-        // impersonation-at-source`. The deployment-level credential plus the per-subject exchange
-        // is what #376 P2 wires; until then each principal's assertion is absent from `bq-test` and
-        // this cell - reached only by name - fails closed on the missing ones rather than silently
-        // claiming to have executed as the subject.
-        for (key, what) in [
-            (
-                "SUTURA_BQ_PRINCIPAL_A_EMAIL",
-                "the account principal A's exchange must resolve to",
-            ),
-            ("SUTURA_BQ_PRINCIPAL_B_EMAIL", "the same for principal B"),
-        ] {
-            match std::env::var(key) {
-                Ok(value) if !value.trim().is_empty() => drop(value),
-                _ => panic!(
-                    "{key} is not set - it names {what}. This is an acceptance leg behind the \
-                     maintainer's binding (#376 P2): it needs a real subject-per-principal exchange, \
-                     and its absence means the job cannot mean what it claims. See \
-                     `docs/where-identity-is-proven.md`'s `unrun` row"
-                ),
-            }
-        }
-        // The env reads above are the fail-closed half: reached only by name, they refuse when the
-        // per-subject assertions are absent (as they are from `bq-test` today), so a run never
-        // silently claims to have executed as the subject over nothing. When they ARE present, this
-        // cell still refuses - the actual `SESSION_USER()`-over-`iamcredentials` exchange (#376 P2)
-        // is not wired in the served path, so a green here would be a green over code that does not
-        // exist. The panic is the honest shape: this cell cannot pass until the binding lands.
-        panic!(
-            "// requires #376 P2: the iamcredentials hop and the SESSION_USER()-over-the-served- \
-             path assertion are not wired; a green here before they land would overstate \
-             docs/where-identity-is-proven.md's `unrun` row"
-        );
     }
 }
