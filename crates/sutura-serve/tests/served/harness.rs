@@ -164,6 +164,26 @@ pub(crate) fn settings_declaring_inbound(example: &Path, issuer: &MockIssuer, ke
     )
 }
 
+/// The bind every AGENT-SURFACED served cell starts (loopback, kernel port, surface on); the `agent` feature must be compiled in for the mount to exist.
+#[cfg(feature = "agent")]
+pub(crate) const AGENT_LOOPBACK: &str = "  host: \"127.0.0.1\"\n  port: 0\n  agent_surface:\n    enabled: true\n";
+
+/// The leg-1 deployment WITH the agent surface turned on - the shape every agent-surface cell that expects `/mcp` to answer starts from.
+#[cfg(feature = "agent")]
+pub(crate) fn settings_with_agent_surface(example: &Path, issuer: &MockIssuer, key_set: &Path) -> String {
+    deployment(
+        example,
+        AGENT_LOOPBACK,
+        &format!(
+            "{SINGLE_USER}  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+             authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n",
+            issuer.audience(),
+            issuer.issuer(),
+            key_set.display(),
+        ),
+    )
+}
+
 /// The deployment above and below the one thing that changes: what a request presents.
 ///
 /// One function over both shapes rather than two copies of the catalog and the source, so a
@@ -679,12 +699,24 @@ pub(crate) fn bound_address(line: &str) -> Option<String> {
 impl Served {
     /// A GET, with the deployment's token when one is given.
     pub(crate) fn get(&self, path: &str, token: Option<&str>) -> Reply {
-        self.send("GET", path, token, None)
+        self.send("GET", path, token, None, None)
     }
 
     /// A POST of a JSON question.
     pub(crate) fn post(&self, path: &str, token: Option<&str>, body: &str) -> Reply {
-        self.send("POST", path, token, Some(body))
+        self.send("POST", path, token, Some(body), None)
+    }
+
+    /// An MCP JSON-RPC POST to the agent surface, with the `Accept` header the streamable-HTTP transport requires. Reachable only when the `agent` feature is compiled in.
+    #[cfg(feature = "agent")]
+    pub(crate) fn mcp(&self, token: Option<&str>, body: &str) -> Reply {
+        self.send(
+            "POST",
+            sutura_http::constants::AGENT_MOUNT_PATH,
+            token,
+            Some(body),
+            Some("application/json, text/event-stream"),
+        )
     }
 
     /// One request over one connection.
@@ -699,7 +731,7 @@ impl Served {
     /// `Connection: close` is what makes reading to end-of-file the whole response, and the
     /// chunked assertion in [`parse`] is what stops that quietly mis-parsing if a handler ever
     /// answers without a length.
-    fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>) -> Reply {
+    fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>, accept: Option<&str>) -> Reply {
         let mut stream = TcpStream::connect(&self.address).expect("the listener accepts a connection");
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
@@ -708,6 +740,9 @@ impl Served {
         write!(request, "{method} {path} HTTP/1.1\r\n").expect("writing to a String cannot fail");
         write!(request, "Host: {}\r\n", self.address).expect("writing to a String cannot fail");
         request.push_str("Connection: close\r\n");
+        if let Some(accept) = accept {
+            write!(request, "Accept: {accept}\r\n").expect("writing to a String cannot fail");
+        }
         if let Some(token) = token {
             write!(request, "Authorization: Bearer {token}\r\n").expect("writing to a String cannot fail");
         }

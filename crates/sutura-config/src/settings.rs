@@ -49,12 +49,9 @@ pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 
 /// The variable that points at the configuration directory a load layers files from.
 ///
-/// **One name, here, because two binaries read it and neither may own it.** `sutura-serve` read it
-/// out of a private constant of its own while the `sutura` command took a directory positionally, so
-/// the two composition roots named the same operator-facing thing in two places and only one of them
-/// could be found by grepping this crate. It is exported for the same reason
-/// [`ENVIRONMENT_VARIABLE`] is: a startup message, a command's `--help` and the documentation cannot
-/// disagree about a name none of them owns.
+/// **One name, because two binaries read it and neither may own it** - exported for the same reason
+/// [`ENVIRONMENT_VARIABLE`] is, so a startup message, a command's `--help` and the documentation
+/// cannot disagree about a name none of them owns.
 pub const CONFIG_DIR_VARIABLE: &str = "SUTURA_CONFIG_DIR";
 
 /// The prefix every configuration variable carries, and the separator between key segments.
@@ -134,11 +131,9 @@ impl Sources {
 
     /// Layers the files in a configuration directory: `base.yaml`, then `<environment>.yaml`.
     ///
-    /// The counterpart to [`Self::with_overlay`] for a real directory. What makes it worth having
-    /// beside [`Self::from_process_environment`] is what it does NOT do - it leaves the variable
-    /// layer alone - so a caller that started from [`Self::defaults`] keeps the empty variable map,
-    /// and a `SUTURA__*` variable in a developer's shell cannot change what the file layers resolve
-    /// to.
+    /// The counterpart to [`Self::with_overlay`] for a real directory: it leaves the variable
+    /// layer alone, so a caller that started from [`Self::defaults`] keeps the empty variable map
+    /// and a `SUTURA__*` in a developer's shell cannot change what the files resolve to.
     #[must_use]
     pub fn with_directory(mut self, directory: PathBuf) -> Self {
         self.directory = Some(directory);
@@ -154,9 +149,8 @@ impl Sources {
 /// Reads the deployment environment from the process.
 ///
 /// Absent means [`Environment::Development`]: a developer running the binary with no environment
-/// set is on a laptop, and the permissive default is safe there precisely because the other
-/// defaults are loopback-only. An environment that is *present and unrecognised* is an error and
-/// never falls back, because falling back would select the permissive branch of five decisions.
+/// set is on a laptop. A *present and unrecognised* one is an error and never falls back, because
+/// falling back would select the permissive branch of five decisions.
 pub fn environment_from_process() -> Result<Environment, SettingsError> {
     match std::env::var(ENVIRONMENT_VARIABLE) {
         Ok(raw) => Environment::parse(raw).map_err(|cause| SettingsError::Environment { cause }),
@@ -174,8 +168,8 @@ pub fn environment_from_process() -> Result<Environment, SettingsError> {
 /// the embedded defaults are complete.
 ///
 /// Not fallible, and that is not a shortcut: unlike [`environment_from_process`] there is no
-/// permissive branch to fall into. A non-Unicode path is still a path this process can open, so it is
-/// carried through as an `OsString` rather than refused.
+/// permissive branch to fall into. A non-Unicode path is still a path this process can open, so it
+/// is carried through as an `OsString` rather than refused.
 #[must_use]
 pub fn config_dir_from_process() -> Option<PathBuf> {
     std::env::var_os(CONFIG_DIR_VARIABLE)
@@ -750,7 +744,13 @@ fn parse_server(raw: &RawSettings) -> Result<ServerSettings, SettingsError> {
     let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
     let tls = crate::server::TlsMaterial::parse(raw.server.tls_certificate.as_deref(), raw.server.tls_key.as_deref())
         .map_err(|cause| SettingsError::TlsMaterial { cause })?;
-    Ok(ServerSettings::new(bind, timeout, body, tls))
+    Ok(ServerSettings::new(
+        bind,
+        timeout,
+        body,
+        tls,
+        raw.server.agent_surface.enabled,
+    ))
 }
 
 fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> {

@@ -46,7 +46,11 @@ Rules that are not visible from a manifest:
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
   system; a composition root does both. `sutura-mcp` carries no NORMAL dependency on `sutura-http` -
   a dev-dependency exists, for one differential test, and is exempt from that rule the same way
-  `sutura-exec-bigquery` dev-depending on `sutura-exec-datafusion` is.
+  `sutura-exec-bigquery` dev-depending on `sutura-exec-datafusion` is. **That cuts both ways:**
+  `sutura-http`'s default-off `agent` feature (which enables the `/mcp` mount, code and no
+  dependency) carries the MCP transport OPAQUELY in a `ServiceState::AgentMount` boxed service, so
+  `sutura-http` never names a `sutura-mcp` type - two transports pair at the composition root
+  (`sutura-serve`'s `agent` feature links both), never at a transport crate.
 - **`sutura-cli` reads the same `sources:` tree `sutura-serve` does**, and dispatches the declared
   `SourceKind` through an exhaustive match of its own - so a third kind is a compile error in both
   composition roots. The two differ in what an ABSENT entry means: a startup refusal there, and a

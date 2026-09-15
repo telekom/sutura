@@ -77,6 +77,11 @@ mod bigquery;
 /// The same, for the `Postgres` connection this root opens and secures.
 mod postgres;
 
+/// The agent-surface transport, under the `agent` feature. `cfg`-gated like `broker`: a build that
+/// links none of `sutura_mcp` has no `sutura_mcp::http::service` to attach.
+#[cfg(feature = "agent")]
+mod agent;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -144,6 +149,19 @@ fn run() -> Result<(), String> {
         sutura_config::config_dir_from_process(),
     ))
     .map_err(flatten)?;
+
+    // A deployment that asked for the agent surface on a build without the transport must refuse
+    // rather than silently serve no `/mcp` - the same "configured for a build it does not have"
+    // refusal `serve_as_configured` gives for TLS. Under the `agent` feature the same switch just
+    // builds the mount below; this arm is what keeps an enabled key honest on the default build.
+    #[cfg(not(feature = "agent"))]
+    if settings.server().agent_surface_enabled() {
+        return Err(String::from(
+            "server.agent_surface.enabled is set and this binary was built without the `agent` \
+             feature, so it has no agent surface to mount. Rebuild with `--features agent`, or \
+             remove the key.",
+        ));
+    }
 
     // 4. The log, then the panic hook.
     telemetry::install(settings.telemetry()).map_err(flatten)?;
@@ -326,6 +344,16 @@ fn run() -> Result<(), String> {
     // beside `grace` above it and for the same reason: both are numbers about the process rather
     // than about a request, and this is the last place the settings are looked at before they move.
     let admission = Admission::from_settings(settings.runtime());
+    // The agent surface's transport, built here (while `settings` is still owned) ONLY when the
+    // deployment turned it on - a build with the `agent` feature still stays off by default, and a
+    // build without the feature refused above. `sutura_http::router` then refuses to assemble when
+    // this is attached and no leg 1 gate is, so "the agent surface is only served where a caller
+    // can be verified" cannot be un-paired in a later edit.
+    #[cfg(feature = "agent")]
+    let agent_mount = settings
+        .server()
+        .agent_surface_enabled()
+        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone()));
     let mut state = ServiceState::new(service, Arc::new(settings), admission);
     // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
     // the state holds one and the watch needs to reach the same cache.
@@ -334,6 +362,10 @@ fn run() -> Result<(), String> {
         let gate = Arc::new(gate);
         watching = Some(Arc::clone(&gate));
         state = state.with_inbound_identity(gate);
+    }
+    #[cfg(feature = "agent")]
+    if let Some(mount) = agent_mount {
+        state = state.with_agent_surface(mount);
     }
     let router = sutura_http::router(&state).map_err(flatten)?;
 

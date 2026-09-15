@@ -168,6 +168,8 @@ everything *around* it, and shrinks to the one job only it can do.
 | A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
+| A verified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
+| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - |
@@ -274,6 +276,18 @@ is not a signature check - that is the router's job above - but the **compositio
 - `a_published_key_set_this_deployment_cannot_use_stops_the_process` - a symmetric key in the set is a
   deployment that **does not start**, rather than one that starts, logs that it establishes a caller
   identity and answers `401` to everybody.
+
+**PR4 adds two agent-surface rows to the matrix, still `unrun`.** The standing tests are written and
+compile - `the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`
+(`sutura_http::inbound::tests::router`) proves leg 1 stands in front of `/mcp` exactly as it stands in
+front of the versioned surface, and `two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`
+(`crates/sutura-serve/tests/served.rs`) proves `establish_asked` derives each request's `Asked` from the
+caller leg 1 verified and `AgentSurface::permitted` narrows the tool list per caller on the real
+composed binary - but no green run of either has been observed, so `yes` is not earned. `wired` is not
+theirs either: it means *CI reaches this and no run has been observed*, and the mock-issuer venue's
+`Reached by` cell names `just test`/`just validate`, which no CI job invokes under its own name - so a
+venue no job reaches is `unrun`. Both cells are `#[cfg(feature = "agent")]`; a green run under
+`just test` (`--all-features`) earns them a `yes`.
 
 **The boot refusal is asserted on the refusal's own sentence, because nothing else separates the two
 ways this deployment can fail to start:** a root that read the key set fine and then forgot to attach

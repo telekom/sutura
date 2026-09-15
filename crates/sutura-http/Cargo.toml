@@ -23,6 +23,17 @@ description = "The HTTP surface. Transport only: it goes through the ports and d
 # this feature has the listener AND reports that it has it.
 tls = ["dep:tokio-rustls", "sutura-config/tls"]
 
+# The agent-surface mount point and its governing mechanism: the `AgentMount` carried in the
+# `ServiceState`, the `/mcp` merge behind leg 1 and `establish_asked`, the
+# `AgentSurfaceWithoutInboundIdentity` assembly refusal, and the ungoverned-route allowlist.
+#
+# Empty, and deliberately: it gates CODE, not a dependency. This crate must not depend on
+# `sutura-mcp` (a transport never links another transport - see `.agents/skills/sutura/crate-map`),
+# so the mounted service arrives OPAQUELY, boxed, while the layering that must run in front of it
+# (`establish_asked`, `inbound_layered`) is internal to this crate. A binary wanting the surface
+# enables this feature; without it none of this compiles and the shipped set is unchanged.
+agent = []
+
 [dependencies]
 # The service, behind the ports. This crate calls `answer` and `verify_and_validate` and nothing
 # else; every rule about what may be answered lives on the other side of that call.

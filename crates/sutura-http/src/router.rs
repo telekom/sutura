@@ -141,6 +141,92 @@ pub enum RouterNotBuilt {
          naming its `sutura_app::Capability`"
     )]
     RouteNotGoverned { method: String, route: String },
+    /// The agent surface is mounted and the deployment declared no inbound identity to verify a
+    /// caller with.
+    ///
+    /// **The mechanism that makes "the agent surface is only served where a caller can be verified"
+    /// un-forgettable.** `sutura-mcp`'s streamable-HTTP transport is a network-reachable surface;
+    /// serving it on a deployment with no `security.inbound` block would expose every tool it offers
+    /// to whoever can route a packet, answered as the deployment. Leg 1's own assembly guard
+    /// (`InboundIdentityNotAttached`) covers the reverse direction - declared, no gate; this covers
+    /// mounted transport with no declaration at all. The composition root builds one `AgentMount`
+    /// from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
+    /// when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+    #[cfg(feature = "agent")]
+    #[error(
+        "an agent surface is mounted and no `security.inbound` block is declared, so nobody could be \
+         verified before reaching it. A deployment that serves `/mcp` must also establish a caller \
+         identity: set `security.inbound.mode` (and, on a build linked without the `agent` feature, \
+         rebuild with `--features agent`)"
+    )]
+    AgentSurfaceWithoutInboundIdentity,
+    /// A route merged outside the versioned/governed subtree carries no `ungoverned_routes()` row.
+    ///
+    /// **The mechanism that makes an ungoverned route auditable rather than invisible.**
+    /// `crate::capability::governed()` names one `Capability` per route under the version prefix and
+    /// cannot describe `/mcp` - one route offers many tools, scoped per-tool inside
+    /// `AgentSurface::permitted` - so `every_route_governed`'s scan would never see it (the same way
+    /// `/health` and `/metrics` are invisible by construction). Rather than leave the agent mount
+    /// riding that blindness, `assemble` records `/mcp` as it builds the subtree (`agent_subtree`)
+    /// and `check_ungoverned` then refuses any recorded path that lacks a row in
+    /// [`ungoverned_routes`]. A future raw route merged the same way cannot appear without the same
+    /// review.
+    #[cfg(feature = "agent")]
+    #[error(
+        "`{path}` is mounted outside the versioned subtree and `sutura_http::router::ungoverned_routes` \
+         carries no row naming why, so nothing says it was considered against the routes `governed()` \
+         cannot see. Add an `UngovernedRoute` row with its reason"
+    )]
+    UngovernedRouteNotAllowlisted { path: String },
+}
+
+/// One route mounted outside the versioned/governed subtree, and why that is deliberate.
+///
+/// The parallel of `crate::capability::GovernedRoute` for the routes `governed()`'s table cannot
+/// see. Where a governed route names its `Capability`, an ungoverned route names its REASON - the
+/// review that decided it does not need a per-route `Capability` row. See [`ungoverned_routes`].
+#[cfg(feature = "agent")]
+pub(crate) struct UngovernedRoute {
+    path: &'static str,
+    reason: &'static str,
+}
+
+/// Every route this crate mounts outside the versioned subtree, with the reason each one is.
+///
+/// Only compiled with the `agent` feature, because only then does this crate mount anything outside
+/// the versioned subtree that `every_route_governed` cannot see as a new line: today that is
+/// `/mcp` alone, recorded by [`agent_subtree`] and checked by [`check_ungoverned`]. `/health`,
+/// `/metrics` and the documentation paths are merged by `assemble` without an allowlist row and are
+/// deliberately not listed here - see [`check_ungoverned`] for what that means this table does and
+/// does not guard.
+#[cfg(feature = "agent")]
+#[must_use]
+pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
+    [UngovernedRoute {
+        path: crate::constants::AGENT_MOUNT_PATH,
+        reason: "one route offers many tools, scoped per-tool inside `AgentSurface` via `Asked::permitted()` \
+                 rather than per-route the way `governed()` {path, capability} does",
+    }]
+}
+
+/// Refuses any ungoverned route that [`ungoverned_routes`] does not name.
+///
+/// The fail-closed half of the allowlist: [`agent_subtree`] records `/mcp` as it merges it, and a
+/// recorded path with no row in [`ungoverned_routes`] is refused by name. The reverse direction - a
+/// table row with nothing merged - is NOT held here and deliberately so, because `/mcp` is an
+/// OPTIONAL route (off unless `server.agent_surface.enabled` is set), and an empty mounted set is a
+/// legal and common deployment shape. What this guards is that nothing merges outside the governed
+/// subtree without its own allowlist row.
+#[cfg(feature = "agent")]
+pub(crate) fn check_ungoverned(recorded: &[&str]) -> Result<(), RouterNotBuilt> {
+    for path in recorded {
+        if !ungoverned_routes().iter().any(|row| row.path == *path) {
+            return Err(RouterNotBuilt::UngovernedRouteNotAllowlisted {
+                path: String::from(*path),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The router, and the limiter state something has to keep sweeping.
@@ -306,6 +392,28 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
     limiters.extend(documentation_limiter);
 
+    // The agent surface. Mounted at `/mcp` only when this build and deployment carry one, and only
+    // where a caller can be verified - a mount with no `security.inbound` block is a refusal, not a
+    // silently open surface. See `AgentSurfaceWithoutInboundIdentity`. The same feature-gated block
+    // runs the ungoverned-route allowlist: every subtree merged outside the versioned subtree is
+    // recorded and checked against `ungoverned_routes()`, so a route `governed()`'s per-route table
+    // cannot see cannot ride in unseen.
+    #[cfg(feature = "agent")]
+    let (agent_router, agent_path) = agent_subtree(state, settings.security().inbound())?;
+    #[cfg(not(feature = "agent"))]
+    let agent_router: Router = Router::new();
+    #[cfg(feature = "agent")]
+    {
+        let mut ungoverned: Vec<&'static str> = Vec::new();
+        if let Some(path) = agent_path {
+            ungoverned.push(path);
+        }
+        for row in ungoverned_routes() {
+            tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");
+        }
+        check_ungoverned(&ungoverned)?;
+    }
+
     let router = Router::new()
         .merge(documentation)
         .merge(metrics)
@@ -315,6 +423,9 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // resource-path reason stated at its first merge.
         .without_v07_checks()
         .merge(public)
+        // The agent surface, merged here for the same reason `public` is - outside the version
+        // prefix, over the same final unchecked merge.
+        .merge(agent_router)
         // The request bound, as a middleware of ours rather than `tower_http`'s: that one answers
         // the status with an EMPTY body, and every `408` this surface documents carries a
         // `ProblemBody`. See `middleware::enforce_timeout`.
@@ -498,6 +609,44 @@ fn inbound_layered(
     )))
 }
 
+/// The agent surface subtree, or an empty router when this build and deployment carry no mount.
+///
+/// Returns the layered `/mcp` router together with the path [`check_ungoverned`] must record for it,
+/// so the merge and its allowlist row cannot drift: `assemble` merges exactly what this returns and
+/// records exactly the path it reports.
+///
+/// **Refuses to assemble when a mount is present and no inbound identity is declared.** A
+/// network-reachable agent surface with no leg 1 is a surface "everyone is" - refused here rather
+/// than served by accident. When leg 1 IS declared the transport runs behind the SAME
+/// `establish_asked` and `inbound_layered` layers the versioned surface runs behind; `route_layer`
+/// wraps, so `establish_asked` (added first) is the inner layer and `require_verified_caller` is
+/// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
+/// transport is ever reached.
+///
+/// The layered `/mcp` subtree and the path [`check_ungoverned`] must record for it are returned as
+/// a named tuple, so `assemble` and `agent_subtree` agree on the shape without either spelling the
+/// nesting twice (`clippy::type-complexity`).
+#[cfg(feature = "agent")]
+type AgentSubtree = (Router, Option<&'static str>);
+
+#[cfg(feature = "agent")]
+fn agent_subtree(
+    state: &ServiceState,
+    declared: Option<&sutura_config::InboundIdentity>,
+) -> Result<AgentSubtree, RouterNotBuilt> {
+    let Some(mount) = state.agent_surface() else {
+        return Ok((Router::new(), None));
+    };
+    if declared.is_none() {
+        return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
+    }
+    let subtree = mount
+        .boxed()
+        .route_layer(axum::middleware::from_fn(crate::capability::establish_asked));
+    let subtree = inbound_layered(subtree, state, declared)?;
+    Ok((subtree, Some(crate::constants::AGENT_MOUNT_PATH)))
+}
+
 /// The generated document and the browser interface over it, or an empty router.
 ///
 /// **Two routers, one of them possibly empty, always merged.** The alternative is an
@@ -654,5 +803,51 @@ mod tests {
             matches!(refused, RouterNotBuilt::RouteNotGoverned { ref method, .. } if method == "DELETE"),
             "{refused:?}"
         );
+    }
+
+    /// The agent surface cannot be assembled where no caller can be verified - the reason it must
+    /// never be mounted without `security.inbound`.
+    ///
+    /// The fake service below never runs: this asserts on the REFUSAL, which fires at assembly from
+    /// the mount-plus-no-declaration shape, ahead of any request.
+    #[cfg(feature = "agent")]
+    #[test]
+    fn an_agent_surface_mounted_where_no_caller_can_be_verified_does_not_assemble() {
+        let service = crate::surface::LocalService::start(
+            &crate::testing::catalog_of(crate::testing::bundle()),
+            crate::testing::fake_warehouse(),
+            crate::testing::sink(),
+            crate::testing::broker(),
+            1 << 30,
+        )
+        .expect("the test bundle validates");
+        let state = crate::testing::state_over(std::sync::Arc::new(service), crate::testing::settings_with(""));
+        let mount = crate::state::AgentMount::new(tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+            let _request = request;
+            async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+        }));
+        let state = state.with_agent_surface(mount);
+        let refused = super::agent_subtree(&state, None).expect_err("a mount with no inbound identity assembles no subtree");
+        assert!(
+            matches!(refused, RouterNotBuilt::AgentSurfaceWithoutInboundIdentity),
+            "expected the no-inbound refuse, got {refused:?}"
+        );
+    }
+
+    /// The ungoverned-route allowlist is not vacuous: a merged route with no `ungoverned_routes()`
+    /// row is refused by name, and the legitimate `/mcp` row passes.
+    #[cfg(feature = "agent")]
+    #[test]
+    fn a_second_ungoverned_route_with_no_allowlist_entry_is_refused() {
+        assert!(
+            super::check_ungoverned(&[crate::constants::AGENT_MOUNT_PATH]).is_ok(),
+            "the allowlisted agent mount passes"
+        );
+        let refused = super::check_ungoverned(&[crate::constants::AGENT_MOUNT_PATH, "/v1/rogue"])
+            .expect_err("a route neither governed nor allowlisted is refused");
+        let RouterNotBuilt::UngovernedRouteNotAllowlisted { path } = refused else {
+            panic!("expected UngovernedRouteNotAllowlisted, got {refused:?}");
+        };
+        assert_eq!(path, "/v1/rogue");
     }
 }

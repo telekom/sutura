@@ -66,6 +66,69 @@ pub struct ServiceState {
     /// `crate::router::assemble` refuses to build a router whose settings declare an inbound identity
     /// and whose state carries no gate.
     inbound: Option<Arc<crate::inbound::InboundGate>>,
+    ///
+    /// **The mounted agent transport, attached by a builder like [`ServiceState::with_inbound_identity`].**
+    /// Only present when the composition root both compiled the `agent` feature and read
+    /// `server.agent_surface.enabled: true`. It is carried OPAQUELY - this crate must not name
+    /// `sutura_mcp`'s types (a transport never links another transport), so the transport arrives
+    /// already boxed into [`AgentMount`] and this crate only has to nest it behind the same
+    /// `establish_asked`/`inbound_layered` layers the versioned surface runs behind. `crate::router`
+    /// refuses to assemble when this is `Some` and no `security.inbound` gateway was attached.
+    #[cfg(feature = "agent")]
+    agent: Option<AgentMount>,
+}
+
+/// The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
+/// `sutura-mcp` type a transport crate composes.
+///
+/// Built by the composition root from `sutura_mcp::http::service`. It is kept as an `axum::Router`
+/// (the transport nested at the router's own root) rather than tower's `BoxCloneService`: this
+/// crate's `ServiceState` must be `Sync` (`OpenApiRouter`'s state bound), and tower's boxed clone
+/// service erases only `+ Send`, whereas `axum::Router` is genuinely `Clone + Send + Sync` and
+/// implements `tower::Service` itself - so `crate::router` can `nest_service` it at `AGENT_MOUNT_PATH`
+/// behind the same layers the versioned surface runs behind, still without naming a `sutura-mcp` type.
+#[cfg(feature = "agent")]
+#[derive(Clone)]
+pub struct AgentMount {
+    router: axum::Router,
+}
+
+#[cfg(feature = "agent")]
+impl AgentMount {
+    /// Wraps any service `nest_service` can mount, so `sutura-http` never names its concrete type.
+    ///
+    /// The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder lives in
+    /// `sutura-http`, so it may name it) - `axum::Router::nest_service` panics on the root path and
+    /// requires `T::Response: IntoResponse` rather than `Response<Body>`, and the
+    /// `StreamableHttpService` a transport crate hands over yields `Response<BoxBody<…>>`, so the
+    /// wrapper must not pin the response body. `crate::router` applies the leg 1 and `establish_asked`
+    /// layers around this router with `route_layer`, then `assemble` merges it. Cloning the router
+    /// shares one underlying transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
+    #[must_use]
+    pub fn new<S>(service: S) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
+        Self {
+            router: axum::Router::new().nest_service(crate::constants::AGENT_MOUNT_PATH, service),
+        }
+    }
+
+    /// A clone of the mounted router, for `crate::router` to layer and merge into the assembly.
+    ///
+    /// `axum::Router` clones share one underlying transport, so nesting several routers over one
+    /// mount are one mounted transport - the same property `sutura_mcp::http::service`'s own clone
+    /// carries.
+    #[cfg(feature = "agent")]
+    pub(crate) fn boxed(&self) -> axum::Router {
+        self.router.clone()
+    }
 }
 
 impl ServiceState {
@@ -112,6 +175,8 @@ impl ServiceState {
             registry,
             metrics,
             inbound: None,
+            #[cfg(feature = "agent")]
+            agent: None,
         }
     }
 
@@ -124,6 +189,31 @@ impl ServiceState {
     pub fn with_inbound_identity(mut self, gate: Arc<crate::inbound::InboundGate>) -> Self {
         self.inbound = Some(gate);
         self
+    }
+
+    /// The same state, with the agent surface's transport attached.
+    ///
+    /// Called by the composition root, under the `agent` feature, when the deployment set
+    /// `server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
+    /// state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
+    /// surface must never be reachable where no caller can be verified.
+    #[cfg(feature = "agent")]
+    #[must_use]
+    pub fn with_agent_surface(mut self, mount: AgentMount) -> Self {
+        self.agent = Some(mount);
+        self
+    }
+
+    /// The mounted agent transport, if this build and deployment carry one.
+    ///
+    /// Read by `crate::router` to nest it behind the same `establish_asked`/`inbound_layered`
+    /// layers the versioned surface runs behind, and to refuse assembly when it is present with no
+    /// inbound identity attached. Nothing else may reach the transport.
+    #[cfg(feature = "agent")]
+    #[inline]
+    #[must_use]
+    pub const fn agent_surface(&self) -> Option<&AgentMount> {
+        self.agent.as_ref()
     }
 
     /// Leg 1, if this deployment has it.
