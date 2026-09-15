@@ -25,22 +25,17 @@ use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::governance::SpendBudget;
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
-use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
-use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
-use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
+use crate::limits::{InvalidQuota, RateLimitSettings};
+use crate::prompt::{InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
+use crate::proxy::{InvalidTrustedProxy, UnknownClientAddressSource};
 use crate::raw::RawSettings;
-use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
+use crate::runtime::RuntimeSettings;
 use crate::security::{
-    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, SecuritySettings,
-    TlsTermination, UnknownTlsTermination,
+    DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, SecuritySettings, UnknownTlsTermination,
 };
-use crate::server::{
-    BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
-};
-use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
-use crate::telemetry::{
-    InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
-};
+use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerSettings};
+use crate::sources::{InvalidSourceRegistry, SourceRegistry};
+use crate::telemetry::{InvalidLogFilter, InvalidServiceName, TelemetrySettings, UnknownLogFormat};
 
 /// The variable that chooses the deployment environment.
 ///
@@ -49,12 +44,9 @@ pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 
 /// The variable that points at the configuration directory a load layers files from.
 ///
-/// **One name, here, because two binaries read it and neither may own it.** `sutura-serve` read it
-/// out of a private constant of its own while the `sutura` command took a directory positionally, so
-/// the two composition roots named the same operator-facing thing in two places and only one of them
-/// could be found by grepping this crate. It is exported for the same reason
-/// [`ENVIRONMENT_VARIABLE`] is: a startup message, a command's `--help` and the documentation cannot
-/// disagree about a name none of them owns.
+/// **One name, because two binaries read it and neither may own it** - exported for the same reason
+/// [`ENVIRONMENT_VARIABLE`] is, so a startup message, a command's `--help` and the documentation
+/// cannot disagree about a name none of them owns.
 pub const CONFIG_DIR_VARIABLE: &str = "SUTURA_CONFIG_DIR";
 
 /// The prefix every configuration variable carries, and the separator between key segments.
@@ -134,11 +126,9 @@ impl Sources {
 
     /// Layers the files in a configuration directory: `base.yaml`, then `<environment>.yaml`.
     ///
-    /// The counterpart to [`Self::with_overlay`] for a real directory. What makes it worth having
-    /// beside [`Self::from_process_environment`] is what it does NOT do - it leaves the variable
-    /// layer alone - so a caller that started from [`Self::defaults`] keeps the empty variable map,
-    /// and a `SUTURA__*` variable in a developer's shell cannot change what the file layers resolve
-    /// to.
+    /// The counterpart to [`Self::with_overlay`] for a real directory: it leaves the variable
+    /// layer alone, so a caller that started from [`Self::defaults`] keeps the empty variable map
+    /// and a `SUTURA__*` in a developer's shell cannot change what the files resolve to.
     #[must_use]
     pub fn with_directory(mut self, directory: PathBuf) -> Self {
         self.directory = Some(directory);
@@ -174,8 +164,8 @@ pub fn environment_from_process() -> Result<Environment, SettingsError> {
 /// the embedded defaults are complete.
 ///
 /// Not fallible, and that is not a shortcut: unlike [`environment_from_process`] there is no
-/// permissive branch to fall into. A non-Unicode path is still a path this process can open, so it is
-/// carried through as an `OsString` rather than refused.
+/// permissive branch to fall into. A non-Unicode path is still a path this process can open, so it
+/// is carried through as an `OsString` rather than refused.
 #[must_use]
 pub fn config_dir_from_process() -> Option<PathBuf> {
     std::env::var_os(CONFIG_DIR_VARIABLE)
@@ -420,24 +410,24 @@ impl Settings {
         // Security before sources, and the order is a dependency rather than a habit: a shared source
         // in single-user mode borrows the mode's own declaration as its acknowledgement, so the mode
         // has to be parsed before the entry that may read it.
-        let security = parse_security(raw)?;
-        let sources = parse_sources(raw, security.identity())?;
+        let security = parse::parse_security(raw)?;
+        let sources = parse::parse_sources(raw, security.identity())?;
         Ok(Self {
             layers,
             environment,
-            server: parse_server(raw)?,
+            server: parse::parse_server(raw)?,
             security,
-            rate_limit: parse_rate_limit(raw, environment)?,
-            telemetry: parse_telemetry(raw, environment)?,
+            rate_limit: parse::parse_rate_limit(raw, environment)?,
+            telemetry: parse::parse_telemetry(raw, environment)?,
             api: ApiSettings::new(
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
             catalogs: catalogs::parse_catalogs(raw)?,
-            runtime: parse_runtime(raw)?,
-            prompt: parse_prompt(raw)?,
-            tools: parse_tools(raw),
-            spend_budget: parse_spend_budget(raw)?,
+            runtime: parse::parse_runtime(raw)?,
+            prompt: parse::parse_prompt(raw)?,
+            tools: parse::parse_tools(raw),
+            spend_budget: parse::parse_spend_budget(raw)?,
             sources,
         })
     }
@@ -744,205 +734,10 @@ impl Settings {
     }
 }
 
-fn parse_server(raw: &RawSettings) -> Result<ServerSettings, SettingsError> {
-    let bind = BindAddress::parse(&raw.server.host, raw.server.port).map_err(|cause| SettingsError::Bind { cause })?;
-    let timeout = RequestTimeout::parse(raw.server.request_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
-    let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
-    let tls = crate::server::TlsMaterial::parse(raw.server.tls_certificate.as_deref(), raw.server.tls_key.as_deref())
-        .map_err(|cause| SettingsError::TlsMaterial { cause })?;
-    Ok(ServerSettings::new(bind, timeout, body, tls))
-}
-
-fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> {
-    let token = match raw.security.access_token.as_deref() {
-        // An empty string is the shape an unset variable takes in a shell, and treating it as a
-        // configured token would give every request a 401 for a reason nothing explains.
-        None | Some("") => None,
-        Some(value) => Some(AccessToken::parse(value).map_err(|cause| SettingsError::AccessToken { cause })?),
-    };
-    let metrics_token = match raw.security.metrics_token.as_deref() {
-        None | Some("") => None,
-        Some(value) => Some(AccessToken::parse(value).map_err(|cause| SettingsError::MetricsToken { cause })?),
-    };
-    let termination = match raw.security.tls_termination.as_deref() {
-        None | Some("") => TlsTermination::default(),
-        Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
-    };
-    // **Absent is absent, and is not a third mode.** An empty string is the shape an unset variable
-    // takes in a shell, so it reads the same way - and both are then a `NotFitToServe` if any source is
-    // configured, which is where the refusal belongs: the check needs to see the `sources` tree, and a
-    // parse error here could not name how many sources were left unaccounted for.
-    let identity = match raw.security.identity.as_deref() {
-        None | Some("") => None,
-        Some(value) => Some(
-            DeploymentIdentity::parse(value, raw.security.single_user_because.as_deref())
-                .map_err(|cause| SettingsError::Identity { cause })?,
-        ),
-    };
-    let inbound = match raw.security.inbound {
-        None => None,
-        Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
-    };
-    let credential_cache = crate::identity_cache::CredentialCacheSettings::parse(
-        raw.security.credential_cache.enabled,
-        raw.security.credential_cache.capacity,
-        raw.security.credential_cache.window_seconds,
-    )
-    .map_err(|cause| SettingsError::CredentialCache { cause })?;
-    // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
-    // PRESENT empty block is.
-    let outbound = crate::settings::outbound::parse_outbound(raw.security.outbound.as_ref())?;
-    Ok(SecuritySettings::new(
-        token,
-        termination,
-        inbound,
-        identity,
-        metrics_token,
-        credential_cache,
-        outbound,
-    ))
-}
-
-/// The data systems this deployment declares.
-///
-/// The map's keys are the aliases, so this only has to put them beside their entries in a stable order
-/// and let `SourceRegistry::parse` do the parsing. `BTreeMap` iteration is sorted, which is what makes
-/// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
-/// depends on how the file was written.
-fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
-    let entries: Vec<RawSourceEntry<'_>> = raw
-        .sources
-        .iter()
-        .map(|(written, source)| RawSourceEntry {
-            written,
-            kind: &source.kind,
-            data_dir: source.data_dir.as_deref(),
-            billing_project: source.billing_project.as_deref(),
-            dataset: source.dataset.as_deref(),
-            credential_file: source.credential_file.as_deref(),
-            max_bytes_billed: source.max_bytes_billed,
-            posture: &source.posture,
-            acknowledged_because: source.acknowledged_because.as_deref(),
-            verification_identity: source.verification_identity.as_deref(),
-            workload_identity: source.workload_identity.clone(),
-            host: source.host.as_deref(),
-            unix_socket: source.unix_socket.as_deref(),
-            port: source.port,
-            database: source.database.as_deref(),
-            user: source.user.as_deref(),
-            password_file: source.password_file.as_deref(),
-            transport_mode: source.transport_mode.as_deref(),
-            transport_anchors: source.transport_anchors.as_deref(),
-            client_certificate: source.client_certificate.as_deref(),
-            client_key: source.client_key.as_deref(),
-        })
-        .collect();
-    SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })
-}
-
-fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {
-    let probe = Quota::parse(
-        "rate_limit.probe",
-        raw.rate_limit.probe_per_second,
-        raw.rate_limit.probe_burst,
-    )
-    .map_err(|cause| SettingsError::Quota { cause })?;
-    let api = Quota::parse("rate_limit.api", raw.rate_limit.api_per_second, raw.rate_limit.api_burst)
-        .map_err(|cause| SettingsError::Quota { cause })?;
-    let client_address = match raw.rate_limit.client_address.as_deref() {
-        None | Some("") => ClientAddressSource::default(),
-        Some(value) => ClientAddressSource::parse(value).map_err(|cause| SettingsError::ClientAddress { cause })?,
-    };
-    let proxies =
-        TrustedProxies::parse(&raw.rate_limit.trusted_proxies).map_err(|cause| SettingsError::TrustedProxy { cause })?;
-    Ok(RateLimitSettings::new(
-        // The same shape as `api.docs` above: the value, then whether anybody wrote it down. The
-        // second is not derivable from the first once it is stored, and the startup log needs both.
-        raw.rate_limit
-            .enabled
-            .unwrap_or_else(|| RateLimitSettings::enabled_default_for(environment)),
-        raw.rate_limit.enabled.is_some(),
-        probe,
-        api,
-        client_address,
-        proxies,
-    ))
-}
-
-fn parse_telemetry(raw: &RawSettings, environment: Environment) -> Result<TelemetrySettings, SettingsError> {
-    let name = ServiceName::parse(&raw.telemetry.service_name).map_err(|cause| SettingsError::Service { cause })?;
-    let filter = LogFilter::parse(&raw.telemetry.filter).map_err(|cause| SettingsError::Filter { cause })?;
-    let format = match raw.telemetry.format.as_deref() {
-        None => LogFormat::default_for(environment),
-        Some(value) => LogFormat::parse(value).map_err(|cause| SettingsError::Format { cause })?,
-    };
-    Ok(TelemetrySettings::new(name, filter, format, raw.telemetry.format.is_some()))
-}
-
-/// The concurrency bounds and the two deadlines that are not per-request.
-///
-/// Every one of these is a `parse` on a newtype rather than a raw number reaching the runtime,
-/// which is what makes an unusable value a refusal at startup instead of a surprise under load.
-/// `engine_worker_threads` is the one that may be absent: `EngineWorkers::parse` resolves `None`
-/// to what the machine can run and records that nobody chose it, so the startup log can say which.
-fn parse_runtime(raw: &RawSettings) -> Result<RuntimeSettings, SettingsError> {
-    let concurrency =
-        QueryConcurrency::parse(raw.runtime.max_concurrent_queries).map_err(|cause| SettingsError::Bound { cause })?;
-    let admission =
-        AdmissionTimeout::parse(raw.runtime.admission_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
-    let workers = EngineWorkers::parse(raw.runtime.engine_worker_threads).map_err(|cause| SettingsError::Bound { cause })?;
-    // The one place the machine is asked about its memory. `parse` takes the answer rather than
-    // probing for it, so the interesting case - a ceiling above what the process can reach - is
-    // testable without a machine that has it. `available_memory_bytes` answers `None` where a
-    // platform will not say, and that is recorded on the value rather than assumed away.
-    let working_set = WorkingSetCeiling::parse(raw.runtime.working_set_max_bytes, crate::runtime::available_memory_bytes())
-        .map_err(|cause| SettingsError::Bound { cause })?;
-    let grace = ShutdownGrace::parse(raw.runtime.shutdown_grace_seconds).map_err(|cause| SettingsError::Bound { cause })?;
-    Ok(RuntimeSettings::new(concurrency, admission, workers, working_set, grace))
-}
-
-/// The per-replica spend ceiling, if this deployment declared one.
-///
-/// `None` when `governance.per_replica_spend_ceiling` is absent - `docs/adr/0030`'s decision that
-/// no key means no ceiling, which is every deployment's behaviour before this key existed.
-fn parse_spend_budget(raw: &RawSettings) -> Result<Option<SpendBudget>, SettingsError> {
-    raw.governance
-        .per_replica_spend_ceiling
-        .as_ref()
-        .map(|ceiling| SpendBudget::parse(ceiling.bytes, ceiling.window_seconds).map_err(|cause| SettingsError::Bound { cause }))
-        .transpose()
-}
-
-/// The two keys that shape the agent-facing prompt.
-///
-/// **An empty `instructions_file` is an error here, and that is the opposite of what
-/// [`parse_security`] does with an empty token.** The two empties mean different things. An empty
-/// access token treated as configured would answer every request `401` for a reason nothing
-/// explains, so absent is the safe reading. An empty *path* resolves to the process working
-/// directory - a different directory on every host and never the one the operator meant - and
-/// absence is already expressible by removing the key, so here the safe reading is a refusal naming
-/// the key. It is the argument `catalogs[].dir` already makes.
-///
-/// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
-/// its own copy of the defaults gets the default rather than a deserialization failure.
-/// Infallible: a boolean has no invalid form. Named as its own function anyway, matching the other
-/// groups, so `Settings::parse` reads as one list of "read this section" calls rather than one
-/// inline and the rest not.
-const fn parse_tools(raw: &RawSettings) -> crate::tools::ToolsSettings {
-    crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
-}
-
-fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
-    let instructions = match raw.prompt.instructions_file.as_deref() {
-        None => None,
-        Some(value) => Some(InstructionsFile::parse(value).map_err(|cause| SettingsError::Prompt { cause })?),
-    };
-    let prose = match raw.prompt.catalog_prose.as_deref() {
-        None => CatalogProse::default(),
-        Some(value) => CatalogProse::parse(value).map_err(|cause| SettingsError::CatalogProse { cause })?,
-    };
-    Ok(PromptSettings::new(instructions, prose))
-}
+/// The typed parse of each settings section. Carved out because this file hit the line limit, along
+/// the seam this module's own documentation names: the parse is here, the combination checks are
+/// there.
+mod parse;
 
 /// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;

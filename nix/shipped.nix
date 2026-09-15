@@ -155,19 +155,22 @@ let
       # what it adds, `ring` behind them, so the musl link is the same question `bigquery` already
       # answers and had gone unasked for this feature.
       #
-      # `tls` and `datahub` are NOT here, and that is unchanged by the fold
-      # (`github.com/telekom/sutura#685` step 2): they were `sutura-serve`'s features before the
-      # fold and this binary's since, but neither ever had a documented single-feature source
-      # build to hold a `<bin>-<feature>-<triple>-ci` probe for - `allFeatures` below is what
-      # proves them, together, at fat LTO.
+      # `tls`, `datahub` and `agent` are NOT here, and that is unchanged by the fold
+      # (`github.com/telekom/sutura#685` step 2): `tls` and `datahub` were `sutura-serve`'s
+      # features before the fold, `agent` (`#758`) landed on `sutura-serve` the same way, and none
+      # of the three ever had a documented single-feature source build to hold a
+      # `<bin>-<feature>-<triple>-ci` probe for - `allFeatures` below is what proves them,
+      # together, at fat LTO.
       probeFeatures = [ "bigquery" "postgres" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with EVERY feature on rather than one build
-      # per feature. **Grew by two at step 2's fold**: `tls` and `datahub` were `sutura-serve`'s
-      # own features before `sutura-serve` folded into `sutura serve`, and the shipped artefact now
-      # carries all four. Kept as its own field rather than reused for `probeFeatures` so a future
-      # feature added to one list without the other is a diff a reviewer sees, not a silent gap.
-      allFeatures = [ "bigquery" "postgres" "tls" "datahub" ];
+      # per feature. **Grew by three at step 2's fold**: `tls`, `datahub` and `agent` were
+      # `sutura-serve`'s own features before `sutura-serve` folded into `sutura serve` (`agent`
+      # landed on `sutura-serve` as `#758` while this fold was in flight, merged forward onto
+      # `sutura-cli`'s manifest), and the shipped artefact now carries all five. Kept as its own
+      # field rather than reused for `probeFeatures` so a future feature added to one list without
+      # the other is a diff a reviewer sees, not a silent gap.
+      allFeatures = [ "bigquery" "postgres" "tls" "datahub" "agent" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.

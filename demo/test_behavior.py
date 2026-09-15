@@ -11,9 +11,11 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -70,6 +72,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._reply(401, {"detail": "Invalid credentials"})
             else:
                 self._reply(200, {"token": "demo-session", "token_type": "Bearer"})
+        elif self.path == "/v1/query" and self.server.mode.startswith("sutura"):
+            length = int(self.headers.get("Content-Length", "0"))
+            question = json.loads(self.rfile.read(length))
+            self.server.queries.append(question)
+            if (
+                question.get("metric") == "customer_lifetime_value"
+                and self.server.mode != "sutura-always-answers"
+            ):
+                self._reply(404, {"outcome": "refusal", "reason": "metric_unknown"})
+            else:
+                self._reply(200, {"outcome": "answer", "rows": [[1]]})
         else:
             self.send_error(404)
 
@@ -89,6 +102,7 @@ def server(mode: str):
     instance.authorization = []
     instance.webui_authorization = []
     instance.paths = []
+    instance.queries = []
     thread = threading.Thread(target=instance.serve_forever, daemon=True)
     thread.start()
     try:
@@ -133,6 +147,69 @@ def launcher_fakes(
     for executable in fake_bin.iterdir():
         executable.chmod(0o755)
     return fake_bin, log, {"PATH": f"{fake_bin}:{os.environ['PATH']}"}
+
+
+def supervised_children(
+    root: pathlib.Path, serve_script: str, backend_script: str
+) -> pathlib.Path:
+    """`demo/run.sh`, with its two hard-coded child paths swapped for scripts this test controls."""
+    server_path = root / "serve"
+    server_path.write_text(serve_script, encoding="utf-8")
+    server_path.chmod(0o755)
+    backend = root / "backend"
+    backend.mkdir()
+    (backend / "start.sh").write_text(backend_script, encoding="utf-8")
+    (backend / "start.sh").chmod(0o755)
+    source = (ROOT / "demo/run.sh").read_text(encoding="utf-8")
+    instrumented = root / "run.sh"
+    instrumented.write_text(
+        # The fake ignores its own arguments, so leaving ` serve` in place after the binary path is
+        # swapped is harmless - it is invoked as `<fake> serve &`, same as the real supervisor
+        # invokes `sutura serve &` (`github.com/telekom/sutura#685` step 2 folded the separate
+        # `sutura-serve` binary this used to name into a subcommand of `sutura`).
+        source.replace("/usr/local/bin/sutura", str(server_path)).replace(
+            "/app/backend", str(backend)
+        ),
+        encoding="utf-8",
+    )
+    return instrumented
+
+
+def supervisor_environment(run_dir: pathlib.Path) -> dict[str, str]:
+    """The minimum env `demo/run.sh` needs to reach its two children, ports it never binds."""
+    return {
+        "SUTURA_DEMO_MODEL_ENDPOINT": "https://host.docker.internal:11434/v1",
+        "SUTURA_DEMO_MODEL": "test-model",
+        "SUTURA_DEMO_MODEL_API_KEY": "test-key",
+        "SUTURA_DEMO_ACKNOWLEDGE": "one local test user",
+        "SUTURA_DEMO_RUN_DIR": str(run_dir),
+        "SUTURA_DEMO_SUTURA_PORT": "9",
+        "SUTURA_DEMO_WEBUI_PORT": "8",
+    }
+
+
+def _wait_for(path: pathlib.Path, seconds: float = 15.0) -> None:
+    """Poll for a file rather than sleep a fixed guess - a freshly written script's first exec can
+    take longer than any short sleep on a loaded host, and a blind sleep just makes that flaky."""
+    deadline = time.monotonic() + seconds
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{path} never appeared")
+        time.sleep(0.02)
+
+
+# `touch {ready}` lets a caller wait for the trap to be INSTALLED rather than guessing a sleep is
+# long enough - the failure mode a blind sleep hides is the trap never running at all, which reads
+# identically to "hasn't happened yet" until the deadline above catches it.
+_LOOP_UNTIL_TERM_THEN_MARK = (
+    "#!/bin/sh\n"
+    "trap 'printf terminated > {marker}; exit 143' TERM\n"
+    "touch {ready}\n"
+    "while :; do sleep 1; done\n"
+)
+_WAIT_FOR_READY_THEN_EXIT = (
+    "#!/bin/sh\nwhile [ ! -f {ready} ]; do sleep 0.02; done\nexit {code}\n"
+)
 
 
 class DemoBehavior(unittest.TestCase):
@@ -327,6 +404,48 @@ class DemoBehavior(unittest.TestCase):
         self.assertEqual(webui_authorization, ["Bearer demo-session"])
         self.assertIn("/openapi.json", sutura_paths)
 
+    def test_smoke_test_asks_a_real_question_and_provokes_a_refusal(self) -> None:
+        # The registration half (above) proves the document is served; this proves it is USED -
+        # the answer half and the refusal half of the acceptance matrix's in-container smoke test,
+        # both against the shipped corpus rather than an invented question.
+        healthcheck = load_healthcheck()
+        with (
+            server("sutura") as (sutura_port, sutura_server),
+            server("webui") as (webui_port, _),
+            server("model") as (model_port, _),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            pathlib.Path(directory, "token").write_text(
+                "deployment-token", encoding="utf-8"
+            )
+            old = os.environ.copy()
+            os.environ.update(
+                {
+                    "SUTURA_DEMO_SUTURA_PORT": str(sutura_port),
+                    "SUTURA_DEMO_WEBUI_PORT": str(webui_port),
+                    "SUTURA_DEMO_MODEL_ENDPOINT": f"http://127.0.0.1:{model_port}",
+                    "SUTURA_DEMO_RUN_DIR": directory,
+                }
+            )
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    healthcheck.main()
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            metrics = [query["metric"] for query in sutura_server.queries]
+            self.assertIn("active_subscriptions", metrics)
+            self.assertIn("customer_lifetime_value", metrics)
+
+    def test_a_question_that_should_be_refused_but_is_answered_fails_readiness(
+        self,
+    ) -> None:
+        # The refusal half's own negative control: a demo that ANSWERS an unanswerable question -
+        # the failure this smoke test exists to catch - must fail readiness rather than pass it.
+        with self.assertRaises(SystemExit) as raised:
+            self._run_healthcheck("model", "", sutura_mode="sutura-always-answers")
+        self.assertEqual(raised.exception.code, 1)
+
     def test_registry_authentication_failure_fails_readiness(self) -> None:
         healthcheck = load_healthcheck()
         with (
@@ -510,6 +629,95 @@ class DemoBehavior(unittest.TestCase):
                 if key:
                     self.assertNotIn(key, result.stdout)
                     self.assertNotIn(key, result.stderr)
+
+    def test_a_normal_double_exit_still_ends_the_container_unhealthy(self) -> None:
+        # "A child that exited 0 is still the demo ending" - `demo/run.sh`'s own comment. The
+        # server exits first; `wait -n` catches status 0, `terminate` reaches the backend while it
+        # is also on its way out, and the forced-to-1 rule is what must survive both exiting clean.
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            instrumented = supervised_children(
+                root,
+                "#!/bin/sh\nsleep 0.2\nexit 0\n",
+                "#!/bin/sh\ntrap 'exit 0' TERM\nsleep 0.4\nexit 0\n",
+            )
+            result = subprocess.run(
+                ["bash", str(instrumented)],
+                cwd=ROOT,
+                env={**os.environ, **supervisor_environment(root / "run")},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_either_child_exiting_terminates_the_other_and_carries_its_own_code(
+        self,
+    ) -> None:
+        for first in ("serve", "backend"):
+            with self.subTest(first=first), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                marker = root / "survivor-marker"
+                ready = root / "survivor-ready"
+                # The exiting side waits for the survivor's trap to be INSTALLED rather than
+                # exiting on a timer - a fixed sleep here is exactly the race that let this
+                # scenario go unexercised: a freshly written script's first exec is not bounded.
+                exiting = _WAIT_FOR_READY_THEN_EXIT.format(ready=ready, code=7)
+                surviving = _LOOP_UNTIL_TERM_THEN_MARK.format(
+                    marker=marker, ready=ready
+                )
+                scripts = (
+                    (exiting, surviving) if first == "serve" else (surviving, exiting)
+                )
+                instrumented = supervised_children(root, *scripts)
+                result = subprocess.run(
+                    ["bash", str(instrumented)],
+                    cwd=ROOT,
+                    env={**os.environ, **supervisor_environment(root / "run")},
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=20,
+                )
+                self.assertEqual(result.returncode, 7, result.stderr)
+                self.assertEqual(marker.read_text(encoding="utf-8"), "terminated")
+
+    def test_an_interrupt_terminates_both_children_and_exits_143(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            serve_marker = root / "serve-marker"
+            serve_ready = root / "serve-ready"
+            backend_marker = root / "backend-marker"
+            backend_ready = root / "backend-ready"
+            instrumented = supervised_children(
+                root,
+                _LOOP_UNTIL_TERM_THEN_MARK.format(
+                    marker=serve_marker, ready=serve_ready
+                ),
+                _LOOP_UNTIL_TERM_THEN_MARK.format(
+                    marker=backend_marker, ready=backend_ready
+                ),
+            )
+            process = subprocess.Popen(
+                ["bash", str(instrumented)],
+                cwd=ROOT,
+                env={**os.environ, **supervisor_environment(root / "run")},
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                _wait_for(serve_ready)
+                _wait_for(backend_ready)
+                process.send_signal(signal.SIGTERM)
+                _stdout, stderr = process.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise
+            self.assertEqual(process.returncode, 143, stderr)
+            self.assertEqual(serve_marker.read_text(encoding="utf-8"), "terminated")
+            self.assertEqual(backend_marker.read_text(encoding="utf-8"), "terminated")
 
     def test_repeated_probes_present_a_credential_exactly_once(self) -> None:
         # THE COUNT IS THE TEST, never the stamp file: a test asserting only that the stamp exists

@@ -53,10 +53,9 @@ in that function's body, ahead of `declared_keys::hold` and `verify_anchors`. Th
 `declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that catalog
 declares a relationship and attaches no data to it, so a block moved below `hold` fails there first,
 on `hold`'s own refusal rather than on this one. Nothing separates the placement from
-`verify_anchors` alone, and no test's fake counts an anchor or a declared key that was never
-touched. It reads the
-constant off the one adapter type the registry holds, the way `EXECUTES_LEGS` is read, so it is a
-fact about the build. **The limit, next to the claim:** the fragment is stored and not checked. A
+`verify_anchors` alone, so no fixture's anchor or declared key is ever touched to prove that half
+of the ordering. The check reads the constant off the one adapter type the registry holds, the way
+`EXECUTES_LEGS` is read, so it is a fact about the build. **The limit, next to the claim:** the fragment is stored and not checked. A
 metric naming a column its model lacks, a construct on the denylist below, or a second table loads
 and pins today, and the only thing that makes that safe is that nothing executes it. The compile
 belongs to the first execution adapter that declares the constant, beside the renderer for its own

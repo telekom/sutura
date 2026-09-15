@@ -2,8 +2,8 @@
 //!
 //! That is the distinction the parent module already draws over `mod shape;`, and this file is its
 //! other side: `shape` says what a step, a condition, a redirect or a print IS, and each function
-//! here spends those predicates on one property of the job. The parent's `problems` is the
-//! composition and nothing here composes anything - the four questions are separate because they
+//! here spends those predicates on one property of the job. The parent's [`scan`](super::scan) is
+//! the composition and nothing here composes anything - the four questions are separate because they
 //! read different things, and a fifth reads the credential's expiry out of the job.
 //!
 //! **Every limit is recorded in the parent's own module documentation**, beside the list of ways an
@@ -19,10 +19,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::shape::{
-    FORK_RULE, Source, configures_tracing, downgrades_failure, emits_file, env_name_shaped, exits_non_zero, keyed_block, prints,
-    removes, states_fork_rule, step_key, traces, waits_for, writes_under_runner_temp,
+    FORK_RULE, Source, bigquery_mint_out, configures_tracing, dispatch_condition, dispatch_only, downgrades_failure, emits_file,
+    env_name_shaped, exits_non_zero, keyed_block, named_under_runner_temp, prints, removes, states_fork_rule, step_key, traces,
+    waits_for, writes_under_runner_temp,
 };
-use super::{JOB, WORKFLOW};
 
 /// The job this one waits for, so a cloud request is not spent on a tree the lints refuse.
 pub(super) const NEEDS: &str = "ci";
@@ -58,14 +58,20 @@ pub(super) const GUARD_WINDOW: usize = 6;
 ///
 /// The four properties that decide whether the leg happens at all under an identity that could see
 /// the key - so a wrong answer here is not a weaker gate, it is a green run that proves nothing.
-pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
+pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str]) -> Vec<String> {
     let mut problems = Vec::new();
+    // A `workflow_dispatch`-only file cannot be reached by a fork or a push, so the two event-
+    // driven halves below (`needs: [ci]`, the fork-rule condition) do not apply to it: GitHub
+    // will not run the base repository's workflow from a fork. Everything else - the environment,
+    // the failure-downgrade rule, the condition's shape - still holds.
+    let on_demand = dispatch_only(text);
 
     // Property 1's other half. The file's own comment says this job waits for `ci` so a red local
-    // gate spends no cloud request; nothing read it.
-    if !waits_for(block, NEEDS) {
+    // gate spends no cloud request; nothing read it. An on-demand workflow has no `ci` job to
+    // wait for, so this is read only where the workflow is push/PR-driven.
+    if !on_demand && !waits_for(block, NEEDS) {
         problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job waits for no `{NEEDS}` - it is the one job here that calls \
+            "{workflow}: the `{job}` job waits for no `{NEEDS}` - it is the one job here that calls \
              a cloud provider, so running it beside the lints spends a request on a tree they were \
              about to refuse, and its own comment says it waits"
         ));
@@ -80,7 +86,7 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
         .map(str::trim)
     {
         None => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job declares no `environment:` - that is the mechanism that \
+            "{workflow}: the `{job}` job declares no `environment:` - that is the mechanism that \
              withholds the key from a fork's pull request, and `docs/adr/0017` refused CI over \
              exactly the exposure it prevents"
         )),
@@ -98,9 +104,9 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
                 .count();
             if holders > 1 {
                 problems.push(format!(
-                    "{WORKFLOW}: {holders} jobs declare `environment: {name}` - every one of them \
+                    "{workflow}: {holders} jobs declare `environment: {name}` - every one of them \
                      can read that environment's secret, and the properties here are asserted of \
-                     `{JOB}` alone. A second holder is a second answer to who may see the key"
+                     `{job}` alone. A second holder is a second answer to who may see the key"
                 ));
             }
         }
@@ -109,7 +115,7 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
     // `continue-on-error` and a `continue` in a guard are one defect at two altitudes.
     if let Some(line) = block.iter().find(|line| downgrades_failure(line)) {
         problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job holds `{}` - a job or a step that continues on error \
+            "{workflow}: the `{job}` job holds `{}` - a job or a step that continues on error \
              turns every guard below it into a warning, so unset configuration SKIPS and the run \
              reports a pass. Only `false` is a value this job may give that key",
             line.trim()
@@ -119,23 +125,40 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
     // The JOB's own condition, at four spaces. A STEP's `if:` sits deeper and skips one step, so
     // the job still runs on a fork and reports a pass for a leg that never happened - a `!` states
     // the rule backwards while satisfying any test that only looks for the text, and a `||` beside
-    // it answers for a fork on its own.
+    // it answers for a fork on its own. For an on-demand job the honest statement of who may run
+    // it is `github.event_name == 'workflow_dispatch'` in place of the fork rule - see
+    // [`dispatch_condition`].
     match block.iter().find_map(|line| {
         line.strip_prefix("    ")?
             .strip_prefix("if:")
             .map(|condition| (line, condition))
     }) {
         Some((_, condition)) if states_fork_rule(condition) => {}
+        Some((_, condition)) if on_demand && dispatch_condition(condition) => {}
+        Some((line, _)) if on_demand => problems.push(format!(
+            "{workflow}: the `{job}` job's own condition is `{}`, which has to be \
+             `github.event_name == 'workflow_dispatch'` - a `workflow_dispatch`-only file is \
+             reached only by a dispatch, so the fork rule does not apply, and an `==` against \
+             exactly that event is the line that states who may run it. A `||` beside it makes \
+             its own branch a second answer",
+            line.trim()
+        )),
         Some((line, _)) => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
+            "{workflow}: the `{job}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
              and may not negate it - skip where the runner had no choice, run where somebody in \
              this repository pushed. An event-name test answers both with one verdict, a `!` \
              answers both backwards, and a `||` beside the rule makes its own answer sufficient, \
              so only an `==` against an event no fork's pull request arrives as may stand there",
             line.trim()
         )),
+        None if on_demand => problems.push(format!(
+            "{workflow}: the `{job}` job has no condition of its own - a dispatch-only workflow is \
+             reached only when somebody dispatches it, and `if: github.event_name == \
+             'workflow_dispatch'` is the line that states that contract, so nobody can mistake \
+             this for an event-driven job"
+        )),
         None => problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job has no condition of its own, so it runs on a fork's pull \
+            "{workflow}: the `{job}` job has no condition of its own, so it runs on a fork's pull \
              request - the `environment:` still withholds the key, but the leg then fails for want \
              of a secret or skips one step and reports a pass. A step's `if:` is not this rule"
         )),
@@ -155,13 +178,17 @@ pub(super) fn who_may_run(text: &str, block: &[&str]) -> Vec<String> {
 /// job went when that file came back under the 1000-line cap.
 ///
 /// So the WRITES are read. Each recognised redirect into `$RUNNER_TEMP` from a command that names
-/// a secret is a second copy of that secret, and each one has to be deleted by name.
+/// a secret is a second copy of that secret, and each one has to be deleted by name. A subject-
+/// assertion mint is the one write this reads past the secret name: its out path is a bearer file
+/// DERIVED from the key, recognised by the app's own name, and held to the same two rules.
 ///
-/// **What it does not reach**, beside the parent's own limits table: a copy made by a command that
-/// does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a removal
-/// in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are not
-/// interpreted either. These need data flow or execution reasoning, which nothing here has.
+/// **What it does not reach**, beside the parent's own limits table: any OTHER copy made by a command
+/// that does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a
+/// removal in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are
+/// not interpreted either. These need data flow or execution reasoning, which nothing here has.
 pub(super) fn credential_placement(
+    workflow: &str,
+    job: &str,
     commands: &[&str],
     config: &BTreeMap<&str, Source>,
     credential: Option<&str>,
@@ -185,13 +212,13 @@ pub(super) fn credential_placement(
     match (credential, file) {
         (None, _) => {
             return vec![format!(
-                "{WORKFLOW}: the `{JOB}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything \
+                "{workflow}: the `{job}` job points no `GOOGLE_APPLICATION_CREDENTIALS` at anything \
                  - the leg would then read whatever credential the runner happens to have"
             )];
         }
         (Some(path), None) => {
             return vec![format!(
-                "{WORKFLOW}: the `{JOB}` job's credential path is `{path}`, which is not under \
+                "{workflow}: the `{job}` job's credential path is `{path}`, which is not under \
                  `${{{{ runner.temp }}}}/` - a key inside the checkout is one `git add .` from a \
                  public leak, the secret sweep does not honour `.gitignore`, and a DIRECTORY named \
                  `runner.temp` in the tree satisfies any test that reads this value as a haystack"
@@ -207,7 +234,7 @@ pub(super) fn credential_placement(
                 .any(|named| named == file)
             {
                 problems.push(format!(
-                    "{WORKFLOW}: the `{JOB}` job never has the credential written as `{form}` - the \
+                    "{workflow}: the `{job}` job never has the credential written as `{form}` - the \
                      path the leg reads and the path the job writes are one path or they are two \
                      answers"
                 ));
@@ -219,10 +246,28 @@ pub(super) fn credential_placement(
         }
     }
 
+    // A subject-assertion mint writes a bearer file DERIVED from a secret; its line spells no
+    // secret and no redirect, so the name-×-redirect read above cannot see it as a copy. Recognised
+    // by the app's own name, and the out path is held to the same two rules as a key copy: it has
+    // to be under `$RUNNER_TEMP`, and a cleanup `rm` has to remove it. The mint's out path is its
+    // last argument - see [`shape::bigquery_mint_out`](super::shape::bigquery_mint_out).
+    for out in commands.iter().filter_map(|line| bigquery_mint_out(line)) {
+        if let Some(file) = named_under_runner_temp(out) {
+            placed.insert(file);
+        } else {
+            problems.push(format!(
+                "{workflow}: the `{job}` job mints a subject assertion to {out}, which is not under \
+                 `${{{{ runner.temp }}}}/` - a bearer file derived from a secret has to be placed \
+                 and removed like a key copy, and one written into the checkout is one `git add .` \
+                 from a public leak"
+            ));
+        }
+    }
+
     for file in placed {
         if !commands.iter().any(|line| removes(line, file)) {
             problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job writes `$RUNNER_TEMP/{file}` and no `rm` in it names \
+                "{workflow}: the `{job}` job writes `$RUNNER_TEMP/{file}` and no `rm` in it names \
                  that path - the file is a second copy of a secret, `$RUNNER_TEMP` is not \
                  guaranteed to be discarded with the job on a self-hosted runner, and every job on \
                  that machine can read what is left there"
@@ -237,7 +282,12 @@ pub(super) fn credential_placement(
 /// *Unset configuration FAILS rather than skips* is the property telekom/sutura#81 states most
 /// exactly, and it is two questions: does a guard mention the name, and does that guard reach an
 /// exit. `exit 1` ANYWHERE in the job satisfied the second for a while.
-pub(super) fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&str, Source>) -> Vec<String> {
+pub(super) fn unset_configuration_fails(
+    workflow: &str,
+    job: &str,
+    commands: &[&str],
+    config: &BTreeMap<&str, Source>,
+) -> Vec<String> {
     let mut problems = Vec::new();
     let mut guarded = BTreeSet::new();
     for (at, line) in commands.iter().enumerate() {
@@ -263,7 +313,7 @@ pub(super) fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&st
             .any(exits_non_zero)
         {
             problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job's guard `{}` reaches no non-zero `exit` within \
+                "{workflow}: the `{job}` job's guard `{}` reaches no non-zero `exit` within \
                  {GUARD_WINDOW} lines - unset configuration has to FAIL rather than skip, and a \
                  guard that warns and carries on is a skip that reads as a pass on an in-repo run",
                 line.trim()
@@ -273,7 +323,7 @@ pub(super) fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&st
     for (name, source) in config {
         if !guarded.contains(name) {
             problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job reads `{name}` from `{}` and never tests it for \
+                "{workflow}: the `{job}` job reads `{name}` from `{}` and never tests it for \
                  emptiness - unset configuration has to FAIL rather than skip, because the fixture \
                  once reported three passes against no project",
                 source.named()
@@ -293,6 +343,8 @@ pub(super) fn unset_configuration_fails(commands: &[&str], config: &BTreeMap<&st
 /// [`shape::is_comment`](super::shape::is_comment) is for: an expression in a comment is still in the file, a print in one is
 /// not a print.
 pub(super) fn what_reaches_the_log(
+    workflow: &str,
+    job: &str,
     text: &str,
     block: &[&str],
     bodies: &[&str],
@@ -303,7 +355,7 @@ pub(super) fn what_reaches_the_log(
     let mut problems = Vec::new();
     for line in bodies.iter().filter(|line| line.contains("${{")) {
         problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job interpolates into a shell body - `{}`. A multi-line JSON \
+            "{workflow}: the `{job}` job interpolates into a shell body - `{}`. A multi-line JSON \
              key is the shape that defeats naive log masking, so a value reaches this shell \
              through `env:` or not at all",
             line.trim()
@@ -320,7 +372,7 @@ pub(super) fn what_reaches_the_log(
         {
             if line.contains(*name) {
                 problems.push(format!(
-                    "{WORKFLOW}: the `{JOB}` job puts `{name}` on a line that prints - `{}`. A \
+                    "{workflow}: the `{job}` job puts `{name}` on a line that prints - `{}`. A \
                      workflow log on a public repository is public, and the only reason a print \
                      verb may name the key at all is a redirect INTO a file",
                     line.trim()
@@ -330,7 +382,7 @@ pub(super) fn what_reaches_the_log(
         // The FILE is the second copy of the secret, and it spells no name the loop above reads.
         if let Some(file) = credential_file.filter(|file| emits_file(line, file)) {
             problems.push(format!(
-                "{WORKFLOW}: the `{JOB}` job hands the credential file to a print verb - `{}`. \
+                "{workflow}: the `{job}` job hands the credential file to a print verb - `{}`. \
                  `$RUNNER_TEMP/{file}` holds the same key `secrets` does, and the check above \
                  reads a secret's NAME, which a `cat` of that path never spells",
                 line.trim()
@@ -350,7 +402,7 @@ pub(super) fn what_reaches_the_log(
             .find(|line| configures_tracing(line))
     }) {
         problems.push(format!(
-            "{WORKFLOW}: the `{JOB}` job turns shell tracing on - `{}`. Every command in that body \
+            "{workflow}: the `{job}` job turns shell tracing on - `{}`. Every command in that body \
              then reaches the log with its arguments, which is the channel this job's own comments \
              say `python3 -c` and `printenv` exist to avoid - and a `shell:` or a `SHELLOPTS:` does \
              it for a body nobody has written yet",
@@ -374,24 +426,29 @@ pub(super) fn what_reaches_the_log(
 /// here for any other keyless exchange would have reported a half-finished GOOGLE migration that
 /// does not exist. What [`FEDERATION`] holds is what `docs/adr/0017` actually names as greenfield -
 /// no Google auth action, no workload pool, no STS endpoint.
-pub(super) fn one_credential_mechanism(block: &[&str], config: &BTreeMap<&str, Source>) -> Option<String> {
+pub(super) fn one_credential_mechanism(
+    workflow: &str,
+    job: &str,
+    block: &[&str],
+    config: &BTreeMap<&str, Source>,
+) -> Option<String> {
     let federated = block.iter().any(|line| FEDERATION.iter().any(|marker| line.contains(marker)));
     let keyed = config.values().any(|source| *source == Source::Secret);
     match (federated, keyed) {
         (true, true) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential AND places a secret - \
+            "{workflow}: the `{job}` job exchanges for a Google credential AND places a secret - \
              those are the two alternatives `docs/adr/0017` prices against each other, so holding \
              both is a half-finished migration and the key is the half nobody will notice is still \
              there"
         )),
         (false, false) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job authenticates with neither an environment secret nor a \
+            "{workflow}: the `{job}` job authenticates with neither an environment secret nor a \
              Google token exchange, so it cannot be reaching the endpoint at all - a leg that \
              authenticates with nothing and passes is the fixture that once reported three passes \
              against no project"
         )),
         (true, false) => Some(format!(
-            "{WORKFLOW}: the `{JOB}` job exchanges for a Google credential and holds no key, which \
+            "{workflow}: the `{job}` job exchanges for a Google credential and holds no key, which \
              is the state `docs/adr/0017`'s expiry paragraph describes as the end of the \
              service-account key. That record still says a key is the cost of the evidence - amend \
              it, then delete this arm, because a gate whose failure is GOOD NEWS is one somebody \

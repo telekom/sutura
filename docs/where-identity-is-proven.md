@@ -123,7 +123,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` |
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
-| **A real token exchange, and two grants** | nowhere yet - the leg exists and nothing can point it at a subject | a subject assertion per principal that nothing mints, and a hop to a service account that nothing implements - **the pool itself is already provisioned** | `just bigquery-exchanged-identity` |
+| **A real token exchange, and two grants** | a GitHub environment, on demand | a hop to a service account that nothing implements yet - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -168,11 +168,13 @@ everything *around* it, and shrinks to the one job only it can do.
 | A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
+| An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
+| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **unrun** - the standing test is here and nothing has run it |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **unrun** - the standing test is here and nothing has run it |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **wired** - a job now reaches it (`workflow_dispatch`), no run has been observed |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **wired** - a job now reaches it (`workflow_dispatch`), no run has been observed |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no - one key is one identity | no | no - trusted to the data system, not re-verified by sutura (telekom/sutura#123) |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no - one key is one identity, and it is the transport's own | no | no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123) |
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no - a different data system | no | no - a different data system |
@@ -274,6 +276,18 @@ is not a signature check - that is the router's job above - but the **compositio
 - `a_published_key_set_this_deployment_cannot_use_stops_the_process` - a symmetric key in the set is a
   deployment that **does not start**, rather than one that starts, logs that it establishes a caller
   identity and answers `401` to everybody.
+
+**PR4 adds two agent-surface rows to the matrix, still `unrun`.** The standing tests are written and
+compile - `the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`
+(`sutura_http::inbound::tests::router`) proves leg 1 stands in front of `/mcp` exactly as it stands in
+front of the versioned surface, and `two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`
+(`crates/sutura-cli/tests/served/agent.rs`) proves `establish_asked` derives each request's `Asked` from the
+caller leg 1 verified and `AgentSurface::permitted` narrows the tool list per caller on the real
+composed binary - but no green run of either has been observed, so `yes` is not earned. `wired` is not
+theirs either: it means *CI reaches this and no run has been observed*, and the mock-issuer venue's
+`Reached by` cell names `just test`/`just validate`, which no CI job invokes under its own name - so a
+venue no job reaches is `unrun`. Both cells are `#[cfg(feature = "agent")]`; a green run under
+`just test` (`--all-features`) earns them a `yes`.
 
 **The boot refusal is asserted on the refusal's own sentence, because nothing else separates the two
 ways this deployment can fail to start:** a root that read the key set fine and then forgot to attach
@@ -467,8 +481,11 @@ adapter, asserting the account each leg became;
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.
 
-**The state is `unrun`**, and that is the token rather than a caveat: no run has answered the claim
-the cell's column states, and nothing in CI reaches it. It may not be cited for anything.
+**The state is `wired`**, and that is the token rather than a caveat:
+`.github/workflows/bigquery-exchanged-identity.yml` now reaches this cell (`workflow_dispatch` only,
+never an ordinary push), and no run has been observed. It may not be cited for anything - `wired` is
+not a softer `unrun`, it is the honest state of the commit that adds the invocation, before anybody
+has dispatched it.
 
 **One leg HAS run, and it is not that one.** On 2026-09-06,
 `the_deployments_own_identity_is_neither_principal` passed against the acceptance project from a
@@ -479,19 +496,22 @@ already holds. It also does not move this cell, twice over - a hand-run is invis
 `check-venues` by construction, and the claim in this column is about an EXCHANGE, which that leg
 performs none of.
 
-### Why nothing reaches it, which is a finding rather than a schedule
+### Why a green run still cannot happen, which is a finding rather than a schedule
 
 **The pool is not what is missing, and an earlier version of this section implied it was.** The
 stack provisions a `WorkloadIdentityPool` and an OIDC provider, and the audience they export is the
-`SUTURA_BQ_WORKLOAD_AUDIENCE` this cell reads. Two other things are missing, and they are the ones
-below.
+`SUTURA_BQ_WORKLOAD_AUDIENCE` this cell reads. One of the two things this section used to list is
+now closed - the assertions are minted at job time (below) - and one remains.
 
-**Two subject assertions do not exist, and cannot be derived from the CI workload identity with what
-this adapter ships.** A plain RFC 8693 exchange yields exactly one identity per subject token -
-whoever the token's `sub` is - so two principals need two subject tokens, and one CI job holds one
-workload identity and can mint one `sub`. `SUTURA_BQ_PRINCIPAL_A_ASSERTION` and
-`SUTURA_BQ_PRINCIPAL_B_ASSERTION` are what the cell is pointed at, they are not in the environment,
-and the cell fails on their absence rather than skipping.
+**Closed: two subject assertions are minted at job time, from the same per-principal keys the
+withdrawn two-principal cell used - no new long-lived secret.** A plain RFC 8693 exchange yields
+exactly one identity per subject token - whoever the token's `sub` is - so two principals need two
+subject tokens; `examples/mint_subject_assertion.rs` mints one Google-issued ID token per principal
+from `SVC_SUTURUA_BQ_PRINCIPAL_A`/`_B`, writes each to a file, and the cell reads
+`SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE`/`_B_`. **The limit this closes with, not without:** the job
+that mints these assertions holds both principals' own keys by construction, so a green run proves
+the mechanics resolve per subject and nothing about an unprivileged caller - the fifth "would NOT
+establish" item below.
 
 **And the shipped exchange cannot answer a service account's own identifier at all.**
 `wire::StsOverHttp` posts one token-exchange request and returns what comes back, which for a
@@ -515,6 +535,14 @@ more than the row above staying `not built` while the sentence sat in prose.
    where it is answered.
 4. **That any deployment answered anybody.** This cell drives the composition directly; no served
    binary is involved, so `AGENTS.md`'s position is unchanged by any run of it.
+5. **That the subject assertions were not minted from the principals' own keys.** They are, by
+   construction (telekom/sutura#376): the two-workflow-step mint that produces them holds
+   `SVC_SUTURUA_BQ_PRINCIPAL_A`/`_B`, the same keys the withdrawn two-principal cell used, so
+   "nothing here holds a principal's key" is a property of this cell's own code path, not of the run
+   as a whole. A green run is citable only together with the step that produced its two assertions,
+   and proves the STS/`iamcredentials` mechanics resolve per subject - never that an unprivileged
+   caller who is not one of the two principals could obtain the same result, because no such caller
+   exists in this harness (PR #382's review finding 2a, still open).
 
 ### The half that is still nowhere
 

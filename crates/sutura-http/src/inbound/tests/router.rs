@@ -421,3 +421,78 @@ fn a_declared_inbound_identity_with_no_gate_attached_assembles_no_router() {
     );
     assert!(refused.to_string().contains("with_inbound_identity"), "{refused}");
 }
+
+/// Leg 1 stands in front of the AGENT surface too: a POST to `/mcp` with no bearer gets the same
+/// `401` challenge every forgery on the versioned surface gets, before the transport is reached.
+///
+/// The mount's own transport is never invoked by this test - the fake service below is a
+/// placeholder for `sutura_mcp::http::service`; what is under test is the LAYERING (`establish_asked`
+/// behind `inbound_layered`) that a composition root stacking the mount directly onto its router
+/// would have to re-derive. Asserting the challenge is byte-identical to the versioned API's is what
+/// keeps a caller able to tell "this route is unguarded" from "this route is guarded the same way".
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets() {
+    let issuer = an_issuer();
+    let settings = settings_with(&direct_overlay(&issuer, UNREAD));
+    let gate = super::gate_over(&crate::testing::declared_inbound(&settings), &issuer.key_set());
+    let service = crate::surface::LocalService::start(
+        &crate::testing::catalog_of(bundle()),
+        fake_warehouse(),
+        crate::testing::sink(),
+        broker(),
+        1 << 30,
+    )
+    .expect("the test bundle validates");
+    let mut state = crate::testing::state_over(std::sync::Arc::new(service), settings);
+    state = state.with_inbound_identity(std::sync::Arc::new(gate));
+    let mount = crate::state::AgentMount::new(tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+        let _request = request;
+        async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+    }));
+    state = state.with_agent_surface(mount);
+    let router = crate::router(&state).expect("a leg-one deployment with an agent mount assembles");
+
+    let mcp = no_bearer(&router, crate::constants::AGENT_MOUNT_PATH).await;
+    let query_path = format!("{}{}", crate::constants::API_V1_PREFIX, crate::constants::base_paths::QUERY);
+    let api = no_bearer(&router, &query_path).await;
+
+    assert_eq!(
+        mcp.0,
+        StatusCode::UNAUTHORIZED,
+        "the agent route refuses an unverified caller: {}",
+        mcp.1
+    );
+    assert_eq!(mcp.1["code"], "unauthorized", "{}", mcp.1);
+    let mcp_challenge = mcp.2.expect("the agent route's refusal carries a challenge");
+    let api_challenge = api.2.expect("the versioned route's refusal carries a challenge");
+    assert_eq!(
+        api.0,
+        StatusCode::UNAUTHORIZED,
+        "the versioned route refuses an unverified caller: {}",
+        api.1
+    );
+    assert_eq!(
+        mcp_challenge, api_challenge,
+        "the agent surface and the versioned surface refuse alike"
+    );
+}
+
+/// One no-bearer POST through the assembled router: the status, the JSON body and the challenge.
+#[cfg(feature = "agent")]
+async fn no_bearer(router: &axum::Router, path: &str) -> (StatusCode, serde_json::Value, Option<String>) {
+    use tower::ServiceExt as _;
+    let request = crate::testing::request("POST", path, None, axum::body::Body::empty());
+    let response = router.clone().oneshot(request).await.expect("the router answers");
+    let status = response.status();
+    let challenge = response
+        .headers()
+        .get(axum::http::header::WWW_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+        .map(String::from);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("the body reads");
+    let value: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, value, challenge)
+}

@@ -1,5 +1,5 @@
-//! The architecture-boundary gate. SEVEN halves - four about which way dependencies point, two
-//! about the driving port, and one about what the crossing looks like:
+//! The architecture-boundary gate. EIGHT halves - four about which way dependencies point, two
+//! about the driving port, and two about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -16,6 +16,11 @@
 //!   written by the port's implementor and by nothing else
 //! * a library's types and errors are a typed contract, not a struct with public fields
 //!   returning `Result<_, String>` (`api_shape`)
+//! * an ungoverned route is mounted only inside `crate::router::Ungoverned::mount`
+//!   (`ungoverned`, `xtask/src/boundaries/ungoverned.rs`) - the structural backstop of the
+//!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-serve` may call
+//!   `.nest`/`.nest_service`/`.route_service` (outside the governed `.nest(API_V1_PREFIX, …)`) is
+//!   the single mount function
 //!
 //! One gate rather than three, because they all answer "is the boundary real?", and because a
 //! rule in its own task has to be transcribed into the justfile, twice into devenv.nix, into
@@ -44,6 +49,7 @@ mod answer_path;
 mod api_shape;
 mod harness;
 mod ports;
+mod ungoverned;
 
 use std::collections::BTreeSet;
 
@@ -244,21 +250,31 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         edges: Edges::Every,
     },
     // The sibling catalog adapter, and the one `docs/adr/0016` names as the next candidate to mint
-    // an authored computation (`metricInfo.expression`). Same class, same reason, one line.
+    // an authored computation (`metricInfo.expression`). Same class, same reason as the entry
+    // above - but NOT the same closure claim: `sutura-catalog-datahub` is a dev-dependency of
+    // `sutura-app` only, and an OPTIONAL dependency of `sutura-serve` behind the default-off
+    // `datahub` feature (`cargo tree -p sutura-serve -e normal -i sutura-catalog-datahub` finds
+    // nothing until that feature is asked for), so it is not unconditionally in either shipped
+    // binary's default closure the way `sutura-catalog-local` is. The entry stands as the class
+    // rule the `sutura-catalog-rdbms` entry below argues explicitly: a catalog adapter loads
+    // metadata and renders nothing regardless of which dependency kind or feature gate links it.
     ForbiddenEdge {
         from: "sutura-catalog-datahub",
         forbidden: "sutura-sql",
-        why: "a catalog adapter loads metadata and renders nothing; the entry above says the rest",
+        why: "a catalog adapter loads metadata and renders nothing - the class rule the entry above \
+              states, which holds regardless of the optional or dev-only dependency kind that links \
+              this one",
         instead: "what the entry above says: a fragment is stored, and the executing adapter compiles it",
         edges: Edges::Every,
     },
-    // The rule above is about the class, not the two adapters that happened to exist when it was
-    // written. `sutura-catalog-rdbms` is a DEV-dependency of `sutura-app` only - `cargo tree -e
-    // normal -i sutura-catalog-rdbms` reaches nothing, so unlike the two entries above it is not in
-    // any shipped binary's default closure. The entry stands anyway, as the class rule rather than
-    // the closure argument: a catalog adapter loads metadata and renders nothing regardless of which
-    // dependency kind links it, and `Edges::Every` walks dev-dependencies for exactly that reason -
-    // a test-only compile of the generator inside a catalog adapter's own tree is still refused.
+    // The rule above is about the class, not the one adapter (`sutura-catalog-local`) that is
+    // unconditionally in both shipped binaries' default closure. `sutura-catalog-rdbms` is a
+    // DEV-dependency of `sutura-app` only - `cargo tree -e normal -i sutura-catalog-rdbms` reaches
+    // nothing, the same as `sutura-catalog-datahub` above - so it is not in any shipped binary's
+    // default closure either. The entry stands anyway, as the class rule rather than the closure
+    // argument: a catalog adapter loads metadata and renders nothing regardless of which dependency
+    // kind links it, and `Edges::Every` walks dev-dependencies for exactly that reason - a test-only
+    // compile of the generator inside a catalog adapter's own tree is still refused.
     ForbiddenEdge {
         from: "sutura-catalog-rdbms",
         forbidden: "sutura-sql",
@@ -422,7 +438,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let declared = declared_ports();
     let through = answer_through_the_port();
     let surface = typed_surface();
-    let halves = [direction, edges, packs, classes, declared, through, surface];
+    let mounts = ungoverned::check();
+    let halves = [direction, edges, packs, classes, declared, through, surface, mounts];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {

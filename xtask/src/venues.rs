@@ -114,10 +114,16 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
         return Verdict::Fail;
     };
-    let Ok(workflow) = std::fs::read_to_string(root.join(acceptance::WORKFLOW)) else {
-        eprintln!("xtask check-venues: {} is not readable", acceptance::WORKFLOW);
-        return Verdict::Fail;
-    };
+    let mut acceptance_problems = Vec::new();
+    let mut pairs = Vec::new();
+    for &(workflow, job) in acceptance::JOBS {
+        let Ok(text) = std::fs::read_to_string(root.join(workflow)) else {
+            eprintln!("xtask check-venues: {workflow} is not readable");
+            return Verdict::Fail;
+        };
+        pairs.push(format!("`{job}`"));
+        acceptance_problems.extend(acceptance::scan(workflow, job, &text));
+    }
 
     let tests = test_names(&root, &files);
     if tests.len() < 100 {
@@ -151,14 +157,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
 
     let mut problems = page_problems(&page, &tests, &invoked, &runs_tests);
-    problems.extend(acceptance::problems(&workflow));
+    problems.extend(acceptance_problems);
     let contract = environment::problems(&root);
     problems.extend(contract.problems);
 
     if problems.is_empty() {
         println!(
-            "xtask check-venues: ok - {PAGE} and the `{}` job, {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
-            acceptance::JOB,
+            "xtask check-venues: ok - {PAGE} and {} job(s), {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
+            pairs.join(", "),
             cited_tests(&page).len(),
             invoked.len(),
             runs_tests.len(),

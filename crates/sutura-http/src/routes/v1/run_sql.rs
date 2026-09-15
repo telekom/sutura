@@ -85,9 +85,15 @@ pub(crate) async fn run_sql(
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
     body: Result<Json<RunSqlBody>, JsonRejection>,
 ) -> Result<RunSqlOutcome, Failure> {
-    let Json(body) = body.map_err(|rejection| super::query::rejected(&rejection))?;
+    let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
+    // This 400 body is unpinned: no test in this file or in `harness/run_sql.rs` exercises the
+    // malformed-statement path, so nothing defends the claim that it is byte-identical to the old
+    // `cause.to_string()`. A test cannot be added for it causally today - `RawStatement`'s
+    // validation is unchanged by this diff, so a new named test over it would pass against base
+    // too and `just causality` refuses that as coverage rather than a regression test. Ends when
+    // this body's rendering next changes for an unrelated reason - that change owes the test.
     let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| Failure::NotAQuestion {
-        detail: cause.to_string(),
+        detail: crate::problem::Detail::of(&cause),
     })?;
 
     let admission_wait = state.metrics().admission_started();

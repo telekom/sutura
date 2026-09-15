@@ -195,8 +195,9 @@ pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
 /// **What this does NOT do, named because a later reader will look for it:** it does not refuse a
 /// request with no established caller. That is the correct single-player answer this surface has
 /// always given on a deployment with no declared inbound identity, not an error - see the module
-/// documentation. An agent surface mounted only where an inbound identity is declared is a different
-/// deployment shape, and is where an absent value becomes a refusal, in a later change.
+/// documentation. Where an absent value IS a refusal is the agent surface: a mount only happens
+/// behind a declared inbound identity, and the outer `require_verified_caller` layer installed
+/// there refuses an unverified caller before this ever runs.
 pub(crate) async fn establish_asked(mut request: Request, next: Next) -> Response {
     let (context, permitted) = request.extensions().get::<VerifiedCaller>().map_or_else(
         || (crate::principal::established(), Permitted::every_capability()),

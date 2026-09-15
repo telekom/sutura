@@ -453,7 +453,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let (mut problems, pages, read, scan) = tree_problems(&root, &files, &text_files);
     // Not over `text_files`: the remedies are in this binary, which the scope above excludes for
     // the reason it states. They are judged against the tree rather than scanned in it.
-    problems.extend(remedy_problems(&root));
+    let (remedied, live_remedies) = remedy_problems(&root);
+    problems.extend(remedied);
     // Also not over `text_files`, and for the same reason one layer out: what a program PRINTS is
     // in `.rs`. `files` and not `text_files` is the whole point of `github.com/telekom/sutura#243`.
     let (advice, cited) = advice::advice_problems(&root, &files);
@@ -486,7 +487,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // nobody checks, and `{read} of {offered}` is what makes a narrowed walk visible in a
         // green run rather than only in a red one.
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pinned name(s) over {} comment line(s), {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pinned name(s) over {} comment line(s), {live_remedies} of {} claim(s), {} count(s), {} derived host(s), {cited} printed citation(s), {confirmed} constant value(s) confirmed, {} absence statement(s) over {} file(s) and {} production line(s), {} of {} page(s) lexed, {} amendment heading(s)",
             text_files.len(),
             FORBIDDEN.len(),
             scan.names,

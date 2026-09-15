@@ -47,7 +47,15 @@ mod postgres;
 pub(crate) mod keycloak;
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
+// The agent-surface settings builder and the `Served::mcp` request, split out for the same
+// `max-lines` reason as the three siblings above; `#[cfg(feature = "agent")]` on the declaration so
+// a build without the feature parses none of it.
+#[cfg(feature = "agent")]
+#[path = "harness/agent.rs"]
+pub(crate) mod agent;
 
+#[cfg(feature = "agent")]
+pub(crate) use agent::{AGENT_LOOPBACK, settings_with_agent_surface};
 pub(crate) use keycloak::settings as keycloak_settings;
 pub(crate) use keycloak::subject_of as keycloak_subject_of;
 #[cfg(feature = "postgres")]
@@ -683,12 +691,24 @@ pub(crate) fn bound_address(line: &str) -> Option<String> {
 impl Served {
     /// A GET, with the deployment's token when one is given.
     pub(crate) fn get(&self, path: &str, token: Option<&str>) -> Reply {
-        self.send("GET", path, token, None)
+        self.send("GET", path, token, None, None)
     }
 
     /// A POST of a JSON question.
     pub(crate) fn post(&self, path: &str, token: Option<&str>, body: &str) -> Reply {
-        self.send("POST", path, token, Some(body))
+        self.send("POST", path, token, Some(body), None)
+    }
+
+    /// An MCP JSON-RPC POST to the agent surface, with the `Accept` header the streamable-HTTP transport requires. Reachable only when the `agent` feature is compiled in.
+    #[cfg(feature = "agent")]
+    pub(crate) fn mcp(&self, token: Option<&str>, body: &str) -> Reply {
+        self.send(
+            "POST",
+            sutura_http::constants::AGENT_MOUNT_PATH,
+            token,
+            Some(body),
+            Some("application/json, text/event-stream"),
+        )
     }
 
     /// One request over one connection.
@@ -703,7 +723,7 @@ impl Served {
     /// `Connection: close` is what makes reading to end-of-file the whole response, and the
     /// chunked assertion in [`parse`] is what stops that quietly mis-parsing if a handler ever
     /// answers without a length.
-    fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>) -> Reply {
+    fn send(&self, method: &str, path: &str, token: Option<&str>, body: Option<&str>, accept: Option<&str>) -> Reply {
         let mut stream = TcpStream::connect(&self.address).expect("the listener accepts a connection");
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
@@ -712,6 +732,9 @@ impl Served {
         write!(request, "{method} {path} HTTP/1.1\r\n").expect("writing to a String cannot fail");
         write!(request, "Host: {}\r\n", self.address).expect("writing to a String cannot fail");
         request.push_str("Connection: close\r\n");
+        if let Some(accept) = accept {
+            write!(request, "Accept: {accept}\r\n").expect("writing to a String cannot fail");
+        }
         if let Some(token) = token {
             write!(request, "Authorization: Bearer {token}\r\n").expect("writing to a String cannot fail");
         }

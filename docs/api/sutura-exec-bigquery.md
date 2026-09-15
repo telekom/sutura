@@ -2245,6 +2245,10 @@ Why no token came back.
 - `NotSigned` - The signature itself failed.
 
   `ring` reports this opaquely on purpose, so there is nothing to carry beyond the fact.
+- `NotAServiceAccount` - `Credential::mint_id_token` was asked of an `authorized_user` credential.
+
+  Trading a refresh token for an ID token is a different grant this crate does not build - only
+  `mint_id_token`'s CI-only caller reaches this, never `AccessTokens::bearer`.
 
 ##### Implements
 
@@ -2269,6 +2273,16 @@ pub const fn kind(&self) -> &'static str
 ```
 
 Which kind this is, for a banner or a test. A fixed word, never the file's own text.
+
+```rust
+pub fn mint_id_token(&self, target_audience: &str, now_unix_seconds: u64, within: CallDeadline) -> Result<Secret, TokenUnavailable>
+```
+
+Trades this service account's own key for a Google-issued OIDC ID token, for
+`examples/mint_subject_assertion.rs` to mint a subject assertion at job time -
+telekom/sutura#376. The one line `id_token` adds to this type's public surface; everything
+else lives in that submodule, which `clippy::multiple_inherent_impl` (denied
+workspace-wide) is why this stays one line here rather than a second `impl Credential`.
 
 ```rust
 pub const fn project(&self) -> Option<&String>

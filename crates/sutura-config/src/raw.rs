@@ -258,6 +258,23 @@ pub(crate) struct RawServer {
     pub(crate) tls_certificate: Option<String>,
     #[serde(default)]
     pub(crate) tls_key: Option<String>,
+    /// Whether the agent surface (the MCP streamable-HTTP transport) is mounted at all.
+    ///
+    /// Absent (or `false`) means the deployment serves no `/mcp` even in a build that compiled the
+    /// `agent` feature - the explicit-bool shape `tools:`, not `security.inbound`'s presence-only
+    /// one: a build with the feature linked must still default to not mounting, and only an
+    /// operator turning the key on (on a deployment that also declares `security.inbound`) makes a
+    /// caller reachable there.
+    #[serde(default)]
+    pub(crate) agent_surface: RawAgentSurface,
+}
+
+/// Whether the agent surface is mounted, with the safe default being off.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawAgentSurface {
+    #[serde(default)]
+    pub(crate) enabled: bool,
 }
 
 /// Every field carries `#[serde(default)]`, because the safe posture is the one that needs no

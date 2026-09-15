@@ -135,6 +135,8 @@ pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 #[cfg(feature = "tls")]
 pub use crate::server::serve_tls;
 pub use crate::server::{ServeFailed, serve};
+#[cfg(feature = "agent")]
+pub use crate::state::AgentMount;
 pub use crate::state::ServiceState;
 pub use crate::surface::{ErasedCause, LocalService, ServiceNotStarted, Surface, SurfaceFailure, cause_chain};
 #[cfg(feature = "tls")]

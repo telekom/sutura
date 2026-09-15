@@ -24,6 +24,18 @@ pub const OPENAPI_JSON_PATH: &str = "/openapi.json";
 /// Where the browser interface over that description is served.
 pub const SWAGGER_UI_PATH: &str = "/docs";
 
+/// Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.
+///
+/// **Only compiled when the `agent` feature is on**, and only mounted when the deployment set
+/// `server.agent_surface.enabled: true` AND declared `security.inbound` - the latter is a startup
+/// refusal (`AgentSurfaceWithoutInboundIdentity`), not a silent skip. `/mcp` is the streamable-HTTP
+/// transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
+/// tries by default. Not versioned under `API_V1_PREFIX`: MCP versions its own tool set by the
+/// protocol's `protocolVersion` negotiation, a different axis, and it is not a route this crate
+/// governs (one route offers many tools).
+#[cfg(feature = "agent")]
+pub const AGENT_MOUNT_PATH: &str = "/mcp";
+
 /// The mount point of each group inside a version.
 pub mod base_paths {
     /// What this catalog defines.

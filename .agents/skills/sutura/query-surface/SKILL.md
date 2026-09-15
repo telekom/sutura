@@ -120,15 +120,19 @@ is prose.
 
 ## Built and not wired - do not cite as an invariant
 
-Exists, is tested, has no caller from any binary. Three invariant rows once stated this as enforced;
+Exists, is tested, has no caller from any binary - a claim about the COMPILE step below, not
+about the authored-SQL hatch as a whole: its load half is wired and already has its own row in
+the invariants table. Three invariant rows once stated this section's mechanisms as enforced;
 they were **deleted rather than demoted**, which is the table's own rule applied to itself.
 
-- **The authored-SQL hatch** (`docs/adr/0004`): the LOAD is wired and the compile is not. A local
-  metric document writes `authored_sql:`, the fragment is admitted as text and pinned under the digest
-  as written, and `sutura_sql::expression::compile` still has no production caller - a catalog adapter
-  may not reach `sutura-sql` (`FORBIDDEN_EDGES`), so the fragment is stored, not checked. What holds:
+- **The authored-SQL hatch's compile** (`docs/adr/0004`): the LOAD is wired - a local metric
+  document writes `authored_sql:`, and the fragment is admitted as text and pinned under the digest
+  as written, exactly as `sutura-catalog-local`'s own tests exercise - but the compile is not.
+  `sutura_sql::expression::compile` still has no production caller - a catalog adapter may not reach
+  `sutura-sql` (`FORBIDDEN_EDGES`), so the fragment is stored, not checked. What holds, and IS an
+  invariant row (`invariants/SKILL.md`, "An authored-SQL metric loads and is refused at boot"):
   every shipped adapter takes `Warehouse::EXECUTES_AUTHORED_SQL = false` and `verify_and_validate`
-  refuses the bundle at boot, naming the metric (the invariants table has the row). **The gap that is
+  refuses the bundle at boot, naming the metric. **The gap that is
   not wiring:** no shipped binary could execute an authored expression - the engine generates no SQL,
   and the renderer-backed adapter is a dev-dependency - so the compile belongs to the first adapter
   that executes it. **The engine executing a leg does not narrow this**, and the reason is the same

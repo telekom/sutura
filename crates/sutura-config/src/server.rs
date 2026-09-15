@@ -366,6 +366,10 @@ pub struct ServerSettings {
     request_timeout: RequestTimeout,
     max_body: BodyLimit,
     tls: Option<TlsMaterial>,
+    /// Whether the agent surface is mounted. Off unless an operator wrote
+    /// `server.agent_surface.enabled: true`. A build with the `agent` feature linked still keeps
+    /// this off by default - the explicit-bool shape, not `security.inbound`'s presence-only one.
+    agent_surface_enabled: bool,
 }
 
 impl ServerSettings {
@@ -376,12 +380,19 @@ impl ServerSettings {
     /// that pair a bind address with an environment, a token and a TLS declaration - live in
     /// [`crate::Settings::parse`], because they need the other groups to decide.
     #[inline]
-    pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>) -> Self {
+    pub const fn new(
+        bind: BindAddress,
+        request_timeout: RequestTimeout,
+        max_body: BodyLimit,
+        tls: Option<TlsMaterial>,
+        agent_surface_enabled: bool,
+    ) -> Self {
         Self {
             bind,
             request_timeout,
             max_body,
             tls,
+            agent_surface_enabled,
         }
     }
 
@@ -404,6 +415,19 @@ impl ServerSettings {
     #[inline]
     pub const fn tls(&self) -> Option<&TlsMaterial> {
         self.tls.as_ref()
+    }
+
+    /// Whether the agent surface is mounted at `/mcp`. Off unless the deployment wrote
+    /// `server.agent_surface.enabled: true`.
+    ///
+    /// Read by the composition root, which decides whether to build and attach an `AgentMount` to
+    /// the service state; `sutura_http` then refuses to assemble when a mount is attached and no
+    /// `security.inbound` gateway is declared, and a build without the `agent` feature cannot
+    /// reference `sutura_mcp` at all. This crate cannot see a link, so this is the flag and the
+    /// refusal is the mechanism.
+    #[inline]
+    pub const fn agent_surface_enabled(&self) -> bool {
+        self.agent_surface_enabled
     }
 }
 

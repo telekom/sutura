@@ -25,8 +25,11 @@ config:
   sutura-google-test-infra:workload_pool_id: "sutura"
   sutura-google-test-infra:workload_provider_id: "oidc"
   # An OIDC issuer whose JWKS Google STS can fetch, minting the JWT subject tokens
-  # the caller presents. `accounts.google.com` means the JWTs are Google id_tokens
-  # (aud = the OAuth client id below); a self-hosted IdP names its own issuer.
+  # the caller presents. `accounts.google.com` means the JWTs are Google id_tokens; a
+  # self-hosted IdP names its own issuer.
   sutura-google-test-infra:workload_issuer_uri: "https://accounts.google.com"
-  # One or more audiences the subject JWTs' `aud` may carry. Placeholder.
-  sutura-google-test-infra:workload_allowed_audiences: '["your-oidc-client-id.apps.googleusercontent.com"]'
+  # Optional - defaults to the pool's own STS audience (project NUMBER, not id):
+  # //iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc
+  # Set this only to accept EXTRA audiences on top of that default; the default is appended
+  # automatically if a configured list omits it.
+  # sutura-google-test-infra:workload_allowed_audiences: '["//iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc"]'

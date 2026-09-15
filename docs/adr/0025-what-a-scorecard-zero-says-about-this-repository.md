@@ -480,13 +480,15 @@ The last row is the one that matters, because it is the shape this repository co
 
 **The earlier diagnosis was right in consequence and wrong in mechanism, and the correction is the
 part worth keeping.** It recorded that a buildless database "extracts the crate's own dependencies
-but not `alloc`/`std`". The sysroot is in fact extracted: **3016 sysroot files and 98903 functions
-from them are in the database**. Only **2497** of those functions carry a canonical path, and **no
-`alloc::`, `core::` or `std::` canonical path exists at all** - against 25257 of 148253 functions
-overall. The extractor says why, over those files: `semantic analyzer unavailable (failed to
-determine rust edition)`. So the standard library is not absent, it is **unresolved**, and a taint
-summary naming `alloc::fmt::format` still has nothing to bind to. Turning dependency-as-source
-extraction on does not reach it, because the failure is not about which files are read.
+but not `alloc`/`std`". The sysroot is in fact extracted: this run (2026-09-09, CodeQL CLI
+`2.27.0`, bundle `codeql-bundle-v2.27.0`) counted **3016 sysroot files and 98903 functions from
+them** in the database - a one-off figure nothing in this tree re-takes, so a later run may count
+differently. Only **2497** of those functions carry a canonical path, and **no `alloc::`, `core::`
+or `std::` canonical path exists at all** - against 25257 of 148253 functions overall. The
+extractor says why, over those files: `semantic analyzer unavailable (failed to determine rust
+edition)`. So the standard library is not absent, it is **unresolved**, and a taint summary naming
+`alloc::fmt::format` still has nothing to bind to. Turning dependency-as-source extraction on does
+not reach it, because the failure is not about which files are read.
 
 **A third instance of the same cause, found by accident and worth the warning.** A sink whose
 receiver sits behind `Arc` is not recognised as a sink at all - method resolution needs the same

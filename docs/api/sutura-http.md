@@ -290,6 +290,18 @@ expired.
 The bound address is read back from the socket rather than assumed, so a port of zero - a test
 asking the kernel to choose - is reported as the port it actually got.
 
+## `use AgentMount`
+
+The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
+`sutura-mcp` type a transport crate composes.
+
+Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
+value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
+`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
+two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+than the one the transport actually answers on.
+
 ## `use ServiceState`
 
 The request state.
@@ -635,6 +647,18 @@ Where the generated interface description is served, when it is served at all.
 ### `constant SWAGGER_UI_PATH`
 
 Where the browser interface over that description is served.
+
+### `constant AGENT_MOUNT_PATH`
+
+Where the agent surface (the MCP streamable-HTTP transport) is mounted, when it is mounted at all.
+
+**Only compiled when the `agent` feature is on**, and only mounted when the deployment set
+`server.agent_surface.enabled: true` AND declared `security.inbound` - the latter is a startup
+refusal (`AgentSurfaceWithoutInboundIdentity`), not a silent skip. `/mcp` is the streamable-HTTP
+transport's own conventional endpoint name, which is what an off-the-shelf MCP client already
+tries by default. Not versioned under `API_V1_PREFIX`: MCP versions its own tool set by the
+protocol's `protocolVersion` negotiation, a different axis, and it is not a route this crate
+governs (one route offers many tools).
 
 ### Module `base_paths`
 
@@ -2773,6 +2797,41 @@ is a description of the deployment. The detail is logged and the response says t
 nothing else. Every other variant's detail is either fixed text or a message about the caller's
 own request.
 
+### `struct Detail`
+
+```rust
+pub struct Detail
+```
+
+A sentence about the caller's own request, and never anything else.
+
+**The only two doors are `Detail::of` and the module-private `Detail::from_rejection`.**
+Both are this module's own reader of the value that ends up in `Failure::NotAQuestion` - the
+chain walk and the redaction live here and nowhere else, so a call site that wants a `detail`
+gets one of these two renderings or a type error, never a `format!` of its own.
+
+**The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
+gate - a private tuple field plus a module-private constructor (`E0603`/`E0624` from another
+module, confirmed by hand), nothing more. `Detail` is not on that gate's `SEALED` list; its
+mechanism targets a different violation (a sequence-shaped witness narrowed by `.take(n)`),
+which a scalar wrapper like this one does not fit anyway.
+
+#### Methods
+
+```rust
+pub fn of(error: &dyn core::error::Error) -> Self
+```
+
+Walks `error`'s `#[source]` chain onto one line, for a caller.
+
+`Display` on a `thiserror` enum prints the outermost message only, and for a malformed
+question the outer message is the field and the cause is what was wrong with it - so both
+halves are needed for the message to be actionable.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`
+
 ### `enum Failure`
 
 ```rust
@@ -2816,10 +2875,11 @@ come from the variant, so two handlers cannot answer the same situation with dif
   is the reason a caller with every scope this surface issues still cannot reach the route.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 
-  **The one `String` in this enum, two lines under the rule that warns about one**, so the
-  reason is here rather than left as an exception a reader has to reconstruct. `detail` is not
-  free-form: it is `describe()`'s walk of one
-  `sutura_domain::question::MalformedQuestion`'s cause chain, and that type's own note is
+  **No bare `String` to except any more.** `detail` is `Detail`, a witness type whose only
+  constructors - `Detail::of`'s chain walk and the module-private `Detail::from_rejection` -
+  perform the redaction themselves, so the carve-out this doc used to argue for a `String`
+  field is gone along with the field. `detail` is not free-form: it is `Detail::of`'s walk of
+  one `sutura_domain::question::MalformedQuestion`'s cause chain, and that type's own note is
   where the property this relies on is stated and asserted - no variant of it, and no link of
   any variant's chain, carries the caller's own value. So this holds a rendered sentence about
   which field was wrong, never the field's contents. A cause chain that started carrying them
@@ -2981,6 +3041,30 @@ Why the router could not be assembled.
   It reads the generated interface description, which is generated from the handlers' own
   `#[utoipa::path]` attributes - so it is checked against the routes the router actually mounts
   and not against a second list somebody kept in step.
+- `AgentSurfaceWithoutInboundIdentity` - The agent surface is mounted and the deployment declared no inbound identity to verify a caller with.
+
+  **The mechanism that makes "the agent surface is only served where a caller can be verified"
+  un-forgettable.** `sutura-mcp`'s streamable-HTTP transport is a network-reachable surface;
+  serving it on a deployment with no `security.inbound` block would expose every tool it offers
+  to whoever can route a packet, answered as the deployment. Leg 1's own assembly guard
+  (`InboundIdentityNotAttached`) covers the reverse direction - declared, no gate; this covers
+  mounted transport with no declaration at all. The composition root builds one `AgentMount`
+  from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
+  when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+- `UngovernedRouteNotAllowlisted` - A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
+
+  **The mechanism that makes an ungoverned route auditable rather than invisible.**
+  `crate::capability::governed()` names one `Capability` per route under the version prefix and
+  cannot describe `/mcp` - one route offers many tools, scoped per-tool inside
+  `AgentSurface::permitted` - so `every_route_governed`'s scan would never see it (the same way
+  `/health` and `/metrics` are invisible by construction). `assemble` produces every ungoverned
+  mount through an `Ungoverned` value - the type carries the path it was mounted at - and
+  `check_ungoverned` then refuses any RECORDED path that lacks a row in `ungoverned_routes`.
+  The limit of the mechanism is the type it is built on: it refuses a recorded path with no row,
+  and a mount that does not go through `Ungoverned` is refused by the
+  `check-boundaries`' `ungoverned` gate, which is what makes "no mount with no row"
+  structural rather than recorder's recall. It does not insist a table row be merged - `/mcp`
+  is allowed to be absent - which is stated next to `check_ungoverned`.
 
 #### Implements
 
@@ -3184,6 +3268,16 @@ pub const fn admission(&self) -> &Admission
 The bound on how many questions execute at once.
 
 ```rust
+pub const fn agent_surface(&self) -> Option<&AgentMount>
+```
+
+The mounted agent transport, if this build and deployment carry one.
+
+Read by `crate::router` to nest it behind the same `establish_asked`/`inbound_layered`
+layers the versioned surface runs behind, and to refuse assembly when it is present with no
+inbound identity attached. Nothing else may reach the transport.
+
+```rust
 pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions
 ```
 
@@ -3250,6 +3344,17 @@ pub fn surface(&self) -> Arc<dyn Surface>
 The service, for a handler that is about to move the call onto the blocking pool.
 
 ```rust
+pub fn with_agent_surface(self, mount: AgentMount) -> Self
+```
+
+The same state, with the agent surface's transport attached.
+
+Called by the composition root, under the `agent` feature, when the deployment set
+`server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
+state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
+surface must never be reachable where no caller can be verified.
+
+```rust
 pub fn with_inbound_identity(self, gate: Arc<crate::inbound::InboundGate>) -> Self
 ```
 
@@ -3262,6 +3367,43 @@ whose settings declare an inbound identity and which has not been through this i
 #### Implements
 
 `Clone`, `Debug`
+
+### `struct AgentMount`
+
+```rust
+pub struct AgentMount
+```
+
+The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
+`sutura-mcp` type a transport crate composes.
+
+Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
+value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
+`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
+two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+than the one the transport actually answers on.
+
+#### Methods
+
+```rust
+pub fn new<S>(service: S) -> Self
+```
+
+Wraps any service `nest_service` can mount, so `sutura-http` never names its concrete type.
+
+The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder lives in
+`sutura-http`, so it may name it) - `axum::Router::nest_service` panics on the root path and
+requires `T::Response: IntoResponse` rather than `Response<Body>`, and the
+`StreamableHttpService` a transport crate hands over yields `Response<BoxBody<…>>`, so the
+wrapper must not pin the response body. `crate::router` applies the leg 1 and `establish_asked`
+layers around this router with `Ungoverned::layered`/`Ungoverned::try_layered`, then
+`assemble` merges and records it in one call. Cloning the router shares one underlying
+transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
+
+#### Implements
+
+`Clone`
 
 ## Module `surface`
 

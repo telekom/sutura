@@ -92,6 +92,21 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 # feature is what an operator building `sutura` types.
 datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 
+# The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
+# `sutura serve`'s `/mcp`.
+#
+# **Default-off, and the reason is the ARTEFACT plus the identity posture rather than build time.**
+# No published binary should serve a second, independently routed tool surface by accident, and the
+# surface only makes sense behind leg 1 (`security.inbound`) - so this feature turns on
+# `sutura-mcp`'s `http` module (`sutura-mcp` itself is already an unconditional dependency, for
+# `sutura mcp`'s own stdio transport) and `sutura-http`'s `agent` feature that holds the mount point
+# and the assembly-time refusal. Arrived from `sutura-serve`'s manifest at the fold - there
+# `sutura-mcp` was optional and this feature also named `dep:sutura-mcp`; here it is already linked,
+# so only the two sub-features carry over. `nix/shipped.nix` gains no `probeFeatures` entry here -
+# `sse-stream`'s musl link is unattempted, deferred to a follow-up, the same deferral
+# `checks.shipped-features` already documents.
+agent = ["sutura-mcp/http", "sutura-http/agent"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }

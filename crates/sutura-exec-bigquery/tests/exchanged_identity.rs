@@ -53,14 +53,25 @@
 //! Both reasons were found by writing it, neither is a defect in it, and both are recorded here
 //! rather than in a commit message because the next person to reach for this file needs them first.
 //!
-//! **1. The environment does not carry a subject assertion per principal.** Issue #376 reasons that
-//! the claim needs only variables that already exist, and that is not so. A plain RFC 8693 exchange
+//! **1. The environment does not carry a subject assertion per principal - it is minted at job time
+//! instead, and that is still true after telekom/sutura#376's wiring.** A plain RFC 8693 exchange
 //! yields exactly ONE identity per subject token - the identity of whoever the token's `sub` is - so
-//! two principals need two subject tokens. One CI job holds one workload identity and can mint one
-//! `sub`. `SUTURA_BQ_PRINCIPAL_A_ASSERTION` and `SUTURA_BQ_PRINCIPAL_B_ASSERTION` are the two values
-//! this cell is pointed at, and they are not in the `bq-test` environment. It **fails** on their
-//! absence rather than skipping, for `tests/support/mod.rs`'s reason: a leg that reports green
-//! against nothing has told a reader the opposite of the truth.
+//! two principals need two subject tokens. `bq-test` never stores them: a workflow step mints both
+//! on a manual dispatch (`workflow_dispatch`), from the same per-principal service-account keys
+//! already held there, through `examples/mint_subject_assertion.rs`, and writes each to a file this
+//! cell reads via `SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE`/`_B_` - never through a step's `env:`
+//! mapping, which a runner would print before the step that produces the value runs. It **fails** on
+//! either file being absent or unreadable rather than skipping, for `tests/support/mod.rs`'s reason:
+//! a leg that reports green against nothing has told a reader the opposite of the truth.
+//!
+//! **This changes what "nothing here holds a principal's key" means, and the limit has to be stated
+//! next to it (PR #382's still-open review finding).** The job that mints these assertions is, by
+//! construction, the one holding both principals' own keys - the CI credential never touches them,
+//! but the assertions are not independent of them either. A green run under this design proves the
+//! STS/`iamcredentials` mechanics resolve per-subject; it does **not** prove an unprivileged caller
+//! who is not one of the two principals could obtain the same result, because no such caller exists
+//! in this harness. See the fifth item in `docs/where-identity-is-proven.md`'s "would NOT establish"
+//! list.
 //!
 //! **2. The shipped exchange has no service-account impersonation hop, so it cannot answer an
 //! account's email at all.** `wire::StsOverHttp` posts one token-exchange request and returns what
@@ -121,20 +132,21 @@
 //! just bigquery-exchanged-identity
 //! ```
 //!
-//! Its own task and its own nix app, for the reason the withdrawn `two_principals.rs`
-//! (telekom/sutura#123) had its own: it needs values
-//! the other legs do not, and one task demanding all of them would make the legs somebody CAN run
-//! unreachable. It is deliberately **not** wired into `.github/workflows/ci.yml` yet - the two
-//! assertion values do not exist, so wiring it would make `bigquery-acceptance` red on every push,
-//! which is the mistake telekom/sutura#287 is held in draft to avoid.
+//! Its own task and its own nix app, for the reason `two_principals.rs` (withdrawn,
+//! telekom/sutura#123) had its own: it needs values the other legs do not, and one task demanding
+//! all of them would make the legs somebody CAN run unreachable.
+//! `.github/workflows/bigquery-exchanged-identity.yml` invokes it on `workflow_dispatch` only, never
+//! on an ordinary push - wiring it into every push before the maintainer's `iamcredentials` binding
+//! lands would repeat the mistake telekom/sutura#287 was held in draft to avoid, since every real run
+//! would reach [`WhoAnswered::AFederatedPoolSubject`] rather than the account this cell asks for.
 //!
 //! | Variable | What it names |
 //! | --- | --- |
 //! | `SUTURA_BQ_WORKLOAD_AUDIENCE` | the workload-identity provider a subject's token is exchanged against |
 //! | `SUTURA_BQ_PRINCIPAL_A_EMAIL` | the account principal A's exchanged credential must resolve to |
 //! | `SUTURA_BQ_PRINCIPAL_B_EMAIL` | the same for principal B |
-//! | `SUTURA_BQ_PRINCIPAL_A_ASSERTION` | principal A's own subject token - **absent today, see above** |
-//! | `SUTURA_BQ_PRINCIPAL_B_ASSERTION` | the same for principal B - **absent today** |
+//! | `SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE` | a path to principal A's own subject token, minted at job time - never the token itself |
+//! | `SUTURA_BQ_PRINCIPAL_B_ASSERTION_FILE` | the same for principal B |
 //!
 //! plus whatever `tests/support/mod.rs` reads: the CI credential and the dataset, which are the
 //! deployment's own identity here and the subject of the control leg.
@@ -171,6 +183,33 @@ mod tests {
     /// Named because `Result<SessionUser, BigQueryError<WireError<C>>>` is over the `type_complexity`
     /// threshold this workspace tightened - the same reason `crate::tests::fakes::Case` is named.
     type IdentityRead<C> = Result<SessionUser, BigQueryError<WireError<C>>>;
+
+    /// One variable naming a FILE, whose content is the value - or a panic naming the variable,
+    /// never the path or the content.
+    ///
+    /// **Local to this leg rather than `tests/support/support.rs`, and that placement is the lint's
+    /// choice and not taste.** `dead_code` is `deny` in the workspace lint table and the shared
+    /// support module is compiled once per target - `acceptance.rs` and `cross_resource.rs` have no
+    /// use for a file-backed read, so a copy there would fail their build the same way an
+    /// accessor only one leg called would.
+    ///
+    /// **Why a file rather than [`named`], for this leg's two subject assertions:** they are minted
+    /// at job time (telekom/sutura#376, `examples/mint_subject_assertion.rs`) and written to a file
+    /// under `$RUNNER_TEMP` a workflow step controls - never through a step's `env:` mapping or a
+    /// `${{ }}` expression, which a runner prints before the step that would consume it runs.
+    /// `GOOGLE_APPLICATION_CREDENTIALS` already reaches this crate as a path for the same reason;
+    /// this is that convention's second use, not a new one.
+    ///
+    /// **Fails, exactly as `named` does, and for the same reason - never skips.** Reading fails
+    /// closed both ways: the variable absent, or the file it names unreadable, are one failure class
+    /// here, not two - a developer fixing the first would otherwise be told nothing about the
+    /// second.
+    fn named_file(key: &str, what: &str) -> String {
+        let path = named(key, what);
+        std::fs::read_to_string(&path).unwrap_or_else(|cause| {
+            panic!("{key} names a file at a path that could not be read as text ({cause}) - it names {what}")
+        })
+    }
 
     /// The scope the exchanged credential is minted for.
     ///
@@ -583,13 +622,16 @@ mod tests {
         );
         let expected_a = named("SUTURA_BQ_PRINCIPAL_A_EMAIL", "the account principal A must resolve to");
         let expected_b = named("SUTURA_BQ_PRINCIPAL_B_EMAIL", "the account principal B must resolve to");
-        let assertion_a = named(
-            "SUTURA_BQ_PRINCIPAL_A_ASSERTION",
-            "principal A's own subject token, which this leg exchanges and never holds a key for",
+        // Read from a FILE, not a value: both are minted at job time
+        // (`examples/mint_subject_assertion.rs`) into a path a workflow step controls, never through
+        // a step's `env:` mapping - see the header's note on what that would print.
+        let assertion_a = named_file(
+            "SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE",
+            "a path to principal A's own subject token, which this leg exchanges and never holds a key for",
         );
-        let assertion_b = named(
-            "SUTURA_BQ_PRINCIPAL_B_ASSERTION",
-            "principal B's own subject token, which this leg exchanges and never holds a key for",
+        let assertion_b = named_file(
+            "SUTURA_BQ_PRINCIPAL_B_ASSERTION_FILE",
+            "a path to principal B's own subject token, which this leg exchanges and never holds a key for",
         );
         // The configuration control, before anything is opened. No value is printed: the two are
         // compared and the message names the variables rather than what they hold.
