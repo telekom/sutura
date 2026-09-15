@@ -6,8 +6,8 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
-    boot_order, boundaries, bounded_wait, conformance, newtype_leaks, one_bound, orphan_modules, refusals, serde_parse,
-    shared_client, threshold_expect, worktree_state,
+    answer_path_cache, boot_order, boundaries, bounded_wait, conformance, newtype_leaks, one_bound, orphan_modules, refusals,
+    serde_parse, shared_client, threshold_expect, worktree_state,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -52,6 +52,27 @@ pub(crate) const TASKS: &[Task] = &[
             in_scope: Some("src/leaky.rs"),
         },
         run: newtype_leaks::run,
+    },
+    Task {
+        // Beside `check-newtype-leaks` for the same reason: it starts GREEN - the credential cache
+        // `docs/adr/0031` landed lives entirely inside `sutura_exec_bigquery`'s private `sts::cache`
+        // and never touches these two crates - and its whole job is to keep it that way. Deferred
+        // from `telekom/sutura#381`, owed by that record's own "what this leaves for later", and
+        // `telekom/sutura#706` is where the deferral is tracked.
+        //
+        // The falsifier is a named-field struct whose only field is a `HashMap` holding a `RowSet` -
+        // the shape a subject-keyed answer cache would take if one were added to either crate.
+        name: "check-answer-path-caches",
+        description: "no map or cache in sutura-app or sutura-domain holds a type read off the answer path",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[(
+                "crates/sutura-app/src/leaky_cache.rs",
+                "struct SubjectCache {\n    seen: std::collections::HashMap<u8, sutura_domain::warehouse::RowSet>,\n}\n",
+            )],
+            in_scope: Some("crates/sutura-app/src/leaky_cache.rs"),
+        },
+        run: answer_path_cache::run,
     },
     Task {
         // Beside `check-newtype-leaks` because it is the same shape of gate: a rule the code cannot

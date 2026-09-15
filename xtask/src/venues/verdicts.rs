@@ -299,6 +299,18 @@ fn contains_iso_date(body: &str) -> bool {
 /// asserts and nothing here proves. And for every venue, what is held is that the named task runs
 /// tests, never that it runs THIS venue's tests: repointing a row at another venue's test task
 /// still passes.
+///
+/// **A narrower anchor was measured against `justfile`'s own recipes and not built, because the
+/// tree's cheapest candidate refutes it.** The `BigQuery` recipes each carry a real `cargo nextest
+/// -E` filter, and one venue's own section names its standing test file, so binding a `Reached by`
+/// task to a POSITIVE `binary(<stem>)`/`test(<name>)` atom naming that file looks like the
+/// discriminator this gap is missing - until `bigquery-acceptance` is read against it:
+/// `just bigquery-acceptance`'s filter is `not binary(exchanged_identity) and not
+/// binary(cross_resource)`, a NEGATION that selects everything else in the package and never
+/// positively names its own `acceptance` binary at all. A rule requiring the positive atom would
+/// refuse that venue's own, true citation on today's clean tree - a check that reddens the tree it
+/// is meant to start green over is worse than the limit stated above, so this is left unbuilt
+/// rather than shipped wrong.
 pub(super) fn anchor_problems(
     listed: &[Venue],
     citable: &BTreeSet<&str>,

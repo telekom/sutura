@@ -98,6 +98,16 @@ can. So every venue below carries what it **cannot** answer, next to what it can
     verdict, and a `Reached by` pointed at some other venue's test task - and the third is the one
     review can see, because it names a task that visibly belongs to a different row.
 
+    **A narrower anchor - binding `Reached by` to a POSITIVE `binary(<stem>)`/`test(<name>)` atom
+    naming the venue's own standing test file - was measured against the `justfile` and not
+    built, because this tree's cheapest candidate refutes it.** `just bigquery-acceptance`'s own
+    `cargo nextest -E` filter is `not binary(exchanged_identity) and not binary(cross_resource)`
+    - a NEGATION that selects everything else in the package and never positively names its own
+    `acceptance` binary at all. A rule requiring the positive atom would refuse that venue's true
+    citation on today's clean tree, which is worse than the limit above: *that a `Reached by` task
+    is bound to running the workspace's tests, and not to running the venue the row names*, so a
+    `yes` in that column still rests on review, not on the gate.
+
     **Invocation reading has syntax limits too.** Workflow and action sources contribute their
     `run:` bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
     The indentation reader is not a YAML parser: a `run:`-shaped line inside a prose block scalar
