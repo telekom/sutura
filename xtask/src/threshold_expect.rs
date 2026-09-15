@@ -144,10 +144,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 ///
 /// Doc comments (`///`, `//!`) and `/* */` are comments, so a sentence that merely names the
 /// class is not a violation. Only a real attribute is: the check requires the literal
-/// `#[expect(` and one of the banned `clippy::<lint>` paths inside its argument list. String
-/// literals are left alone, which is fine because a string never carries the `clippy::<lint>`
-/// path shape an attribute would - and this gate's own tests build that shape from parts so
-/// this source cannot report itself.
+/// `#[expect(` and one of the banned `clippy::<lint>` paths inside its argument list. String,
+/// char and raw-string literals are copied verbatim by the blanker rather than scanned for
+/// `//`/`/*` (#702) - so a URL or path inside one can no longer swallow a real `#[expect(`
+/// later on the same line - and this gate's own tests build the banned shape from parts so this
+/// source cannot report itself.
 fn scan(code: &str, out: &mut Vec<Violation>) {
     let blanked = rust_source::blank_comments(code);
     for (at, _) in blanked.match_indices("#[expect(") {
@@ -180,10 +181,16 @@ fn body_matches(body: &str, lint: &str) -> bool {
 
 /// Fn-local needle collisions that are reviewed exemptions rather than fixes, keyed by the
 /// colliding (shorter) needle's text. The liveness pass over the tree on 2026-09-08 enumerated
-/// today's real fn-local collisions; the two truly redundant pairs were fixed at the source and
+/// that day's real fn-local collisions; the two truly redundant pairs were fixed at the source and
 /// the rest are each recorded here with the reason the collision is not a count inflation, so
 /// the rule is honest over the tree rather than failing blinkered. A needle's text is how it is
 /// keyed, so an entry exempts that needle wherever it appears.
+///
+/// #702 fixed a masking bug in the comment blanker this rule's own scan runs on top of (a `//`
+/// inside a string literal), which had been hiding part of the tree from this rule too, not only
+/// from the threshold-lint one. Fixing it surfaced five collisions this rule had never actually
+/// scanned before: one (`production_warehouse`, in `crates/sutura-serve/src/tests.rs`) was a
+/// genuine redundant clause and was dropped at the source; the other four are recorded below.
 const ALLOWED: &[&str] = &[
     // Different variables, opposite verdicts: `with` must contain the full sentence while
     // `without` must NOT contain the bare operation name. Not the same event counted twice.
@@ -225,6 +232,18 @@ const ALLOWED: &[&str] = &[
     // Two spellings of one recipe name must not be confused: the name is `dev-endpoint`, never
     // the `@dev-endpoint` form; presence of one implies absence of the other.
     "dev-endpoint",
+    // One call filters lines OUT of the test's crafted input, the other asserts on the resulting
+    // refusal message; a data-prep check and an assertion, not one fact counted twice.
+    "trusted-public-keys",
+    // Opposite verdicts over different scratch-tree states in one multi-phase test: absent when
+    // an unnarrowed block covers the file, present once nothing names it at all.
+    "does not name it",
+    // Same multi-phase test: one phase asserts the unnarrowed-file problem and its remedy text,
+    // a later phase (after the fix is applied) asserts no problem names the path any more.
+    "vendor/upstream.rs",
+    // `inputs` is a `BTreeSet<String>`, so `.contains("path")` is exact set membership, not a
+    // substring check - it only shares text with the refusal message's `with: path:` needle.
+    "path",
 ];
 
 /// One fn-local needle collision, located for the report.
@@ -270,15 +289,15 @@ fn needle_lints(code: &str) -> Vec<NeedleViolation> {
         match bytes.get(i) {
             // Skip whole literals so their braces and any `.contains(` inside are not code.
             Some(b'"') => {
-                i = skip_string(bytes, i);
+                i = rust_source::skip_string(bytes, i);
                 continue;
             }
             Some(b'\'') => {
-                i = skip_tick(bytes, i);
+                i = rust_source::skip_tick(bytes, i);
                 continue;
             }
             Some(b'r') if matches!(bytes.get(i + 1).copied(), Some(b'#' | b'"')) => {
-                i = skip_raw(bytes, i);
+                i = rust_source::skip_raw(bytes, i);
                 continue;
             }
             Some(b'{') => {
@@ -342,82 +361,6 @@ fn needle_lints(code: &str) -> Vec<NeedleViolation> {
     }
 
     collisions(&needles)
-}
-
-/// Advance past a `"..."` string, `\` escapes respected. Returns the index past the closing `"`.
-fn skip_string(bytes: &[u8], at: usize) -> usize {
-    let mut j = at + 1;
-    while j < bytes.len() {
-        match bytes.get(j).copied() {
-            Some(b'\\') => j = (j + 2).min(bytes.len()),
-            Some(b'"') => return j + 1,
-            _ => j += 1,
-        }
-    }
-    bytes.len()
-}
-
-/// Advance past a `r##"..."##` raw string starting at the `r`. Returns the index past its close.
-fn skip_raw(bytes: &[u8], at: usize) -> usize {
-    let mut j = at + 1;
-    let mut hashes = 0usize;
-    while bytes.get(j).copied() == Some(b'#') {
-        hashes += 1;
-        j += 1;
-    }
-    if bytes.get(j).copied() != Some(b'"') {
-        // A raw IDENTIFIER like `r#type` - not a raw string; let it scan as ordinary code.
-        return at + 1;
-    }
-    j += 1;
-    while j < bytes.len() {
-        if bytes.get(j).copied() == Some(b'"')
-            && bytes
-                .get(j + 1..)
-                .is_some_and(|tail| tail.iter().take(hashes).all(|&b| b == b'#'))
-        {
-            return j + 1 + hashes;
-        }
-        j += 1;
-    }
-    bytes.len()
-}
-
-/// Advance past a `'` that opens a char literal (whose escape `\u{..}` holds a brace that must
-/// not count) or a lifetime (which holds nothing special and just hands the ident back).
-fn skip_tick(bytes: &[u8], at: usize) -> usize {
-    match bytes.get(at + 1).copied() {
-        // `'\n'`, `'\u{7b}'`: find the closing quote with `\\` respected.
-        Some(b'\\') => {
-            let mut j = at + 2;
-            while j < bytes.len() {
-                match bytes.get(j).copied() {
-                    Some(b'\\') => j = (j + 2).min(bytes.len()),
-                    Some(b'\'') => return j + 1,
-                    _ => j += 1,
-                }
-            }
-            bytes.len()
-        }
-        // `' '`, `'!'`, `''`: a non-ident char literal, closed on the next `'`.
-        Some(c) if !is_ident(c) => {
-            let mut j = at + 2;
-            while j < bytes.len() && bytes.get(j).copied() != Some(b'\'') {
-                j += 1;
-            }
-            (j + 1).min(bytes.len())
-        }
-        // An ident after the quote: a char `'x'` (closed next byte) or a lifetime `'static`
-        // (just the quote - the ident scans as ordinary code).
-        Some(_) => {
-            if bytes.get(at + 2).copied() == Some(b'\'') {
-                at + 3
-            } else {
-                at + 1
-            }
-        }
-        None => bytes.len(),
-    }
 }
 
 /// Is `fn` at `i` a keyword, not the suffix of an identifier?
@@ -574,6 +517,14 @@ mod tests {
     fn a_commented_out_attribute_on_a_later_line_is_not_caught() {
         let code = format!("fn f() {{}}\n// {}\n", expect(FORBIDDEN[2]));
         assert!(lints(&code).is_empty(), "a commented-out attribute is not a live lint");
+    }
+
+    #[test]
+    fn a_slash_in_a_string_does_not_hide_a_real_expect_on_the_same_line() {
+        // #702: a `//` inside a string literal is not a comment starting, so the real
+        // attribute that follows it on the same physical line must still be caught.
+        let code = format!("let s = \"http://x\"; {}\n", expect(FORBIDDEN[0]));
+        assert_eq!(lints(&code), vec![(FORBIDDEN[0], 1)]);
     }
 
     #[test]
