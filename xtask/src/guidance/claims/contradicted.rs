@@ -10,7 +10,7 @@
 //! that adds no `#[test]` is one the causality gate may revert, and reverting this one would take
 //! the parent's `mod contradicted;` with it.
 
-use super::{Contradicted, Evidence};
+use super::{Contradicted, Evidence, Withdrawn};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
@@ -215,15 +215,6 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
-    // The "a buildless CodeQL database leaves out `alloc`/`std`" row that used to be here (#603)
-    // is deleted rather than re-anchored: its evidence keyed on `"3016 sysroot files"`, a number
-    // with no live counterpart in the tree to derive it from - that measurement came from one
-    // external CodeQL run and nothing here recomputes it, unlike `counts.rs`'s `Counted` rows,
-    // which all read a literal out of code that still exists. `Evidence::stands` can only ever
-    // prove that string PRESENT in `docs/adr/0025...md`, never that it is still the true count,
-    // and no mechanism can close that gap for a fact with no compiler-visible source. `xtask/tests
-    // /dprint_config.rs`'s note about this being the one gate-matched needle in an ADR moved with
-    // it.
     Contradicted {
         name: "the prompt renders only what the catalog endpoint renders",
         wordings: &["renders exactly what `GET /v1/catalog` renders and not one field more"],
@@ -697,3 +688,20 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
     },
 ];
+
+/// `CONTRADICTED` rows a later commit deleted rather than re-anchored, kept only for their
+/// `wordings` ratchet. See [`super::Withdrawn`] for what that means and does not mean.
+pub(in crate::guidance) const WITHDRAWN: &[Withdrawn] = &[Withdrawn {
+    // #606 added this row, keyed on the connector rather than the words: ADR 0025 keeps the
+    // superseded sentence, in italics and marked wrong, quoting it a second time to correct
+    // it - so a rule on the bare sentence would refuse the record for quoting what it
+    // corrects. `because` is the assertion; the ADR's own quote at `:409-410` drops it, which
+    // is why this wording does not fire there. #770 deleted the row itself rather than
+    // re-anchor `Evidence` on "3016 sysroot files": that count came from one external CodeQL
+    // run with no live counterpart in this tree to recompute it from - unlike `counts.rs`'s
+    // `Counted` rows, which all read a literal out of code that still exists.
+    name: "a buildless CodeQL database leaves out `alloc`/`std`",
+    issue: "#603, #770",
+    wordings: &["because a buildless database extracts the crate's own dependencies but not"],
+    except: &[],
+}];

@@ -44,7 +44,7 @@ mod contradicted;
 mod counts;
 mod remedies;
 
-pub(super) use contradicted::CONTRADICTED;
+pub(super) use contradicted::{CONTRADICTED, WITHDRAWN};
 pub(super) use counts::{COUNTS, count_mismatches};
 pub(super) use remedies::remedy_problems;
 
@@ -123,6 +123,39 @@ impl Contradicted {
     fn is_live(&self, root: &Path) -> bool {
         self.evidence.iter().all(|e| e.stands(root))
     }
+}
+
+/// A `CONTRADICTED` claim whose SUBJECT was deleted rather than re-anchored, kept for the one
+/// thing deletion loses.
+///
+/// `github.com/telekom/sutura#772`: a `Contradicted` row does two jobs - it asserts its evidence
+/// still `stands`, and it carries the `wordings` ratchet that refuses the claim's re-paraphrase.
+/// Deleting the row, with only a tombstone COMMENT in its place, kept the first job honest and
+/// silently dropped the second - nothing re-enforced the retired wording, and no gate noticed
+/// the comment's absence either.
+///
+/// **Deliberately a different name from `Contradicted::is_live`'s "retires".** That word already
+/// means the EVIDENCE went away and the row stopped enforcing - the row is still there, waiting
+/// for evidence to return. This is the opposite: there never was a live counterpart to derive
+/// evidence from (a number from one external run, see #772's own instance below), so there is
+/// nothing to wait for and the row enforces unconditionally, forever, with no evidence field to
+/// go stale in the first place.
+///
+/// **What this does NOT hold.** `stands`-style evidence, `instead`'s corrected sentence and
+/// `only`'s scoping have no counterpart here: a `Contradicted` row is deleted for exactly one
+/// reason - it stopped being re-derivable from the tree - and inventing evidence for it would be
+/// the mechanism this type exists to avoid needing. What is true instead is a question for
+/// whoever raises the issue named below, not a sentence this table asserts.
+pub(super) struct Withdrawn {
+    /// Human name, matching the deleted row's.
+    name: &'static str,
+    /// The issue that withdrew the claim, for the message.
+    issue: &'static str,
+    /// Every wording of the withdrawn claim, whitespace-collapsed - the same matching
+    /// [`Contradicted::wordings`] uses.
+    wordings: &'static [&'static str],
+    /// Paths exempt - a record quoting the withdrawn sentence in order to correct it.
+    except: &'static [&'static str],
 }
 
 /// A file's text with every run of whitespace collapsed to one space, plus the line each byte
@@ -209,13 +242,36 @@ pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> 
             }
         }
     }
+    // #772's ratchet: no `is_live` gate, because a withdrawn claim has no evidence to go stale -
+    // it enforces unconditionally, which is the whole reason it outlives the row `Contradicted`
+    // deletion used to leave to a comment nothing here read.
+    for rule in WITHDRAWN {
+        for rel in files {
+            if crate::repo::matches_any(rule.except, rel) {
+                continue;
+            }
+            let Some(text) = crate::repo::read_subject(root, rel, &mut problems) else {
+                continue;
+            };
+            for wording in rule.wordings {
+                for line in wording_lines(&text, wording) {
+                    problems.push(format!(
+                        "{rel}:{line}: \"{wording}\" - {} was withdrawn ({}); its own evidence \
+                         had no live counterpart to re-derive, which is why the row was deleted \
+                         rather than re-anchored - reintroducing the wording is the regression",
+                        rule.name, rule.issue
+                    ));
+                }
+            }
+        }
+    }
     problems
 }
 
 #[cfg(test)]
 mod tests {
     use super::remedies::{path_shaped, remedies_hold, remedy_scan_broke};
-    use super::{CONTRADICTED, COUNTS, Contradicted, Evidence, remedy_problems};
+    use super::{CONTRADICTED, COUNTS, Contradicted, Evidence, contradicted_claims, remedy_problems};
 
     /// The entry as it stood before `github.com/telekom/sutura#241`, reduced to the two fields
     /// that made it wrong: evidence that the surface SHIPS, and a remedy saying it does not.
@@ -325,6 +381,28 @@ mod tests {
         let (_, live_after) = remedy_problems(tree.root());
         assert_eq!(live_after, 0, "the retired row must stop counting as live");
         assert_eq!(CONTRADICTED.len(), total, "the declared row count never reads the tree");
+    }
+
+    #[test]
+    fn a_withdrawn_wording_is_refused_with_no_evidence_to_go_stale() {
+        // #772. A `Contradicted` row this scratch tree plants no evidence for goes quiet - see
+        // `a_retired_evidence_drops_the_live_remedy_count_by_one` above. The `#603`/`#770` row is
+        // `Withdrawn` instead, so an empty tree with no evidence file anywhere must still refuse
+        // the wording the deleted row used to hold.
+        let tree = crate::scratch_tree::Tree::of(
+            "withdrawn-ratchet",
+            &[(
+                "docs/example.md",
+                b"the cause: because a buildless database extracts the crate's own dependencies \
+                  but not the standard library, which is fixed now\n",
+            )],
+        );
+        let files = vec![String::from("docs/example.md")];
+        let found = contradicted_claims(tree.root(), &files);
+        assert!(
+            found.iter().any(|problem| problem.contains("was withdrawn")),
+            "a withdrawn wording must be refused with no evidence anywhere in the tree: {found:?}"
+        );
     }
 
     #[test]
