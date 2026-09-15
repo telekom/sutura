@@ -53,6 +53,10 @@ mod tests {
             String::from(DEPLOYMENT_PROPERTY),
             token(),
             bounds(timeout_seconds, cap),
+            // No declared `security.outbound` in the plaintext-loopback cases of this file - the
+            // fake answers over `http://`, and the anchors arm of the constructor is exercised by
+            // this file's own `tests::tls_anchors` cells.
+            None,
         )
     }
 
@@ -371,5 +375,261 @@ mod tests {
         let malicious = String::from("http://[::1]:1@127.0.0.1:9002");
         let error = Endpoint::parse(&malicious).expect_err("a userinfo prefix is refused before any host is dialled");
         assert_eq!(error, InvalidEndpoint::CredentialsInUrl { given: malicious });
+    }
+
+    /// `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) over a REAL TLS
+    /// handshake - "ports get fakes, not mocked HTTP". The `FakeServer` above serves plaintext
+    /// loopback, which cannot exercise the anchors fold / verification at all; these three cells
+    /// dial a real `rustls` loopback server through the reader's OWN `ureq` agent built from a
+    /// declared bundle, and assert the SHAPE of a real handshake outcome (read completes, or is
+    /// refused). The leaf is a self-signed IP-SAN cert so server-name verification works against the
+    /// IP literal this file dials - see `tls_anchors::issue`.
+    ///
+    /// **RED/GREEN.** `a_declared_bundle_is_trusted_and_the_read_completes` goes red if the
+    /// constructor drops its `.tls_config(..)` (the compiled-in roots refuse the self-signed peer);
+    /// `a_declared_bundle_still_refuses_an_issuer_it_does_not_name` goes red if the fold trusts a
+    /// foreign CA instead of the declared one; `absent_anchors_are_the_compiled_in_default_and_refuse_a_self_signed_peer`
+    /// goes red if an absent declaration is treated as "trust the leaf".
+    mod tls_anchors {
+        use std::io::{Read as _, Write as _};
+        use std::net::{SocketAddr, TcpListener, TcpStream};
+        use std::path::PathBuf;
+        use std::sync::Arc;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        use sutura_tls::Anchors;
+
+        use super::{DEPLOYMENT_PROPERTY, GENEROUS_CAP, bounds, http_cause, token};
+        use sutura_catalog_datahub::AspectReader as _;
+        use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError};
+        use sutura_catalog_datahub::test_support::{Scripted, happy_path_answers};
+
+        /// A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`),
+        /// freshly generated per call. `security.outbound` verification is by dial, so the SAN
+        /// must match the dialed address - a DNS-name-only cert would not verify against
+        /// `https://127.0.0.1:<port>`.
+        struct Issued {
+            certificate: rcgen::Certificate,
+            key: rcgen::KeyPair,
+        }
+
+        fn issue() -> Issued {
+            // `CertificateParams::new` reads a string SAN as an IP when it parses as one, so
+            // "127.0.0.1" becomes `SanType::IpAddress` - the SAN rustls checks an IP dial against.
+            let params =
+                rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP subject alternative name parameterizes");
+            let key = rcgen::KeyPair::generate().expect("a key pair generates");
+            let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
+            Issued { certificate, key }
+        }
+
+        fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
+            let chain: Vec<CertificateDer<'static>> = vec![issued.certificate.der().clone()];
+            let key = PrivateKeyDer::try_from(issued.key.serialize_der()).expect("a generated key is a usable private key");
+            let provider = Arc::new(rustls::crypto::ring::default_provider());
+            Arc::new(
+                rustls::ServerConfig::builder_with_provider(provider)
+                    .with_safe_default_protocol_versions()
+                    .expect("the default protocol versions are safe")
+                    .with_no_client_auth()
+                    .with_single_cert(chain, key)
+                    .expect("a freshly generated chain and its own key are a usable pair"),
+            )
+        }
+
+        /// A scratch directory this test owns, removed when it ends - the same fixture shape the
+        /// workspace's other outbound-TLS suites use.
+        struct Scratch(PathBuf);
+
+        impl Scratch {
+            fn new(name: &str) -> Self {
+                let path = std::env::temp_dir().join(format!("sutura-datahub-tls-{name}-{}", std::process::id()));
+                std::fs::create_dir_all(&path).expect("a scratch directory is creatable");
+                Self(path)
+            }
+
+            /// Writes a declared PEM bundle of exactly one certificate and returns its path - what
+            /// a composition root would read via `sutura_tls::load_anchors(&Anchors::Bundle(path))`.
+            fn bundle(&self, name: &str, certificate: &rcgen::Certificate) -> PathBuf {
+                let path = self.0.join(format!("{name}.pem"));
+                std::fs::write(&path, certificate.pem()).expect("a bundle writes");
+                path
+            }
+        }
+
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ignored = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        /// A loopback TLS server presenting one leaf and answering the scripted pages `read()`
+        /// makes - the SAME happy-path corpus [`super::super::test_support::FakeServer`] serves,
+        /// over TLS, so these cells prove the same read every other test certifies completes under
+        /// a declared bundle.
+        ///
+        /// Bounded by the answer count AND a deadline: a refused-handshake cell (the client never
+        /// sends a request and never reconnects after the refusal) must not hang the serve thread.
+        struct TlsFakeServer {
+            addr: SocketAddr,
+            handle: Option<thread::JoinHandle<()>>,
+        }
+
+        impl TlsFakeServer {
+            fn start(issued: &Issued, answers: Vec<Scripted>) -> Self {
+                let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+                let addr = listener.local_addr().expect("a bound listener has a local address");
+                let config = server_config(issued);
+                let handle = thread::spawn(move || serve_until(&listener, &config, &answers));
+                Self {
+                    addr,
+                    handle: Some(handle),
+                }
+            }
+
+            fn endpoint(&self) -> String {
+                format!("https://{}", self.addr)
+            }
+        }
+
+        impl Drop for TlsFakeServer {
+            fn drop(&mut self) {
+                let _ignored = self.handle.take();
+            }
+        }
+
+        fn serve_until(listener: &TcpListener, config: &Arc<rustls::ServerConfig>, answers: &[Scripted]) {
+            let _ignored = listener.set_nonblocking(true);
+            let deadline = Instant::now() + Duration::from_secs(15);
+            let mut next = 0;
+            while next < answers.len() && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        // On Darwin, an accepted socket inherits the LISTENER's non-blocking flag -
+                        // undone here so the read/write calls below block normally rather than
+                        // racing a `WouldBlock` mid-handshake or mid-response.
+                        let _ignored = stream.set_nonblocking(false);
+                        serve_connection(stream, config, &answers[next]);
+                        next += 1;
+                    }
+                    Err(cause) if cause.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        fn serve_connection(stream: TcpStream, config: &Arc<rustls::ServerConfig>, answer: &Scripted) {
+            let mut tcp: TcpStream = stream;
+            let mut connection = rustls::ServerConnection::new(Arc::clone(config)).expect("a server connection builds");
+            {
+                let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
+                let mut request = [0_u8; 2048];
+                // Reading first drives the handshake to completion and consumes the client's request; a
+                // client that refused the handshake (an untrusted issuer) errors here, which is exactly
+                // what the negative cells below provoke - discarded rather than panicked on.
+                let _ignored = tls.read(&mut request);
+                let head = format!(
+                    "HTTP/1.1 {} OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    answer.status_code(),
+                    answer.body().len()
+                );
+                let _ignored = tls.write_all(head.as_bytes());
+                let _ignored = tls.write_all(answer.body());
+            }
+            // A graceful `close_notify` before the socket drops - without it, a client whose read
+            // completes the whole body still sees an `UnexpectedEof` from rustls's own truncation
+            // guard (RFC 8446 6.1) rather than a clean end of stream.
+            connection.send_close_notify();
+            let _ignored = connection.complete_io(&mut tcp);
+        }
+
+        fn declared(scratch: &Scratch, name: &str, issued: &Issued) -> sutura_tls::LoadedAnchors {
+            let bundle = scratch.bundle(name, &issued.certificate);
+            sutura_tls::load_anchors(&Anchors::Bundle(bundle)).expect("the freshly written bundle loads")
+        }
+
+        fn reader(endpoint: &str, anchors: Option<sutura_tls::LoadedAnchors>) -> HttpAspectReader {
+            HttpAspectReader::new(
+                Endpoint::parse(endpoint).expect("an https loopback endpoint is usable"),
+                String::from(DEPLOYMENT_PROPERTY),
+                token(),
+                bounds(10, GENEROUS_CAP),
+                anchors,
+            )
+        }
+
+        #[test]
+        fn a_declared_bundle_is_trusted_and_the_read_completes() {
+            let scratch = Scratch::new("trusted");
+            let issued = issue();
+            let server = TlsFakeServer::start(&issued, happy_path_answers());
+            let instance = reader(&server.endpoint(), Some(declared(&scratch, "root", &issued)));
+            instance
+                .read()
+                .expect("a peer signed by the declared bundle is trusted and its pages read");
+        }
+
+        #[test]
+        fn a_declared_bundle_still_refuses_an_issuer_it_does_not_name() {
+            let scratch = Scratch::new("foreign-issuer");
+            let presented = issue();
+            let declared_ca = issue();
+            // The full happy-path corpus, not an empty body: an empty response fails to decode as
+            // JSON regardless of whether the handshake was trusted, so it cannot tell "refused at
+            // the handshake" apart from "trusted, then failed to parse" - a verification bug that
+            // let the wrong issuer through would go unnoticed. Real pages make the read SUCCEED if
+            // the handshake wrongly trusts this peer, so only a genuine refusal turns this red.
+            let server = TlsFakeServer::start(&presented, happy_path_answers());
+            let instance = reader(&server.endpoint(), Some(declared(&scratch, "declared-root", &declared_ca)));
+            let error = instance
+                .read()
+                .expect_err("a chain signed by an issuer the declared bundle does not name is refused");
+            // A bare `expect_err` would also pass on a malformed body read over a TRUSTED
+            // connection (a JSON-decode error is still an `Err`), which proves nothing about
+            // TRUST. Assert the refusal is the handshake's own `Unreachable { cause: Io(..) }`
+            // shape and that the io error names the certificate, the way `sutura-exec-bigquery`'s
+            // `wire/tests/tls.rs` cells hold their own trust refusals.
+            let cause = http_cause(&error);
+            let HttpReaderError::Unreachable { cause: io_cause, .. } = cause else {
+                panic!("a TLS trust refusal reaches this reader as Unreachable, got: {cause}");
+            };
+            assert!(
+                matches!(io_cause.as_ref(), ureq::Error::Io(_)),
+                "a trust refusal is the handshake's own io-layer error, not a decode error: {io_cause}"
+            );
+            assert!(
+                io_cause.to_string().contains("certificate"),
+                "the io error must name the certificate refusal, got: {io_cause}"
+            );
+        }
+
+        #[test]
+        fn absent_anchors_are_the_compiled_in_default_and_refuse_a_self_signed_peer() {
+            let issued = issue();
+            // See the sibling cell above for why this is the full corpus rather than an empty body.
+            let server = TlsFakeServer::start(&issued, happy_path_answers());
+            let instance = reader(&server.endpoint(), None);
+            let error = instance
+                .read()
+                .expect_err("the compiled-in roots refuse a self-signed loopback peer");
+            // Same variant assertion as the sibling cell above: only a trust refusal, never a
+            // decode error, may satisfy this cell.
+            let cause = http_cause(&error);
+            let HttpReaderError::Unreachable { cause: io_cause, .. } = cause else {
+                panic!("a TLS trust refusal reaches this reader as Unreachable, got: {cause}");
+            };
+            assert!(
+                matches!(io_cause.as_ref(), ureq::Error::Io(_)),
+                "a trust refusal is the handshake's own io-layer error, not a decode error: {io_cause}"
+            );
+            assert!(
+                io_cause.to_string().contains("certificate"),
+                "the io error must name the certificate refusal, got: {io_cause}"
+            );
+        }
     }
 }

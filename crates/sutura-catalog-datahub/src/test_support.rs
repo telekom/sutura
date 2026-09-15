@@ -73,6 +73,21 @@ impl Scripted {
         }
     }
 
+    /// The status this scripted answer is served with - public so a TLS loopback variant of the
+    /// fake (`tests/http_reader.rs::tls_anchors`, a served-binary boot-line cell) can serve the SAME
+    /// answers this server does, instead of a second worth of page-building. Named `status_code`
+    /// rather than `status` because [`Self::status`] is already the constructor's name.
+    #[must_use]
+    pub const fn status_code(&self) -> u16 {
+        self.status
+    }
+
+    /// The body this scripted answer is served with - see [`Self::status_code`] for why it is public.
+    #[must_use]
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
+
     /// A response whose body is opaque bytes, as a size-cap test needs: a body that must be too
     /// big to be legal JSON (the length check runs before decode), so it is not served through
     /// the JSON-typed constructors above.

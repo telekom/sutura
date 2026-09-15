@@ -239,6 +239,15 @@ authenticated.
   release); a PRESENT block naming no anchors is, the same argument `security.inbound` with no `mode`
   already makes.
 
+  **A following PR adds the DataHub catalog reader as `security.outbound`'s THIRD consumer** (after the
+  `BigQuery` wire and the STS exchange), reaching it through the same boot-time resolution:
+  `sutura-serve`'s `main::outbound_anchors` hands its ONE loaded value to `catalog::open_catalog`
+  → `open_one_datahub_catalog` → `HttpAspectReader::new(.., anchors)`, and the reader makes the same
+  `ureq` fold into `RootCerts::Specific` (`sutura_catalog_datahub::tls_roots`) over the same
+  `sutura_tls::LoadedAnchors` - anchors only, since a bearer takes no client certificate. So a
+  deployment's declared CA now governs three fixed-host outbound clients, not two, and the same
+  "never a second read, never a union" property holds for the catalog reader as for the source wire.
+
   `sutura-runtime` was considered and rejected as the loader's home: no `sutura-exec-*` crate depends
   on it today (`grep -l sutura-runtime crates/*/Cargo.toml` names only `sutura-app`, `sutura-mcp`,
   `sutura-cli`, `sutura-http`, `sutura-serve` - transports and composition roots, never a data-system
