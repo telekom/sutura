@@ -163,7 +163,7 @@ case "$(uname -m)" in
     *) fail "the demo has no published Linux server binary for this machine architecture" ;;
 esac
 printf 'demo: building the sutura server binary\n' >&2
-serve_package="$(nix build ".#sutura-serve-${server_target}" --no-link --print-out-paths)"
+serve_package="$(nix build ".#sutura-${server_target}" --no-link --print-out-paths)"
 
 printf 'demo: building %s\n' "$demo_image" >&2
 docker build \

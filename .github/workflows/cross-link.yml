@@ -118,7 +118,7 @@ env:
   # HERE RATHER THAN IN `ci.yml`, because the matrix that spends it is here and `env` is not a
   # context a caller can pass through `with:`. That gate reads the whole of `.github/workflows`, so
   # the literal is reconciled against `nix/shipped.nix` in this file exactly as it was in that one.
-  BINARIES: sutura sutura-serve
+  BINARIES: sutura
 
 jobs:
   link:

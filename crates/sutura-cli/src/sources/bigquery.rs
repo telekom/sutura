@@ -30,7 +30,7 @@ use crate::sources::OpenedWith;
 
 /// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
 ///
-/// **The same three layers `sutura-serve`'s own alias names, through the same public constructors**,
+/// **The same three layers `crate::serve`'s own alias names, through the same public constructors**,
 /// which is what "one composition per adapter" amounts to across two binaries that may not depend on
 /// each other: a fix to the credential path lands in `sutura-exec-bigquery` and both roots get it.
 /// `docs/adr/0018` is the record for the inner two.
@@ -47,7 +47,7 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
 /// two bounds, and READING the credential file, which is the one step that would otherwise fail on the
 /// first question.
 ///
-/// **The composition is `sutura-serve`'s `build_bigquery`, line for line, through the same public
+/// **The composition is `crate::serve`'s `build_bigquery`, line for line, through the same public
 /// constructors** - which is what issue 121 asks for by "one composition per adapter, shared by both
 /// roots". It is a copy rather than a shared function because the two composition roots are separate
 /// binaries and neither may depend on the other; what is genuinely shared is
@@ -116,7 +116,7 @@ pub(super) fn open(
     // posture is a compile error at this line, in both composition roots.
     //
     // **And this guard is doing DOUBLE DUTY for a check this root does not have.**
-    // `sutura-serve` runs `refuse_unverifiable_anchors` - a bundle declaring an anchor on a source
+    // `crate::serve` runs `refuse_unverifiable_anchors` - a bundle declaring an anchor on a source
     // with no identity to re-run it under does not boot - and `sutura-cli` has no equivalent. That is
     // vacuous today only BECAUSE of the arm below: `AnchorIdentity::NoneDeclared` is reachable only
     // for an `impersonation-at-source` source, and this refuses every one of those before an anchor
@@ -202,7 +202,7 @@ pub(super) fn open(
 
 /// Refuses a bundle naming a table the dataset behind it does not hold.
 ///
-/// **Issue 120's asymmetry, at the OTHER serving composition root.** `sutura-serve`'s
+/// **Issue 120's asymmetry, at the OTHER serving composition root.** `crate::serve`'s
 /// `boot::refuse_absent_tables` closed it for the HTTP surface; `sutura mcp` was left with it. The
 /// agent surface serves for as long as its peer keeps the pipe open, and the `BigQuery` arm attaches
 /// nothing - so [`sutura_app::preflight::refuse_unattached`] is skipped and, before this, nothing asked the
@@ -233,7 +233,7 @@ pub(super) fn open(
 /// what actually DIFFERS from serve's: the words this transport uses - *this process*, not *this
 /// deployment* - and the sink.
 ///
-/// **Three sinks changed relative to `sutura-serve`'s copy, not one**, which is the other half of
+/// **Three sinks changed relative to `crate::serve`'s copy, not one**, which is the other half of
 /// that correction. Serve emits `warn!` for the soft outcome and `info!` for the two clean ones; all
 /// three are standard error here, and that is decided rather than inherited. A locally launched
 /// process installs no subscriber - [`crate::mcp`]'s own module doc states that for the audit sink -
@@ -245,7 +245,7 @@ pub(super) fn open(
 /// [`absent_tables_notices`] returns the lines instead of printing them, so this file's own suite
 /// pins that the soft outcome is emitted and what it says.
 ///
-/// **Two limits, the same two `sutura-serve` states**, and the second is a review correction too -
+/// **Two limits, the same two `crate::serve` states**, and the second is a review correction too -
 /// the first version of this file swapped it for a sentence about the catalog changing while the
 /// surface serves, which is a window nothing re-reads and therefore nothing interesting. What a
 /// pre-flight establishes is that a table EXISTS: not that the model's columns are on it, and not
@@ -329,11 +329,11 @@ where
                      would fail at query time - fix the catalog's `table:`, or create the table"
                 ));
             }
-            // **A REFUSAL, and not the `Absent` sentence above**, for `sutura-serve`'s reason: the
+            // **A REFUSAL, and not the `Absent` sentence above**, for `crate::serve`'s reason: the
             // data system said it holds more tables than it went on to name, so these are tables it
             // did not answer about rather than tables it said it does not have. Naming a `table:` to
             // fix here is the defect `telekom/sutura#275` is about. Three numbers for
-            // `sutura-serve`'s reason: the gap BOUNDS how many of these tables it can explain, and
+            // `crate::serve`'s reason: the gap BOUNDS how many of these tables it can explain, and
             // the bound runs both ways - a shortfall counts the whole dataset's unaccounted tables
             // and this set is only the part the bundle names, so the clamp is `explained_by`'s.
             Err(Refusal::Unaccounted { tables, shortfall }) => {
@@ -367,7 +367,7 @@ where
             Ok(Notice::Present { asked: tables }) => {
                 notices.push(format!("every one of the {tables} table(s) the catalog names is in {source}"));
             }
-            // **`NotReported` gets a line of its own** for the reason `sutura-serve`'s copy does: it
+            // **`NotReported` gets a line of its own** for the reason `crate::serve`'s copy does: it
             // is the one outcome meaning *nothing verified this*, and silence makes it
             // indistinguishable from a verified dataset. Unreachable through the `BigQuery` arm,
             // which always asks, and reachable by any future adapter taking the port's default.
@@ -502,7 +502,7 @@ mod tests {
     /// [`super::refuse_absent_tables`]'s own suite.
     ///
     /// **A nested module rather than a `cfg` on each item, and neither obvious form works** - the
-    /// same shape `sutura-serve`'s `boot::tests` had to invent. With the feature off there is no
+    /// same shape `crate::serve`'s `boot::tests` had to invent. With the feature off there is no
     /// `refuse_absent_tables` to call, so an ungated module fails to compile on the DEFAULT feature
     /// set; writing `#[cfg(all(test, feature = "bigquery"))]` on the parent is what a reader reaches
     /// for and makes every test in here a lint error, because `clippy::tests_outside_test_module` and
@@ -684,7 +684,7 @@ mod tests {
                 error.contains("fct_orders") && error.contains("dim_customer"),
                 "and both tables nothing was said about: {error}"
             );
-            // The bound, for `sutura-serve`'s reason: a gap of one over two unnamed tables means one
+            // The bound, for `crate::serve`'s reason: a gap of one over two unnamed tables means one
             // of them really is missing, so the set and the gap are not one quantity.
             assert!(
                 error.contains("did not account for 1 of the table(s)") && error.contains("at most 1 of the 2 table(s)"),

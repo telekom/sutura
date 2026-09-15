@@ -190,7 +190,7 @@ mod naming;
 
 // `the_corpus_rows_agree_with_the_engine`, split out of `mod tests` below for the same `max-lines`
 // reason `naming` is its own file - and declared HERE, at this file's top level, rather than
-// nested inside `mod tests {}`: `crates/sutura-serve/tests/served.rs` states why at its own `mod
+// nested inside `mod tests {}`: `crates/sutura-cli/tests/served.rs` states why at its own `mod
 // harness` (a `#[path]` inside an inline module resolves against that module's own directory, not
 // this file's), and `xtask/src/causality`'s resolver additionally assumes a top-level declaration
 // - a nested one read as pre-existing tests newly enabled and failed `xtask test-causality`

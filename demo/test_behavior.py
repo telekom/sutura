@@ -265,7 +265,7 @@ class DemoBehavior(unittest.TestCase):
             docker_args = (root / "docker.log").read_text(encoding="utf-8")
             self.assertIn("--build-context sutura-server=", docker_args)
             self.assertIn("/sutura/local-chat-demo:demo-", docker_args)
-            self.assertNotIn("sutura-serve:latest", docker_args)
+            self.assertNotIn("sutura:latest", docker_args)
             self.assertNotIn("load", docker_args)
             self.assertNotIn("test-key", result.stdout + result.stderr)
 
@@ -426,7 +426,7 @@ class DemoBehavior(unittest.TestCase):
 
     def test_supervisor_passes_exact_model_key_to_webui_child(self) -> None:
         source = (ROOT / "demo/run.sh").read_text(encoding="utf-8")
-        self.assertIn("/usr/local/bin/sutura-serve", source)
+        self.assertIn("/usr/local/bin/sutura serve", source)
         self.assertIn("/app/backend", source)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -447,7 +447,10 @@ class DemoBehavior(unittest.TestCase):
             (backend / "start.sh").chmod(0o755)
             instrumented = root / "run.sh"
             instrumented.write_text(
-                source.replace("/usr/local/bin/sutura-serve", str(server_path)).replace(
+                # The fake ignores its own arguments, so leaving ` serve` in place after the binary
+                # path is swapped is harmless - it is invoked as `<fake> serve &`, same as the real
+                # supervisor invokes `sutura serve &`.
+                source.replace("/usr/local/bin/sutura", str(server_path)).replace(
                     "/app/backend", str(backend)
                 ),
                 encoding="utf-8",

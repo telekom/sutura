@@ -36,8 +36,9 @@
 //!
 //! **Which gate would have caught it, stated precisely, because the first version of this paragraph
 //! said *nothing in this repository* and review measured otherwise - in both directions.** The four
-//! `cross` jobs build `.#sutura-serve-<triple>-ci` for every shipped triple on every pull request,
-//! and `nix/shipped.nix` passes `--package` and `--target` with no `--features`, i.e. cargo's
+//! `cross` jobs build `.#sutura-<triple>-ci` for every shipped triple on every pull request -
+//! `.#sutura-serve-<triple>-ci` before `github.com/telekom/sutura#685` step 2 folded that binary
+//! in - and `nix/shipped.nix` passes `--package` and `--target` with no `--features`, i.e. cargo's
 //! default set: they WOULD have caught it, and they did not run, because they are `needs: [ci]` and
 //! `ci` had already failed. That is a sequencing fact rather than an absence of coverage. And
 //! `just validate` would not have caught it either: the checks it runs build no package, and their
@@ -66,7 +67,7 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::Warehouse;
 
 #[cfg(feature = "bigquery")]
-use crate::flatten;
+use super::flatten;
 
 /// Refuses a bundle naming a table the data system behind it does not hold.
 ///
@@ -285,7 +286,7 @@ mod tests {
         use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
         use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
-        use crate::boot::refuse_absent_tables;
+        use crate::serve::boot::refuse_absent_tables;
 
         /// A data system that answers the pre-flight from what a test handed it, and records the asking.
         ///
@@ -313,7 +314,7 @@ mod tests {
 
         /// The one failure this fake can report: the data system could not be asked.
         ///
-        /// Written by hand rather than derived, because `sutura-serve` declares no `thiserror`
+        /// Written by hand rather than derived, because `sutura-cli` declares no `thiserror`
         /// dependency and `unused-deps` would be the next thing to complain if it did. A binary's test
         /// fake is exactly the case where two impls beat a dependency.
         #[derive(Debug)]
@@ -384,7 +385,7 @@ mod tests {
 
         /// Two models on one source, one of which the data system will be said not to hold.
         fn bundle() -> sutura_domain::pinned::PinnedDefinitions {
-            crate::tests::bundle_over(&[
+            crate::serve::tests::bundle_over(&[
                 ("customers", "warehouse", "dim_customer"),
                 ("orders", "warehouse", "fct_orders"),
             ])

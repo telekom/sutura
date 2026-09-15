@@ -3417,7 +3417,7 @@ either runs.
   `line` only from a line starting `-----BEGIN ` and `end_marker` only from that label, never
   from key material between the markers. No type in this repository can hold another crate's
   `Display` impl, so a version bump that changed what it prints would change silently, unlogged
-  by anything here. `crates/sutura-serve/src/main.rs`'s `flatten` walks `#[source]` to
+  by anything here. `crates/sutura-cli/src/serve.rs`'s `flatten` walks `#[source]` to
   exhaustion and prints every `cause.to_string()`, so this reaches an operator's terminal
   through the same three `#[source]` hops the module's own safety argument above already
   covers for the path - `cause` is the one field that argument does not reach.

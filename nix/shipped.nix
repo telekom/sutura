@@ -54,30 +54,32 @@ let
   # THE SHIPPED SET. One entry per executable a release publishes, and every consumer reads this
   # list rather than naming a package itself.
   #
+  # **ONE ENTRY, since `github.com/telekom/sutura#685` step 2.** There used to be two: `sutura` and
+  # `sutura-serve`, a split `sutura-serve`'s own module header called unprincipled - the release
+  # derivations "named the binary that existed before `sutura-serve` did, and kept naming it." The
+  # HTTP surface is now `sutura serve`, composed inside `sutura-cli`, so this list is back to the
+  # one executable a release has ever actually needed to ship.
+  #
   # **FEATURES ARE ABSENT FROM THIS RECORD ON PURPOSE, and that absence IS the decision issue #111
-  # asks to be stated rather than discovered - and, since issue #121, the decision for BOTH binaries
-  # rather than for the server alone.** Both shipped binaries are built with cargo's DEFAULT feature
-  # set, and `sutura-cli` now has a `bigquery` feature of its own to leave off. So no published
-  # artefact of either binary can open a dataset: an operator who wants one builds from source with
-  # `--features bigquery`, and `sutura doctor` prints which of the two they are holding.
+  # asks to be stated rather than discovered.** The published binary is built with cargo's DEFAULT
+  # feature set, so it carries the HTTP surface, leg 1 and the rate limiter (unconditional edges),
+  # but neither `tls`, `bigquery`, `postgres` nor `datahub`: an operator who wants one of those
+  # builds from source with `--features`, and `sutura doctor` says which of them a binary was
+  # built with.
   #
-  # **That is issue #121's step 3, decided as its own recommendation had it:** the CLI ships without
-  # the feature, and a deployment that needs a dataset runs a build that carries it. The alternative
-  # priced there - a second CLI asset with the feature on, for the two gnu triples only - is two more
-  # assets to sign, attest and SBOM plus a musl answer stated rather than discovered, and nothing
-  # asks for it yet. When a tutorial chapter does, it is a `features` field here and a paragraph
-  # beside this one.
-  #
-  # For `sutura-serve` the default set means the published server carries the HTTP
-  # surface, leg 1, the rate limiter and the generated interface description, and carries neither
-  # `tls` nor `bigquery`:
+  # **That is issue #121's step 3, decided as its own recommendation had it:** the binary ships
+  # without the feature, and a deployment that needs it runs a build that carries it. The
+  # alternative priced there - a second asset with the feature on, for the two gnu triples only -
+  # is more assets to sign, attest and SBOM plus a musl answer stated rather than discovered, and
+  # nothing asks for it yet. When a tutorial chapter does, it is a `features` field here and a
+  # paragraph beside this one.
   #
   #   * The cost is the four cross builds. `--features tls` and `--features bigquery` each pull an
   #     outbound or inbound rustls closure, `ring` included, which compiles C and assembly; two of
-  #     the four release triples are musl. A published server would pay for that on every target,
-  #     and so would a published CLI - measured on 2026-09-02 by compiling
-  #     `sutura-cli --all-targets` both ways: the default set touches neither `ring` nor `ureq`, and
-  #     `--features bigquery` compiles `ring` from C and assembly.
+  #     the four release triples are musl. A published binary would pay for that on every target -
+  #     measured on 2026-09-02 by compiling `sutura-cli --all-targets` both ways: the default set
+  #     touches neither `ring` nor `ureq`, and `--features bigquery` compiles `ring` from C and
+  #     assembly.
   #   * **THAT FIRST BULLET IS FALSE ON COST, and it is left standing because the correction is
   #     the useful part.** `craneLib.buildDepsOnly` is called on `args` - deliberately unscoped, so
   #     the checks share one dependency derivation - with `cargoExtraArgs` set on the final attrset
@@ -95,9 +97,9 @@ let
   #   * The failure is loud rather than silent, which is what makes the choice defensible instead
   #     of merely cheap. `security.tls_termination: in-process` on a build without `tls` is a
   #     startup refusal naming the feature, and so is a `kind: bigquery` source on a build without
-  #     `bigquery` - `sutura_config`, `sutura-serve` and `sutura-cli` all refuse rather than
-  #     degrade, each naming the feature that would link it. An operator who needs either builds
-  #     from source and knows it.
+  #     `bigquery` - `sutura_config` and `sutura-cli` both refuse rather than degrade, each naming
+  #     the feature that would link it. An operator who needs either builds from source and knows
+  #     it.
   #   * A gateway in front is the deployment shape leg 1 already assumes: `security.inbound`
   #     verifies a caller's token behind a component that terminated TLS.
   #
@@ -119,10 +121,10 @@ let
   # `cross` job, because they finish inside the slack ahead of `datafusion` on the critical path.
   # (CI runs 33808343712 and 33838360913, 2026-09-04. A figure with no run beside it is a figure
   # nobody can re-take, which is why this one carries one.)
-  # So default-off buys nothing in BUILD time. What it buys is the artefact: no published binary
-  # of either executable links an outbound TLS stack, and `checks.shipped-features` asserts that
-  # out of each binary's own embedded dependency list rather than out of this file. Keep the
-  # decision and cite the artefact for it.
+  # So default-off buys nothing in BUILD time. What it buys is the artefact: the published binary
+  # links no outbound TLS stack, and `checks.shipped-features` asserts that out of its own
+  # embedded dependency list rather than out of this file. Keep the decision and cite the
+  # artefact for it.
   #
   # `docs/adr/0017` carries the numbers, the derivation A/B they rest on, and what the measurement
   # does NOT cover. One record: a transcript of it here would be a second thing to keep true, and
@@ -133,12 +135,13 @@ let
       package = "sutura-cli";
       # The image key, and the empty string is HISTORICAL rather than tidy: `sutura-oci-<triple>`
       # asset names, `<version>-<triple>` leaf tags and the unsuffixed `:latest` are what every
-      # release so far published and what `docs/verifying-a-release.md` documents. Renaming them
-      # to make a second binary's names symmetrical would break every consumer's script to buy
-      # nothing.
+      # release so far published and what `docs/verifying-a-release.md` documents.
       keyPrefix = "";
       entrypoint = "/bin/sutura";
       # A default that does something harmless and provable. The release workflow smoke-tests it.
+      # No default argument would ALSO be correct now that `sutura serve` reads its whole
+      # configuration from the settings tree - but `--version` is what the release workflow has
+      # always smoke-tested, and this entry is not the place to change that.
       cmd = [ "--version" ];
       description = "identity-aware semantic data runtime for AI agents";
       # `docs/getting-started.md` tells a reader to run `cargo build -p sutura-cli
@@ -151,67 +154,45 @@ let
       # normal dependency and it is not optional there - `tokio-postgres-rustls` and `rustls` are
       # what it adds, `ring` behind them, so the musl link is the same question `bigquery` already
       # answers and had gone unasked for this feature.
+      #
+      # `tls` and `datahub` are NOT here, and that is unchanged by the fold
+      # (`github.com/telekom/sutura#685` step 2): they were `sutura-serve`'s features before the
+      # fold and this binary's since, but neither ever had a documented single-feature source
+      # build to hold a `<bin>-<feature>-<triple>-ci` probe for - `allFeatures` below is what
+      # proves them, together, at fat LTO.
       probeFeatures = [ "bigquery" "postgres" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with EVERY feature on rather than one build
-      # per feature. Happens to equal `probeFeatures` today because this binary has no feature
-      # `probeFeatures` leaves out; kept as its own field rather than reused so a future feature
-      # added to one list without the other is a diff a reviewer sees, not a silent gap.
-      allFeatures = [ "bigquery" "postgres" ];
+      # per feature. **Grew by two at step 2's fold**: `tls` and `datahub` were `sutura-serve`'s
+      # own features before `sutura-serve` folded into `sutura serve`, and the shipped artefact now
+      # carries all four. Kept as its own field rather than reused for `probeFeatures` so a future
+      # feature added to one list without the other is a diff a reviewer sees, not a silent gap.
+      allFeatures = [ "bigquery" "postgres" "tls" "datahub" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
+      #
+      # **Also unaffected by the fold.** `sutura-serve` used to ban this edge for itself
+      # (`alsoForbidden = [ "polyglot-sql" ]`) because it had no legitimate reason to link the SQL
+      # generator and `sutura` did; folding the two into one binary makes that ban moot rather than
+      # something to carry over - the one binary that remains is the one that was always allowed to
+      # link it.
       alsoForbidden = [ ];
-    }
-    {
-      bin = "sutura-serve";
-      package = "sutura-serve";
-      keyPrefix = "serve";
-      entrypoint = "/bin/sutura-serve";
-      # NO default argument, and that is not an omission. This binary takes its whole
-      # configuration from the settings tree - defaults, then files, then one variable per key -
-      # so there is no flag whose absence needs a stand-in. Running the image with no arguments
-      # starts the server, which is what a platform scheduling it will do.
-      cmd = [ ];
-      description = "identity-aware semantic data runtime for AI agents: the HTTP surface";
-      # EMPTY, and deliberately: this binary's `tls`, `bigquery` and `postgres` features are the
-      # same shape and the same risk, and probing all three would multiply a job that already
-      # compiles the whole dependency closure per target. The CLI is the one issue #121 owes a
-      # measurement for; the `postgres` probe added above already links that closure
-      # (`tokio-postgres-rustls`, `rustls`, `ring`) through the CLI on both PR triples, so what
-      # this list says is that adding serve's OWN combination is an entry rather than a design.
-      probeFeatures = [ ];
-      # THE COMPLETE optional feature list, for `allFeaturesProbes` below - unlike `probeFeatures`
-      # above, NOT empty. `tls` and `datahub` are already compiled and tested on every run -
-      # `just lint` and `just test` both pass `--all-features`, and so do `checks.clippy` and
-      # `checks.nextest` - so this is not the first time either compiles. What none of that covers
-      # is a MUSL CROSS-COMPILE or a build under `release`/`release-performance`'s LTO, which is
-      # what this probe is for: `datahub` carries the same outbound-`ureq`-and-`ring` risk
-      # `bigquery` and `postgres` already do (`sutura-catalog-datahub`'s `http = ["dep:ureq"]`), and
-      # `github.com/telekom/sutura#685` step 1 ships one binary with every feature on, so proving
-      # only the CLI's two features is not proving the shipped artefact.
-      allFeatures = [ "tls" "bigquery" "postgres" "datahub" ];
-      # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds the PLACEMENT - no catalog adapter and
-      # no compiler crate may reach `sutura-sql` - but a normal dependency added straight to
-      # `sutura-app` (the crate both `sutura-serve` and `sutura-http` sit on) is outside every one
-      # of those entries and would still put the pre-1.0 SQL generator into this binary's default
-      # closure, which renders no SQL and can reach none of it. This is the OUTCOME half: read out
-      # of the artifact's own embedded dependency list rather than out of any manifest, so a
-      # future edge the placement gate does not name still fails here, naming this binary - AT THE
-      # TAG-TRIGGERED RELEASE BUILD, where `checks.shipped-features` runs, and not on a pull
-      # request.
-      alsoForbidden = [ "polyglot-sql" ];
     }
   ];
 
-  # The image/asset key for one binary at one target. `sutura` keeps the bare triple; every other
-  # binary is prefixed, so `oci-serve-x86_64-unknown-linux-musl` and
-  # `sutura-oci-serve-x86_64-unknown-linux-musl.cdx.json` name the same build as
-  # `sutura-serve-x86_64-unknown-linux-musl.tar.gz`.
+  # The image/asset key for one binary at one target. `sutura` keeps the bare triple; a SECOND
+  # shipped binary would be prefixed instead, so `oci-<prefix>-x86_64-unknown-linux-musl` would
+  # name a different build than `sutura`'s own `oci-x86_64-unknown-linux-musl`. Dormant since
+  # `github.com/telekom/sutura#685` step 2 folded the one binary that used to set `keyPrefix` back
+  # into `sutura`, and left generic for the same reason `binaries` above is a list rather than one
+  # hand-written pair of derivations: a third executable is an entry, not a rewrite of this
+  # function.
   keyFor = b: target: if b.keyPrefix == "" then target else "${b.keyPrefix}-${target}";
 
-  # The `oci` attribute name for a binary's NATIVE image: `oci` for the CLI, `oci-serve` for the
-  # server. Same rule as `keyFor`, applied where there is no target to append.
+  # The `oci` attribute name for a binary's NATIVE image: `oci` for a binary with no prefix, a
+  # prefixed name otherwise. Same rule as `keyFor`, applied where there is no target to append -
+  # and the same dormant-since-#685-step-2 note.
   ociNameFor = b: if b.keyPrefix == "" then "oci" else "oci-${b.keyPrefix}";
 
   # The `--features` cargo takes, or nothing at all. Empty produces an empty string rather than a
@@ -244,12 +225,14 @@ let
     # profile split them when it landed, so `release` has had a dependency build of its own since
     # then and nothing is being un-shared here.
     craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly (args // { doCheck = false; })) // {
-      # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which of the two shipped
-      # binaries this is. `commonArgs.pname` is `sutura` for the workspace, and with two shipped
-      # binaries that made both derivations `sutura-0.1.0`. On the final attrset and never on
-      # `args`, so the deps derivation stays as unscoped as it can be - see the measurement
-      # above for what sharing with the checks is still available and what the `ci` profile
-      # already ended.
+      # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which binary this is -
+      # `commonArgs.pname` is `sutura` for the whole workspace, which used to make both shipped
+      # binaries' derivations `sutura-0.1.0` before `github.com/telekom/sutura#685` step 2 left
+      # one. Kept rather than simplified away: a second shipped binary is one entry in `binaries`
+      # above away, and this is what keeps its build log distinguishable when it arrives. On the
+      # final attrset and never on `args`, so the deps derivation stays as unscoped as it can be -
+      # see the measurement above for what sharing with the checks is still available and what the
+      # `ci` profile already ended.
       pname = binary.bin;
       # ONE package. Without this, crane builds the whole workspace and the result held
       # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
@@ -355,9 +338,9 @@ let
     { suffix = "-ci"; profile = "ci"; }
   ];
 
-  # Every cross-built package, over three dimensions now rather than two: binary, target,
-  # profile variant. `sutura-<triple><suffix>` and `sutura-serve-<triple><suffix>`, and the two
-  # sets cannot collide because no target triple begins with a binary's name.
+  # Every cross-built package, over three dimensions: binary, target, profile variant -
+  # `sutura-<triple><suffix>` today, and a second binary's own `<bin>-<triple><suffix>` cannot
+  # collide with it because no target triple begins with a binary's name.
   crossPackages = builtins.listToAttrs (builtins.concatMap
     (b: builtins.concatMap
       (v:
@@ -378,7 +361,7 @@ let
     binaries);
 
   # The unsuffixed native build of each binary, plus its performance sibling: `sutura`,
-  # `sutura-performance`, `sutura-serve`, `sutura-serve-performance`.
+  # `sutura-performance`.
   nativeBinaries = builtins.listToAttrs (builtins.concatMap
     (b: [
       { name = b.bin; value = nativeFor { binary = b; profile = "release"; }; }
@@ -424,9 +407,10 @@ let
   # DISJOINT BY ASSERTION, because `//` is right-biased and this is the one place the
   # two-views-of-one-list argument stops - one level ABOVE the list. `flake.nix` merges
   # `crossPackages // ... // featurePackages`, so a probe whose name equalled a shipped package's
-  # would SHADOW it: the shipped link step would build a probe while its notice named an artefact.
-  # A `sutura-cli` feature called `serve` is exactly that collision - `sutura-serve-<triple>-ci` is
-  # a `crossPackages` key. A `throw` rather than a naming rule, so the failure names the collision.
+  # would SHADOW it: the shipped link step would build a probe while its notice named an
+  # artefact. A feature name that happens to equal another binary's `bin` is exactly that
+  # collision - reachable again the day a second binary joins `binaries` above. A `throw` rather
+  # than a naming rule, so the failure names the collision.
   featurePackages =
     let
       attrs = builtins.listToAttrs (map (p: { inherit (p) name value; }) probes);
@@ -442,14 +426,15 @@ let
   # together at `release-performance` (fat LTO, `codegen-units = 1`, `panic = "abort"`) on the
   # MUSL triples, where `ring`'s C and assembly is the risk `probes` above never takes - that list
   # builds one feature at a time, at the `ci` profile, and never at LTO. Reads `allFeatures`, a
-  # field of its own rather than a reuse of `probeFeatures`: the two lists agree for `sutura` today
-  # but must not have to - `sutura-serve`'s `probeFeatures` is `[ ]` (its own comment explains why,
-  # for the one-feature-at-a-time `ci` probe) while its `allFeatures` carries all four of `tls`,
-  # `bigquery`, `postgres` and `datahub`, because #685 ships one binary with every feature on and
-  # proving only the CLI's features is not proving that artefact. A binary with an empty
-  # `allFeatures` yields no probe rather than an empty-features build indistinguishable from
-  # `release-performance` itself - not reachable today, since both binaries declare a non-empty
-  # list, but the guard costs nothing to keep.
+  # field of its own rather than a reuse of `probeFeatures`: the two lists agreed for `sutura`
+  # before step 2's fold and must not have to in general - before the fold, `sutura-serve`'s
+  # `probeFeatures` was `[ ]` while its `allFeatures` carried all four of `tls`, `bigquery`,
+  # `postgres` and `datahub`, because #685 ships one binary with every feature on and proving only
+  # the CLI's two features was not proving that artefact. `sutura`'s own `allFeatures` carries the
+  # union since the fold. A binary with an empty `allFeatures` yields no probe rather than an
+  # empty-features build indistinguishable from `release-performance` itself - not reachable
+  # today, since the one remaining binary declares a non-empty list, but the guard costs nothing
+  # to keep.
   #
   # MUSL ONLY. The gnu triples are the easy case #685 defers to a later step.
   #
@@ -576,10 +561,11 @@ let
     #
     # EVERY shipped binary at EVERY shipped target, and both dimensions are the point. A
     # cross build has its own dependency derivation and its own `cargoExtraArgs`, so "the
-    # native package holds one binary" says nothing about the musl one; and since #111 there
-    # are two binaries, so "the package built one thing" says nothing about WHICH thing. The
-    # price is that this check pulls every cross build in, which is what it costs for the
-    # assertion to be true rather than assumed.
+    # native package holds one binary" says nothing about the musl one; and `binaries` is a list
+    # rather than a single hand-written pair - it held two entries between #111 and
+    # `github.com/telekom/sutura#685` step 2 - so "the package built one thing" says nothing about
+    # WHICH thing. The price is that this check pulls every cross build in, which is what it
+    # costs for the assertion to be true rather than assumed.
     #
     # **THE NAME ASSERTION IS THE HALF THAT IS NEW, and it is the cheap guard against the
     # defect #111 was.** `cargoExtraArgs` names a cargo PACKAGE while the image names an
@@ -622,21 +608,21 @@ let
 
     # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
     #
-    # `nix/shipped.nix` decides that both shipped binaries are built with cargo's DEFAULT
-    # feature set, and the reason is the four cross builds: `sutura-serve`'s `tls` and
-    # `bigquery` features each pull a rustls closure with `ring` in it, and two of the four
-    # release triples are musl. Issue #111 asks for that to be a STATED choice rather than
-    # one somebody discovers, and a comment is not a mechanism - so this is the mechanism.
+    # `nix/shipped.nix` decides that the shipped binary is built with cargo's DEFAULT feature
+    # set, and the reason is the four cross builds: `tls`, `bigquery`, `postgres` and `datahub`
+    # each pull a rustls closure with `ring` in it, and two of the four release triples are musl.
+    # Issue #111 asks for that to be a STATED choice rather than one somebody discovers, and a
+    # comment is not a mechanism - so this is the mechanism.
     #
-    # READ OUT OF THE ARTIFACT, never out of a manifest. `nix/auditable.nix` builds every
-    # shipped binary with `cargo auditable`, which puts the crates the compiler actually
-    # linked into one ELF section, and `rust-audit-info` reads them back. A check over
-    # `Cargo.toml` would be asserting what somebody wrote down; this asserts what shipped.
-    # It is the same section `release.yml`'s SBOM and the pull-request link check already depend
-    # on, so a build that stopped embedding it fails here too rather than passing quietly.
+    # READ OUT OF THE ARTIFACT, never out of a manifest. `nix/auditable.nix` builds the shipped
+    # binary with `cargo auditable`, which puts the crates the compiler actually linked into one
+    # ELF section, and `rust-audit-info` reads them back. A check over `Cargo.toml` would be
+    # asserting what somebody wrote down; this asserts what shipped. It is the same section
+    # `release.yml`'s SBOM and the pull-request link check already depend on, so a build that
+    # stopped embedding it fails here too rather than passing quietly.
     #
     # TWO DIRECTIONS, because only checking the absence would pass on a binary that linked
-    # nothing at all: `axum` must be present in the server and `ring` absent from both.
+    # nothing at all: `axum` must be present, and `ring` absent.
     #
     # **What this does NOT claim.** It is a statement about a crate NAME in a list, not
     # about reachable code: a future default feature that pulls TLS under a different crate
@@ -647,22 +633,30 @@ let
     # same list would double this check's cost for nothing.
     shipped-features =
       let
-        # `axum` for the server and `datafusion` for both: one is the transport the
-        # published server exists to carry, the other is the engine neither binary can
-        # answer a question without.
-        required = { sutura = [ "datafusion" ]; sutura-serve = [ "axum" "datafusion" ]; };
+        # `axum` for the HTTP surface `sutura serve` runs and `datafusion` for the engine
+        # neither `sutura serve` nor any other command can answer a question without.
+        #
+        # **`axum` moved here from a `sutura-serve` key when `github.com/telekom/sutura#685`
+        # step 2 folded that binary into `sutura serve` - it is NOT named in that issue's own
+        # body, and dropping the old key without this addition would leave nothing in
+        # `required` asserting `axum` is linked at all, which is a silent weakening of this
+        # gate rather than a fold.**
+        required = { sutura = [ "axum" "datafusion" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.
         #
-        # **Both binaries have a `bigquery` feature to leave off since issue #121, and this
-        # list is what says they left it off** - an assertion about the ARTIFACT rather than
-        # about a manifest, which is the whole reason it reads the embedded dependency list.
-        # A `bigquery` that stopped being optional on either crate fails here.
+        # **The shipped binary has four features to leave off since issue #121 and #685, and
+        # this list is what says it left them off** - an assertion about the ARTIFACT rather
+        # than about a manifest, which is the whole reason it reads the embedded dependency
+        # list. A `bigquery`, `postgres`, `tls` or `datahub` that stopped being optional fails
+        # here.
         #
-        # Shared across both binaries; a binary's own `alsoForbidden` (declared beside it above)
-        # is appended per binary in `checkOne` below, which is how `polyglot-sql` is banned from
-        # `sutura-serve` alone - `sutura` legitimately links it for `compile`.
+        # Per-binary rather than only shared: a binary's own `alsoForbidden` (declared beside
+        # it above) is appended per binary in `checkOne` below. `sutura`'s is empty - it
+        # legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
+        # own reason to ban it for ITSELF alone; folding the two binaries into one made that
+        # ban moot rather than something to carry forward.
         forbidden = [ "ring" "ureq" ];
         quoted = name: "'\"" + name + "\"'";
         wantOne = bin: name: ''

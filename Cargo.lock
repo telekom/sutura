@@ -3859,25 +3859,32 @@ dependencies = [
 name = "sutura-cli"
 version = "0.5.1"
 dependencies = [
+ "axum",
+ "base64 0.23.1",
  "insta",
  "mimalloc",
  "rmcp",
  "serde_json",
  "serde_norway",
  "sutura-app",
+ "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-config",
+ "sutura-dev",
  "sutura-domain",
  "sutura-exec-bigquery",
  "sutura-exec-datafusion",
  "sutura-exec-postgres",
+ "sutura-http",
  "sutura-mcp",
  "sutura-runtime",
  "sutura-semantic",
  "sutura-sql",
  "sutura-tls",
  "tokio",
+ "tokio-postgres",
  "tracing",
+ "ureq",
 ]
 
 [[package]]
@@ -4066,32 +4073,6 @@ version = "0.5.1"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.20",
-]
-
-[[package]]
-name = "sutura-serve"
-version = "0.5.1"
-dependencies = [
- "axum",
- "base64 0.23.1",
- "mimalloc",
- "serde_json",
- "sutura-app",
- "sutura-catalog-datahub",
- "sutura-catalog-local",
- "sutura-config",
- "sutura-dev",
- "sutura-domain",
- "sutura-exec-bigquery",
- "sutura-exec-datafusion",
- "sutura-exec-postgres",
- "sutura-http",
- "sutura-runtime",
- "sutura-tls",
- "tokio",
- "tokio-postgres",
- "tracing",
- "ureq",
 ]
 
 [[package]]

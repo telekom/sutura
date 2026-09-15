@@ -892,7 +892,7 @@ mod tests {
         // linked declared `EXECUTES_LEGS = false` and `sutura-serve` refused the same question as
         // `FederationNotExecutable` - so naming that surface sent an operator on a round trip.
         // `sutura-exec-datafusion` declares the constant now, and
-        // `crates/sutura-serve/tests/served.rs` asks the composed binary a two-source question and
+        // `crates/sutura-cli/tests/served.rs` asks the composed binary a two-source question and
         // gets rows, so the surface is a real remedy and withholding it is the defect.
         assert!(
             error.to_lowercase().contains("over http"),

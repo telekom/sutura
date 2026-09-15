@@ -402,21 +402,22 @@
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
         # `nix/shipped.nix`'s `binaries` list rather than from a line here:
         #
-        #   * `sutura`, `sutura-serve`                        - the native release binaries
-        #   * `sutura-performance`, `sutura-serve-performance` - the same, fat LTO
+        #   * `sutura`                                        - the native release binary
+        #   * `sutura-performance`                            - the same, fat LTO
         #   * `<binary>-<triple>`, plus `-performance` and `-ci` siblings - the cross matrix
-        #   * `oci`, `oci-serve`, and `-performance` siblings  - local Linux images
-        #   * `oci-<triple>`, `oci-serve-<triple>`            - one image per shipped artifact
+        #   * `oci`, and its `-performance` sibling           - the local Linux image
+        #   * `oci-<triple>`                                  - one image per shipped artifact
         #   * `<binary>-<feature>-<triple>-ci`                - the feature-on link probes
         #   * `feature-probes-<triple>`                       - which of those exist, as a file
         #   * `<binary>-all-features-<musl-triple>-performance-probe` - #685 step 1: every
         #     optional feature, fat LTO, on musl - not a shipped artefact either
         #
-        # `sutura-serve` and its images are what closed #111: before them every published
-        # artefact was the command-line tool, so nothing a release published could answer a
-        # question over HTTP. `docs/serving.md` is where the deployment shape lives. The probes
-        # and their manifests are the entries here that are NOT shipped artifacts - see
-        # `probeFeatures`.
+        # The HTTP surface is `sutura serve`, folded into this one binary by `github.com/telekom/
+        # sutura#685` step 2 - `sutura-serve` used to be a second entry here, published as its own
+        # binary and images, closing #111: before it, every published artefact was the
+        # command-line tool, so nothing a release published could answer a question over HTTP.
+        # `docs/serving.md` is where the deployment shape lives. The probes and their manifests
+        # are the entries here that are NOT shipped artifacts - see `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
           // shipped.localImages // shipped.featurePackages // shipped.probeManifests
           // shipped.allFeaturesProbes // {
@@ -750,7 +751,7 @@
             # `exec` replace only the subshell's own process image; the outer shell - and its trap - survive
             # to run `sutura-keycloak-tier stop` once the subshell (and `set -e` above) exits.
             (
-              exec cargo nextest run --cargo-profile ci -p sutura-serve --run-ignored only \
+              exec cargo nextest run --cargo-profile ci -p sutura-cli --run-ignored only \
                 -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)' "$@"
             )
           '');

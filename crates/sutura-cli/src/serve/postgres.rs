@@ -59,7 +59,7 @@ pub(crate) fn open_postgres(
         .join(", ");
     Err(format!(
         "[{named}] declares `kind: postgres`, and this binary was built without the `postgres` \
-         feature - so it links no Postgres adapter. Build `sutura-serve` with `--features postgres`, \
+         feature - so it links no Postgres adapter. Build `sutura-cli` with `--features postgres`, \
          or declare a `files` source"
     ))
 }

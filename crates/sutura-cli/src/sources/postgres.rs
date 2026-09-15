@@ -28,9 +28,9 @@ pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
 /// type must refuse), and the connection itself - so a source whose channel is misdeclared refuses
 /// the question rather than answering over a channel it believes is secured.
 ///
-/// **The composition is `sutura-serve`'s `build_postgres`, line for line, through the same public
-/// constructors** - which is what issue 121 asks for by "one composition per adapter, shared by both
-/// roots". The TLS reading and the connection live in `sutura-exec-postgres` (`tls::client_config`
+/// **The composition is `crate::serve::postgres`'s `build_postgres`, line for line, through the
+/// same public constructors** - which is what issue 121 asks for by "one composition per adapter,
+/// shared by both roots". The TLS reading and the connection live in `sutura-exec-postgres` (`tls::client_config`
 /// and `connect_secured`), so a fix to either lands once and both roots get it.
 ///
 /// # Errors
@@ -234,10 +234,10 @@ mod tests {
         )
     }
 
-    /// The Postgres half of the cross-check `sutura-serve`'s composition root is held to
-    /// (`crates/sutura-serve/src/tests.rs`'s `a_postgres_source_configured_to_impersonate_refuses_
+    /// The Postgres half of the cross-check `crate::serve`'s composition root is held to
+    /// (`crates/sutura-cli/src/serve/tests.rs`'s `a_postgres_source_configured_to_impersonate_refuses_
     /// at_boot`) - proven here too, because #124's last comment framed the boot refusal over BOTH
-    /// composition roots and only `sutura-serve`'s had a cell.
+    /// composition roots and only `serve`'s had a cell.
     ///
     /// `PostgresWarehouse::IMPERSONATION` is `NoPlaceForASubject`, and this root's `open` runs the
     /// check before it reads `password_file` or dials anything, so the refusal is reachable with no

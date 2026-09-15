@@ -97,10 +97,12 @@ fn registry(entries: &str) -> sutura_config::SourceRegistry {
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
              files\"\nsources:\n{entries}"
     );
-    sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
-        .expect("the test settings load")
-        .sources()
-        .clone()
+    sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("the test settings load")
+    .sources()
+    .clone()
 }
 
 /// One `sources:` entry over the example data directory.
@@ -130,9 +132,9 @@ mod support;
 
 use support::{bundle_with_an_anchor, engine_declared};
 
-// Re-exported so `crate::tests::bundle_over` still resolves - `crate::boot`'s own tests use
-// that path, and moving the definition must not move the address a caller outside this file
-// depends on.
+// Re-exported so `crate::serve::tests::bundle_over` still resolves - `crate::serve::boot`'s own
+// tests use that path, and moving the definition must not move the address a caller outside this
+// file depends on.
 pub(crate) use support::bundle_over;
 
 #[test]
@@ -274,10 +276,11 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
              \"shared-service-user\"\n",
         data().display()
     );
-    let error =
-        sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
-            .expect_err("no build of this repository has a Snowflake adapter, so the kind is not a kind");
-    let rendered = crate::flatten(error);
+    let error = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect_err("no build of this repository has a Snowflake adapter, so the kind is not a kind");
+    let rendered = super::flatten(error);
     assert!(
         rendered.contains("sources.production_warehouse.kind"),
         "the refusal must name the key: {rendered}"
@@ -331,77 +334,14 @@ fn opened_bigquery(entries: &str) -> Result<OpenedSources, String> {
     )
 }
 
-/// One `sources:` entry for a `Postgres` database, with every key that kind is opened with.
-///
-/// `127.0.0.1` with `transport_mode: "plaintext"` is the one combination issue 124's non-loopback
-/// fail-closed still parses - a remote host declared plaintext is a settings-tree refusal, tested in
-/// `sutura-config`, and would stop these cells before they reached the composition root's own cross-
-/// check. The password file points at a path that is not there, for the reason `bigquery_entry`'s
-/// credential file does: a refusal naming that key is proof the composition reached the connection
-/// layer, which is the furthest a test with no server can get.
-///
-/// Gated on `postgres` itself: the only caller today is the impersonation cross-check below, which
-/// is gated the same way - unlike `bigquery_entry`, nothing here is exercised on a build without the
-/// feature, so leaving it unconditional would be dead code there.
+/// The `postgres` source's boot-refusal cell - `postgres_entry`, `opened_postgres`, and
+/// `a_postgres_source_configured_to_impersonate_refuses_at_boot` - moved to its own file by the
+/// same file-length gate `serve/boot.rs`'s own header names: this file crossed 1000 lines, and
+/// `cargo xtask max-lines` fails rather than warning. `#[cfg(feature = "postgres")]` on the
+/// declaration, not just on its contents, so an unused import in that file is not what a build
+/// without the feature discovers.
 #[cfg(feature = "postgres")]
-fn postgres_entry(alias: &str, posture: &str, extra: &str) -> String {
-    format!(
-        "  {alias}:\n    kind: \"postgres\"\n    host: \"127.0.0.1\"\n    port: 5432\n    database: \
-         \"warehouse\"\n    user: \"sutura\"\n    password_file: \"/nonexistent/sutura-test-postgres-password\"\n    \
-         transport_mode: \"plaintext\"\n    posture: \"{posture}\"\n{extra}"
-    )
-}
-
-/// The startup a `postgres` source produces, whichever way this binary was built.
-#[cfg(feature = "postgres")]
-fn opened_postgres(entries: &str) -> Result<OpenedSources, String> {
-    open_engine(
-        &bundle_over(&[("customers", "warehouse", "dim_customer")]),
-        &registry(entries),
-        one_worker(),
-        default_timeout(),
-        None,
-    )
-}
-
-#[test]
-#[cfg(feature = "postgres")]
-fn a_postgres_source_configured_to_impersonate_refuses_at_boot() {
-    // **The Postgres half of the cross-check the neighbouring
-    // `a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot` proves over the
-    // in-process engine.** `PostgresWarehouse::IMPERSONATION` is `NoPlaceForASubject` - one
-    // connection under the deployment's declared identity, with nowhere for a subject's own
-    // credential to arrive - and `build_postgres` runs this check BEFORE it reads `password_file` or
-    // dials anything, so the refusal is reachable with no server listening and no password file on
-    // disk.
-    //
-    // Until this cell existed, that ordering was proven for the engine and for BigQuery and asserted
-    // nowhere for this adapter - a Postgres entry declared `impersonation-at-source` had never been
-    // opened by a test at all.
-    let error = refusal(
-        opened_postgres(&postgres_entry("warehouse", "impersonation-at-source", wif())),
-        "an impersonating posture on an adapter with nowhere for a subject's credential to arrive must not start",
-    );
-    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-    assert!(
-        error.contains("per-subject credential"),
-        "the refusal must say what the adapter cannot do: {error}"
-    );
-    assert!(
-        error.contains("no fallback"),
-        "the refusal must say there is no fallback: {error}"
-    );
-    // NOT the neighbouring arms: the entry is declared, the build DOES link the adapter, and the
-    // check fires before the connection step would name the unreadable password file.
-    assert!(
-        !error.contains("--features postgres"),
-        "this build DID link the adapter: {error}"
-    );
-    assert!(
-        !error.contains("password_file"),
-        "the capability cross-check fires before the password file is read: {error}"
-    );
-}
+mod postgres;
 
 #[test]
 fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
@@ -418,10 +358,11 @@ fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
         "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
          \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
     );
-    let error =
-        sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
-            .expect_err("a bigquery source with no credential file is not a source this deployment can open");
-    let rendered = crate::flatten(error);
+    let error = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect_err("a bigquery source with no credential file is not a source this deployment can open");
+    let rendered = super::flatten(error);
     assert!(
         rendered.contains("credential_file"),
         "the refusal must name the key: {rendered}"

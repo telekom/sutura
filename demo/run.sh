@@ -141,7 +141,7 @@ export TOOL_SERVER_CONNECTIONS="[{\"type\": \"openapi\", \"url\": \"http://127.0
 printf 'sutura-demo: starting the server on 127.0.0.1:%s and the chat client on 127.0.0.1:%s\n' \
     "$sutura_port" "$webui_port" >&2
 
-/usr/local/bin/sutura-serve &
+/usr/local/bin/sutura serve &
 sutura_pid=$!
 
 # The chat client's own entrypoint, from its own working directory.

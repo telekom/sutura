@@ -370,7 +370,11 @@ pub(crate) fn recurring_revenue_by_region() -> String {
 /// same function `sutura_config` parses back - so a case cannot name an environment the binary
 /// would reject.
 pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sutura-serve"));
+    // `sutura`, not `sutura-serve` - `github.com/telekom/sutura#685` step 2 folded the standalone
+    // binary this suite used to spawn into `sutura serve`, so the argument is what routes to it
+    // now; `CARGO_BIN_EXE_sutura` is cargo's own env var for this crate's `[[bin]] name`.
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sutura"));
+    command.arg("serve");
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("SUTURA") {
             command.env_remove(key);
@@ -455,7 +459,7 @@ where
 ///
 /// **Unbounded, and that is the limit worth stating rather than hiding.** A reader returns at
 /// end-of-file, and a pipe reaches it when every writer is closed - so this is bounded by the reaped
-/// child being the only one, which it is because `sutura-serve` spawns no subprocess. A deployment
+/// child being the only one, which it is because `sutura serve` spawns no subprocess. A deployment
 /// that did fork one would hang here instead of losing a line, and no budget on this path would say
 /// so. Losing the line is the failure that was actually happening; a hang is at least loud.
 pub(crate) fn joined(readers: Vec<JoinHandle<()>>) {
@@ -692,7 +696,7 @@ impl Served {
     /// **Hand-written rather than a client crate, deliberately.** The alternative is `ureq`,
     /// which arrives with rustls and `ring`; `crane.buildDepsOnly` is unscoped so the four cross
     /// dependency derivations - two of them musl - would compile that closure for a binary that
-    /// links none of it, which is the same cost `sutura-serve`'s `bigquery` feature is
+    /// links none of it, which is the same cost `sutura-cli`'s `bigquery` feature is
     /// default-off to avoid. What is needed here is one plaintext loopback request with a fixed
     /// shape, so this is thirty lines and no dependency.
     ///

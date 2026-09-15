@@ -53,7 +53,7 @@ it costs; the two reasons it was absent are answered rather than repealed:
    `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
-So nothing here may be cited as an invariant. `sutura-serve` DOES link this adapter and dispatch
+So nothing here may be cited as an invariant. `sutura serve` DOES link this adapter and dispatch
 `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
 records the day the last *not wired* was spent. A default build links none of it, and
 the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
@@ -68,7 +68,7 @@ carried as a `Presented::SubjectToken` and sent as this job's bearer, so the dat
 the statement under whoever that token is. The `wire`'s own credential source stays for the
 shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-the composition root that links this adapter: `crates/sutura-serve/src/broker.rs` composes
+the composition root that links this adapter: `crates/sutura-cli/src/serve/broker.rs` composes
 `sts::WorkloadIdentityBroker` today - wired in serve, not proven live, the same limit
 `docs/adr/0018` states for it.
 
@@ -82,8 +82,9 @@ it replaced existed: a leg accepted here would be submitted under the transport'
 while provenance, read off this source's posture, reported the answer as impersonated.
 
 **What no version of this is:** a deployment where a served source executes as its asker.
-`sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
-that exchanges is attached to a served source yet - see that crate's `build_bigquery`.
+`sutura serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
+that exchanges is attached to a served source yet - see `sutura-cli`'s
+`crates/sutura-cli/src/serve/bigquery.rs`, `build_bigquery`.
 
 # Two things this adapter deliberately does not offer
 

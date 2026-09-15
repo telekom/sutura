@@ -255,7 +255,7 @@ broker exchanges for one, so the binary cannot host them at all.
 
 ### And on the composed binary, which is a different claim from any of the above
 
-`crates/sutura-serve/tests/served.rs` spawns the shipped binary over a settings file declaring
+`crates/sutura-cli/tests/served.rs` spawns the shipped binary over a settings file declaring
 `security.inbound`, with a key set this issuer published to a real path. Two tests, and what they add
 is not a signature check - that is the router's job above - but the **composition**:
 
@@ -371,8 +371,9 @@ about the vocabulary rather than to this row.
 subjects, every credential generated at `start` and written nowhere else - and
 `just keycloak-served-test` starts it, runs the one cell that needs it, and stops it whatever the
 cell does. Its own job in `.github/workflows/ci.yml`, gated on the `identity` category
-(`xtask/src/affected.rs`'s `IDENTITY_PATHS`, which now names `crates/sutura-serve/` and
-`nix/keycloak-tier` beside the inbound transport), rather than `just test`: the JVM boot is a cost
+(`xtask/src/affected.rs`'s `IDENTITY_PATHS`, which now names `crates/sutura-cli/src/serve/`,
+`crates/sutura-cli/tests/served` and `nix/keycloak-tier` beside the inbound transport), rather
+than `just test`: the JVM boot is a cost
 that suite should not pay on every push, the same tradeoff `nix/keycloak-tier.nix`'s own header
 states for why this tier is not (yet) in `checks.nextest`'s `preCheck`.
 
@@ -382,7 +383,7 @@ before this venue ran a real IdP's RS256 signature over its published JWKS throu
 binary. What runs here is exactly that: the binary has no HTTP client, so the JWKS reaches it only
 as the `key_set_file` its settings name - a document the TEST HARNESS fetched over HTTPS, trusting
 only the tier's CA, and wrote to scratch - and no discovery document is read by the binary at all.
-`crates/sutura-serve/tests/served/keycloak_test.rs`'s
+`crates/sutura-cli/tests/served/keycloak_test.rs`'s
 `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused` is
 the cell: a password-grant token for one provisioned subject is accepted with the right rows and a
 `verified` audit record, a token for the OTHER subject names a different subject in that record, and
@@ -461,7 +462,7 @@ withdrawn two-principal cell (`tests/two_principals.rs`, telekom/sutura#123) cou
 this claim even while it stood - and it is the half that separates impersonation from credential
 selection. The unrun test
 `each_principal_is_who_this_source_says_it_is_executing_as` is written to exchange a subject's own
-assertion through the composition `sutura-serve` ships and read `SESSION_USER()` back through the
+assertion through the composition `sutura serve` ships and read `SESSION_USER()` back through the
 adapter, asserting the account each leg became;
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.

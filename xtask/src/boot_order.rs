@@ -15,7 +15,9 @@
 //!
 //! Both composition roots carried the order as prose. `sutura-serve`'s said in so many words that the
 //! order was "a convention this line keeps", after review had disproved TWO earlier claims that a type
-//! held it - `Warehouses::of` is `pub`, and a `BigQueryWarehouse` is generic in its transport. What
+//! held it - `Warehouses::of` is `pub`, and a `BigQueryWarehouse` is generic in its transport
+//! (`sutura-serve` folded into `sutura-cli`'s `serve` module at `github.com/telekom/sutura#685` step
+//! 2, and the sentence moved with it). What
 //! survives of the type argument is one half: the `BigQuerySource` alias names a credential whose only
 //! public constructor reads a file, so no arrangement of that root can ask a dataset about a table
 //! before a credential was read. **Nothing at all held the second half**, and `AGENTS.md` is
@@ -82,10 +84,11 @@ use crate::serde_parse::scan::code_lines;
 /// The pre-flight's spelling, and the one needle both halves of this gate use.
 ///
 /// One constant rather than a field per root, and the honest reason is weaker than "one function":
-/// the two roots call the same NAME in two crates. There are two definitions, one in
-/// `sutura_serve::boot` and one in `sutura_cli::sources::bigquery`, each with its own body and its
-/// own suite, both delegating to `sutura_app::preflight::ask`, which is the actually-shared thing.
-/// `sutura_cli::sources` re-exports its OWN one, not the serve crate's.
+/// the two roots call the same NAME, now both in `sutura_cli` since `github.com/telekom/
+/// sutura#685` step 2 folded `sutura-serve` into it. There are two definitions, one in
+/// `sutura_cli::serve::boot` and one in `sutura_cli::sources::bigquery`, each with its own body and
+/// its own suite, both delegating to `sutura_app::preflight::ask`, which is the actually-shared
+/// thing. `sutura_cli::sources` re-exports its OWN one, not `serve`'s.
 ///
 /// So this constant rests on a naming convention rather than on a type, which is a more fragile
 /// property than it first reads and is exactly why the spelling limit below is stated: a caller is
@@ -130,7 +133,7 @@ struct Root {
 /// call. Nothing in this tree does, and no text scan could see it.
 const ROOTS: &[Root] = &[
     Root {
-        path: "crates/sutura-serve/src/main.rs",
+        path: "crates/sutura-cli/src/serve.rs",
         opens: "open_engine(",
         serves: "serve_until_stopped(",
         transport: "the HTTP listener",
@@ -269,8 +272,8 @@ fn no_caller_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Re
 ///
 /// A file that cannot be read is a failure and not a skip, because a scan that quietly shrank is how a
 /// third root goes unnoticed. Test code comes out by DECLARATION rather than by a name guess -
-/// `regions::scope` resolves `crates/sutura-serve/src/tests.rs` through the `#[cfg(test)] mod tests;`
-/// in its parent, which no rule about the file's own name can see.
+/// `regions::scope` resolves `crates/sutura-cli/src/serve/tests.rs` through the
+/// `#[cfg(test)] mod tests;` in its parent, which no rule about the file's own name can see.
 fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
     let mut callers = Vec::new();
     let mut count = 0_usize;
@@ -437,7 +440,7 @@ mod tests {
     };
 
     /// The HTTP root's path, which the fixture below stands in for.
-    const SERVE: &str = "crates/sutura-serve/src/main.rs";
+    const SERVE: &str = "crates/sutura-cli/src/serve.rs";
 
     /// A composition root in miniature, with every decoy the real ones have: the order stated in
     /// prose, the pre-flight named in a line comment AND in a block comment, a definition above the

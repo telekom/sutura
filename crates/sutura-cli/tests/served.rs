@@ -3,21 +3,23 @@
 //!
 //! **This is the only place in the repository where anything asks the SERVED deployment a
 //! question.** `github.com/telekom/sutura#117` is the measurement that says why it had to exist:
-//! `sutura-serve`'s twenty-one named tests are all startup refusals, `sutura_http::harness`
+//! `sutura-serve`'s twenty-one named tests (now `sutura serve`'s, folded in by
+//! `github.com/telekom/sutura#685` step 2) are all startup refusals, `sutura_http::harness`
 //! exercises the router in-crate over a fake service, and `crates/sutura-cli/tests/example.rs` runs
-//! the example through a different binary with a different composition and no HTTP at all. So every
-//! invariant that lives only on the composed path - the bearer gate, route governance, the generated
-//! document as SERVED, the refusal statuses out of a real transport - had no end-to-end evidence on
-//! any binary in any tier.
+//! the example through a different command with a different composition and no HTTP at all. So
+//! every invariant that lives only on the composed path - the bearer gate, route governance, the
+//! generated document as SERVED, the refusal statuses out of a real transport - had no end-to-end
+//! evidence on any command in any tier.
 //!
 //! # It spawns the binary, and that is not a shortcut
 //!
-//! `sutura-serve` is `[[bin]]` and nothing else: there is no library target, so an integration test
-//! cannot call `run` and a test that assembled its own router would be proving the router rather
-//! than the composition. `CARGO_BIN_EXE_sutura-serve` is the binary cargo just built from this
-//! crate's own `main.rs`, so what is under test is the REAL composition root - the same environment
-//! reading, the same layered settings, the same catalog load, the same anchor re-execution, the same
-//! `ServiceState`, the same router, the same listener - reached the only way a deployment reaches it.
+//! `sutura-cli` is `[[bin]]` and nothing else: there is no library target, so an integration test
+//! cannot call `serve::run` and a test that assembled its own router would be proving the router
+//! rather than the composition. `CARGO_BIN_EXE_sutura` is the binary cargo just built from this
+//! crate's own `main.rs`, invoked with `serve` as its first argument, so what is under test is the
+//! REAL composition root - the same environment reading, the same layered settings, the same
+//! catalog load, the same anchor re-execution, the same `ServiceState`, the same router, the same
+//! listener - reached the only way a deployment reaches it.
 //!
 //! # Why it can be a gate rather than a `nix run` app
 //!
@@ -835,7 +837,9 @@ mod tests {
     /// the joined log would be a test that passes on a scheduling accident.
     ///
     /// `contains` per line rather than equality, because the first line of a refusal reaches
-    /// standard error behind `main`'s own `sutura-serve: ` prefix.
+    /// standard error behind `commands::report`'s own `sutura: ` prefix - the same one every other
+    /// command's failure gets, since `github.com/telekom/sutura#685` step 2 folded this command's
+    /// own `sutura-serve: ` prefix away with the binary that used to print it.
     fn said_every_line_of(told: &[String], message: &str) {
         for expected in message.lines() {
             assert!(

@@ -5,7 +5,7 @@
 //! **Moved out of `tests/http_reader.rs` by issue #202's second PR, not written fresh.** That file's
 //! own `FakeServer`/`Scripted`/page builders were `mod tests`-private, which is exactly right for a
 //! `#[cfg(test)]`-only fake used by one crate - until a SECOND crate needed one too:
-//! `sutura-serve`'s own served-binary suite (`crates/sutura-serve/tests/served/datahub.rs`) wants a
+//! `sutura-cli`'s own served-binary suite (`crates/sutura-cli/tests/served/datahub.rs`) wants a
 //! real loopback DataHub server to boot a composed `catalog.kind: datahub` deployment against, and
 //! an integration test binary cannot see another crate's `tests/` directory at all - Rust does not
 //! expose one. The only way to share this fake is through the LIBRARY, which is what this module is.
@@ -13,7 +13,7 @@
 //! **`#[cfg(feature = "http")]`, not `#[cfg(test)]`.** A downstream crate's OWN test compilation is
 //! what needs to see this, and `#[cfg(test)]` on an item is private to the crate that sets it - it
 //! never crosses the dependency edge the way a feature does. That means this module compiles into
-//! any NON-test build with `--features http` too (`sutura-serve --features datahub`, in particular)
+//! any NON-test build with `--features http` too (`sutura-cli --features datahub`, in particular)
 //! - dead code there, never called by production composition, but real object code in a shipped
 //! binary. **Stated rather than hidden:** `.agents/skills/sutura/crate-map/SKILL.md`'s "why a
 //! networked adapter hides behind a default-off feature" argument is about the DEPENDENCY EDGE the
@@ -28,7 +28,7 @@
     clippy::indexing_slicing,
     clippy::too_long_first_doc_paragraph,
     reason = "test-support: a fake server and scripted wire pages shared by this crate's own tests \
-              and sutura-serve's served-binary suite. The module is NOT #[cfg(test)] - integration \
+              and sutura-cli's served-binary suite. The module is NOT #[cfg(test)] - integration \
               tests build the library with cfg(test)=false, so it must compile like production code - \
               but its panics, expects and slices are how a test asserts invariants, so the \
               production-code restriction lints it triggers are scoped out here and nowhere else."

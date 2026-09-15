@@ -77,7 +77,7 @@ rewritten here rather than deleted - what it was protecting is the list of limit
 non-optional in both shipped binaries, so a `sutura-serve` with one `files` entry per data system
 answers a two-source question - measured on the composed binary by
 `a_served_deployment_answers_a_question_spanning_two_sources`
-(`crates/sutura-serve/tests/served.rs`), which pins the grouped figures, their sum against the
+(`crates/sutura-cli/tests/served.rs`), which pins the grouped figures, their sum against the
 certified ungrouped one, and both legs' recorded postures. Above it,
 `crates/sutura-app/tests/differential/federated.rs` compares the real splitter plus two real
 executions plus the combiner against the same questions answered whole by one engine, in TWO

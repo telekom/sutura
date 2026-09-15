@@ -56,11 +56,17 @@ const IDENTITY_PATHS: &[&str] = &[
     // Added for `just keycloak-served-test`: the composed binary's own leg-1 e2e suite and the
     // tier it now needs. Before this, a path here matched no category and fell open
     // to `core` - which still ran every category-gated leg, just more of them than the diff
-    // touched. NARROWS that: a `sutura-serve` or `keycloak-tier` change now selects `identity`
+    // touched. NARROWS that: a `sutura serve` or `keycloak-tier` change now selects `identity`
     // specifically rather than everything, which is the precision this leg's own JVM-boot cost
     // asks for - it should not run on, say, a BigQuery-only diff, and under the old fail-open it
     // did not need to (nothing gated on it existed yet).
-    "crates/sutura-serve/",
+    //
+    // TWO entries rather than the one `crates/sutura-serve/` used to be, since `github.com/
+    // telekom/sutura#685` step 2 folded that crate into `sutura-cli`, which also holds code this
+    // category has no reason to select on: the composition itself is `src/serve/`, and its own
+    // e2e suite is under `tests/served`, both narrower than the whole crate the old entry named.
+    "crates/sutura-cli/src/serve/",
+    "crates/sutura-cli/tests/served",
     "nix/keycloak-tier",
 ];
 
@@ -407,7 +413,7 @@ mod tests {
 
     #[test]
     fn a_serve_or_keycloak_tier_change_selects_identity_not_core() {
-        for path in ["crates/sutura-serve/src/x.rs", "nix/keycloak-tier.nix"] {
+        for path in ["crates/sutura-cli/src/serve/x.rs", "nix/keycloak-tier.nix"] {
             let cats = selected(&[path]);
             assert!(!cats.core, "{path} must not fall open to core - it names the identity tier");
             assert!(cats.needs("identity"), "{path} must select identity");

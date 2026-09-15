@@ -129,7 +129,7 @@ const FORBIDDEN: &[Forbidden] = &[
         instead: "--all-targets --all-features -- -D warnings",
         why: "the flag went into every entry point while it was still a no-op, which is the \
               cheapest time to do it. It is load-bearing now: `sutura-config`, `sutura-http` and \
-              `sutura-serve` each declare `tls`, so an entry point missing the flag lints and \
+              `sutura-cli` each declare `tls`, so an entry point missing the flag lints and \
               tests nothing behind it",
         only: &[],
         except: &[".agents/skills/engineering/rust/SKILL.md"],

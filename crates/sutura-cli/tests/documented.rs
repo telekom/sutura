@@ -50,7 +50,7 @@
 //! **The other limits, next to the claim.** `SKIPPED` is `sutura mcp`, which speaks a protocol on
 //! its own pipes and would block on this harness's stdin; a `sutura-serve` invocation and a `curl`
 //! are not invocations of this binary and are not read here at all -
-//! `crates/sutura-serve/tests/served.rs` is their venue. An invocation that SETS an environment
+//! `crates/sutura-cli/tests/served.rs` is their venue. An invocation that SETS an environment
 //! variable is refused rather than run, because `run` strips every `SUTURA*` variable and adds
 //! none, so this harness cannot be the deployment such a line describes. And the subcommand names
 //! are DERIVED from the listing the binary prints with no arguments, so a rename is red here rather

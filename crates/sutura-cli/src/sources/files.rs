@@ -30,7 +30,7 @@ pub(super) type OpenedFiles = (sutura_app::Warehouses<DataFusionWarehouse>, BTre
 /// `sutura query <catalog-dir> <question.yaml> <data-dir>`, which `README.md` and
 /// `docs/getting-started.md` both print - names the same directory an operator's own
 /// `sources.local.data_dir` would; refusing it made the documented command fail for anybody who also
-/// runs `sutura-serve` and therefore has `SUTURA_CONFIG_DIR` exported. So two answers that AGREE are
+/// runs `crate::serve` and therefore has `SUTURA_CONFIG_DIR` exported. So two answers that AGREE are
 /// one answer, and only a genuine disagreement is refused.
 ///
 /// **Canonicalised where the filesystem allows it, compared literally where it does not.** A
@@ -114,7 +114,7 @@ pub(super) fn from_the_built_in_declaration(
 /// can carry a per-subject credential at all is a property of the build, and the settings tree cannot
 /// see which adapters were compiled in. `SourcePosture::deliverable_by` is the one function that
 /// compares them, and it is called against THIS adapter's own constant - the same call
-/// `sutura-serve`'s `build_engine` makes.
+/// `crate::serve`'s `build_engine` makes.
 ///
 /// **The table set comes back because it is evidence rather than bookkeeping.** [`sutura_app::preflight::refuse_unattached`]
 /// compares it against the bundle a service re-loads, and the two bundles are two loads.
@@ -153,7 +153,7 @@ pub(super) fn open(
             ));
         }
         attach(&engine, model.name(), model.table_name(), data)?;
-        // Collected AFTER the successful attach, like `sutura-serve`'s `open_files`: `attach` fails
+        // Collected AFTER the successful attach, like `crate::serve`'s `open_files`: `attach` fails
         // the command on a missing file, so this set is what the engine holds rather than what was
         // asked for.
         attached.insert(model.table_name().clone());
@@ -292,7 +292,7 @@ mod tests {
     fn a_declared_directory_and_the_same_one_on_the_command_line_is_one_answer() {
         // **The quickstart, reproduced.** `sutura query <catalog-dir> <question.yaml> <data-dir>` is
         // the line `README.md` and `docs/getting-started.md` both print, and an operator who also
-        // runs `sutura-serve` has `SUTURA_CONFIG_DIR` exported - so refusing the documented command
+        // runs `crate::serve` has `SUTURA_CONFIG_DIR` exported - so refusing the documented command
         // for having a configuration directory was a real regression, found by review. Two answers
         // that AGREE are one answer.
         let opened = files_of(
