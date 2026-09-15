@@ -905,6 +905,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-provisioned-keycloak-realm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A provisioned Keycloak realm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A provisioned Keycloak realm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run, and this is the row that matters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-dataset-under-a-shared-key" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3011,6 +3039,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-provisioned-keycloak-realm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A provisioned Keycloak realm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="A provisioned Keycloak realm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it cannot answer - read this before citing a green run, and this is the row that matters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#a-real-dataset-under-a-shared-key" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3265,6 +3321,12 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <td><code>just test</code>, <code>just validate</code></td>
 </tr>
 <tr>
+<td><strong>A provisioned Keycloak realm</strong></td>
+<td>in process, on the paths that touch it - a JVM the tier boots inside the job</td>
+<td>nothing - no secret and no docker; <code>nix/keycloak-tier.nix</code> says so in its own header</td>
+<td><code>just keycloak-served-test</code></td>
+</tr>
+<tr>
 <td><strong>A real dataset under a shared key</strong></td>
 <td>a GitHub environment, on demand</td>
 <td>a service-account key and a billing project</td>
@@ -3310,6 +3372,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <th>Fake at the port</th>
 <th>Mock issuer</th>
 <th>Provisioned Postgres</th>
+<th>Provisioned Keycloak</th>
 <th>Real dataset, shared key</th>
 <th>Real provider</th>
 <th>Real exchange</th>
@@ -3324,10 +3387,12 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>A caller cannot state its own identity</td>
 <td><strong>yes</strong> (a type with no <code>Deserialize</code>)</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3340,6 +3405,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong></td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3347,6 +3413,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><code>kid</code> selection, and an unknown key id</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
@@ -3358,6 +3425,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong></td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3365,6 +3433,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Issuer, audience against this deployment's own resource identifier, expiry, <code>nbf</code></td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
@@ -3376,6 +3445,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>can</strong> - the builder takes several audiences; the standing test is at the gate</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3383,6 +3453,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Token class: an ID token where an access token is required</td>
 <td>-</td>
 <td><strong>yes</strong>, that <em>we refuse one</em></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below</td>
@@ -3394,6 +3465,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>can</strong> - the builder takes <code>iat</code> and <code>exp</code> separately for exactly this; the standing test is at the gate, over in-crate fixtures</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3401,6 +3473,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>Key rotation: a removed key stops verifying within the bound</td>
 <td>-</td>
 <td><strong>yes</strong>, and it is the only venue where a rotation is scriptable</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>redundant - painful to script there, and the mock issuer is the only scriptable venue</td>
@@ -3414,11 +3487,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td><code>credential_unavailable</code> through the request path</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3432,10 +3507,12 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The RFC 8693 request document a broker sends</td>
 <td><strong>yes</strong>, against a fake exchange</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3449,12 +3526,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 </tr>
 <tr>
 <td>A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3466,6 +3545,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong>, on the spawned binary</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
 <td>-</td>
 </tr>
@@ -3475,7 +3555,18 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong>, on the spawned binary - the only venue that can see it</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 <td>redundant</td>
+<td>-</td>
+</tr>
+<tr>
+<td><strong>A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question</strong></td>
+<td>-</td>
+<td>no - it cannot generate an RSA key, so it is not a real provider for this claim either</td>
+<td>-</td>
+<td><strong>yes</strong></td>
+<td>-</td>
+<td>-</td>
 <td>-</td>
 </tr>
 <tr>
@@ -3483,6 +3574,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td><strong>no - and a mock answers <em>yes</em> by construction, which is worse than no test</strong></td>
 <td>no</td>
+<td>no - the tier mints an audience for its OWN client, never a browser-delegated third party's</td>
 <td>no</td>
 <td><strong>only here</strong></td>
 <td>no</td>
@@ -3492,12 +3584,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td><strong>yes</strong></td>
 <td>-</td>
 <td>-</td>
 </tr>
 <tr>
 <td>Whether a token exchange endpoint accepts what we send it</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3510,6 +3604,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td>no</td>
 <td>no - the adapter is <code>NoPlaceForASubject</code>, so there is no per-subject credential to obtain</td>
+<td>-</td>
 <td>no - one key is one identity</td>
 <td>no</td>
 <td><strong>unrun</strong> - the standing test is here and nothing has run it</td>
@@ -3519,6 +3614,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td>no</td>
 <td>no - one database role is one identity</td>
+<td>-</td>
 <td>no - one key is one identity</td>
 <td>no</td>
 <td>no - trusted to the data system, not re-verified by sutura (telekom/sutura#123)</td>
@@ -3528,6 +3624,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td>no</td>
 <td>no - the connection presents a password or a certificate, never a subject's bearer</td>
+<td>-</td>
 <td>no - one key is one identity, and it is the transport's own</td>
 <td>no</td>
 <td>no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123)</td>
@@ -3537,6 +3634,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - the adapter declares <code>ImpersonationCapability::NoPlaceForASubject</code> and <code>deliverable_by</code> holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove</td>
 <td>no</td>
 <td>no - the same boot refusal applies before this venue is ever reached</td>
+<td>-</td>
 <td>no - a different data system</td>
 <td>no</td>
 <td>no - a different data system</td>
@@ -3549,12 +3647,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none</td>
 <td>-</td>
 <td>-</td>
 <td><strong>only here</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3728,6 +3828,49 @@ about the vocabulary rather than to this row.</p>
 <li><strong>Whether the anchors an OPERATOR names are the right ones.</strong> The tier generates its own issuer
    and the test declares it, so what is proved is that a declared store decides the outcome - never
    that a deployment's store names the authority it meant.</li>
+</ol>
+<h2 id="a-provisioned-keycloak-realm">A provisioned Keycloak realm<a class="headerlink" href="#a-provisioned-keycloak-realm" title="Permanent link">&para;</a></h2>
+<p><code>nix/keycloak-tier.nix</code> stands up a real Keycloak - a realm, one confidential client and two
+subjects, every credential generated at <code>start</code> and written nowhere else - and
+<code>just keycloak-served-test</code> starts it, runs the one cell that needs it, and stops it whatever the
+cell does. Its own job in <code>.github/workflows/ci.yml</code>, gated on the <code>identity</code> category
+(<code>xtask/src/affected.rs</code>'s <code>IDENTITY_PATHS</code>, which now names <code>crates/sutura-serve/</code> and
+<code>nix/keycloak-tier</code> beside the inbound transport), rather than <code>just test</code>: the JVM boot is a cost
+that suite should not pay on every push, the same tradeoff <code>nix/keycloak-tier.nix</code>'s own header
+states for why this tier is not (yet) in <code>checks.nextest</code>'s <code>preCheck</code>.</p>
+<p><strong>What only this venue can answer, and it is one claim.</strong> The mock issuer generates no RSA key by
+deliberate design (<code>docs/where-identity-is-proven.md</code>'s own mock-issuer section says so), so nothing
+before this venue ran a real IdP's RS256 signature over its published JWKS through the composed
+binary. What runs here is exactly that: the binary has no HTTP client, so the JWKS reaches it only
+as the <code>key_set_file</code> its settings name - a document the TEST HARNESS fetched over HTTPS, trusting
+only the tier's CA, and wrote to scratch - and no discovery document is read by the binary at all.
+<code>crates/sutura-serve/tests/served.rs</code>'s
+<code>a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused</code> is
+the cell: a password-grant token for one provisioned subject is accepted with the right rows and a
+<code>verified</code> audit record, a token for the OTHER subject names a different subject in that record, and
+the same valid token is refused at a deployment declaring a different audience. So this row says
+<strong>yes</strong>, moved from <code>wired</code> on 2026-09-15 by the hosted run of PR #751, whose <code>keycloak-served-test</code>
+job concluded <code>success</code> (run
+https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042).</p>
+<h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters">What it cannot answer - read this before citing a green run, and this is the row that matters<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Issue #105's own question.</strong> #105 asks whether an enterprise IdP will mint an ID token whose
+   <code>aud</code> is accepted by a THIRD PARTY (Google STS, via a delegation flow at a human's own sign-in) -
+   this tier provisions one client and a password grant, nothing that resembles a browser-based
+   delegation flow or a second registered resource-server client. The audience this cell's
+   deployment declares is whatever Keycloak's own client scopes minted for <code>sutura-dev-cli</code>,
+   <strong>read off the token rather than asserted</strong> - that is a real provider's own audience for its own
+   client, not a third party's, and #105's row above stays <code>no</code> here.</li>
+<li><strong>Two subjects reading two row sets.</strong> Same exclusion as the Postgres venue above: this
+   deployment reads its fixture files under one shared identity whoever asks.</li>
+<li><strong>Anything about leg 2.</strong> No data system's own grant is involved; the claim is entirely about
+   leg 1 verifying a real signature.</li>
+<li><strong>The RFC 9068 token-class check does not apply here.</strong> This realm's password-grant token
+   carries <code>typ: JWT</code>, so the fixture's settings declare <code>token_type: "any"</code> rather than the
+   <code>at+jwt</code> default - what verifies is a real signature and a real key set, not that this
+   deployment's own class-check also applies to a provider that does not mint RFC 9068's class by
+   default. That is fixture-only: the diff touches no <code>sutura-config</code> code, so no production
+   default moves.</li>
 </ol>
 <h2 id="a-real-dataset-under-a-shared-key">A real dataset under a shared key<a class="headerlink" href="#a-real-dataset-under-a-shared-key" title="Permanent link">&para;</a></h2>
 <p><code>just bigquery-acceptance</code>, against a GitHub environment's own dataset. <code>docs/adr/0017</code> and
