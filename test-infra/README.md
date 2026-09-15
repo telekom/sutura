@@ -25,7 +25,22 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   broker that performs sutura's exchange (`StsOverHttp`) sends an RFC 8693 `jwt` subject
   token, which is exactly the shape workload-pool OIDC providers accept (and workforce pools
   do not). The exported `workload_audience` is what a deployment declares as
-  `sources.<alias>.workload_identity.audience`.
+  `sources.<alias>.workload_identity.audience`;
+- two `roles/iam.workloadIdentityUser` bindings, one per principal, granting each principal's
+  pool subject the right to impersonate its own service account. That binding is what turns the
+  STS-exchanged credential from a federated `principal://.../subject/...` into the service
+  account's own identity: without it an `iamcredentials.generateAccessToken` hop is refused and
+  `SESSION_USER()` keeps reading the federated subject, never the principal's account the
+  exchanged-identity cell asserts against. Each member is keyed by that principal's own account
+  id (`unique_id`) - the `sub` its minted id_token carries and hence the pool subject it resolves
+  to - so a principal can impersonate only itself.
+
+`workload_audience` carries the project **number**, not the project id: STS's own `audience`
+request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to
+`[workload_audience]` - the pool's own audience, matching the `aud` sutura's broker mints - so a
+stack that never sets it still accepts sutura's tokens; a configured list only adds audiences on
+top (and gets the default appended if it omits it). This changed `workload_audience`'s shape, so a
+stack that already ran `infra-set` under the old (broken) value must run it again after `infra-up`.
 
 ## Setup (one time, per developer or CI)
 
@@ -64,14 +79,52 @@ written into this repository. Everything that runs in this project afterwards - 
 preview`, `pulumi up` - runs as the ADC principal, so it can only create the resources that
 principal is allowed to create.
 
-## No pulumi cloud: the local file backend
+## Pulumi Cloud backend
 
-`preview`/`up` never talk to pulumi's cloud or a remote bucket. The state backbone is a
-**`file://` URL** the justfile sets (`PULUMI_BACKEND_URL` → `<project>/.pulumi`, gitignored)
-and stack-secrets are encrypted by a **`PULUMI_CONFIG_PASSPHRASE`** held in the machine's
-`~/.config/sutura/env.sh`. Both are refused loudly when unset. `--local` as a CLI flag does
-not exist on the pinned pulumi, which is why the backend travels as an environment variable
-rather than a flag.
+Pulumi Cloud is the default backend for a maintainer: `just infra-preview` / `infra-up` /
+`infra-down` / `infra-set` honour an already-set `PULUMI_BACKEND_URL` before falling back to
+the local file backend below, and the machine's `~/.config/sutura/env.sh` is where that lives -
+not committed, not this file. Two exports there select it:
+
+```sh
+export PULUMI_BACKEND_URL=https://api.pulumi.com
+export SUTURA_PULUMI_STACK=<org>/<stack>   # e.g. your Pulumi Cloud org and a stack name
+```
+
+The CLI's own login supplies the token, so nothing else is needed in the env file:
+
+```sh
+pulumi login                          # once per machine; opens the Pulumi Cloud device flow
+pulumi stack init <org>/<stack>       # once per stack; never a real org/stack name in this repo
+```
+
+**Why cloud is the default, not the file backend below**: a worktree's `test-infra/pulumi/google/.pulumi/`
+is EMPTY by construction - it is gitignored, so every worktree (and every clean clone) starts
+with no state at all. That is exactly how a maintainer's file-backend state went missing while
+the cloud resources it described kept existing: the state lived only on one machine, in a
+directory nothing replicates. A Pulumi Cloud stack keeps the state itself, so a new worktree or
+machine still finds it.
+
+Adopting resources a lost file-backend state left behind, into a fresh cloud stack, is what
+`test-infra/pulumi/google/import-existing.sh` is for - run it once, after `stack init` and after
+the stack is configured from the environment (`just infra-preview` runs `config-from-env.sh`
+first), and before the first `up`:
+
+```sh
+just infra-preview            # configures the stack from SUTURA_GOOGLE_* and fails fast if incomplete
+bash test-infra/pulumi/google/import-existing.sh
+just infra-preview            # should now show only genuinely new resources, not replacements
+```
+
+## The local file backend (fallback, no Pulumi Cloud account)
+
+`preview`/`up` fall back to a local backend when `PULUMI_BACKEND_URL` is unset. The state
+backbone is then a **`file://` URL** the justfile sets (`PULUMI_BACKEND_URL` → `<project>/.pulumi`,
+gitignored) and stack-secrets are encrypted by a **`PULUMI_CONFIG_PASSPHRASE`** held in the
+machine's `~/.config/sutura/env.sh`. Both are refused loudly when unset in this mode - a cloud
+stack needs neither, since Pulumi Cloud manages its own stack secrets under the CLI's login
+credential. `--local` as a CLI flag does not exist on the pinned pulumi, which is why the
+backend travels as an environment variable rather than a flag.
 
 **Provisioning is an operator step, not CI.** The stack is applied once on a developer machine
 (`just infra-up`, as the operator's gcloud ADC); no CI job provisions, previews or destroys
