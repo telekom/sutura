@@ -663,6 +663,8 @@ macro_rules! registered {
                 ("BQ_SELECTED", ""),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", ""),
+                ("EDH_RESULT", "skipped"),
+                ("EDH_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -685,6 +687,8 @@ macro_rules! registered {
                 ("BQ_SELECTED", "true"),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", ""),
+                ("EDH_RESULT", "skipped"),
+                ("EDH_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -706,6 +710,8 @@ macro_rules! registered {
                 ("BQ_SELECTED", ""),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", "true"),
+                ("EDH_RESULT", "skipped"),
+                ("EDH_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -725,11 +731,37 @@ macro_rules! registered {
                 ("BQ_SELECTED", "true"),
                 ("KC_RESULT", "success"),
                 ("KC_SELECTED", "true"),
+                ("EDH_RESULT", "success"),
+                ("EDH_SELECTED", "true"),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
             ]);
             assert!(ok, "a clean run must aggregate GREEN, got: {text}");
+        }
+
+        #[test]
+        fn a_selected_but_skipped_wave_one_leg_is_still_red() {
+            // The same #135 rule, over `e2e-datahub-bigquery`: it reads the `bq-test` secret, so it
+            // carries the same fork event exception as `bigquery-acceptance` - but on a push (which
+            // can reach the secret) a category-selected, skipped leg must fail red, not disappear.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
+                ("EDH_RESULT", "skipped"),
+                ("EDH_SELECTED", "true"),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
+            assert!(
+                text.contains("e2e-datahub-bigquery must run"),
+                "the verdict should name the required-but-skipped leg: {text}"
+            );
         }
     }
 }

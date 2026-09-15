@@ -281,7 +281,7 @@ pub(super) fn states_fork_rule(condition: &str) -> bool {
         .and_then(|rest| rest.strip_suffix("}}"))
         .unwrap_or(trimmed);
     let mut stated = false;
-    for disjunct in expression.split("||") {
+    for disjunct in top_level_or(expression) {
         match disjunct.find(FORK_RULE) {
             // A `!` anywhere in front of the rule that applies TO it states the rule backwards.
             Some(at) => {
@@ -290,11 +290,77 @@ pub(super) fn states_fork_rule(condition: &str) -> bool {
                 }
                 stated = true;
             }
-            None if cannot_be_a_fork(disjunct) => {}
+            None if cannot_be_a_fork(&disjunct) => {}
             None => return false,
         }
     }
     stated
+}
+
+/// Splits a boolean condition on `||` where it is a top-level OR - outside any `(...)` group.
+///
+/// A categorized job conjoins its who-may-run rule with a `(data_source_bigquery == 'true' ||
+/// identity == 'true' || ...)` category selector through `&&`; a blind split would take each
+/// category test for a top-level disjunct and refuse a job whose non-rule "branches" are category
+/// selectors rather than event-name equalities - a correct job refused is the direction that gets a
+/// gate deleted. Parens are the machine's own grouping, so the `||` inside them is not a branch of
+/// the outer OR, and the existing welcomes (an event-name equality, the fork rule itself) still
+/// hold for every true top-level branch. Quote-aware so a literal in a compare is never read as an
+/// open paren.
+fn top_level_or(expression: &str) -> impl Iterator<Item = String> {
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut depth = 0u32;
+    let mut quote: Option<char> = None;
+    let mut prev_pipe = false;
+    for ch in expression.chars() {
+        if let Some(q) = quote {
+            buf.push(ch);
+            if ch == q {
+                quote = None;
+            }
+            prev_pipe = false;
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            quote = Some(ch);
+            buf.push(ch);
+            prev_pipe = false;
+            continue;
+        }
+        if ch == '(' {
+            depth += 1;
+            buf.push(ch);
+            prev_pipe = false;
+            continue;
+        }
+        if ch == ')' {
+            depth = depth.saturating_sub(1);
+            buf.push(ch);
+            prev_pipe = false;
+            continue;
+        }
+        if ch == '|' {
+            if prev_pipe && depth == 0 {
+                // The `||` closes a top-level branch: drop the first `|` already buffered and
+                // flush the branch. At depth > 0 the pair is a category selector's own `||` and
+                // stays part of the buffer.
+                buf.pop();
+                parts.push(std::mem::take(&mut buf));
+                prev_pipe = false;
+            } else {
+                buf.push(ch);
+                prev_pipe = true;
+            }
+            continue;
+        }
+        buf.push(ch);
+        prev_pipe = false;
+    }
+    if !buf.is_empty() || prev_pipe {
+        parts.push(buf);
+    }
+    parts.into_iter()
 }
 
 /// Can a fork's pull request satisfy this branch of the condition on its own?
@@ -572,6 +638,30 @@ mod tests {
             format!("github.event_name == 'push' || {FORK_RULE}"),
         ] {
             assert!(states_fork_rule(&stated), "{stated}");
+        }
+    }
+
+    #[test]
+    fn a_category_selector_conjoined_with_the_rule_is_accepted() {
+        // The wave-one E2E job's real shape: a who-may-run half (a push or the fork rule, ruling
+        // out a fork's dependabot pull request) conjoined via `&&` with a parenthesised category
+        // selector. The rule is stated once and not negated, and the category `||`s live INSIDE a
+        // `(...)` group - so they are the selector, not extra top-level branches a fork could lean
+        // on. A blind top-level split took each category test for a disjunct and refused a correct
+        // job.
+        let real = format!(
+            "(github.event_name == 'push' || ({FORK_RULE} && github.event.pull_request.user.login != 'dependabot[bot]')) && \
+             (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.identity == 'true' || needs.ci.outputs.catalog_datahub == 'true')"
+        );
+        assert!(states_fork_rule(&real), "{real}");
+
+        // A fork-satisfiable event must still be refused beside a correct categorized rule: `||`
+        // makes its own branch sufficient, so it would run on every fork with the secret in scope.
+        for widened in [
+            format!("({FORK_RULE} && needs.ci.outputs.identity == 'true') || github.event_name == 'pull_request'"),
+            format!("{FORK_RULE} || needs.ci.outputs.identity == 'true'"),
+        ] {
+            assert!(!states_fork_rule(&widened), "{widened}");
         }
     }
 

@@ -20,8 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::shape::{
     FORK_RULE, Source, bigquery_mint_out, configures_tracing, dispatch_condition, dispatch_only, downgrades_failure, emits_file,
-    env_name_shaped, exits_non_zero, keyed_block, named_under_runner_temp, prints, removes, states_fork_rule, step_key, traces,
-    waits_for, writes_under_runner_temp,
+    env_name_shaped, exits_non_zero, job as job_block, keyed_block, named_under_runner_temp, prints, removes, states_fork_rule,
+    step_key, traces, waits_for, writes_under_runner_temp,
 };
 
 /// The job this one waits for, so a cloud request is not spent on a tree the lints refuse.
@@ -58,7 +58,7 @@ pub(super) const GUARD_WINDOW: usize = 6;
 ///
 /// The four properties that decide whether the leg happens at all under an identity that could see
 /// the key - so a wrong answer here is not a weaker gate, it is a green run that proves nothing.
-pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str]) -> Vec<String> {
+pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str], scanned: &[&str]) -> Vec<String> {
     let mut problems = Vec::new();
     // A `workflow_dispatch`-only file cannot be reached by a fork or a push, so the two event-
     // driven halves below (`needs: [ci]`, the fork-rule condition) do not apply to it: GitHub
@@ -102,11 +102,30 @@ pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str])
                         .is_some_and(|value| value.trim() == name)
                 })
                 .count();
-            if holders > 1 {
+            // Two acceptance-scanned jobs MAY share one environment: each of them answers every
+            // property this scan holds, so the exclusivity concern - a second holder invisible to
+            // the scan - does not apply to a holder that is itself one of `scanned`'s jobs. What is
+            // counted as a problem is a holder that ISN'T scanned: it holds the same secret while
+            // answering none of the properties here.
+            let scanned_holding = scanned
+                .iter()
+                .filter(|other| {
+                    job_block(text, other).is_some_and(|b| {
+                        b.iter().any(|line| {
+                            step_key(line)
+                                .strip_prefix("environment:")
+                                .is_some_and(|value| value.trim() == name)
+                        })
+                    })
+                })
+                .count();
+            if holders.saturating_sub(scanned_holding) > 0 {
                 problems.push(format!(
-                    "{workflow}: {holders} jobs declare `environment: {name}` - every one of them \
-                     can read that environment's secret, and the properties here are asserted of \
-                     `{job}` alone. A second holder is a second answer to who may see the key"
+                    "{workflow}: {invisible} job(s) hold `environment: {name}` without earning the \
+                     acceptance scan - every one of them can read that environment's secret while \
+                     the properties here are asserted of `{job}` alone. A holder outside the scan \
+                     is a second answer to who may see the key",
+                    invisible = holders.saturating_sub(scanned_holding),
                 ));
             }
         }

@@ -329,11 +329,15 @@ services:
   #   * **No `neo4j`.** `GRAPH_SERVICE_IMPL: elasticsearch` means the graph lives in `OpenSearch`, so
   #     the `NEO4J_*` keys upstream sets are read by nothing on this configuration and are not
   #     written here.
-  #   * **`METADATA_SERVICE_AUTH_ENABLED: "false"`, as upstream's quickstart has it - and that is a
-  #     STATED LIMIT rather than a convenience.** A real reader carries a personal access token as a
-  #     bearer, so what this tier can prove is the read path and the decoding, and NOT that the
-  #     adapter authenticates. A tier that proved the second would have to mint a token through the
-  #     token service, and nothing reads one yet.
+  #   * **`METADATA_SERVICE_AUTH_ENABLED: "true"` so the wave-one E2E's real reader can carry a
+  #     minted PAT, where upstream's quickstart defaults to `"false"`.** That was once a STATED LIMIT
+  #     ("a real reader carries a personal access token as a bearer, so what this tier can prove is
+  #     the read path and the decoding, and NOT that the adapter authenticates") - and it stayed true
+  #     until the wave-one E2E's tier mode minted one through the token service. `just e2e-datahub-
+  #     bigquery --datahub tier` authenticates as the seeded admin and mints a real PAT; the limit
+  #     that REMAINS is that `datahub-acceptance`'s unauthenticated cells had to start presenting the
+  #     same PAT (confirmed against a live tier by the lane landing that), and that this is still a
+  #     single-node tier with generated secrets, not a production DataHub.
   #
   # ## Why it is behind a profile, where `clickhouse` is not
   #
@@ -471,9 +475,17 @@ services:
     environment:
       <<: *datahub-backend-environment
       DATAHUB_SERVER_TYPE: quickstart
-      # No token, and the note at the head of this block says what that costs: a real reader sends a
-      # personal access token as a bearer, so this tier proves the read path and NOT the auth half.
-      METADATA_SERVICE_AUTH_ENABLED: "false"
+      # Auth is ON so the wave-one E2E's real reader can carry a minted PAT as a bearer - the same
+      # gap `datahub-acceptance`'s header once named ("a tier that proved the second would have to
+      # mint a token through the token service, and nothing reads one yet"). `just e2e-datahub-
+      # bigquery --datahub tier` now DOES read one: it authenticates as the seeded `datahub` admin
+      # (the quickstart's default; overridable via SUTURA_DATAHUB_ADMIN_* on the tier) and mints a
+      # personal-access token, written to a generated token_file, never committed. The unauthenticated
+      # `datahub-acceptance` cells that used to hit the OpenAPI surface without a bearer must present
+      # the same minted PAT - confirmed against a live tier by the lane that lands this, because the
+      # exact admin-seed shape of this tier is measured there, not read from a spec.
+      METADATA_SERVICE_AUTH_ENABLED: "true"
+      AUTH_POLICIES_ENABLED: "true"
       MAE_CONSUMER_ENABLED: "true"
       MCE_CONSUMER_ENABLED: "true"
       PE_CONSUMER_ENABLED: "true"

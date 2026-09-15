@@ -872,12 +872,16 @@
               mode="$*"
             fi
             case "$mode" in
-              "--datahub fake") ;;
+              "--datahub fake")
+                export SUTURA_E2E_DATAHUB_MODE=fake ;;
               "--datahub tier")
-                echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
-                echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
-                exit 1 ;;
-              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+                export SUTURA_E2E_DATAHUB_MODE=tier
+                echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
+                echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under"
+                echo "e2e-datahub-bigquery: the deployment's structured property, mints a real PAT (never committed),"
+                echo "e2e-datahub-bigquery: and points the served binary's HTTP AspectReader at it. Fail-not-skip."
+                cargo run -q -p xtask -- dev-up --with datahub ;;
+              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
             esac
 
             ${cargoLinkEnv}

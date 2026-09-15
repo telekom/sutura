@@ -179,11 +179,29 @@ pub(super) const EXCHANGED_WORKFLOW: &str = ".github/workflows/bigquery-exchange
 /// The job in that file.
 pub(super) const EXCHANGED_JOB: &str = "bigquery-exchanged-identity";
 
+/// The wave-one E2E's own job (`telekom/sutura#766`), which places the SAME `svc_suturua_bq_ci`
+/// credential outside the checkout as `bigquery-acceptance` does, so it earns the same scan - a
+/// discipline measured on one job and silently copied into another is the drift this gate exists
+/// to refuse. Every property this gate holds (who may run it, where the credential goes, unset
+/// configuration stopping it, one credential mechanism, nothing on a printing line) is read off
+/// this job exactly as off the acceptance job.
+pub(super) const E2E_JOB: &str = "e2e-datahub-bigquery";
+
 /// Every `(workflow, job)` that must hold the acceptance venue's discipline, read off in the
 /// caller's loop. The second pair is `workflow_dispatch`-only, which [`properties::who_may_run`]
 /// reads (a fork cannot dispatch the base repository's workflow) - everything else is the same
 /// scan, and the pair's own gate test below holds it to that claim.
-pub(super) const JOBS: &[(&str, &str)] = &[(WORKFLOW, JOB), (EXCHANGED_WORKFLOW, EXCHANGED_JOB)];
+pub(super) const JOBS: &[(&str, &str)] = &[(WORKFLOW, JOB), (EXCHANGED_WORKFLOW, EXCHANGED_JOB), (WORKFLOW, E2E_JOB)];
+
+/// The `(workflow, job)` pairs above, kept for the scan's own wiring.
+///
+/// The job names in `JOBS` for ONE workflow: the holders of an environment that are themselves
+/// subjected to this scan. [`properties::who_may_run`] counts the env's holders to refuse one that
+/// is invisible to every property here; a holder that IS scanned answers all of them, so the two
+/// shared-environment legs are not a hidden second holder.
+fn scanned_jobs(workflow: &str) -> Vec<&'static str> {
+    JOBS.iter().filter(|(wf, _)| *wf == workflow).map(|(_, job)| *job).collect()
+}
 
 /// The scan for the acceptance job, kept as the single-argument form the test suite drives against
 /// its own `ci.yml` fixture. Test-only: the caller drives [`scan`] over the pair list, so this
@@ -228,7 +246,8 @@ pub(super) fn scan(workflow: &str, job: &str, text: &str) -> Vec<String> {
     // check looks for are two answers to where the credential is.
     let credential_file = credential.and_then(under_runner_temp);
 
-    let mut problems = who_may_run(workflow, job, text, &block);
+    let scanned = scanned_jobs(workflow);
+    let mut problems = who_may_run(workflow, job, text, &block, &scanned);
     problems.extend(credential_placement(
         workflow,
         job,
@@ -807,7 +826,7 @@ mod tests {
         );
         let found = problems(&shared);
         assert!(
-            found.iter().any(|p| p.contains("declare `environment: bq-test`")),
+            found.iter().any(|p| p.contains("without earning the acceptance scan")),
             "{found:?}"
         );
     }
