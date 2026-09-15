@@ -701,7 +701,7 @@ e2e-datahub-bigquery *datahub:
     nix run .#keycloak-tier -- start
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-serve --all-features --run-ignored only \
-      -E 'test(the_wave_one_path_answers_as_the_asking_subject)'
+      -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
 
 # ------------------------------------------------------------------ dev flow ---
 

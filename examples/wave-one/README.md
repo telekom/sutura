@@ -14,7 +14,7 @@ is a `just` task.
 token, and answered from a REAL BigQuery project under `posture: shared-service-user` - one
 credential for whoever asks. The audit record's `subject` still names who asked, per token, even
 though the source itself executes as one shared identity. The served cell that drives this end to
-end is `crates/sutura-serve/tests/served/e2e.rs`'s `the_wave_one_path_answers_as_the_asking_subject`.
+end is `crates/sutura-serve/tests/served/e2e.rs`'s `the_wave_one_path_answers_a_verified_caller_under_the_shared_key`.
 
 **Does not demonstrate** execution AS the asking subject, and it says so rather than hiding it: that
 the deployment obtained, per subject, a service-account credential BigQuery resolves to a different

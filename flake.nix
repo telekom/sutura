@@ -891,7 +891,7 @@
             # its trap survive to run `sutura-keycloak-tier stop` once the subshell exits.
             (
               exec cargo nextest run --cargo-profile ci -p sutura-serve --all-features \
-                --run-ignored only -E 'test(the_wave_one_path_answers_as_the_asking_subject)'
+                --run-ignored only -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
             )
           '');
         };

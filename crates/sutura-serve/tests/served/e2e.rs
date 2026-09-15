@@ -13,7 +13,7 @@
 //! own `#[ignore]`d cell, behind the maintainer's binding (issue #376 P2), and this task does not
 //! invoke it. `docs/where-identity-is-proven.md` keeps that half `unrun`.
 //!
-//! **`the_wave_one_path_answers_as_the_asking_subject`** boots a deployment once and asks it as
+//! **`the_wave_one_path_answers_a_verified_caller_under_the_shared_key`** boots a deployment once and asks it as
 //! principal A, with an uncertified request, and as principal B - same binary, same settings file,
 //! same catalog, three asks. It proves: (1) a `catalog.kind: datahub` deployment serves the
 //! certified metric, harvested from the fake `DataHub`, over a real issuer's verified token AND
@@ -113,7 +113,7 @@ mod tests {
         match std::env::var(key) {
             Ok(value) if !value.trim().is_empty() => value,
             Ok(_) | Err(_) => panic!(
-                "{key} is not set - it names {what}. `the_wave_one_path_answers_as_the_asking_subject` \
+                "{key} is not set - it names {what}. `the_wave_one_path_answers_a_verified_caller_under_the_shared_key` \
                  executes the certified metric over a real BigQuery project under one shared credential; \
                  see docs/showcase-datahub-bigquery.md."
             ),
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     #[ignore = "needs the Keycloak tier and a real BigQuery project; run via `just e2e-datahub-bigquery`, which brings the tier up first"]
-    fn the_wave_one_path_answers_as_the_asking_subject() {
+    fn the_wave_one_path_answers_a_verified_caller_under_the_shared_key() {
         // One boot, three asks. The Keycloak fixture mints both subjects and writes the key set the
         // `inbound` block names; the datahub fake serves the recorded corpus twice - once for the
         // engine-open load and once inside `LocalService::start_composed`, which loads the catalog it
