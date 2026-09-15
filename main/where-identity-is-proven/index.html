@@ -3307,6 +3307,15 @@ row at ANOTHER venue's test task still passes, and whether an accepted run-site 
 is still prose. So a false leg-2 <code>yes</code> costs three edits rather than two - the run site, the
 verdict, and a <code>Reached by</code> pointed at some other venue's test task - and the third is the one
 review can see, because it names a task that visibly belongs to a different row.</p>
+<p><strong>A narrower anchor - binding <code>Reached by</code> to a POSITIVE <code>binary(&lt;stem&gt;)</code>/<code>test(&lt;name&gt;)</code> atom
+naming the venue's own standing test file - was measured against the <code>justfile</code> and not
+built, because this tree's cheapest candidate refutes it.</strong> <code>just bigquery-acceptance</code>'s own
+<code>cargo nextest -E</code> filter is <code>not binary(exchanged_identity) and not binary(cross_resource)</code>
+- a NEGATION that selects everything else in the package and never positively names its own
+<code>acceptance</code> binary at all. A rule requiring the positive atom would refuse that venue's true
+citation on today's clean tree, which is worse than the limit above: <em>that a <code>Reached by</code> task
+is bound to running the workspace's tests, and not to running the venue the row names</em>, so a
+<code>yes</code> in that column still rests on review, not on the gate.</p>
 <p><strong>Invocation reading has syntax limits too.</strong> Workflow and action sources contribute their
 <code>run:</code> bodies, not ordinary YAML names or descriptions; shared shell scripts are read whole.
 The indentation reader is not a YAML parser: a <code>run:</code>-shaped line inside a prose block scalar
