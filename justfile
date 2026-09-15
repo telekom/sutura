@@ -649,6 +649,59 @@ keycloak-served-test:
 bigquery-mint-subject-assertion key target_audience out:
     nix run .#bigquery-mint-subject-assertion -- \
       "{{key}}" "{{target_audience}}" "{{out}}"
+# Wave one of the identity-aware E2E: a `datahub` catalog carries the certified metric, the
+# deployment is driven by REAL Keycloak password-grant tokens (not the mock), and the certified
+# question executes against a REAL BigQuery project under one shared credential - the whole thing
+# runs on the composed binary over HTTP `/v1/query`. The fake DataHub lives IN the test
+# (`FakeServer` from `sutura_catalog_datahub::test_support`, `github.com/telekom/sutura#202`) and
+# the Keycloak tier is brought up here the way `just keycloak-served-test` brings it up.
+#
+# **The one runnable cell answers over a REAL `bigquery` source** (named, like `served/datahub.rs`,
+# after the catalog, so the fixed `bigquery`→name mapping reaches it), under `posture:
+# shared-service-user` - one credential for whoever asks. **Leg 2 - executing BigQuery AS the
+# asking subject, read back as `SESSION_USER()` - is NOT claimed here**: it stays the separate
+# `#[ignore]`d cell in `sutura-exec-bigquery`'s own acceptance suite, behind the maintainer's
+# binding (issue #376 P2), and `docs/where-identity-is-proven.md` keeps that half `unrun`.
+#
+# **The one cell this runs is `#[ignore]`d, for the same two reasons the keycloak cell is:** the JVM
+# boot is a cost `just test` should not pay, and the tier flag `sutura_dev::provisioned` reads is
+# shared with Postgres. It ALSO needs a real BigQuery project - `GOOGLE_APPLICATION_CREDENTIALS` and
+# `SUTURA_BQ_DATASET` in this environment - and FAILS, naming whichever is absent, rather than
+# skipping: a run that silently skipped the one leg this task exists to exercise would report PASS
+# over nothing, the same argument `crates/sutura-exec-bigquery/tests/support/support.rs`'s `named`
+# makes for the adapter's own acceptance leg.
+# Run the wave-one E2E: DataHub metadata -> a real issuer's token -> three asks over HTTP, the
+# certified one answered from real BigQuery. `--datahub fake` (the default) answers the recorded
+# corpus through an in-process `FakeServer` and needs no docker for DataHub. `--datahub tier` is PR
+# 2's hosted job and REFUSES here with the named reason: the docker DataHub tier lands in PR 2,
+# which this PR does not build.
+e2e-datahub-bigquery *datahub:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # just's OWN template substitution of the `datahub` parameter, NEVER `$1` - this is a
+    # `#!/usr/bin/env bash` recipe and this justfile sets no `positional-arguments`, so a shebang
+    # recipe's `$1` is always empty and every invocation used to silently take the fake branch.
+    # Measured with a probe recipe of identical shape under the `just` binary this repository pins:
+    # `--datahub tier`, `-- --datahub tier` and `-- bogus` all took the fake branch and exited 0.
+    mode="{{datahub}}"
+    if [ -z "$mode" ]; then mode="--datahub fake"; fi
+    case "$mode" in
+      "--datahub fake") ;;
+      "--datahub tier")
+        echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
+        echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
+        exit 1 ;;
+      *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+    esac
+    echo "e2e-datahub-bigquery: scope sutura-serve - the wave-one E2E over DataHub (fake), a real issuer and a real BigQuery source."
+    echo "e2e-datahub-bigquery: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "e2e-datahub-bigquery: leg 2 (executing AS the asking subject) stays behind #376 P2 - see docs/where-identity-is-proven.md."
+    rc=0
+    nix run .#keycloak-tier -- status >/dev/null 2>&1 || rc=$?
+    nix run .#keycloak-tier -- start
+    if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
+    cargo nextest run -p sutura-serve --all-features --run-ignored only \
+      -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
 
 # ------------------------------------------------------------------ dev flow ---
 

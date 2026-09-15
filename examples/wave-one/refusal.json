@@ -1,0 +1,8 @@
+{
+  "outcome": "refusal",
+  "reason": {
+    "status": 404,
+    "code": "metric_unknown",
+    "detail": "this catalog defines no metric called `definitely_not_certified`"
+  }
+}
