@@ -4086,6 +4086,7 @@ dependencies = [
  "sutura-exec-datafusion",
  "sutura-exec-postgres",
  "sutura-http",
+ "sutura-mcp",
  "sutura-runtime",
  "sutura-tls",
  "tokio",

@@ -42,6 +42,11 @@ server:
   # A modelled question is a few hundred bytes. 64 KiB is generous by three orders of magnitude and
   # still refuses a body that exists to be large.
   max_body_bytes: 65536
+  # The agent surface is NOT mounted unless this is set. A deployment that turns it on must also
+  # declare `security.inbound` - see `docs/serving.md`; a `serve` build without the `agent` feature
+  # refuses the key by name rather than silently dropping the mount.
+  # agent_surface:
+  #   enabled: false
 
 security:
   # One of: none, sidecar, ingress, in-process. See the note above - this is a declaration of where

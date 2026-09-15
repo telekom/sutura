@@ -77,6 +77,15 @@ mod keycloak_test;
 #[path = "served/datahub.rs"]
 mod datahub;
 
+// The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split into
+// their own file for the same `max-lines` reason; `#[path]` keeps them next to the harness they
+// share. `cfg(feature = "agent")` as its own attribute so the default build has no `/mcp` at all,
+// and `cfg(test)` as its own attribute for the same reason `harness` and `tests` carry it.
+#[cfg(feature = "agent")]
+#[cfg(test)]
+#[path = "served/agent.rs"]
+mod agent;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {

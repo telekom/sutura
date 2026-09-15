@@ -252,39 +252,69 @@ arrive in, which is the limit stated beside the mode rather than left as a defau
 numbers are [`runtime.max_concurrent_queries`](#capacity) and `server.request_timeout_seconds`, which
 bound that surface exactly as they bound this one.
 
+### The agent surface over HTTP
+
 A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
-feature: the streamable-HTTP transport `docs/adr/0023` decided on, exposed as a plain
-`tower_service::Service` a composition root nests behind its own router. **Nothing this binary
-serves links it yet** - `telekom/sutura#378` PR4 is the composition-root change that mounts it
-behind this surface's leg 1 and `establish_asked`; until then the feature compiles and is tested in
-isolation and changes nothing a deployment can reach. Its one fixed decision, carried here ahead of
-the mount so it does not arrive as an unstated default: `legacy_session_mode: false`, which makes
-every request self-contained - a `Mcp-Session-Id` header is never looked up, by any message type -
-so a caller can never be answered under an earlier request's identity because no session exists for
-one to leak into. That guarantee is held by one config flag: the transport still constructs the
-SDK's session manager, and `legacy_session_mode: false` is what keeps it idle - and even where a
-session exists, `rmcp`'s `create_session` takes no identity argument, so a session is never bound to
-a caller; the caller is re-resolved per request from each request's `Asked`. This costs nothing a
-current MCP client needs: the pinned SDK still serves
-`initialize`, `tools/list` and every other call one-shot under this configuration, protocol version
-`2025-11-25` (its own advertised latest) included.
+feature: the streamable-HTTP transport `docs/adr/0023` decided on. Since `telekom/sutura#378` PR4
+the `sutura-serve` binary mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
+which is why it only ever serves where a caller can be verified. It is OFF by default at both gates:
+
+- **Build time (`sutura-serve`'s `agent` feature).** A build without the feature cannot reference
+  `sutura_mcp::http` at all, so the route is compiled out of the artefact; setting
+  `server.agent_surface.enabled` against such a build is a startup refusal naming the feature.
+- **Deployment time (`server.agent_surface.enabled`, default `false`).** Even a build with the
+  feature linked stays off until an operator sets the key, and setting it without also declaring
+  `security.inbound` is a startup refusal (`AgentSurfaceWithoutInboundIdentity`) - `/mcp` is never
+  served to "everyone".
+
+Its one fixed decision, carried here so it does not arrive as an unstated default:
+`legacy_session_mode: false`, which makes every request self-contained - a `Mcp-Session-Id` header
+is never looked up, by any message type - so a caller can never be answered under an earlier
+request's identity because no session exists for one to leak into. That guarantee is held by one
+config flag: the transport still constructs the SDK's session manager, and `legacy_session_mode:
+false` is what keeps it idle - and even where a session exists, `rmcp`'s `create_session` takes no
+identity argument, so a session is never bound to a caller; the caller is re-resolved per request
+from each request's `Asked`. This costs nothing a current MCP client needs: the pinned SDK still
+serves `initialize`, `tools/list` and every other call one-shot under this configuration, protocol
+version `2025-11-25` (its own advertised latest) included. Two further transport decisions land
+with the mount and are `sutura-http`'s to state: the mount is on the ONE listener (Decision 2 of
+`docs/adr/0015`, the same choice `/metrics` makes), and it is outside the version prefix because
+MCP versions its own tool set by the protocol's `protocolVersion` negotiation, not by a route
+prefix.
+
+**What a verified caller reaches is narrowed per caller.** `establish_asked` derives each request's
+`Asked` from the caller leg 1 verified, and `AgentSurface::permitted` answers `tools/list` with only
+the tools that caller's `scope` grants - so two verified callers with different scopes see two
+different tool lists, and an unverified caller is refused with leg 1's `401` before the transport
+is reached. Leg 2 - a source executing AS the asking subject - still does not exist; every tool
+answers under the deployment's own credential (`#376`).
 
 ## The endpoints
 
-| Method and path                                               | Token                                                                               | What it is                                                                                                                                                                                                                              |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`                                                 | no                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                         |
-| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                       |
-| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                               |
-| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
-| `GET /metrics`                                                | its own token, never `security.access_token`                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                  |
-| `GET /openapi.json`                                           | yes, when one is configured                                                         | The generated interface description                                                                                                                                                                                                     |
-| `GET /docs`                                                   | yes, when one is configured                                                         | A browser interface over that description                                                                                                                                                                                               |
+| Method and path                                               | Token                                                                                                               | What it is                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                 | no                                                                                                                  | Liveness. The body is exactly `{"status":"ok"}`                                                                                                                                                                                                                                                                                       |
+| `GET /.well-known/oauth-protected-resource[/<resource path>]` | no; `direct` mode only                                                                                              | RFC 9728 protected-resource metadata: the configured resource identifier and authorization server                                                                                                                                                                                                                                     |
+| `GET /v1/catalog`                                             | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is                                 | The metrics this catalog defines, with grains, dimensions and the values a filter may use                                                                                                                                                                                                                                             |
+| `POST /v1/query`                                              | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is                                  | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity)                                                                                               |
+| `POST /mcp`                                                   | the caller's own bearer, leg 1 (`security.inbound`, `direct`) - **only when `server.agent_surface.enabled` is set** | The agent surface: MCP JSON-RPC over the streamable-HTTP transport (`docs/adr/0023`). `tools/list` answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 `401` every forgery does, before the transport. See [the agent surface over HTTP](#the-agent-surface-over-http) |
+| `GET /metrics`                                                | its own token, never `security.access_token`                                                                        | This process's counters, in the Prometheus text exposition format. `401` without the metrics credential. Outside the version prefix and outside the capacity bound - see [the metrics endpoint](#the-metrics-endpoint)                                                                                                                |
+| `GET /openapi.json`                                           | yes, when one is configured                                                                                         | The generated interface description                                                                                                                                                                                                                                                                                                   |
+| `GET /docs`                                                   | yes, when one is configured                                                                                         | A browser interface over that description                                                                                                                                                                                                                                                                                             |
 
 `/health` is outside the version prefix on purpose: a probe must keep working across a version bump
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
 dependency list, no configuration and no catalog content, because an unauthenticated caller can
 always reach it - so every field it might have is a field handed to anybody who can route a packet.
+
+**A limit on the allowlist, not on the two routes above.** `/health` and `/metrics` are the existing
+shape of a plain, non-wildcard `.route(` merged at the top level of `assemble` outside the version
+prefix and outside `Ungoverned::mount` - and nothing new here holds that shape. A future route
+merged the same way is not caught by the `Ungoverned` type (it never touches the mount), by
+`check-boundaries`' text scan (only `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and
+a wildcard `.route` are needles - a named `.route(` is deliberately not one, for the reason stated
+at `xtask/src/boundaries/ungoverned.rs`), by `ungoverned_routes()`'s allowlist record (nothing is
+recorded for it to check), or by a behaviour cell (none dials it). It is held by review alone.
 
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
@@ -598,6 +628,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.port`                                   | `8080`                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `server.request_timeout_seconds`                | `30`                                 | At most 300. Bounds a caller's whole wait on **both** surfaces - the `408` here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points, Postgres after its execution-lock wait, and BigQuery sends what remains as `timeoutMs`/`jobTimeoutMs`                                                                                   |
 | `server.max_body_bytes`                         | `65536`                              | At most one mebibyte. A question is a few hundred bytes                                                                                                                                                                                                                                                                                                                                                                                            |
+| `server.agent_surface.enabled`                  | `false`                              | Mounts the agent surface at `/mcp`. Off by default even in a build with the `agent` feature linked. `true` with no `security.inbound` block refuses to start (the agent surface is only served where a caller can be verified), and `true` on a build without the `agent` feature refuses naming the feature. See [the agent surface over HTTP](#the-agent-surface-over-http)                                                                      |
 | `security.access_token`                         | absent                               | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared**                                                                                                                                                                                                                                                                                                       |
 | `security.metrics_token`                        | absent                               | An RFC 6750 `b64token`, at least 32 characters, gating `GET /metrics` and nothing else. Required in production and on a non-loopback bind, like the access token; equal to `security.access_token` is a refusal. See [the metrics endpoint](#the-metrics-endpoint)                                                                                                                                                                                 |
 | `security.tls_termination`                      | `none`                               | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach                                                                                                                                                                                                                                                                                                                                             |
@@ -1161,13 +1192,17 @@ transcript nobody runs goes stale silently, and a suite cannot.
 
 Named rather than implied, because an absence that reads as an oversight gets assumed away.
 
-- **No caller identity on the agent surface.** This bullet said the agent transport did not exist,
-  and that had stopped being true: `sutura-mcp` sits on the same small port this one talks to and
-  serves the tool surface over a process's own standard input and output, which `just mcp-e2e`
-  drives end to end. What does not exist there is anyone to be: a pipe has no header a token could
-  arrive in, so that surface offers every capability and answers as the deployment, and a
-  network-reachable one needs the identity leg
-  [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
+- **No caller identity on the agent surface.** This bullet used to say the agent transport did not
+  exist; then that a pipe (which `sutura mcp` serves over standard input and output) has no header a
+  token could arrive in. Both remain true for the stdio surface: a locally launched, single-player
+  process, offering every capability to whoever can launch it, and saying so at startup. What IS new
+  is the network-reachable surface: `serve` now mounts `/mcp` behind its own leg 1, so a verified
+  caller's scope narrows the tool list and an unverified one gets the same `401` every forgery gets.
+  It is off by default and refused unless `security.inbound` is declared. What still does not exist
+  there is leg 2 - a source executing AS the asking subject (`#376`) - so even a verified caller is
+  answered under the deployment's own credential. See
+  [the agent surface over HTTP](#the-agent-surface-over-http) and
+  [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md).
 - **No record STORE.** This bullet said "no audit sink" and that had already stopped being true: there
   is an `AuditSink` port, `sutura-app` writes one record per outcome through it before the outcome
   returns, and the writer a deployment gets for free puts that record on the log below. What does not

@@ -75,6 +75,18 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 # module, and this crate's feature is what an operator building `sutura-serve` types.
 datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
 
+# The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root.
+#
+# **Default-off, and the reason is the ARTEFACT plus the identity posture rather than build time.**
+# No published binary should serve a second, independently routed tool surface by accident, and the
+# surface only makes sense behind leg 1 (`security.inbound`) - so this feature links the transport
+# (`dep:sutura-mcp`, `sutura-mcp/http`) AND turns on `sutura-http`'s `agent` feature that holds the
+# mount point and the assembly-time refusal. A build without it cannot name `sutura_mcp::http` at
+# all, so "the route is compiled out" is a fact about the artefact rather than a runtime branch.
+# `nix/shipped.nix` gains no `probeFeatures` entry here - `sse-stream`'s musl link is unattempted,
+# deferred to a follow-up, the same deferral `checks.shipped-features` already documents.
+agent = ["dep:sutura-mcp", "sutura-mcp/http", "sutura-http/agent"]
+
 [dependencies]
 # For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
 # catalog actually names rather than for a guess.
@@ -94,6 +106,10 @@ sutura-exec-bigquery = { workspace = true, optional = true }
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
 sutura-http = { workspace = true }
+# The agent-surface transport, behind the `agent` feature above. Optional is what makes the
+# transport ABSENT from the default build rather than merely unused - the property the compose root
+# refuses on when it is enabled but this build does not link it.
+sutura-mcp = { workspace = true, optional = true }
 # For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
 # the type on its way to `serve`.
 axum = { workspace = true }

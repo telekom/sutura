@@ -42,6 +42,8 @@ use std::sync::Arc;
 use sutura_config::Settings;
 use sutura_runtime::{Admission, Registry, RegistryBuilder};
 
+#[cfg(feature = "agent")]
+use crate::router::Ungoverned;
 use crate::surface::Surface;
 
 /// The request state.
@@ -66,6 +68,78 @@ pub struct ServiceState {
     /// `crate::router::assemble` refuses to build a router whose settings declare an inbound identity
     /// and whose state carries no gate.
     inbound: Option<Arc<crate::inbound::InboundGate>>,
+    ///
+    /// **The mounted agent transport, attached by a builder like [`ServiceState::with_inbound_identity`].**
+    /// Only present when the composition root both compiled the `agent` feature and read
+    /// `server.agent_surface.enabled: true`. It is carried OPAQUELY - this crate must not name
+    /// `sutura_mcp`'s types (a transport never links another transport), so the transport arrives
+    /// already boxed into [`AgentMount`] and this crate only has to nest it behind the same
+    /// `establish_asked`/`inbound_layered` layers the versioned surface runs behind. `crate::router`
+    /// refuses to assemble when this is `Some` and no `security.inbound` gateway was attached.
+    #[cfg(feature = "agent")]
+    agent: Option<AgentMount>,
+}
+
+/// The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
+/// `sutura-mcp` type a transport crate composes.
+///
+/// Built by the composition root from `sutura_mcp::http::service`. It is kept as an [`Ungoverned`]
+/// value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+/// rather than tower's `BoxCloneService` for the reason [`Self::new`] states) so the path
+/// [`Ungoverned::mount`] was given travels with the router end to end - this type never unfuses the
+/// two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+/// than the one the transport actually answers on.
+#[cfg(feature = "agent")]
+#[derive(Clone)]
+pub struct AgentMount {
+    mount: Ungoverned,
+}
+
+#[cfg(feature = "agent")]
+impl AgentMount {
+    /// Wraps any service `nest_service` can mount, so `sutura-http` never names its concrete type.
+    ///
+    /// The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder lives in
+    /// `sutura-http`, so it may name it) - `axum::Router::nest_service` panics on the root path and
+    /// requires `T::Response: IntoResponse` rather than `Response<Body>`, and the
+    /// `StreamableHttpService` a transport crate hands over yields `Response<BoxBody<…>>`, so the
+    /// wrapper must not pin the response body. `crate::router` applies the leg 1 and `establish_asked`
+    /// layers around this router with [`Ungoverned::layered`]/[`Ungoverned::try_layered`], then
+    /// `assemble` merges and records it in one call. Cloning the router shares one underlying
+    /// transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
+    #[must_use]
+    pub fn new<S>(service: S) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
+        // The one physical `nest_service` in this crate or `sutura-serve` lives inside
+        // `Ungoverned::mount`, which is what makes an ungoverned mount and its allowlist row one
+        // value (`xtask::boundaries::ungoverned` holds that it is the only call site). Kept as the
+        // `Ungoverned` value itself, not unfused into a bare `Router` here - see the struct doc.
+        Self {
+            mount: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service),
+        }
+    }
+
+    /// A clone of the fused mount, for `crate::router::agent_subtree` to layer and merge into the
+    /// assembly.
+    ///
+    /// Hands back the whole [`Ungoverned`] value rather than its router, so a caller can only
+    /// transform it via [`Ungoverned::layered`]/[`Ungoverned::try_layered`] (which carry `path`
+    /// forward untouched) or extract it via [`Ungoverned::merge_into`] (which merges and records in
+    /// one call) - there is no accessor here that hands back a bare, re-fusable `Router`.
+    /// `axum::Router` clones share one underlying transport, so nesting several routers over one
+    /// mount are one mounted transport - the same property `sutura_mcp::http::service`'s own clone
+    /// carries.
+    pub(crate) fn ungoverned(&self) -> Ungoverned {
+        self.mount.clone()
+    }
 }
 
 impl ServiceState {
@@ -112,6 +186,8 @@ impl ServiceState {
             registry,
             metrics,
             inbound: None,
+            #[cfg(feature = "agent")]
+            agent: None,
         }
     }
 
@@ -124,6 +200,31 @@ impl ServiceState {
     pub fn with_inbound_identity(mut self, gate: Arc<crate::inbound::InboundGate>) -> Self {
         self.inbound = Some(gate);
         self
+    }
+
+    /// The same state, with the agent surface's transport attached.
+    ///
+    /// Called by the composition root, under the `agent` feature, when the deployment set
+    /// `server.agent_surface.enabled: true`. A state carrying a mount but no inbound identity is a
+    /// state `crate::router::assemble` refuses (`AgentSurfaceWithoutInboundIdentity`): the agent
+    /// surface must never be reachable where no caller can be verified.
+    #[cfg(feature = "agent")]
+    #[must_use]
+    pub fn with_agent_surface(mut self, mount: AgentMount) -> Self {
+        self.agent = Some(mount);
+        self
+    }
+
+    /// The mounted agent transport, if this build and deployment carry one.
+    ///
+    /// Read by `crate::router` to nest it behind the same `establish_asked`/`inbound_layered`
+    /// layers the versioned surface runs behind, and to refuse assembly when it is present with no
+    /// inbound identity attached. Nothing else may reach the transport.
+    #[cfg(feature = "agent")]
+    #[inline]
+    #[must_use]
+    pub const fn agent_surface(&self) -> Option<&AgentMount> {
+        self.agent.as_ref()
     }
 
     /// Leg 1, if this deployment has it.
