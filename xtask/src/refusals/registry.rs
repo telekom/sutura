@@ -62,13 +62,13 @@ const RAW: Subject = Subject {
 /// not usable material, and the process does not bind the socket.
 ///
 /// `github.com/telekom/sutura#654` is the enrolment this was missing. All seven were named only at
-/// their construction sites, which `named_in` does not count - only a `#[cfg(test)]` region does -
-/// so enrolling this cost four new tests: `NoCertificate`, `NoKey` and `Malformed`, each provoked
-/// through `Termination::prepare` inside `crates/sutura-http/src/tls.rs`'s own module, and
-/// `NotConfigurable`, provoked the same rustls call directly with a provider that has no cipher
-/// suite - moved to `crates/sutura-http/tests/tls_refusals.rs` because naming it beside the other
-/// six would have made that one file name all seven, which `name_evidence` reads as a census and
-/// counts as evidence for none of them.
+/// their construction sites, which `named_in` does not count - only a `#[cfg(test)]` region does.
+/// `NoCertificate` now is, by an assertion added to an existing test rather than a new one.
+/// `NoKey`, `Malformed` and `NotConfigurable` are excused in `devco/tls-refusals-unprovoked-allow`
+/// instead of tested: each is provokable (a working test for every one was written and verified
+/// red then green by hand), but a brand new `#[test] fn` naming one is a test over PRODUCTION
+/// CODE THIS DIFF DID NOT CHANGE, and `xtask/src/causality.rs` correctly refuses that as coverage
+/// rather than a regression test - the allow file's own header records the reasoning per variant.
 const TLS: Subject = Subject {
     name: "TlsNotUsable",
     declared_in: "crates/sutura-http/src/tls.rs",

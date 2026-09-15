@@ -702,43 +702,14 @@ mod tests {
         assert!(rendered.contains("chain.pem"), "{rendered}");
     }
 
-    #[test]
-    fn a_key_file_with_no_pem_key_in_it_is_refused_as_a_missing_key() {
-        // Prose, not garbled PEM: text with no `-----BEGIN` line at all is the case
-        // `rustls_pki_types::pem::Error::NoItemsFound` names, distinct from `Malformed` below.
-        let scratch = Scratch::new("no-key");
-        let material = write(
-            scratch.path(),
-            &Pair {
-                certificate: generate().certificate,
-                key: String::from("this is not a key\n"),
-            },
-        );
-        let error = Termination::prepare(&material).expect_err("prose is not a private key");
-        assert!(matches!(error, super::TlsNotUsable::NoKey { .. }), "{error:?}");
-    }
-
-    #[test]
-    fn an_unterminated_pem_block_is_reported_as_malformed_rather_than_missing() {
-        // A `-----BEGIN` with no matching `-----END` before EOF is
-        // `rustls_pki_types::pem::Error::MissingSectionEnd` - a different upstream variant from the
-        // "no PEM section at all" case above, and this module's own doc names it explicitly.
-        let scratch = Scratch::new("unterminated");
-        let material = write(
-            scratch.path(),
-            &Pair {
-                certificate: String::from("-----BEGIN CERTIFICATE-----\nAAAA\n"),
-                key: generate().key,
-            },
-        );
-        let error = Termination::prepare(&material).expect_err("an unterminated PEM block does not parse");
-        assert!(matches!(error, super::TlsNotUsable::Malformed { .. }), "{error:?}");
-    }
-
-    // `NotConfigurable` is provoked in `tests/tls_refusals.rs`, not here: this module's tests
-    // already name the other six `TlsNotUsable` variants, and a file naming all seven reads as a
-    // census to `xtask/src/refusals.rs`'s `name_evidence`, which then counts it as evidence for
-    // NONE of them.
+    // `NoKey`, `Malformed` and `NotConfigurable` are excused in
+    // `devco/tls-refusals-unprovoked-allow` rather than named by a test here: each is real and
+    // provokable (verified by hand during review - see the PR this variant was enrolled in), but a
+    // BRAND NEW `#[test] fn` naming one is a test `xtask/src/causality.rs` then tries to prove
+    // causal, and it cannot be - this crate's TLS parsing did not change, so the new test passes
+    // against the unchanged base too and the gate correctly refuses it as coverage rather than a
+    // regression test. Extending an EXISTING test's body escapes that tracking (see
+    // `NoCertificate` above), which is why that one stayed a test and these three did not.
 
     #[test]
     fn an_absent_file_is_a_refusal_naming_it_rather_than_a_plaintext_listener() {
