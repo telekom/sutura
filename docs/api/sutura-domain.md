@@ -2041,9 +2041,10 @@ inert.** `try_from` replaces this type's whole `Deserialize` body with "deserial
 on `ComputationInput` either: a sibling key beside `measure` or `authored_sql` is already
 refused by serde's own externally-tagged-enum representation, which requires exactly one key
 regardless of `deny_unknown_fields` - and an unknown field INSIDE the tagged value is
-`Measure`'s or `AuthoredSql`'s own `deny_unknown_fields` to refuse, not this enum's. Measured
-by removing the attribute from `ComputationInput` and comparing the error text: unchanged,
-`an_unknown_sibling_key_is_refused_by_the_enum_shape_not_by_either_deny_unknown_fields`.
+`Measure`'s or `AuthoredSql`'s own `deny_unknown_fields` to refuse, not this enum's. Measured on
+`ComputationInput` by removing the attribute and comparing error text across a sibling key, a
+zero-key map and a single unrelated key: unchanged in all three. No test carries this - no
+input distinguishes the two trees, so there is nothing for a regression test to assert.
 
 #### Variants
 
