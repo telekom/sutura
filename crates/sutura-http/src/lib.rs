@@ -40,14 +40,14 @@
 //! [`VerifiedCaller`], whose only constructor is a signature check and which implements no
 //! `Deserialize`. So no *field* of a request can contribute to a chain either way.
 //!
-//! **`/health` carries nothing.** It is the one path an unauthenticated caller can always reach, so
-//! every field it might have is a field handed to anybody who can route a packet. No version, no
+//! **`/health` carries nothing.** It is one of two paths an unauthenticated caller can always reach,
+//! so every field it might have is a field handed to anybody who can route a packet. No version, no
 //! build, no configuration, no catalog. A test asserts the body byte for byte.
 //!
-//! A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
-//! token. That document is deliberately only the exact resource identifier and the configured
-//! authorization server; it is absent in gateway and single-player deployments and shares the probe
-//! rate limit with liveness.
+//! **The second is the RFC 9728 protected-resource metadata document**, which a directly validating
+//! deployment also exposes without a token. That document is deliberately only the exact resource
+//! identifier and the configured authorization server; it is absent in gateway and single-player
+//! deployments and shares the probe rate limit with liveness.
 //!
 //! # What is deliberately absent
 //!

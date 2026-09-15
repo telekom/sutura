@@ -194,6 +194,11 @@ async fn a_challenge_points_at_metadata_only_for_an_exact_origin_form_resource()
         ("/v1/query/", Some("sutura.example.com")),
         ("/v1/catalog", Some("sutura.example.com")),
         ("/v1/query", Some("other.example.com")),
+        // Authority-form (RFC 9112 section 3.2.3, what a CONNECT target looks like): an authority
+        // with no scheme and no path, which is the only way `Uri::authority()` is `Some` while
+        // `Uri::scheme()` is `None` - the one disjunct of `describes()`'s guard the rows above never
+        // exercise alone, since every scheme-carrying target here carries an authority too.
+        ("sutura.example.com:443", Some("sutura.example.com")),
     ] {
         let challenge = challenge_for(&app, target, host).await;
         assert!(
