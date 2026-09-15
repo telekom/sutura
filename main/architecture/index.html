@@ -3124,7 +3124,7 @@ not execute. <code>sutura-catalog-local</code> declares every kind, a statement 
 about the directory it read; a source that supplies part of the model declares the part, and its
 conformance test is that what it declared is exactly what it produced.
 <a href="../adr/0016-what-datahub-can-carry/">What DataHub can carry</a> is the measurement this came from.</p>
-<p><strong>This sentence used to say lineage arrives through that port too, and it does not.</strong> There is no
+<p><strong>Lineage does not arrive through that port.</strong> There is no
 lineage type anywhere in the workspace and none is planned: a plan reads at most two data systems, a
 measure reads columns a model declares, and where a column came from upstream changes neither. It is
 real metadata that real catalogues carry - <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a>
@@ -3365,12 +3365,10 @@ own declaration.</p>
 <p><em>The one path that runs with no credential, said here because the sentence above is only true with
 it:</em> the boot path re-executes every anchor before a listener is bound, and there is no caller then, so
 <code>Warehouse::verify_anchor</code> takes no credential at all.</p>
-<p><strong>What bounds it is a lint, and its input type is a self-check rather than a barrier - a correction a
-second review forced on this page.</strong> This paragraph used to say the method "cannot be handed a
-question" because it takes an <code>AnchorPlan</code>; a reviewer disproved that in one function by fabricating
-the tuple the constructor took. The constructor is public, every value it reads is publicly
-constructible, and Rust has no cross-crate friend visibility, so no arrangement of guards there can
-be an authority. Two mechanisms now, stated apart:</p>
+<p><strong>What bounds it is a lint, and its input type is a self-check rather than a barrier.</strong> The method
+can be handed a fabricated <code>AnchorPlan</code>, not just a caller's own question: the constructor is public,
+every value it reads is publicly constructible, and Rust has no cross-crate friend visibility, so no
+arrangement of guards there can be an authority. Two mechanisms now, stated apart:</p>
 <ul>
 <li><code>clippy.toml</code> bans <code>Warehouse::verify_anchor</code>. <code>sutura_app::verify_anchors</code> holds the single
   <code>#[expect]</code>, so a second call site anywhere in the workspace is a build error until somebody writes
@@ -3774,7 +3772,7 @@ arrive. The broker that ships mints from configuration and performs no token exc
 statement about a laptop and not about a warehouse, so this remains a compiler with a governed front
 door: what the port bought is that the day a real source arrives, there is no code path for it to be
 read as the process through.</p>
-<p><strong>The HTTP transport is here now</strong>, and this sentence used to say it was not: an axum surface with a
+<p><strong>The HTTP transport is here</strong>: an axum surface with a
 versioned <code>v1</code> tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
 description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
 the deployment; <code>security.inbound</code> instead establishes the caller in <code>direct</code> or <code>behind-gateway</code>
