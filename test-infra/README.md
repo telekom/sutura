@@ -182,7 +182,7 @@ run is still a thing somebody has to know.
 | Kind | Names |
 | --- | --- |
 | `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
-| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_CROSS_DATASET` |
 
 The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values, and they are
 secrets rather than vars for a reason that is not credential material: each names the acceptance
@@ -201,10 +201,19 @@ coincide. The four names that used to sit beside it - the policied table, the gr
 each principal's grouping value - were the withdrawn two-principal cell's own (telekom/sutura#123:
 sutura does not re-verify a source's row-level security); nothing reads them now.
 
+The one `SUTURA_BQ_CROSS_*` var is the writable cross-resource venue's own
+(`bigquery-cross-dataset`): the disposable dataset its dimension loads into. It is pushed as a var;
+the project-shaped reads (`SUTURA_BQ_CROSS_DATASET_PROJECT`, `SUTURA_BQ_CROSS_BILLING_PROJECT`,
+`SUTURA_BQ_RLS_PROJECT`) are not. They all take the same value - the project the CI key names (the
+cell's admission requires every destination in the billing project) - and the workflow derives it
+from the key inside the step body instead of provisioning it as a var, so the project id never lands
+in a job's `env:` dump. Exporting it as a stack output would name that project in the world-readable
+export list, so it is not exported either.
+
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
-`bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the
-`ci_dataset` (the already-populated acceptance dataset), so the acceptance/corpus legs can run
-under it. A fork's pull request cannot see an environment's secrets, so `bigquery-acceptance`
+`bigquery.jobUser` and dataset-level `bigquery.dataEditor` on the stack dataset, the `ci_dataset`
+(the already-populated acceptance dataset) and the cross dataset, so the acceptance/corpus legs and
+the cross-resource venue can run under it. A fork's pull request cannot see an environment's secrets, so `bigquery-acceptance`
 skips there and runs in-repo, the same `docs/adr/0017` rule.
 
 ## Caveats

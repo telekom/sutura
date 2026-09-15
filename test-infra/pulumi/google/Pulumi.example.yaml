@@ -15,6 +15,10 @@ config:
   # here, and exports these two plus the CI key for the GitHub environment's secrets/vars.
   sutura-google-test-infra:ci_dataset: "sutura_dev"
   sutura-google-test-infra:ci_table: "acceptance"
+  # The second, disposable dataset the cross-resource writable venue loads into (its dimension),
+  # distinct from `dataset` and `ci_dataset` - the program refuses a collision. Created by the stack
+  # and granted dataEditor to the CI service account.
+  sutura-google-test-infra:cross_dataset: "your-cross-dataset-id"
   sutura-google-test-infra:group_column: "segment"
   # The grouping value each principal's row access policy grants, and the rows the stack seeds. The
   # two-principal acceptance cell compares an answer against these, so they are exported to the

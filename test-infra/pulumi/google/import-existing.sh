@@ -142,6 +142,11 @@ do_import "gcp:bigquery/datasetIamMember:DatasetIamMember" "principal-b-dataview
 do_import "gcp:projects/iAMMember:IAMMember" "ci-bigquery-jobuser" "${PROJECT} roles/bigquery.jobUser ${CI_SA_MEMBER}"
 do_import "gcp:bigquery/datasetIamMember:DatasetIamMember" "ci-bigquery-dataeditor" "projects/${PROJECT}/datasets/${DATASET} roles/bigquery.dataEditor ${CI_SA_MEMBER}"
 do_import "gcp:bigquery/datasetIamMember:DatasetIamMember" "ci-bigquery-dataeditor-external" "projects/${PROJECT}/datasets/${CI_DATASET} roles/bigquery.dataEditor ${CI_SA_MEMBER}"
+# The cross-resource venue's second dataset (`cross-dataset` resource + the
+# `ci-bigquery-dataeditor-cross` binding in `__main__.py`) is deliberately NOT imported: it does not
+# exist yet at adoption time - it is a NEW resource this branch adds, created fresh by the adopting
+# `up` (unlike every resource above, which pre-dates the lost state). Read beside the two DatasetIamMember
+# lines above, both of which still belong to the pre-existing `dataset`/`ci_dataset`.
 
 # --- gcp.serviceaccount.Key ---------------------------------------------------------------------
 # NOT IMPORTABLE. `serviceaccount/key.py`'s own "## Import" section states plainly: "This resource
