@@ -446,7 +446,8 @@ where
 /// [`AgentSurface::asked`] exists to make unrepresentable - see the module documentation and
 /// [`crate::Asking`]. Behind this crate's own default-off `http` feature, `crate::http::service`
 /// produces the value this reads, so the arm answers over that transport; over standard input and
-/// output (`serve_stdio`) there is no caller to establish, so the arm always refuses there. A
+/// output (`serve_stdio`) the arm is never reached - `serve_stdio` builds `Asking::TheProcessOwner`,
+/// so this arm exists for the HTTP transport only. A
 /// different code from [`not_granted`]'s, and deliberately: this is not a
 /// statement about which tool exists or which scope it needs - there is no caller yet to grant or
 /// refuse one to.
