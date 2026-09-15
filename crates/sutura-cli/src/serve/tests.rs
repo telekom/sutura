@@ -601,9 +601,10 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
 
 // `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`
 // (`github.com/telekom/sutura#366`) is RETIRED rather than kept: it asserted the refusal must not
-// name a feature, because `sutura-serve` declared none that provided `datahub`. Since issue #202's
-// reader, `sutura-serve` DOES declare a `datahub` feature, so naming it is now the actionable
-// remedy - the same shape `open_bigquery`'s own not-linked refusal already holds for `bigquery`.
+// name a feature, because the served binary declared none that provided `datahub` at the time.
+// Since issue #202's reader, this crate DOES declare a `datahub` feature, so naming it is now the
+// actionable remedy - the same shape `open_bigquery`'s own not-linked refusal already holds for
+// `bigquery`.
 // `a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it` above (now
 // `cfg(not(feature = "datahub"))`) asserts the new, opposite rule for a build without the feature.
 

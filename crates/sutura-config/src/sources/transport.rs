@@ -36,7 +36,7 @@
 //! `Plaintext` is a named choice, not the absence of a setting. A source that names no TLS
 //! `transport_mode` is refused at load; an operator who wants no TLS writes
 //! `transport_mode: plaintext`, and the startup log prints it. That ordering is what lets
-//! `sutura-serve` keep #124's fail-closed refusal for a **non-loopback host with no TLS** while the
+//! `sutura serve` keep #124's fail-closed refusal for a **non-loopback host with no TLS** while the
 //! unix-socket tier keeps working: a socket or loopback host may declare `plaintext`, and any host a
 //! network can reach it from must not.
 //!

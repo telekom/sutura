@@ -68,7 +68,7 @@
 //!
 //! **The `DuckDB` side still runs on a development dependency**, so that pass measures the
 //! implemented federation path rather than a deployment's answer. What changed is the engine side:
-//! it declares `Warehouse::EXECUTES_LEGS`, and it is non-optional in both shipped binaries.
+//! it declares `Warehouse::EXECUTES_LEGS`, and it is non-optional in the shipped binary.
 //!
 //! **Neither side is the served deployment.** These sides open adapters in-process from a bundle
 //! this file loads; `crates/sutura-cli/tests/served.rs` is the only place a two-source question
@@ -246,10 +246,10 @@ fn two_sources(pinned: PinnedDefinitions) -> Side<sutura_exec_duckdb::DuckDbWare
 
 /// **The two-source side a release can actually run: one ENGINE per source.**
 ///
-/// The same topology [`two_sources`] builds, with the adapter swapped for the one both shipped
-/// binaries link. Each engine attaches only its own source's tables, so neither can reach the
+/// The same topology [`two_sources`] builds, with the adapter swapped for the one the shipped
+/// binary links. Each engine attaches only its own source's tables, so neither can reach the
 /// other's - the isolation is which tables were registered, not which directory they came from,
-/// which is exactly what `sutura-serve`'s `open_files` does per declared `files` entry.
+/// which is exactly what `sutura-cli`'s `open_files` does per declared `files` entry.
 fn two_engines(pinned: PinnedDefinitions) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
     let (bundle, warehouses) = validating_on_two_engines(&derived().data, pinned);
     Side {
@@ -390,7 +390,7 @@ fn a_two_source_answer_is_the_same_answer_as_one_source() {
 /// **Two instances of the ENGINE hold the legs, which is the first two-source side a release can
 /// run.**
 ///
-/// `DataFusionWarehouse` is non-optional in both shipped binaries and declares
+/// `DataFusionWarehouse` is non-optional in the shipped binary and declares
 /// `Warehouse::EXECUTES_LEGS`, so this is the shipped adapter type on BOTH sides of the comparison
 /// for the first time - one instance answering whole, two answering as legs, over one derived
 /// corpus.

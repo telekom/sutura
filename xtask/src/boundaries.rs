@@ -18,7 +18,7 @@
 //!   returning `Result<_, String>` (`api_shape`)
 //! * an ungoverned route is mounted only inside `crate::router::Ungoverned::mount`
 //!   (`ungoverned`, `xtask/src/boundaries/ungoverned.rs`) - the structural backstop of the
-//!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-serve` may call
+//!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-cli` may call
 //!   `.nest`/`.nest_service`/`.route_service` (outside the governed `.nest(API_V1_PREFIX, …)`) is
 //!   the single mount function
 //!
@@ -202,7 +202,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     // hold. `compile` already stopped at a `QueryPlan` - the `Warehouse` port carries a plan, so
     // an adapter that executes over Arrow renders nothing - but `generate` and `dialect` were
     // still `pub` modules OF the core. The consequence was in the closure rather than in the
-    // call graph: `sutura-serve -> sutura-http -> sutura-app -> sutura-semantic -> polyglot-sql`
+    // call graph: `sutura-cli -> sutura-http -> sutura-app -> sutura-semantic -> polyglot-sql`
     // put a pre-1.0 SQL generator, with three enumerated lowering gaps, into the network binary,
     // which renders nothing and can reach none of it.
     ForbiddenEdge {
@@ -232,7 +232,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     },
     // The same closure argument from the metadata side, and it was nearly missed: a checkpoint
     // compiled `authored_sql:` fragments at catalog load, which needs `sutura_sql::expression` and
-    // so put the generator into `sutura-catalog-local`'s tree. Both shipped binaries link that
+    // so put the generator into `sutura-catalog-local`'s tree. The shipped binary links that
     // adapter unconditionally, so the network binary - which the two entries above keep the
     // generator out of - would have linked it through the catalog instead, with every line of
     // prose saying it does not still in place. Nothing fired, because nothing forbade this edge.
@@ -241,7 +241,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     ForbiddenEdge {
         from: "sutura-catalog-local",
         forbidden: "sutura-sql",
-        why: "a catalog adapter loads metadata and renders nothing, and both shipped binaries link \
+        why: "a catalog adapter loads metadata and renders nothing, and the shipped binary links \
               this one unconditionally - so the generator in its tree is the generator in the \
               network binary's default closure, which the `sutura-semantic` entries exist to prevent",
         instead: "store the authored fragment as `sutura_domain::expression::SqlFragment` and leave \
@@ -252,8 +252,8 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
     // The sibling catalog adapter, and the one `docs/adr/0016` names as the next candidate to mint
     // an authored computation (`metricInfo.expression`). Same class, same reason as the entry
     // above - but NOT the same closure claim: `sutura-catalog-datahub` is a dev-dependency of
-    // `sutura-app` only, and an OPTIONAL dependency of `sutura-serve` behind the default-off
-    // `datahub` feature (`cargo tree -p sutura-serve -e normal -i sutura-catalog-datahub` finds
+    // `sutura-app` only, and an OPTIONAL dependency of `sutura-cli` behind the default-off
+    // `datahub` feature (`cargo tree -p sutura-cli -e normal -i sutura-catalog-datahub` finds
     // nothing until that feature is asked for), so it is not unconditionally in either shipped
     // binary's default closure the way `sutura-catalog-local` is. The entry stands as the class
     // rule the `sutura-catalog-rdbms` entry below argues explicitly: a catalog adapter loads
@@ -268,7 +268,7 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         edges: Edges::Every,
     },
     // The rule above is about the class, not the one adapter (`sutura-catalog-local`) that is
-    // unconditionally in both shipped binaries' default closure. `sutura-catalog-rdbms` is a
+    // unconditionally in the shipped binary's default closure. `sutura-catalog-rdbms` is a
     // DEV-dependency of `sutura-app` only - `cargo tree -e normal -i sutura-catalog-rdbms` reaches
     // nothing, the same as `sutura-catalog-datahub` above - so it is not in any shipped binary's
     // default closure either. The entry stands anyway, as the class rule rather than the closure

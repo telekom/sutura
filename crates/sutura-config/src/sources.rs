@@ -81,7 +81,7 @@ pub enum SourceKind {
     /// **A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
     /// oversight.** The vocabulary of kinds is the vocabulary of adapters *this repository has*, and
     /// `sutura-exec-bigquery` exists; what does not exist is a composition root that links it, so
-    /// `sutura-serve` refuses this kind by name. The alternative was to leave the word out, which
+    /// `sutura` refuses this kind by name. The alternative was to leave the word out, which
     /// would refuse the same deployment with `kind` does not name a data system this build can open -
     /// a message that sends an operator looking for a typo instead of telling them the truth.
     ///

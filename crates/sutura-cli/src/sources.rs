@@ -9,7 +9,7 @@
 //!
 //! A source is declared in one of two places, and this module reads them in this order:
 //!
-//! 1. **The deployment's `sources:` tree**, the same one `sutura-serve` reads, layered from the
+//! 1. **The deployment's `sources:` tree**, the same one `sutura serve` reads, layered from the
 //!    directory [`sutura_config::CONFIG_DIR_VARIABLE`] names. An entry says what KIND of data system
 //!    this is, where it is, and which identity a query reaches it as - so a catalog whose models name
 //!    `warehouse` is opened because the deployment said what `warehouse` is, not because the name
@@ -48,7 +48,7 @@
 //! `sutura_app::verify_anchors` walks `pinned.anchored_metrics()`, and
 //! [`sutura_app::preflight::refuse_unattached`] compares
 //! table NAMES and never content. So a bundle whose metrics declare no anchor is answered under its
-//! real digest out of whatever directory the entry points at. That is parity with `sutura-serve`
+//! real digest out of whatever directory the entry points at. That is parity with `sutura serve`
 //! rather than a hole this module opened - and it is stated here because this is the change that
 //! makes it the documented command-line workflow.
 //!
@@ -114,7 +114,7 @@ pub(crate) const BUILT_IN_SOURCE: &str = "local";
 
 /// Which adapter this command opened its one source with, and everything the next step needs from it.
 ///
-/// **One variant per LINKED adapter**, which is the shape `sutura-serve`'s `OpenedSources` already
+/// **One variant per LINKED adapter**, which is the shape `crate::serve`'s `OpenedSources` already
 /// holds and for the reason `sutura_app::warehouses` states: `sutura_app::Warehouses<W>` is generic in
 /// ONE adapter, so this is not a heterogeneous registry and does not try to be. It is the choice of
 /// which registry got built, made once, at the one place that can see both the declaration and the
@@ -170,7 +170,7 @@ pub(crate) struct OpenedWith<W> {
 /// **The whole tree rather than its `sources:` alone**, because a networked adapter needs a second
 /// value out of it: `server.request_timeout_seconds` is the one place a deployment says how long a
 /// question may take, and a job bounded by a number invented here would be the drifting duplicate the
-/// settings tree exists to prevent. Callers pass the two accessors, which is what `sutura-serve`'s own
+/// settings tree exists to prevent. Callers pass the two accessors, which is what `crate::serve`'s own
 /// root does.
 ///
 /// **The limit this introduces, which review found stated nowhere and reproduced.**
@@ -312,18 +312,19 @@ pub(crate) fn open_engine(
             // **The remedy is offered again, and the round trip it used to send an operator on is
             // gone.** This message said no shipped binary answered a two-source question either,
             // because `Warehouse::EXECUTES_LEGS` defaulted to `false` on every adapter a release
-            // linked and `sutura-serve` refused the same question as `FederationNotExecutable`.
-            // `sutura-exec-datafusion` declares it now and is non-optional in both binaries, so
-            // `sutura-serve` with one `files` entry per data system answers this - measured on the
-            // composed binary by `a_served_deployment_answers_a_question_spanning_two_sources`.
+            // linked and the served surface refused the same question as `FederationNotExecutable`.
+            // `sutura-exec-datafusion` declares it now and is non-optional in both composition
+            // roots, so `sutura serve` with one `files` entry per data system answers this -
+            // measured on the composed binary by
+            // `a_served_deployment_answers_a_question_spanning_two_sources`.
             //
             // **What is still true here, and is the whole of what this arm refuses:** this command
-            // opens ONE adapter for ONE source (`open_files` is `sutura-serve`'s, not this
-            // binary's), so a catalog spanning two has no engine to answer against in this process.
+            // opens ONE adapter for ONE source (`open_files` is `crate::serve`'s, not this
+            // module's), so a catalog spanning two has no engine to answer against in this process.
             // Opening two here is a second composition decision and a separate change.
             return Err(format!(
                 "this catalog spans {} data systems, and this command answers one question against \
-                 one. Serve it over HTTP instead - `sutura-serve` opens one data system per \
+                 one. Serve it over HTTP instead - `sutura serve` opens one data system per \
                  declared source and splits a question spanning two into legs",
                 many.len()
             ));
@@ -341,8 +342,8 @@ pub(crate) fn open_engine(
 /// Opens a source the deployment declared, under the identity that declaration names.
 ///
 /// **An exhaustive match with no wildcard arm, and it is the one line where "which adapter opens a
-/// declared kind" is decided** - the same shape `sutura-serve`'s own dispatcher holds, so a third kind
-/// is a compile error in both composition roots rather than an arm that falls through in one of them.
+/// declared kind" is decided** - the same shape `crate::serve`'s own dispatcher holds, so a third kind
+/// is a compile error in both matches rather than an arm that falls through in one of them.
 fn from_the_registry(
     pinned: &PinnedDefinitions,
     source: &SourceName,
@@ -565,7 +566,7 @@ fn timeout() -> sutura_config::RequestTimeout {
 /// The credential file points at a path that is not there ON PURPOSE, and each test that uses it says
 /// what it is proving with that: a refusal naming that key is proof the composition reached the
 /// credential layer, which is the furthest a test with no project can get. The shape is
-/// `sutura-serve`'s own `bigquery_entry`, because the composition under test is the same one.
+/// `crate::serve`'s own `bigquery_entry`, because the composition under test is the same one.
 ///
 /// Module level, so `bigquery.rs`'s suite and the dataset-argument case in [`tests`] - which belongs
 /// here, beside the arm that refuses it - share ONE entry builder.
@@ -889,8 +890,8 @@ mod tests {
         );
         // **The remedy it must offer, and this assertion is the inverse of the one it replaces.**
         // It used to assert the ABSENCE of "over http", because at the time every adapter a release
-        // linked declared `EXECUTES_LEGS = false` and `sutura-serve` refused the same question as
-        // `FederationNotExecutable` - so naming that surface sent an operator on a round trip.
+        // linked declared `EXECUTES_LEGS = false` and the served surface refused the same question
+        // as `FederationNotExecutable` - so naming that surface sent an operator on a round trip.
         // `sutura-exec-datafusion` declares the constant now, and
         // `crates/sutura-cli/tests/served.rs` asks the composed binary a two-source question and
         // gets rows, so the surface is a real remedy and withholding it is the defect.

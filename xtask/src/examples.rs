@@ -74,14 +74,14 @@
 //!   `#[cfg_attr(..)]`, make "does a run here reach this line" a question about features, targets
 //!   and flags this scan does not have; each such cell is dropped from the evidence and NAMED in
 //!   the verdict. What that does NOT reach is the same attribute over something CONTAINING the
-//!   cell - `crates/sutura-serve/tests/served.rs` gates a whole `mod tests` on `#[cfg(unix)]` -
+//!   cell - `crates/sutura-cli/tests/served.rs` gates a whole `mod tests` on `#[cfg(unix)]` -
 //!   because closing that needs the cfg item's brace range, which is `regions::item_end`'s
 //!   instrument aimed one level out. Held by review, and the shapes are
 //!   `git grep -n '#\[cfg(' -- 'crates/**/*.rs'`.
 //! * **A dropped cell is stated, not refused, and that is a correction to `#400`'s own remedy.**
 //!   That issue asks for the `unresolvable` refusal, and routing an unevaluable cell there turns
 //!   this gate RED on the healthy tree: eight cells across
-//!   `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-serve/src/tests.rs` are
+//!   `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-cli/src/serve/tests/bigquery.rs` are
 //!   legitimately written under `#[cfg(feature = "bigquery")]` or its negation, and the remedy for
 //!   a feature-gated test cannot be to delete it. Fail-closed for the CLAIM keeps the gate: the
 //!   cell is not evidence, so a variant whose only reach sits in one fails on the variant.
@@ -183,7 +183,7 @@ struct Evidence {
     /// STATED rather than refused, and that is a correction to
     /// `github.com/telekom/sutura#400`'s own remedy 3 rather than a softening of it: routing these
     /// to the `unresolvable` refusal turns this gate RED on the healthy tree, because eight cells
-    /// in `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-serve/src/tests.rs` are
+    /// in `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-cli/src/serve/tests/bigquery.rs` are
     /// legitimately written under `#[cfg(feature = "bigquery")]` or its negation. Fail-closed for
     /// the CLAIM is what this gate needs: the cell is not a run this venue reaches, so a variant
     /// whose only reach sits in one fails on the variant, with this note beside it.

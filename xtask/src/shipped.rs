@@ -79,10 +79,10 @@
 //!
 //! **The step's own refusal cannot cover it, and that is why this rule is here.** The
 //! `feature-probes-` step refuses an EMPTY probe manifest, which is equivalent to *the probe is
-//! gone* only because one binary declares no probe features. Declare one for `sutura-serve` and
-//! delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty: the leg goes
-//! green, and the claim reverts to *assumed* with no signal at all. Found in review of this
-//! rule's own absence.
+//! gone* only because one binary declares no probe features. Declare a probe for an unrelated
+//! feature and delete `"bigquery"` from `sutura-cli`'s, and the manifest is still non-empty: the
+//! leg goes green, and the claim reverts to *assumed* with no signal at all. Found in review of
+//! this rule's own absence.
 
 use std::collections::BTreeMap;
 

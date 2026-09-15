@@ -18,9 +18,9 @@
 /// itself - so a deployment whose channel is misdeclared fails to START rather than answering every
 /// question over a channel it believes is secured.
 ///
-/// **The composition is `sutura-serve`'s single Postgres composition, and it is thin on purpose:**
+/// **The composition is `crate::serve`'s single Postgres composition, and it is thin on purpose:**
 /// the TLS reading and the connection live in `sutura-exec-postgres` (`tls::client_config` and
-/// `connect_secured`), so a fix to either lands once and both composition roots get it. What this
+/// `connect_secured`), so a fix to either lands once and both matches get it. What this
 /// function owns is the mapping from the declared `SourcePlacement` to that adapter's resolved
 /// material - the same boundary `build_bigquery` draws.
 #[cfg(feature = "postgres")]

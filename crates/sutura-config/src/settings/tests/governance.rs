@@ -4,7 +4,7 @@
 //! max-lines` enforces. This is the settings-layer half of the review finding that the two
 //! composition roots' `.with_spend_ledger(..)` calls were held by nothing: neither root drives a
 //! `BudgetExhausted` refusal today (only `BigQuery` prices a dry run, and its cells are
-//! `#[ignore]`d), so `sutura-serve`'s and `sutura-cli`'s own reads of `settings.spend_budget()` are
+//! `#[ignore]`d), so both composition roots' own reads of `settings.spend_budget()` are
 //! held by READING rather than by a cell - see `.agents/skills/sutura/invariants/SKILL.md`'s
 //! spend-counter row.
 

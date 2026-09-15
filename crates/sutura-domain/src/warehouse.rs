@@ -437,7 +437,7 @@ pub trait Warehouse {
     /// `docs/adr/0007-federating-across-different-data-systems.md` is the decision.
     ///
     /// **`sutura_app`'s federated path hands an adapter a leg, and a shipped binary reaches it** -
-    /// the engine declares [`Self::EXECUTES_LEGS`], so `sutura` and `sutura-serve` answer a
+    /// the engine declares [`Self::EXECUTES_LEGS`], so `sutura` answers a
     /// two-source question rather than refusing one. This paragraph twice said the opposite: first
     /// that nothing handed any adapter a leg, then that no shipped binary did.
     ///

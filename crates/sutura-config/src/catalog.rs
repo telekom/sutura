@@ -28,7 +28,8 @@ pub enum CatalogKind {
     /// A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
     ///
     /// The only kind either composition root can OPEN in this build: the markdown adapter is
-    /// linked by `sutura-serve` and is what `sutura-cli` puts behind its directory argument.
+    /// linked by `sutura serve` and is what `sutura query`/`sutura mcp` put behind its directory
+    /// argument.
     Markdown,
     /// A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
     ///

@@ -239,8 +239,9 @@ works.
 
 ## Over HTTP
 
-The same catalog, the same data and the same questions, served. `sutura-serve` is a second binary
-rather than a subcommand of `sutura`: the shipped image holds one executable with no server in it.
+The same catalog, the same data and the same questions, served. `sutura serve` is a subcommand of
+the same shipped binary rather than a second one: the image's default command is `--version`, and
+running the server is an override of that command rather than a second binary or image.
 
 This surface has a threat model the command line does not, and four things about it are worth
 knowing before you point anything at it. The token is required beyond loopback. It authenticates

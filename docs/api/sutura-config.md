@@ -825,7 +825,7 @@ for one mistake, and the weaker one would be the reassuring one.
 
 The variable that points at the configuration directory a load layers files from.
 
-**One name, because two binaries read it and neither may own it** - exported for the same reason
+**One name, because both `sutura query`/`sutura mcp` and `sutura serve` read it and neither may own it** - exported for the same reason
 `ENVIRONMENT_VARIABLE` is, so a startup message, a command's `--help` and the documentation
 cannot disagree about a name none of them owns.
 
@@ -1273,7 +1273,8 @@ that exists in a record rather than in a linked crate is still a word an operato
 - `Markdown` - A directory of markdown documents with YAML frontmatter, read by `sutura-catalog-local`.
 
   The only kind either composition root can OPEN in this build: the markdown adapter is
-  linked by `sutura-serve` and is what `sutura-cli` puts behind its directory argument.
+  linked by `sutura serve` and is what `sutura query`/`sutura mcp` put behind its directory
+  argument.
 - `Datahub` - A metadata service, read through the adapter `docs/adr/0016` specifies and #114 builds.
 
   **A declarable kind that no binary this repository ships can open yet, and that is
@@ -4366,7 +4367,7 @@ legitimate one.
   **A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
   oversight.** The vocabulary of kinds is the vocabulary of adapters *this repository has*, and
   `sutura-exec-bigquery` exists; what does not exist is a composition root that links it, so
-  `sutura-serve` refuses this kind by name. The alternative was to leave the word out, which
+  `sutura` refuses this kind by name. The alternative was to leave the word out, which
   would refuse the same deployment with `kind` does not name a data system this build can open -
   a message that sends an operator looking for a typo instead of telling them the truth.
 
@@ -4968,7 +4969,7 @@ from a configuration file, and a `bool` defaulted to `true` would make it reacha
 `Plaintext` is a named choice, not the absence of a setting. A source that names no TLS
 `transport_mode` is refused at load; an operator who wants no TLS writes
 `transport_mode: plaintext`, and the startup log prints it. That ordering is what lets
-`sutura-serve` keep #124's fail-closed refusal for a **non-loopback host with no TLS** while the
+`sutura serve` keep #124's fail-closed refusal for a **non-loopback host with no TLS** while the
 unix-socket tier keeps working: a socket or loopback host may declare `plaintext`, and any host a
 network can reach it from must not.
 

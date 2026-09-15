@@ -40,7 +40,7 @@ Rules that are not visible from a manifest:
   `C: SemanticCatalog` per call and `SemanticCatalog::KIND`/`capabilities()` are per-TYPE associated
   items with no instance to dispatch on, which is why no enum can wrap both the way `OpenedSources`
   wraps two `Warehouse` adapters (reached through the SAME trait's *instance* methods instead).
-  `sutura-serve`'s `catalog::OpenedCatalogs` is wave one's answer: one catalog kind per deployment,
+  `sutura-cli`'s `serve::catalog::OpenedCatalogs` is wave one's answer: one catalog kind per deployment,
   a mixed declaration refused by name. `docs/adr/0016`'s same-day addendum carries the identical
   sentence.
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
@@ -50,13 +50,13 @@ Rules that are not visible from a manifest:
   `sutura-http`'s default-off `agent` feature (which enables the `/mcp` mount, code and no
   dependency) carries the MCP transport OPAQUELY in a `ServiceState::AgentMount` boxed service, so
   `sutura-http` never names a `sutura-mcp` type - two transports pair at the composition root
-  (`sutura-serve`'s `agent` feature links both), never at a transport crate.
-- **`sutura-cli` reads the same `sources:` tree `sutura-serve` does**, and dispatches the declared
-  `SourceKind` through an exhaustive match of its own - so a third kind is a compile error in both
-  composition roots. The two differ in what an ABSENT entry means: a startup refusal there, and a
-  fallback to that binary's own built-in `files` declaration - named `local`, over the directory on
-  the command line - here. It still answers one question against one data system, so a catalog
-  spanning two gets no engine where `sutura-serve` serves both.
+  (`sutura-cli`'s `agent` feature links both), never at a transport crate.
+- **`sutura-cli`'s `sources.rs` match reads the same `sources:` tree its `serve` module does**, and
+  dispatches the declared `SourceKind` through an exhaustive match of its own - so a third kind is
+  a compile error in both matches. The two differ in what an ABSENT entry means: a startup refusal
+  in `serve`, and a fallback to `sources.rs`'s own built-in `files` declaration - named `local`,
+  over the directory on the command line - here. It still answers one question against one data
+  system, so a catalog spanning two gets no engine where `serve` serves both.
 - **A *declaring* catalog adapter is measured against its own `capabilities`, a *golden* one against
   the oracle** (`docs/adr/0016`). `agrees_with_the_oracle` is the golden contract and is not weakened
   for anything; the split is in the type system, so a golden-only cell cannot be expanded for a
@@ -125,7 +125,7 @@ precedent: `sutura-serve`'s served-binary suite needed the identical loopback `D
 "http")]` rather than `#[cfg(test)]`, because a downstream crate's OWN test compilation is what has
 to see it, and `#[cfg(test)]` never crosses a dependency edge. **The cost is stated, not hidden:**
 this ships the fake's object code (never called) inside any NON-test `--features http` build too,
-including a shipped `sutura-serve --features datahub` binary - `std::net::TcpListener` adds no new
+including a shipped `sutura --features datahub` binary - `std::net::TcpListener` adds no new
 DEPENDENCY edge, so this does not reopen the paragraph above; it trades a few kilobytes of dead code
 against a second hand-maintained fake. A dedicated `test-support`-only feature is the follow-up if
 that trade stops being worth it.
@@ -148,7 +148,7 @@ jobs build them beside the shipped set, so the documented feature-on build is LI
 request rather than argued about. Until it existed the only evidence was a native `cargo check`,
 which stops at metadata and therefore says nothing about the musl link that is the whole risk.
 **What it does not cover:** it links and never runs, and it probes only the features a binary
-declares - `sutura-serve`'s `tls`, `bigquery` and `postgres` are the same shape and are deliberately
+declares - `sutura`'s `tls`, `bigquery` and `postgres` are the same shape and are deliberately
 unprobed, because the closure is compiled per target and a probe for each would multiply the job.
 
 **Running it corrected the paragraph above, and default-off is a decision about the ARTEFACT and

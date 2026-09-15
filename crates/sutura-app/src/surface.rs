@@ -559,7 +559,7 @@ mod tests {
         // The other half of the fixture above, over the directory `examples/authored-sql` and the
         // README under it actually claim about: not a hand-built bundle, but
         // `LocalCatalog::load` through the real composition path `sutura query`, `sutura mcp` and
-        // `sutura-serve` all take. `LocalCatalog::capabilities()` is `everything()`
+        // `sutura serve` all take. `LocalCatalog::capabilities()` is `everything()`
         // (`crates/sutura-catalog-local/src/lib.rs`), so composing this directory first requires the
         // example to carry every kind that declares: a second model, a relationship, a dimension
         // reached through it, a required filter, an anchor, and the four knowledge documents. Red

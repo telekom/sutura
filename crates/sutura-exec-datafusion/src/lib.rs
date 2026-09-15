@@ -93,7 +93,7 @@ pub enum DataFusionError {
     /// under a certified metric, off a table nobody asked for.
     ///
     /// A typed error and not a `RefusalReason`, because no question a caller could ask produces one:
-    /// a table path comes from a catalog document. `sutura-serve` refuses the same thing at BOOT, so a
+    /// a table path comes from a catalog document. `sutura serve` refuses the same thing at BOOT, so a
     /// deployment reaches this only if a model arrived after the engine was opened.
     ///
     /// `sutura_sql::Dialect::qualification` declares the same limit for the rendering side, where

@@ -504,7 +504,7 @@ services:
   #
   # ## What the demo packaging adds that the shipped server does not
   #
-  # `sutura-serve` ships as ONE executable: `nix/oci.nix` builds an image with no shell and no
+  # `sutura` ships as ONE executable: `nix/oci.nix` builds an image with no shell and no
   # probe, so it cannot be supervised and cannot be given a shell healthcheck. `demo/Dockerfile` is
   # the demo-only packaging that adds a shell, a `python3` probe and the supervisor on top of the
   # shipped server binary and the chat client's own image. None of it is a release artifact: the

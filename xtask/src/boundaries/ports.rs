@@ -10,8 +10,8 @@
 //!
 //! A crate that declares a **normal dependency on `sutura-app`** - the crate that owns the driving
 //! port. Derived from the manifests rather than listed, because a hardcoded list of transports
-//! would not cover the next one: as the tree stands it resolves to `sutura-cli`, `sutura-http`,
-//! `sutura-mcp` and `sutura-serve`, which is exactly the set a list would have named, and a fifth
+//! would not cover the next one: as the tree stands it resolves to `sutura-cli`, `sutura-http`
+//! and `sutura-mcp`, which is exactly the set a list would have named, and a fourth
 //! caller is covered the day it is written. DIRECT rather than transitive on purpose: a crate that
 //! reaches `sutura-app` through a transport is not a caller of the port, it is a caller of the
 //! transport.

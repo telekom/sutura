@@ -2,7 +2,7 @@
 //!
 //! `examples/multi-player/README.md` is the deployment shape this test proves: a multi-player
 //! deployment whose semantic catalog is `DataHub`. **The shape is not servable in this repository
-//! yet** - no binary links `sutura-catalog-datahub` and `sutura-serve` refuses `catalog.kind:
+//! yet** - no binary links `sutura-catalog-datahub` by default and `sutura` refuses `catalog.kind:
 //! datahub` by name - so what is runnable is the recorded fixture, and that is exactly what this
 //! file is honest about. It is the same division of labour as the single player example
 //! (`crates/sutura-cli/tests/example.rs`): one documented set of input, loaded and asked by the

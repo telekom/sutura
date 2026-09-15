@@ -236,7 +236,7 @@ mod tests {
     fn the_quickstart_line_still_answers_with_a_configuration_directory_present() {
         // **The regression review reproduced**, as a test on the binary. `sutura query <catalog-dir>
         // <question.yaml> <data-dir>` is the line `README.md` and `docs/getting-started.md` both
-        // print, and an operator who also runs `sutura-serve` has `SUTURA_CONFIG_DIR` exported - so
+        // print, and an operator who also runs `sutura serve` has `SUTURA_CONFIG_DIR` exported - so
         // refusing the documented command for having a configuration directory broke the quickstart
         // for exactly the people most likely to have one. Two answers that AGREE are one answer.
         let dir = scratch("declared-source-quickstart");

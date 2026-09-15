@@ -118,7 +118,7 @@ impl AgentMount {
         S::Response: axum::response::IntoResponse,
         S::Future: Send + 'static,
     {
-        // The one physical `nest_service` in this crate or `sutura-serve` lives inside
+        // The one physical `nest_service` in this crate or `sutura-cli` lives inside
         // `Ungoverned::mount`, which is what makes an ungoverned mount and its allowlist row one
         // value (`xtask::boundaries::ungoverned` holds that it is the only call site). Kept as the
         // `Ungoverned` value itself, not unfused into a bare `Router` here - see the struct doc.
