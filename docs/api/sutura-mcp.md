@@ -245,6 +245,118 @@ The agent-facing surface over one `Surface`.
 Holds the service behind an `Arc` because a tool call is answered on the blocking pool, so the
 port has to outlive the future that started the call.
 
+## Module `http`
+
+The streamable-HTTP transport, default-off behind this crate's own `http` feature.
+
+`telekom/sutura#378` PR3, `docs/adr/0023`. See its own module documentation for what it does
+and, as importantly, what it does not: nothing served mounts it yet.
+The streamable-HTTP transport, as a plain `tower_service::Service` a composition root mounts.
+
+**`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, `docs/adr/0023`. Nothing served
+links this today: `crate::http::service` builds a value a composition root's own router can
+`axum::Router::nest_service` behind its existing layers, so `sutura-serve`'s leg 1
+(`sutura_http::inbound`) and `sutura_http::capability::establish_asked` run in front of it
+exactly as they run in front of every other route on that surface - PR4's job. This crate carries
+no dependency on `axum` outside its own `#[cfg(test)]` tests: `StreamableHttpService` is a bare
+`tower_service::Service`, which is what a transport crate composes against rather than an
+adapter's own router type - see `.agents/skills/sutura/crate-map/SKILL.md`'s "a transport is
+transport-only."
+
+# `Asking::PerRequest`, and why this exists at all
+
+`crate::Asking::PerRequest` reads a `sutura_app::Asked` out of
+`context.extensions.get::<http::request::Parts>().and_then(|parts| parts.extensions.get::<Asked>())`
+(`server.rs`). Traced against the pinned SDK's own streamable-HTTP server, that `Parts` value is
+exactly the request's own `http::request::Parts` - the SAME value
+`sutura_http::capability::establish_asked` inserts an `Asked` into on the HTTP surface's other
+routes, before that request ever reaches the nested tower service (`docs/adr/0023`, quoting
+`streamable_http_server/tower.rs`). `crate::http::service` is what makes a REAL one of those reachable at
+all; until PR4 mounts it behind the real `establish_asked` layer, this module's own tests stand
+in for that layer with a fake one, inserting a chosen `Asked` the same way.
+
+# Session semantics: `legacy_session_mode: false`, and what that decision rests on
+
+`crate::http::config` pins `StreamableHttpServerConfig::legacy_session_mode` to `false` rather than the
+SDK's own default (`true`). Read against the pinned transport's own `handle_post`
+(`transport/streamable_http_server/tower.rs`): with `legacy_session_mode: false`, EVERY request -
+`initialize` included - is served through its "Stateless mode" branch, which calls this crate's
+own `service_factory` closure FRESH per request (one new `crate::AgentSurface` per call, never
+reused across requests) and drives exactly one message through
+`rmcp::transport::OneshotTransport` - never `SessionManager::create_session`,
+`has_session` or `create_stream`. A `Mcp-Session-Id` header is never looked up under this
+config, by ANY message type - confirmed by reading the branch rather than assumed from its name.
+
+**This is the property the invariant asks for, held by absence rather than by a check: a
+streamable-HTTP session cannot outlive or cross the verified caller, because under this config
+there is no session for one request's identity to leak into another's.** Nothing here refuses a
+caller that PRESENTS a foreign or fabricated `Mcp-Session-Id` - that header is simply inert - and
+this module's own `tests::a_reused_session_id_carries_no_weight_across_two_different_callers` is
+the cell that proves it: two requests carrying the SAME fabricated header, two different fake
+`Asked` values, and each response reflects only its OWN request's identity.
+
+**`json_response: true` is pinned alongside it, and it is a second, narrower decision.** Neither
+`AgentSurface::list_tools` nor `AgentSurface::call_tool` ever emits an intermediate
+notification or a server-initiated request ahead of its final reply - `sutura_mcp` has never had
+a use for either - so the SDK's own documented fallback ("if the handler emits a notification or
+request before the final response, the server falls back to `text/event-stream`") never fires
+for this deployment's own tool set, and every ordinary call gets back a plain JSON body instead
+of an SSE stream to parse. A future tool that DID need to stream would need this reconsidered.
+
+**What this module does NOT settle, named rather than left implicit:**
+- **A client negotiating the SDK's OWN advertised `LATEST` protocol version (`2025-11-25`) is
+  still served correctly under this config, including its very first `tools/list` call with no
+  prior handshake required.** Read carefully because `handle_post` has TWO `else` arms that are
+  easy to conflate at a skim: the one reached when `legacy_session_mode: true` and a message
+  arrives with no `Mcp-Session-Id` header (which DOES require the message to be an
+  `InitializeRequest` or `DiscoverRequest`, refusing anything else) and the one reached when
+  `legacy_session_mode: false` (the "Stateless mode" arm, a sibling of the whole
+  `if use_session {}` statement, not nested inside it) - which serves EVERY message type
+  one-shot, `initialize` included. `crate::http::config`'s pin selects the second; the cells in this
+  module exercise it directly rather than trust this paragraph.
+- **`allowed_hosts`/`allowed_origins` are left at the SDK's own defaults**
+  (`["localhost", "127.0.0.1", "::1"]`, no origin check) - a composition root serving this
+  outside loopback must override them, or the transport refuses every request with a `Host`
+  header it does not recognise. PR4's job to state, not this module's.
+- **The exact SEP-2243 header-validation helpers this module's tests exercise
+  (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
+  no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
+  exhaustively traced line by line.** Flagged as the narrowest residual risk in this file: a
+  build-token lane compiling these cells for the first time is where that gets settled.
+
+### `fn config`
+
+```rust
+pub fn config() -> rmcp::transport::StreamableHttpServerConfig
+```
+
+This deployment's fixed transport configuration - see the module documentation for
+`legacy_session_mode` and `json_response`.
+
+A function rather than a `const`: `StreamableHttpServerConfig` is `#[non_exhaustive]` - a
+struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
+`CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
+
+### `fn service`
+
+```rust
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+```
+
+Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
+for a composition root to `nest_service` behind its own layers.
+
+**Always `Asking::PerRequest`, and that is not a parameter.** This constructor exists
+specifically for a transport reachable over a network; `Asking::TheProcessOwner` is
+`crate::serve_stdio`'s answer for a pipe, and giving this function a choice would make "which
+one" a call-site decision a composition root could get backwards. See `crate::Asking` for why
+the two are not interchangeable.
+
+`service_factory` is called by the SDK ONCE PER REQUEST under `config`'s stateless mode (see
+the module documentation) - never once per process and never once per session - so each call
+clones the shared `service`/`admission` handles rather than allocating a second data-system
+connection or a second permit set.
+
 ## Module `server`
 
 The handler: `tools/list`, `tools/call`, and the three channels a caller has to be able to tell

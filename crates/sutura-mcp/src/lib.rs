@@ -103,6 +103,12 @@
 //!   composed in `sutura-cli` the way `query` is. This crate deliberately does not decide that; it
 //!   is the transport a composition root calls.
 
+/// The streamable-HTTP transport, default-off behind this crate's own `http` feature.
+///
+/// `telekom/sutura#378` PR3, `docs/adr/0023`. See its own module documentation for what it does
+/// and, as importantly, what it does not: nothing served mounts it yet.
+#[cfg(feature = "http")]
+pub mod http;
 mod principal;
 mod refusal;
 pub mod server;

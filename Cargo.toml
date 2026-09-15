@@ -520,6 +520,11 @@ utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum
 #   * `transport-io` is stdio, which is the transport an agent client launches a server over.
 #   * `client` is a DEV feature, declared on `sutura-mcp`'s dev-dependency rather than here, so a
 #     shipped build has no client in it.
+# A FOURTH feature exists one level down rather than here: `sutura-mcp`'s own default-off `http`
+# feature (`crates/sutura-mcp/Cargo.toml`) requests `rmcp/transport-streamable-http-server` -
+# `telekom/sutura#378` PR3, `docs/adr/0023`. Naming it at this crate's own level rather than
+# widening the base set above is the point: a workspace build with no `--features` flag never
+# resolves that feature's one new package (`sse-stream`) at all.
 # `macros` is deliberately absent: the `#[tool]` attribute writes code into the crate that uses it,
 # and this workspace gates on the whole clippy `restriction` category with `-D warnings`.
 # `base64` is absent for the same reason it is not needed - nothing here returns image or audio

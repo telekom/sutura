@@ -3266,18 +3266,27 @@ version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b88db56b8ae316560e9e868b6b978ea940f27cb883323fc90e07435e44158f5c"
 dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "bytes",
  "chrono",
  "futures",
+ "http",
+ "http-body",
+ "http-body-util",
  "indexmap",
  "pastey",
  "pin-project-lite",
+ "rand 0.10.2",
  "schemars",
  "serde",
  "serde_json",
+ "sse-stream",
  "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tower-service",
  "tracing",
  "uuid",
 ]
@@ -3722,6 +3731,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sse-stream"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body",
+ "http-body-util",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4000,6 +4022,7 @@ dependencies = [
 name = "sutura-mcp"
 version = "0.5.1"
 dependencies = [
+ "axum",
  "http",
  "insta",
  "rmcp",
@@ -4013,6 +4036,7 @@ dependencies = [
  "sutura-runtime",
  "thiserror 2.0.20",
  "tokio",
+ "tower",
  "tracing",
 ]
 
