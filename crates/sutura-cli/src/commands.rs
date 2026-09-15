@@ -35,22 +35,26 @@ use sutura_sql::Dialect;
 const DEFAULT_VERSION: &str = "local-working-tree";
 
 /// The label `catalog` and `describe` print beside a metric's `sutura_domain::expression::Computation`:
-/// `measure` for the ordinary case, `authored` for the authored-SQL one - a metric whose
-/// `authored_sql:` combines two aggregates is not a measure, and printing it as one misnames the
-/// field the same reader is told, two lines below, uses the named escape hatch.
+/// `MEASURE_LABEL` for the ordinary case, `AUTHORED_LABEL` for the authored-SQL one - a metric
+/// whose `authored_sql:` combines two aggregates is not a measure, and printing it as one misnames
+/// the field the same reader is told, two lines below, uses the named escape hatch.
+const MEASURE_LABEL: &str = "measure";
+const AUTHORED_LABEL: &str = "authored";
+
 const fn computation_label(computation: &sutura_domain::expression::Computation) -> &'static str {
     if computation.authored_sql().is_some() {
-        "authored"
+        AUTHORED_LABEL
     } else {
-        "measure"
+        MEASURE_LABEL
     }
 }
 
 // The `{:<11}` column both call sites pad this label into leaves no space before the value once a
-// label reaches 11 characters - `const _` rather than a named constant for the same reason as
-// `capabilities.rs`: a name nothing reads, and `dead_code` is denied in this workspace.
+// label reaches 11 characters. Checked against the SAME constants `computation_label` returns,
+// not a second copy of the literals - a rename inside that function changes what this asserts, so
+// the assert can actually fail on the rename it exists to catch.
 const _: () = assert!(
-    "measure".len() < 11 && "authored".len() < 11,
+    MEASURE_LABEL.len() < 11 && AUTHORED_LABEL.len() < 11,
     "a label this long touches the value in the padded column catalog/describe print it in"
 );
 
