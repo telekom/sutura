@@ -42,6 +42,8 @@ use std::sync::Arc;
 use sutura_config::Settings;
 use sutura_runtime::{Admission, Registry, RegistryBuilder};
 
+#[cfg(feature = "agent")]
+use crate::router::Ungoverned;
 use crate::surface::Surface;
 
 /// The request state.
@@ -115,8 +117,11 @@ impl AgentMount {
         S::Response: axum::response::IntoResponse,
         S::Future: Send + 'static,
     {
+        // The one physical `nest_service` in this crate or `sutura-serve` lives inside
+        // `Ungoverned::mount`, which is what makes an ungoverned mount and its allowlist row one
+        // value (`xtask::boundaries::ungoverned` holds that it is the only call site).
         Self {
-            router: axum::Router::new().nest_service(crate::constants::AGENT_MOUNT_PATH, service),
+            router: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service).router(),
         }
     }
 
@@ -125,8 +130,7 @@ impl AgentMount {
     /// `axum::Router` clones share one underlying transport, so nesting several routers over one
     /// mount are one mounted transport - the same property `sutura_mcp::http::service`'s own clone
     /// carries.
-    #[cfg(feature = "agent")]
-    pub(crate) fn boxed(&self) -> axum::Router {
+    pub(crate) fn router(&self) -> axum::Router {
         self.router.clone()
     }
 }

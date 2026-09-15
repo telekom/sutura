@@ -1,5 +1,5 @@
-//! The architecture-boundary gate. SEVEN halves - four about which way dependencies point, two
-//! about the driving port, and one about what the crossing looks like:
+//! The architecture-boundary gate. EIGHT halves - four about which way dependencies point, two
+//! about the driving port, and two about what the crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -16,6 +16,11 @@
 //!   written by the port's implementor and by nothing else
 //! * a library's types and errors are a typed contract, not a struct with public fields
 //!   returning `Result<_, String>` (`api_shape`)
+//! * an ungoverned route is mounted only inside `crate::router::Ungoverned::mount`
+//!   (`ungoverned`, `xtask/src/boundaries/ungoverned.rs`) - the structural backstop of the
+//!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-serve` may call
+//!   `.nest`/`.nest_service`/`.route_service` (outside the governed `.nest(API_V1_PREFIX, …)`) is
+//!   the single mount function
 //!
 //! One gate rather than three, because they all answer "is the boundary real?", and because a
 //! rule in its own task has to be transcribed into the justfile, twice into devenv.nix, into
@@ -44,6 +49,7 @@ mod answer_path;
 mod api_shape;
 mod harness;
 mod ports;
+mod ungoverned;
 
 use std::collections::BTreeSet;
 
@@ -422,7 +428,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let declared = declared_ports();
     let through = answer_through_the_port();
     let surface = typed_surface();
-    let halves = [direction, edges, packs, classes, declared, through, surface];
+    let mounts = ungoverned::check();
+    let halves = [direction, edges, packs, classes, declared, through, surface, mounts];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {

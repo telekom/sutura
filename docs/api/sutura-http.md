@@ -3015,17 +3015,20 @@ Why the router could not be assembled.
   mounted transport with no declaration at all. The composition root builds one `AgentMount`
   from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
   when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
-- `UngovernedRouteNotAllowlisted` - A route merged outside the versioned/governed subtree carries no `ungoverned_routes()` row.
+- `UngovernedRouteNotAllowlisted` - A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
 
   **The mechanism that makes an ungoverned route auditable rather than invisible.**
   `crate::capability::governed()` names one `Capability` per route under the version prefix and
   cannot describe `/mcp` - one route offers many tools, scoped per-tool inside
   `AgentSurface::permitted` - so `every_route_governed`'s scan would never see it (the same way
-  `/health` and `/metrics` are invisible by construction). Rather than leave the agent mount
-  riding that blindness, `assemble` records `/mcp` as it builds the subtree (`agent_subtree`)
-  and `check_ungoverned` then refuses any recorded path that lacks a row in
-  `ungoverned_routes`. A future raw route merged the same way cannot appear without the same
-  review.
+  `/health` and `/metrics` are invisible by construction). `assemble` produces every ungoverned
+  mount through an `Ungoverned` value - the type carries the path it was mounted at - and
+  `check_ungoverned` then refuses any RECORDED path that lacks a row in `ungoverned_routes`.
+  The limit of the mechanism is the type it is built on: it refuses a recorded path with no row,
+  and a mount that does not go through `Ungoverned` is refused by the
+  `check-boundaries`' `ungoverned` gate, which is what makes "no mount with no row"
+  structural rather than recorder's recall. It does not insist a table row be merged - `/mcp`
+  is allowed to be absent - which is stated next to `check_ungoverned`.
 
 #### Implements
 

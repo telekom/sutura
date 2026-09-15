@@ -156,21 +156,23 @@ pub enum RouterNotBuilt {
     #[error(
         "an agent surface is mounted and no `security.inbound` block is declared, so nobody could be \
          verified before reaching it. A deployment that serves `/mcp` must also establish a caller \
-         identity: set `security.inbound.mode` (and, on a build linked without the `agent` feature, \
-         rebuild with `--features agent`)"
+         identity: set `security.inbound.mode`"
     )]
     AgentSurfaceWithoutInboundIdentity,
-    /// A route merged outside the versioned/governed subtree carries no `ungoverned_routes()` row.
+    /// A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
     ///
     /// **The mechanism that makes an ungoverned route auditable rather than invisible.**
     /// `crate::capability::governed()` names one `Capability` per route under the version prefix and
     /// cannot describe `/mcp` - one route offers many tools, scoped per-tool inside
     /// `AgentSurface::permitted` - so `every_route_governed`'s scan would never see it (the same way
-    /// `/health` and `/metrics` are invisible by construction). Rather than leave the agent mount
-    /// riding that blindness, `assemble` records `/mcp` as it builds the subtree (`agent_subtree`)
-    /// and `check_ungoverned` then refuses any recorded path that lacks a row in
-    /// [`ungoverned_routes`]. A future raw route merged the same way cannot appear without the same
-    /// review.
+    /// `/health` and `/metrics` are invisible by construction). `assemble` produces every ungoverned
+    /// mount through an [`Ungoverned`] value - the type carries the path it was mounted at - and
+    /// `check_ungoverned` then refuses any RECORDED path that lacks a row in [`ungoverned_routes`].
+    /// The limit of the mechanism is the type it is built on: it refuses a recorded path with no row,
+    /// and a mount that does not go through [`Ungoverned`] is refused by the
+    /// `check-boundaries`' `ungoverned` gate, which is what makes "no mount with no row"
+    /// structural rather than recorder's recall. It does not insist a table row be merged - `/mcp`
+    /// is allowed to be absent - which is stated next to [`check_ungoverned`].
     #[cfg(feature = "agent")]
     #[error(
         "`{path}` is mounted outside the versioned subtree and `sutura_http::router::ungoverned_routes` \
@@ -195,7 +197,7 @@ pub(crate) struct UngovernedRoute {
 ///
 /// Only compiled with the `agent` feature, because only then does this crate mount anything outside
 /// the versioned subtree that `every_route_governed` cannot see as a new line: today that is
-/// `/mcp` alone, recorded by [`agent_subtree`] and checked by [`check_ungoverned`]. `/health`,
+/// `/mcp` alone, carried by an [`Ungoverned`] value and checked by [`check_ungoverned`]. `/health`,
 /// `/metrics` and the documentation paths are merged by `assemble` without an allowlist row and are
 /// deliberately not listed here - see [`check_ungoverned`] for what that means this table does and
 /// does not guard.
@@ -209,14 +211,19 @@ pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
     }]
 }
 
-/// Refuses any ungoverned route that [`ungoverned_routes`] does not name.
+/// Refuses a RECORDED ungoverned route that [`ungoverned_routes`] does not name.
 ///
-/// The fail-closed half of the allowlist: [`agent_subtree`] records `/mcp` as it merges it, and a
-/// recorded path with no row in [`ungoverned_routes`] is refused by name. The reverse direction - a
-/// table row with nothing merged - is NOT held here and deliberately so, because `/mcp` is an
-/// OPTIONAL route (off unless `server.agent_surface.enabled` is set), and an empty mounted set is a
-/// legal and common deployment shape. What this guards is that nothing merges outside the governed
-/// subtree without its own allowlist row.
+/// The fail-closed half of the allowlist, over what [`Ungoverned`]'s type has already bound to the
+/// merge: every ungoverned mount rides into `assemble` as an [`Ungoverned`] value, so the routes it
+/// reports ARE the routes `assemble` merges - a recorded path with no row here is refused by name.
+/// The reverse direction - a table row with nothing merged - is NOT held and deliberately so,
+/// because `/mcp` is an OPTIONAL route (off unless `server.agent_surface.enabled` is set), and an
+/// empty mounted set is a legal and common deployment shape. What this guards, WITH [`Ungoverned`]
+/// and the `check-boundaries`' `ungoverned` gate, is that a merged ungoverned route always carries a row:
+/// the type fuses a mount with its own path, and the gate refuses a mount primitive anywhere but
+/// [`Ungoverned::mount`], so an unrecorded merge is not expressible. The limit of THIS function
+/// alone is that it only sees what the type hands it - stating the mechanism whole is
+/// [`Ungoverned`]'s job.
 #[cfg(feature = "agent")]
 pub(crate) fn check_ungoverned(recorded: &[&str]) -> Result<(), RouterNotBuilt> {
     for path in recorded {
@@ -324,7 +331,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated
     // caller can spend. See `crate::inbound::gate`.
-    let versioned = inbound_layered(versioned, state, settings.security().inbound())?;
+    let versioned = inbound_layered("versioned", versioned, state, settings.security().inbound())?;
     // Then the token gate, and only THEN the limiter - so the limiter is outside the gate and a
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
@@ -398,22 +405,6 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // runs the ungoverned-route allowlist: every subtree merged outside the versioned subtree is
     // recorded and checked against `ungoverned_routes()`, so a route `governed()`'s per-route table
     // cannot see cannot ride in unseen.
-    #[cfg(feature = "agent")]
-    let (agent_router, agent_path) = agent_subtree(state, settings.security().inbound())?;
-    #[cfg(not(feature = "agent"))]
-    let agent_router: Router = Router::new();
-    #[cfg(feature = "agent")]
-    {
-        let mut ungoverned: Vec<&'static str> = Vec::new();
-        if let Some(path) = agent_path {
-            ungoverned.push(path);
-        }
-        for row in ungoverned_routes() {
-            tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");
-        }
-        check_ungoverned(&ungoverned)?;
-    }
-
     let router = Router::new()
         .merge(documentation)
         .merge(metrics)
@@ -422,10 +413,30 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // begins only at the final merge of the already-built public subtree for the same literal
         // resource-path reason stated at its first merge.
         .without_v07_checks()
-        .merge(public)
-        // The agent surface, merged here for the same reason `public` is - outside the version
-        // prefix, over the same final unchecked merge.
-        .merge(agent_router)
+        .merge(public);
+    // Only the agent-feature block below mutates the router, so on a no-`agent` build it stays
+    // immutable and the shadow is what keeps `mut` from being dead on either side of the cfg.
+    #[cfg(feature = "agent")]
+    let mut router = router;
+    // The agent surface, merged here for the same reason `public` is - outside the version prefix,
+    // over the same final unchecked merge, and ONLY through an `Ungoverned`: `agent_subtree` fuses
+    // the subtree with the path `check_ungoverned` must record, so a merge and its allowlist row
+    // cannot drift - the type is what records it, and an unrecorded merge cannot be expressed.
+    #[cfg(feature = "agent")]
+    {
+        let mut ungoverned: Vec<&'static str> = Vec::new();
+        if let Some(mount) = agent_subtree(state, settings.security().inbound())? {
+            // `merge_into`, and never a bare `merge`: it is the one call that both merges this
+            // subtree and records its path, so a merged ungoverned route always reaches
+            // `check_ungoverned` below.
+            mount.merge_into(&mut router, &mut ungoverned);
+        }
+        for row in ungoverned_routes() {
+            tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");
+        }
+        check_ungoverned(&ungoverned)?;
+    }
+    let router = router
         // The request bound, as a middleware of ours rather than `tower_http`'s: that one answers
         // the status with an EMPTY body, and every `408` this surface documents carries a
         // `ProblemBody`. See `middleware::enforce_timeout`.
@@ -582,7 +593,15 @@ fn every_route_governed(fragment: &utoipa::openapi::OpenApi) -> Result<(), Route
     Ok(())
 }
 
+/// Installs leg 1 in front of `versioned`, naming the surface it is going in front of.
+///
+/// The `surface` is the log's disambiguation, and it is a parameter rather than a constant because
+/// this function runs for BOTH surfaces that sit behind leg 1: the versioned API and the agent
+/// surface. `route_layer` rather than `layer`, for the reason the token gate uses it: it runs only
+/// for a request that matched a route in this subtree, so a path under the surface that matches
+/// nothing falls through to the top-level `404` without a leg-1 check.
 fn inbound_layered(
+    surface: &'static str,
     versioned: Router,
     state: &ServiceState,
     declared: Option<&sutura_config::InboundIdentity>,
@@ -601,7 +620,7 @@ fn inbound_layered(
         header = gate.header(),
         establishes = declared.who_authenticated(),
         limit = sutura_config::InboundIdentity::what_it_does_not_do(),
-        "leg 1 is installed on the versioned surface"
+        "leg 1 is installed on the {surface} surface"
     );
     Ok(versioned.route_layer(axum::middleware::from_fn_with_state(
         Arc::clone(gate),
@@ -609,11 +628,68 @@ fn inbound_layered(
     )))
 }
 
-/// The agent surface subtree, or an empty router when this build and deployment carry no mount.
+/// An ungoverned subtree, fused with the allowlist row that names it.
 ///
-/// Returns the layered `/mcp` router together with the path [`check_ungoverned`] must record for it,
-/// so the merge and its allowlist row cannot drift: `assemble` merges exactly what this returns and
-/// records exactly the path it reports.
+/// The only way anything outside the governed subtree is mounted, and therefore the ALLOWLIST'S
+/// MECHANISM rather than the recorder's memory. [`agent_subtree`] produces one of these and
+/// `assemble` consumes it via [`Self::merge_into`] - the merge and the path [`check_ungoverned`]
+/// must see are ONE call, so a subtree that is merged into the router is, by construction,
+/// recorded, and an unrecorded merge cannot be expressed. The structural half lives in
+/// `xtask::boundaries::ungoverned`, which refuses a `.nest`/`.nest_service`/
+/// `.route_service` anywhere in `sutura-http` or `sutura-serve` except [`Self::mount`].
+#[cfg(feature = "agent")]
+#[derive(Clone, Debug)]
+pub(crate) struct Ungoverned {
+    router: Router,
+    path: &'static str,
+}
+
+#[cfg(feature = "agent")]
+impl Ungoverned {
+    /// Nests a transport service at `path` - the one place anything outside the governed subtree
+    /// is mounted - and fuses it with the path.
+    ///
+    /// Making this the SOLE `nest_service` call site is what `xtask::boundaries::ungoverned` holds, so a
+    /// future ungoverned route has to mount here to exist, and mounting here records it.
+    pub(crate) fn mount<S>(path: &'static str, service: S) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
+        Self {
+            router: Router::new().nest_service(path, service),
+            path,
+        }
+    }
+
+    /// The same value around an already-nested router, for [`agent_subtree`]'s layered subtree.
+    pub(crate) const fn new(path: &'static str, router: Router) -> Self {
+        Self { router, path }
+    }
+
+    /// A clone of the fused router, for a layer to wrap before the value is merged and recorded.
+    pub(crate) fn router(&self) -> Router {
+        self.router.clone()
+    }
+
+    /// Merges this ungoverned subtree into `router` AND records its path, in one call.
+    ///
+    /// This is the atomicity that makes the allowlist structural rather than recorder's recall: a
+    /// bare `merge` has no route to the fused router except this method's own merge, so a subtree
+    /// that is merged is, by construction, handed to [`check_ungoverned`]. An unrecorded merge
+    /// cannot be expressed.
+    pub(crate) fn merge_into(self, router: &mut Router, recorded: &mut Vec<&'static str>) {
+        *router = router.clone().merge(self.router);
+        recorded.push(self.path);
+    }
+}
+
+/// The agent surface subtree, or no mount when this build and deployment carry one.
 ///
 /// **Refuses to assemble when a mount is present and no inbound identity is declared.** A
 /// network-reachable agent surface with no leg 1 is a surface "everyone is" - refused here rather
@@ -623,28 +699,25 @@ fn inbound_layered(
 /// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
 /// transport is ever reached.
 ///
-/// The layered `/mcp` subtree and the path [`check_ungoverned`] must record for it are returned as
-/// a named tuple, so `assemble` and `agent_subtree` agree on the shape without either spelling the
-/// nesting twice (`clippy::type-complexity`).
-#[cfg(feature = "agent")]
-type AgentSubtree = (Router, Option<&'static str>);
-
+/// Returns `Option<Ungoverned>` rather than a bare router so the mount and its allowlist row stay
+/// one value end to end: `assemble` merges what this hands back and records the path it rides
+/// inside, and the type (not the recorder) is what stops them drifting.
 #[cfg(feature = "agent")]
 fn agent_subtree(
     state: &ServiceState,
     declared: Option<&sutura_config::InboundIdentity>,
-) -> Result<AgentSubtree, RouterNotBuilt> {
+) -> Result<Option<Ungoverned>, RouterNotBuilt> {
     let Some(mount) = state.agent_surface() else {
-        return Ok((Router::new(), None));
+        return Ok(None);
     };
     if declared.is_none() {
         return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
     }
     let subtree = mount
-        .boxed()
+        .router()
         .route_layer(axum::middleware::from_fn(crate::capability::establish_asked));
-    let subtree = inbound_layered(subtree, state, declared)?;
-    Ok((subtree, Some(crate::constants::AGENT_MOUNT_PATH)))
+    let subtree = inbound_layered("agent", subtree, state, declared)?;
+    Ok(Some(Ungoverned::new(crate::constants::AGENT_MOUNT_PATH, subtree)))
 }
 
 /// The generated document and the browser interface over it, or an empty router.
