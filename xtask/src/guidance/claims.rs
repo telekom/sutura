@@ -296,8 +296,35 @@ mod tests {
         // The live half of the two fixtures above. Red against the tree this was written on: the
         // transport entry's remedy said the agent surface was absent while its own evidence rows
         // prove it ships.
-        let found = remedy_problems(&crate::repo::root().expect("the repo root"));
+        let (found, _live) = remedy_problems(&crate::repo::root().expect("the repo root"));
         assert!(found.is_empty(), "a remedy in CONTRADICTED does not hold: {found:?}");
+    }
+
+    #[test]
+    fn a_retired_evidence_drops_the_live_remedy_count_by_one() {
+        // `github.com/telekom/sutura#414` item 2: the verdict printed `CONTRADICTED.len()` as how
+        // many claims it CHECKED, when the loop skips a row the moment its evidence goes - so a
+        // retired row was invisible in a green run. `remedy_problems`'s second field is the live
+        // count now, and this is that count moving without `CONTRADICTED.len()` moving with it.
+        //
+        // A bare scratch tree, not the repo: over the real tree every row bar the one under test
+        // is live already, so a paraphrase there would be masked by
+        // `every_live_rule_still_has_its_evidence` turning `just test` red by name instead of
+        // this count moving - the warning this issue's brief gives. Here nothing stands except
+        // the one evidence file planted, so the live count is exactly one row until it is not.
+        let tree = crate::scratch_tree::Tree::of("remedy-live-count", &[("crates/sutura-http/Cargo.toml", b"[features]\n")]);
+        let total = CONTRADICTED.len();
+        let (_, live_before) = remedy_problems(tree.root());
+        assert_eq!(
+            live_before, 1,
+            "only \"no crate declares a feature\" should stand in this tree"
+        );
+        // The paraphrase: the same claim, the evidence gone.
+        std::fs::write(tree.root().join("crates/sutura-http/Cargo.toml"), b"[dependencies]\n")
+            .expect("overwrite the fixture manifest");
+        let (_, live_after) = remedy_problems(tree.root());
+        assert_eq!(live_after, 0, "the retired row must stop counting as live");
+        assert_eq!(CONTRADICTED.len(), total, "the declared row count never reads the tree");
     }
 
     #[test]

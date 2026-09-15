@@ -18,9 +18,13 @@
 //!
 //! MEASURED BEFORE THE SIX WERE DROPPED, because the risk was real and specific: dprint pads table
 //! cells, and ADR tables do get padded - ADR 0012's impersonation row now carries 100+ spaces. No
-//! gate matches an ADR row. The one gate-matched needle in an ADR is
-//! `guidance::claims::contradicted`'s "3016 sysroot files" in ADR 0025, which is PROSE, and
-//! `textWrap: maintain` does not move a prose line break.
+//! gate matches an ADR row. `guidance::claims::contradicted`'s `Evidence::stands` reads a needle
+//! against RAW file text rather than the flattened, wrap-tolerant view `contradicted_claims` uses
+//! for `wordings` - so an evidence anchor placed inside an ADR would be exactly this risk, and
+//! `github.com/telekom/sutura#603` deleted the one that used to live there ("3016 sysroot files"
+//! in ADR 0025) rather than keep a number no mechanism could recompute. No `Evidence.holds` in
+//! `docs/adr/**` remains as of that deletion; `textWrap: maintain` not moving a prose line break
+//! is the reason one would still matter if it came back.
 
 #![cfg(test)]
 

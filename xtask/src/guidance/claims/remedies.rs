@@ -169,9 +169,9 @@ pub(super) fn remedy_scan_broke(live: &[&Contradicted]) -> Vec<String> {
     Vec::new()
 }
 
-pub(in crate::guidance) fn remedy_problems(root: &Path) -> Vec<String> {
+pub(in crate::guidance) fn remedy_problems(root: &Path) -> (Vec<String>, usize) {
     let live: Vec<&Contradicted> = CONTRADICTED.iter().filter(|rule| rule.is_live(root)).collect();
     let mut problems = remedy_scan_broke(&live);
     problems.extend(remedies_hold(root, &live));
-    problems
+    (problems, live.len())
 }
