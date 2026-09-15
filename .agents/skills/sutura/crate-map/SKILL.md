@@ -95,6 +95,16 @@ requested still adds nothing to the default `sutura-deps-<triple>` derivations.
 `checks.shipped-features` asserts it out of each binary's own embedded dependency list rather than
 out of a manifest. Cite it that way.
 
+**`sutura-mcp`'s `http` feature is the same shape but for the opposite reason.** Its
+`transport-streamable-http-server` closure pulls no HTTP client (`server-side-http` names neither
+`reqwest` nor `oauth2`) - it is NOT the native/outbound-TLS rule above. It is default-off because an
+in-process server LISTENER is a bigger surface than a background TLS client: the only new package it
+resolves against the lock is `sse-stream`, and it is off so a plain `cargo build`/`just check` never
+resolves even that. The rule for the reader is the same - a default-off `http` feature on a transport
+crate is registered here, not just in the manifest - and `docs/adr/0023` and the `#378` decision carry
+the decision. It is not in `nix/shipped.nix`'s probes, because no published binary's feature list
+names it; the `--all-features` gates compile, lint and test it on every run.
+
 **The general rule:** an adapter with a native or outbound-TLS dependency arrives behind a
 default-off feature on whichever composition root wants it, and the four `cross` CI jobs are the
 gate that says whether that was necessary. Every other gate passes `--all-features` and `deny.toml`

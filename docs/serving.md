@@ -252,6 +252,23 @@ arrive in, which is the limit stated beside the mode rather than left as a defau
 numbers are [`runtime.max_concurrent_queries`](#capacity) and `server.request_timeout_seconds`, which
 bound that surface exactly as they bound this one.
 
+A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
+feature: the streamable-HTTP transport `docs/adr/0023` decided on, exposed as a plain
+`tower_service::Service` a composition root nests behind its own router. **Nothing this binary
+serves links it yet** - `telekom/sutura#378` PR4 is the composition-root change that mounts it
+behind this surface's leg 1 and `establish_asked`; until then the feature compiles and is tested in
+isolation and changes nothing a deployment can reach. Its one fixed decision, carried here ahead of
+the mount so it does not arrive as an unstated default: `legacy_session_mode: false`, which makes
+every request self-contained - a `Mcp-Session-Id` header is never looked up, by any message type -
+so a caller can never be answered under an earlier request's identity because no session exists for
+one to leak into. That guarantee is held by one config flag: the transport still constructs the
+SDK's session manager, and `legacy_session_mode: false` is what keeps it idle - and even where a
+session exists, `rmcp`'s `create_session` takes no identity argument, so a session is never bound to
+a caller; the caller is re-resolved per request from each request's `Asked`. This costs nothing a
+current MCP client needs: the pinned SDK still serves
+`initialize`, `tools/list` and every other call one-shot under this configuration, protocol version
+`2025-11-25` (its own advertised latest) included.
+
 ## The endpoints
 
 | Method and path                                               | Token                                                                               | What it is                                                                                                                                                                                                                              |
