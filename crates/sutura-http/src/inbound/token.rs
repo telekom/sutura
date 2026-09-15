@@ -56,7 +56,7 @@ use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenRequirement, TokenType};
-use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject, SubjectId};
+use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject};
 
 use crate::inbound::caller::{InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
@@ -386,13 +386,11 @@ impl TokenValidator {
         self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
         self.within_the_lifetime_ceiling(&claims)?;
-        let subject = SubjectId::parse(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
-        // The same verified `sub`, retained in full as the impersonation-map key - `SubjectId` masks
-        // on the way in and the access-control read (which declared account a caller may become) must
-        // not be a masked projection. Both come from the same parse of the same claim.
-        let key =
-            sutura_domain::identity::SubjectKey::parse(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
-        let mut chain = PrincipalChain::of(Subject::Verified { id: subject, key });
+        // The single construction of a verified subject: both the masked id a record renders and the
+        // full impersonation-map key come from one parse of the same verified `sub`, so they cannot
+        // disagree about who was verified.
+        let subject = Subject::verified(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
+        let mut chain = PrincipalChain::of(subject);
         if let Some(ref actor) = claims.act {
             chain = chain.acting(chain_from(actor)?);
         }

@@ -84,7 +84,7 @@ impl Asked {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::identity::{PrincipalChain, RequestContext, Secret, Subject, SubjectId};
+    use sutura_domain::identity::{PrincipalChain, RequestContext, Secret, Subject};
 
     use super::Asked;
     use crate::capability::{Capability, Permitted};
@@ -98,10 +98,7 @@ mod tests {
         // `Subject::Verified`, not `Subject::TheDeploymentItself` - the value a mis-wired
         // `establish_asked` would substitute (ADR 0023's own named trap) is a chain with no
         // assertion for the deployment's own identity, which this fixture cannot be mistaken for.
-        let subject = Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-        };
+        let subject = Subject::verified("someone@example.com").expect("a test subject is a subject");
         let context =
             RequestContext::with_assertion(PrincipalChain::of(subject), Secret::new("the-assertion-a-transport-verified"));
         let permitted = Permitted::granted_by([Capability::DescribeCatalog.scope()]);

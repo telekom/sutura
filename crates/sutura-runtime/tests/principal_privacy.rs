@@ -6,7 +6,7 @@
 mod tests {
     use serde_json::Value;
     use sutura_domain::audit::{AuditSink as _, CallRecord};
-    use sutura_domain::identity::{Actor, ActorChain, PrincipalChain, Subject, SubjectId, TaskId};
+    use sutura_domain::identity::{Actor, ActorChain, PrincipalChain, Subject, SubjectId, SubjectKey, TaskId};
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{RefusalReason, ToolOutcome};
     use sutura_runtime::TracingAuditSink;
@@ -35,16 +35,12 @@ mod tests {
 
     #[test]
     fn an_info_audit_event_masks_each_principal_and_still_names_the_event() {
-        let chain = PrincipalChain::of(Subject::Verified {
-            id: SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject"),
-            key: sutura_domain::identity::SubjectKey::parse("firstname.lastname@company.com")
-                .expect("a test subject is a subject"),
-        })
-        .acting(
-            ActorChain::of(Actor::parse("somename@company.com").expect("a test actor is an actor"))
-                .acting_through(Actor::parse("service.bot@company.com").expect("a test actor is an actor")),
-        )
-        .for_task(TaskId::parse("nightly-reconciliation").expect("a test task is a task"));
+        let chain = PrincipalChain::of(Subject::verified("firstname.lastname@company.com").expect("a test subject is a subject"))
+            .acting(
+                ActorChain::of(Actor::parse("somename@company.com").expect("a test actor is an actor"))
+                    .acting_through(Actor::parse("service.bot@company.com").expect("a test actor is an actor")),
+            )
+            .for_task(TaskId::parse("nightly-reconciliation").expect("a test task is a task"));
 
         let event = audit_event(&chain);
         assert_eq!(event["level"], 30, "the audit record is still an info event: {event}");
@@ -97,6 +93,37 @@ mod tests {
                 assert!(!surface.contains(raw), "a render surface reached the raw `{raw}`: {surface}");
             }
         }
+    }
+
+    #[test]
+    fn the_subject_key_retains_the_raw_sub_only_for_the_map_and_renders_only_the_mask() {
+        // `SubjectKey` is the one principal newtype that holds its FULL value on purpose - the
+        // impersonation map (`docs/adr/0032`) must key on the verified `sub`, never a masked
+        // projection. It is the raw value that must still never reach a render surface: that would
+        // put the verified identity on every log line that walks the chain via `Debug`. Seating the
+        // raw in `Debug`/`Display` below makes these greened red.
+        let key = SubjectKey::parse("firstname.lastname@company.com").expect("a test subject is a subject");
+
+        assert_eq!(
+            key.to_string(),
+            "f***.l***@c***.c***",
+            "Display is the mask, not the raw `sub`"
+        );
+        assert_eq!(
+            format!("{key:?}"),
+            "f***.l***@c***.c***",
+            "Debug is the mask, not the raw `sub`"
+        );
+
+        // The live leak path named in `routes/v1/query.rs`'s error log: `chain = ?chain` renders the
+        // whole `PrincipalChain` via `Debug`, which now carries the sealed `VerifiedPrincipal` (masked
+        // `id` and `key`). Its render must hold no trace of the raw `sub`.
+        let chain = PrincipalChain::of(Subject::verified("firstname.lastname@company.com").expect("a test subject is a subject"));
+        let chain_debug = format!("{chain:?}");
+        assert!(
+            !chain_debug.contains("firstname.lastname@company.com"),
+            "the raw `sub` reached the chain's Debug: {chain_debug}"
+        );
     }
 
     #[test]

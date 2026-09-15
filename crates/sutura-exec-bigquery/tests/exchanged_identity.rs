@@ -168,7 +168,7 @@ mod support;
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId, SubjectKey,
+        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectKey,
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
@@ -701,12 +701,7 @@ mod tests {
             .as_secs();
 
         let asked_as = |assertion: &str, subject: &str| -> SessionUser {
-            let chain = |id: &str| {
-                PrincipalChain::of(Subject::Verified {
-                    id: SubjectId::parse(id).expect("a subject id parses"),
-                    key: sutura_domain::identity::SubjectKey::parse(id).expect("a subject id parses"),
-                })
-            };
+            let chain = |id: &str| PrincipalChain::of(Subject::verified(id).expect("a subject id parses"));
             let context = RequestContext::with_assertion(chain(subject), Secret::new(String::from(assertion)));
             let minted = broker
                 .mint(&context, &SourceSet::of(source()))

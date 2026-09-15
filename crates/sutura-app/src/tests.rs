@@ -26,7 +26,7 @@ use sutura_domain::warehouse::Value;
 
 use sutura_domain::identity::{
     CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture, PrincipalChain,
-    RequestContext, Subject, SubjectId,
+    RequestContext, Subject,
 };
 
 use super::tests_support::{
@@ -80,10 +80,9 @@ pub(crate) fn test_deadline() -> sutura_domain::warehouse::deadline::Deadline {
 /// shared answers a named caller exactly as it answered before, which is the behaviour the
 /// `a_posture_is_recorded_in_provenance_per_leg` test above still asserts.
 pub(crate) fn asked_by_a_person() -> RequestContext {
-    RequestContext::of(PrincipalChain::of(Subject::Verified {
-        id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-    }))
+    RequestContext::of(PrincipalChain::of(
+        Subject::verified("someone@example.com").expect("a test subject is a subject"),
+    ))
 }
 
 pub(crate) fn metric() -> MetricName {
@@ -670,10 +669,7 @@ fn a_grant_minted_for_another_subject_never_reaches_an_adapter() {
     };
     assert_eq!(
         asked,
-        &Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-        }
+        &Subject::verified("someone@example.com").expect("a test subject is a subject")
     );
     assert_eq!(granted, &Subject::TheDeploymentItself);
     // And it is an `Err` rather than a refusal, because a caller can do nothing about it and being

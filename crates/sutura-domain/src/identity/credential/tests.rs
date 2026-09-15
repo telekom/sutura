@@ -9,7 +9,7 @@ use super::{
     Agreed, BoundToTheRequest, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry, LegCredentials, Minted,
     Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
-use crate::identity::{InvalidPrincipalId, Secret, Subject, SubjectId, SubjectKey};
+use crate::identity::{InvalidPrincipalId, Secret, Subject};
 use crate::model::SourceName;
 use crate::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 
@@ -18,10 +18,7 @@ fn source(name: &str) -> SourceName {
 }
 
 fn a_person() -> Subject {
-    Subject::Verified {
-        id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        key: SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-    }
+    Subject::verified("someone@example.com").expect("a test subject is a subject")
 }
 
 fn acknowledged() -> SharedIdentityDeclared {

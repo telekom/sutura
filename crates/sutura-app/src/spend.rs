@@ -159,15 +159,12 @@ impl SpendLedger {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use sutura_domain::identity::{Subject, SubjectId};
+    use sutura_domain::identity::Subject;
 
     use super::{Charge, SpendBudget, SpendLedger};
 
     fn subject(id: &str) -> Subject {
-        Subject::Verified {
-            id: SubjectId::parse(id).expect("a test subject id parses"),
-            key: sutura_domain::identity::SubjectKey::parse(id).expect("a test subject id parses"),
-        }
+        Subject::verified(id).expect("a test subject id parses")
     }
 
     #[test]
