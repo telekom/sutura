@@ -67,6 +67,15 @@ mod harness;
 #[cfg(test)]
 #[path = "served/keycloak_test.rs"]
 mod keycloak_test;
+// `catalog.kind: datahub`, served: its own file rather than a case here, behind its own feature -
+// see `served/datahub.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests`
+// reason `harness` above carries one; `#[cfg(feature = "datahub")]` is on the DECLARATION so a build
+// without the feature does not even parse a file that names a crate it did not link.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "datahub")]
+#[path = "served/datahub.rs"]
+mod datahub;
 
 #[cfg(unix)]
 #[cfg(test)]

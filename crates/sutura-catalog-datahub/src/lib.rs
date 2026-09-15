@@ -36,12 +36,14 @@
 //! module header states what is measured against a live `DataHub` and what is not - only the
 //! `metric` entity's wire shape is, today. The recorded fixture source in [`fixture`] and the two
 //! test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
-//! this crate reads against. **And nothing serves the new reader yet:** no composition root links
-//! this crate (its only dependant is `sutura-app`, as a dev-dependency), and `sutura-serve` refuses
-//! `catalog.kind: datahub` by name - that half is a separate, stacked change. Everything here is
-//! decided and tested; what is not is a served composition - the *Built and not wired* register in
-//! `.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
-//! may be read from - it is not an invariant.
+//! this crate reads against. **A composition root now serves it, behind `sutura-serve`'s default-off
+//! `datahub` feature:** that feature links this crate (with `http`) and opens `catalog.kind: datahub`,
+//! reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
+//! is still not is a live-`DataHub` read path in CI and the rest of the wire mapping - the fixed
+//! `bigquery` platform alias and the last page unmeasured against a live instance, both stated in
+//! `http`'s own module header. The *Built and not wired* register in
+//! `.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
+//! composition root".
 //!
 //! **What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
 //! *Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
@@ -87,6 +89,8 @@ pub mod document;
 pub mod fixture;
 #[cfg(feature = "http")]
 pub mod http;
+#[cfg(feature = "http")]
+pub mod test_support;
 
 use std::collections::BTreeMap;
 

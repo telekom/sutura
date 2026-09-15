@@ -62,6 +62,19 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 # rustls connector the driver links.
 postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 
+# The DataHub metadata adapter's HTTP reader (issue #202), and with it the outbound HTTP stack that
+# reader needs.
+#
+# **Default-off for the same ARTEFACT reason `bigquery` above is.** `sutura-catalog-datahub` already
+# has a non-optional `ureq` DEV-dependency (its own `tests/provisioned.rs`), so this feature adds no
+# new edge into the outbound TLS closure at the four cross builds' shared dependency derivation - the
+# same measurement `bigquery`'s own comment records, applied to the crate that already carried it.
+#
+# `sutura-catalog-datahub/http` rather than a bare feature name on the dependency alone, mirroring
+# `bigquery = [..., "sutura-exec-bigquery/wire"]`: the adapter crate's own feature gates its reader
+# module, and this crate's feature is what an operator building `sutura-serve` types.
+datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
+
 [dependencies]
 # For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
 # catalog actually names rather than for a guess.
@@ -77,6 +90,9 @@ sutura-tls = { workspace = true }
 # The BigQuery adapter, behind the `bigquery` feature above. Optional is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds need.
 sutura-exec-bigquery = { workspace = true, optional = true }
+# The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
+# `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
+sutura-catalog-datahub = { workspace = true, optional = true }
 sutura-http = { workspace = true }
 # For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
 # the type on its way to `serve`.

@@ -4077,6 +4077,7 @@ dependencies = [
  "mimalloc",
  "serde_json",
  "sutura-app",
+ "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-config",
  "sutura-dev",

@@ -825,11 +825,14 @@ fn a_model_with_no_file_behind_it_starts_nothing() {
 }
 
 #[test]
+#[cfg(not(feature = "datahub"))]
 fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() {
     // `SourceKind::BigQuery`'s property on the metadata side, and the reason it is a property of
     // the BUILD rather than of the file: `sutura-config` can and must not see which catalog
     // adapter a binary linked, so the refusal lives in the composition root that would have to
-    // open the kind. `datahub` is the vocabulary's one kind no binary here links.
+    // open the kind. **`cfg(not(feature = "datahub"))`, and that guard is the point of this test
+    // now** - since issue #202's reader, `datahub` IS a kind a `--features datahub` build of this
+    // binary links; this cell is what a build WITHOUT that feature still gets.
     use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
@@ -844,9 +847,12 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::catalog::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
-    assert!(err.contains("datahub"), "{err}");
-    assert!(err.contains("markdown"), "{err}");
+    let err = super::catalog::open_catalog(&catalogs).expect_err("this build does not link the datahub feature");
+    assert!(err.contains("catalog.kind: datahub"), "{err}");
+    assert!(
+        err.contains("--features datahub"),
+        "unlike the pre-#202 refusal, THIS one has a real feature to name: {err}"
+    );
     let markdown = CatalogSettings::parse(
         name,
         CatalogKind::Markdown,
@@ -856,40 +862,65 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown]).expect("one declared catalog is a registry");
-    super::catalog::open_catalog(&catalogs).expect("markdown is the kind this build links");
+    super::catalog::open_catalog(&catalogs).expect("markdown is the kind every build links");
 }
 
+// `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`
+// (`github.com/telekom/sutura#366`) is RETIRED rather than kept: it asserted the refusal must not
+// name a feature, because `sutura-serve` declared none that provided `datahub`. Since issue #202's
+// reader, `sutura-serve` DOES declare a `datahub` feature, so naming it is now the actionable
+// remedy - the same shape `open_bigquery`'s own not-linked refusal already holds for `bigquery`.
+// `a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it` above (now
+// `cfg(not(feature = "datahub"))`) asserts the new, opposite rule for a build without the feature.
+
 #[test]
-fn the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for() {
-    // `github.com/telekom/sutura#366`. The refusal used to tell an operator to "build the binary
-    // with the feature that provides it". `sutura-serve` declares `tls` and `bigquery` and nothing
-    // else, and does not depend on the DataHub adapter in any form - so no `--features` value
-    // satisfied that sentence and the remedy was unactionable.
-    //
-    // What is asserted is the ABSENCE of the instruction rather than a wording: a refusal here may
-    // say what this binary cannot do, and must not send a reader after a feature that does not
-    // exist. `cargo xtask check-feature-remedies` is the same rule over every crate's messages.
+fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
+    // `sutura_app::Surface::start_composed` is generic in ONE catalog type per call, and
+    // `SemanticCatalog::KIND`/`capabilities()` are per-TYPE associated items with no instance to
+    // dispatch on - `crate::catalog`'s module header explains why that rules out a single enum
+    // faithfully wrapping both a markdown and a datahub catalog. So a deployment naming both kinds
+    // is refused here, by name, rather than silently opening only one of them.
     use sutura_config::{CatalogKind, CatalogSettings, Catalogs};
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
+    let version = DefinitionVersion::parse("test-1").expect("a test version is a version");
+    let markdown = CatalogSettings::parse(
+        SourceName::parse("prose").expect("a test name is a name"),
+        CatalogKind::Markdown,
+        PathBuf::from("/nowhere/catalog"),
+        PathBuf::from("/nowhere/data"),
+        version.clone(),
+    )
+    .expect("a directory and a version are a settings");
     let datahub = CatalogSettings::parse(
-        SourceName::parse("model").expect("a test name is a name"),
+        SourceName::parse("metrics").expect("a test name is a name"),
         CatalogKind::Datahub,
         PathBuf::from("/nowhere/catalog"),
         PathBuf::from("/nowhere/data"),
-        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        version,
     )
     .expect("a directory and a version are a settings");
-    let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::catalog::open_catalog(&catalogs).expect_err("datahub cannot be opened by this build");
-    assert!(
-        !err.contains("feature"),
-        "the refusal may not send an operator after a feature this crate does not declare: {err}"
-    );
-    // The reachable kind is still offered, so the message stays actionable.
+    let catalogs = Catalogs::parse(vec![markdown, datahub]).expect("two distinctly-named catalogs are a registry");
+    let err = super::catalog::open_catalog(&catalogs).expect_err("a mix of catalog kinds is refused");
     assert!(err.contains("markdown"), "{err}");
+    assert!(err.contains("datahub"), "{err}");
 }
 
+#[cfg(feature = "datahub")]
+mod datahub_served;
+
+// `OpenedCatalogs::Datahub` is `#[cfg(feature = "datahub")]`, so at the default (no-datahub)
+// build the `Markdown` pattern below is the enum's ONLY arm and the `else` is IRREFUTABLE - a
+// rustc error under `-D irrefutable-let-patterns` that the `--all-features` build never sees
+// (there the `Datahub` variant makes it refutable, which is what the `else` is for). The narrow
+// cfg-scoped allowance is the honest way to run the same cell in both builds.
+#[cfg_attr(
+    not(feature = "datahub"),
+    expect(
+        irrefutable_let_patterns,
+        reason = "at the default build the Datahub arm is cfg'd out, so the Markdown pattern and its else are irrefutable; the all-features build has both arms and needs the else"
+    )
+)]
 #[test]
 fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     // Step 4 of the issue: the settings DECLARE several metadata sources and the composition root
@@ -913,9 +944,12 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
     };
     let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
     let opened = super::catalog::open_catalog(&catalogs).expect("two markdown catalogs open");
-    assert_eq!(opened.len(), 2, "one opened catalog per declared entry");
-    assert_eq!(opened[0].name().as_str(), "structure");
-    assert_eq!(opened[1].name().as_str(), "metrics");
+    let super::catalog::OpenedCatalogs::Markdown(opens) = opened else {
+        panic!("a markdown-only deployment opens the markdown vector");
+    };
+    assert_eq!(opens.len(), 2, "one opened catalog per declared entry");
+    assert_eq!(opens[0].name().as_str(), "structure");
+    assert_eq!(opens[1].name().as_str(), "metrics");
 }
 
 #[test]

@@ -1334,14 +1334,40 @@ pub fn data_dir(&self) -> &Path
 ```
 
 ```rust
+pub const fn deadline_seconds(&self) -> Option<u64>
+```
+
+The declared read deadline in seconds, or `None` to use the reader's own recommended
+default.
+
+```rust
 pub fn dir(&self) -> &Path
 ```
+
+```rust
+pub fn endpoint(&self) -> Option<&str>
+```
+
+The declared `DataHub` endpoint, once `Self::with_datahub_reader` has run.
 
 ```rust
 pub const fn kind(&self) -> CatalogKind
 ```
 
 Which adapter opens this catalog.
+
+```rust
+pub const fn max_response_bytes(&self) -> Option<u64>
+```
+
+The declared response-size cap in bytes, or `None` to use the reader's own recommended
+default.
+
+```rust
+pub fn metric_property(&self) -> Option<&str>
+```
+
+The deployment-chosen structured property name, once `Self::with_datahub_reader` has run.
 
 ```rust
 pub const fn name(&self) -> &SourceName
@@ -1362,8 +1388,39 @@ disappears between reading the configuration and loading the catalog would make 
 existence check here a claim that goes stale immediately. The load is what fails.
 
 ```rust
+pub fn token_file(&self) -> Option<&Path>
+```
+
+The declared personal-access-token file, once `Self::with_datahub_reader` has run.
+
+```rust
 pub const fn version(&self) -> &DefinitionVersion
 ```
+
+```rust
+pub const fn with_datahub_bounds(self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self
+```
+
+Adds the two `catalog.kind: datahub`-only bounds, when the deployment declared either.
+
+**Infallible, unlike `Self::with_datahub_reader`, because `None` is a valid value here
+rather than a missing required one** - it selects the reader's own recommended default
+(`sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`),
+which this crate does not depend on that adapter crate to name. The composition root is
+where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::parse` is the
+single owner of that range, the same split `BytesBilledCeiling::parse` holds for `BigQuery`'s
+ceiling.
+
+```rust
+pub fn with_datahub_reader(self, endpoint: String, token_file: PathBuf, metric_property: String) -> Result<Self, InvalidCatalogSettings>
+```
+
+Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
+
+A separate step rather than three more parameters on `Self::parse`, so every existing
+caller - every markdown entry, every test that builds one - is unaffected by a kind no
+binary in this repository could open until issue #202's reader arrived. `parse_catalogs`
+calls this only when `kind` parsed as `CatalogKind::Datahub`.
 
 #### Implements
 
@@ -1382,6 +1439,7 @@ Why a catalog configuration is not usable.
 - `EmptyPath` - A path was empty, which resolves to the process working directory - a different directory on every host, and never the one the operator meant.
 - `EmptyCatalog` - No catalog was declared, so there is nothing to serve.
 - `DuplicateName` - Two catalogs share one declared name, so the contribution manifest could not tell them apart.
+- `MissingForDatahub` - A `catalog.kind: datahub` entry did not declare a field only that kind needs.
 
 #### Implements
 

@@ -140,20 +140,29 @@ struct Absence {
 /// SUCCEEDS, twice, so a nonce store turns that test red and puts all four of its sentences in front
 /// of somebody. An entry duplicating a test that already fails is a second thing to keep true.
 const ABSENCES: &[Absence] = &[
+    // `#370` row E's first item - "`MetricAspect::expression()` has no consumer" - is narrowed,
+    // not withdrawn. Issue #202's second PR moved the crate's fake server and page builders into a
+    // `pub` `test_support` module under `src/` (an integration test binary cannot see another
+    // crate's `tests/`, so a fake shared with `sutura-serve` has to cross the dependency edge,
+    // which only the library can). `test_support::metric_page()` reads `certified.expression()`
+    // and `certified.dialect()`, so "no consumer" is false; what remains true, and held here, is
+    // the narrower read-path claim in `document.rs`'s accessor docs. #202's own audit named
+    // "nothing stops a later change reading `MetricInfo.expression` into a `Measure`" as the one
+    // design-held invariant - this entry makes that a mechanism rather than recall, with `over`
+    // narrowed to everything but `test_support`.
     Absence {
-        // `#370` row E, first item. The accessor reads as covered and is called from a `tests/`
-        // target alone; `docs/adr/0016` is what the doc comment sends a reader to.
-        name: "`MetricAspect::expression()` has no consumer",
-        claimed: &["No consumer today"],
-        stated_in: &["crates/sutura-catalog-datahub/src/**/*.rs"],
+        name: "no read-path consumer converts MetricInfo.expression into a Measure",
+        claimed: &["nowhere on the read path"],
+        stated_in: &["crates/sutura-catalog-datahub/src/document.rs"],
         refuted_by: &[Sighting {
-            // EVERY crate's library source, not the adapter's own: a reporter that consumed this
-            // would live in `sutura-app`, and an entry that looked only where the accessor is
-            // declared would be blind to the consumer the sentence is about. Integration tests
-            // under `crates/*/tests/**` are outside the glob and are the callers it has today.
-            over: &["crates/*/src/**/*.rs"],
-            holds: ".expression()",
-            means: "something in the workspace now reads a metric aspect's raw expression",
+            over: &[
+                "crates/sutura-app/src/**/*.rs",
+                "crates/sutura-catalog-datahub/src/lib.rs",
+                "crates/sutura-catalog-datahub/src/http.rs",
+                "crates/sutura-serve/src/**/*.rs",
+            ],
+            holds: "expression()",
+            means: "a read-path consumer reads `MetricAspect::expression()` - the promotion-candidate half, whose conversion into a `Measure` #202 leaves undecided",
         }],
     },
     Absence {
