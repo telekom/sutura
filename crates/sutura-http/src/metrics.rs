@@ -287,7 +287,7 @@ mod tests {
     use sutura_runtime::metrics::RegistryBuilder;
 
     use super::{Metrics, QuestionOutcome};
-    use crate::problem::Failure;
+    use crate::problem::{Detail, Failure};
 
     /// Every `Failure` variant is a label this module declares.
     ///
@@ -305,7 +305,7 @@ mod tests {
                 capability: "sutura:sql.run",
             },
             Failure::NotAQuestion {
-                detail: String::from("a bad body"),
+                detail: Detail::of(&std::io::Error::other("a bad body")),
             },
             Failure::TooLarge,
             Failure::RateLimited,

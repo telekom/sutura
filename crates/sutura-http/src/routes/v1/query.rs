@@ -238,9 +238,9 @@ pub(crate) async fn ask(
     Extension(deadline): Extension<Deadline>,
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
-    let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
+    let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
     let query = Query::try_from(body).map_err(|cause| Failure::NotAQuestion {
-        detail: describe(&cause),
+        detail: crate::problem::Detail::of(&cause),
     })?;
 
     // WHICH question, onto the span, so every subsequent line of this request carries it.
@@ -345,73 +345,6 @@ pub(crate) async fn ask(
     Ok(Outcome::from(&outcome))
 }
 
-/// Why the body did not become a `QuestionBody`.
-///
-/// **Two outcomes from one rejection type, and the split was found by a test rather than by
-/// reading.** The body-limit layer causes the JSON extractor to reject with a length-limit error,
-/// which is a `JsonRejection` like a malformed body is - so mapping every rejection to `400` made a
-/// body over the bound indistinguishable from a body with a typo in it, and the documented `413`
-/// was a status nothing produced. Branching on the rejection's own status rather than on its
-/// variant keeps that true across an `axum` release that adds a variant.
-pub(super) fn rejected(rejection: &JsonRejection) -> Failure {
-    if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
-        return Failure::TooLarge;
-    }
-    Failure::NotAQuestion {
-        // `body_text` and NOT the `#[source]` walk `describe` does. Each level of an `axum`
-        // rejection's chain restates the whole message, so walking it produced the same sentence
-        // three times in a row - observed in a response, not deduced. `body_text` is the one
-        // sentence the rejection is designed to hand a caller, and it names the offending key for
-        // an unknown field and the position for malformed JSON - with the key passed through
-        // `redact_unrecognized_field`, because that key is caller-chosen text and may only be
-        // rendered when it is a well-formed identifier.
-        detail: redact_unrecognized_field(rejection.body_text()),
-    }
-}
-
-/// A `400` detail for a body that did not deserialize, with any unrecognized field name rendered
-/// only when it is a safe identifier.
-///
-/// `deny_unknown_fields` names the offending key, and the key is caller-chosen text: a key that is
-/// not a well-formed identifier (say a hyphenated one) must not be reflected verbatim into the body
-/// a caller reads or a model collects. The same gate the MCP `-32602` side applies before any
-/// caller text travels in a message - see `inbound`'s `WrongTokenType` for the identical rule
-/// applied to a caller-adjacent `typ` claim.
-fn redact_unrecognized_field(text: String) -> String {
-    let Some(key) = unrecognized_field_key(&text) else {
-        return text;
-    };
-    if is_identifier(&key) {
-        return text;
-    }
-    // `serde_path_to_error` renders the caller's field name twice - once as the path prefix and
-    // once inside the `unknown field` fragment - so both occurrences are caller-chosen text and
-    // both are replaced when the name is not a safe identifier.
-    text.replace(&key, "an unrecognized field")
-}
-
-/// The offending key a refusal names as unrecognized, when the text named one.
-fn unrecognized_field_key(text: &str) -> Option<String> {
-    const MARKER: &str = "unknown field `";
-    // The text between the marker and the first closing backtick is the key. Split-based rather
-    // than byte-indexing, because the workspace bans slicing a `String` by byte offset.
-    let rest = text.split_once(MARKER)?.1;
-    let key = rest.split_once('`')?.0;
-    (!key.is_empty()).then(|| String::from(key))
-}
-
-/// Whether a key is a safe identifier to render.
-///
-/// `[A-Za-z_][A-Za-z0-9_]*` - the grammar `sutura_domain`'s identifier parse admits - so a
-/// rendered key is a name a question could have used, never arbitrary caller text.
-fn is_identifier(key: &str) -> bool {
-    let mut chars = key.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() || first == '_' => chars.all(|c| c.is_ascii_alphanumeric() || c == '_'),
-        _ => false,
-    }
-}
-
 /// Turns a shed question into the response, and says so once in the log.
 ///
 /// `warn` and not `error`: shedding is the control working. It is also the line an operator sizes
@@ -461,22 +394,6 @@ pub(super) fn failed(failure: &SurfaceFailure) -> Failure {
             Failure::Internal
         }
     }
-}
-
-/// An error and its causes, on one line, for a caller.
-///
-/// `Display` on a `thiserror` enum prints the outermost message only, and for a malformed question
-/// the outer message is the field and the cause is what was wrong with it - so both halves are
-/// needed for the message to be actionable.
-fn describe(error: &dyn core::error::Error) -> String {
-    let mut out = error.to_string();
-    let mut cursor = error.source();
-    while let Some(cause) = cursor {
-        out.push_str(": ");
-        out.push_str(&cause.to_string());
-        cursor = cause.source();
-    }
-    out
 }
 
 /// What the admission bound does to a second question, through the assembled router.

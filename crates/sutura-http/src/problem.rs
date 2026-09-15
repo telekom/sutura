@@ -31,7 +31,118 @@
 //! nothing else. Every other variant's detail is either fixed text or a message about the caller's
 //! own request.
 
+use axum::extract::rejection::JsonRejection;
 use axum::response::{IntoResponse, Response};
+
+/// A sentence about the caller's own request, and never anything else.
+///
+/// **The only two doors are [`Detail::of`] and the module-private [`Detail::from_rejection`].**
+/// Both are this module's own reader of the value that ends up in [`Failure::NotAQuestion`] - the
+/// chain walk and the redaction live here and nowhere else, so a call site that wants a `detail`
+/// gets one of these two renderings or a type error, never a `format!` of its own.
+#[derive(Debug, Clone)]
+pub struct Detail(String);
+
+impl Detail {
+    /// Walks `error`'s `#[source]` chain onto one line, for a caller.
+    ///
+    /// `Display` on a `thiserror` enum prints the outermost message only, and for a malformed
+    /// question the outer message is the field and the cause is what was wrong with it - so both
+    /// halves are needed for the message to be actionable.
+    #[must_use]
+    pub fn of(error: &dyn core::error::Error) -> Self {
+        let mut out = error.to_string();
+        let mut cursor = error.source();
+        while let Some(cause) = cursor {
+            out.push_str(": ");
+            out.push_str(&cause.to_string());
+            cursor = cause.source();
+        }
+        Self(out)
+    }
+
+    /// A `400` detail for a body that did not deserialize, with any unrecognized field name
+    /// rendered only when it is a safe identifier.
+    ///
+    /// `body_text` and NOT [`Detail::of`]'s walk: each level of an `axum` rejection's chain restates
+    /// the whole message, so walking it produces the same sentence three times in a row - observed
+    /// in a response, not deduced. `body_text` is the one sentence the rejection is designed to hand
+    /// a caller, and it names the offending key for an unknown field and the position for malformed
+    /// JSON - with the key passed through [`redact_unrecognized_field`], because that key is
+    /// caller-chosen text and may only be rendered when it is a well-formed identifier.
+    fn from_rejection(rejection: &JsonRejection) -> Self {
+        Self(redact_unrecognized_field(rejection.body_text()))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for Detail {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Why the body did not become a question or a statement.
+///
+/// **Two outcomes from one rejection type, and the split was found by a test rather than by
+/// reading.** The body-limit layer causes the JSON extractor to reject with a length-limit error,
+/// which is a `JsonRejection` like a malformed body is - so mapping every rejection to `400` made a
+/// body over the bound indistinguishable from a body with a typo in it, and the documented `413`
+/// was a status nothing produced. Branching on the rejection's own status rather than on its
+/// variant keeps that true across an `axum` release that adds a variant.
+pub(crate) fn rejected(rejection: &JsonRejection) -> Failure {
+    if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+        return Failure::TooLarge;
+    }
+    Failure::NotAQuestion {
+        detail: Detail::from_rejection(rejection),
+    }
+}
+
+/// The offending key a redaction names as unrecognized, when the text named one.
+///
+/// `deny_unknown_fields` names the offending key, and the key is caller-chosen text: a key that is
+/// not a well-formed identifier (say a hyphenated one) must not be reflected verbatim into the body
+/// a caller reads or a model collects. The same gate the MCP `-32602` side applies before any
+/// caller text travels in a message - see `inbound`'s `WrongTokenType` for the identical rule
+/// applied to a caller-adjacent `typ` claim.
+fn redact_unrecognized_field(text: String) -> String {
+    let Some(key) = unrecognized_field_key(&text) else {
+        return text;
+    };
+    if is_identifier(&key) {
+        return text;
+    }
+    // `serde_path_to_error` renders the caller's field name twice - once as the path prefix and
+    // once inside the `unknown field` fragment - so both occurrences are caller-chosen text and
+    // both are replaced when the name is not a safe identifier.
+    text.replace(&key, "an unrecognized field")
+}
+
+/// The offending key a refusal names as unrecognized, when the text named one.
+fn unrecognized_field_key(text: &str) -> Option<String> {
+    const MARKER: &str = "unknown field `";
+    // The text between the marker and the first closing backtick is the key. Split-based rather
+    // than byte-indexing, because the workspace bans slicing a `String` by byte offset.
+    let rest = text.split_once(MARKER)?.1;
+    let key = rest.split_once('`')?.0;
+    (!key.is_empty()).then(|| String::from(key))
+}
+
+/// Whether a key is a safe identifier to render.
+///
+/// `[A-Za-z_][A-Za-z0-9_]*` - the grammar `sutura_domain`'s identifier parse admits - so a
+/// rendered key is a name a question could have used, never arbitrary caller text.
+fn is_identifier(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => chars.all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        _ => false,
+    }
+}
 
 /// Why a request could not be answered.
 ///
@@ -82,7 +193,7 @@ pub enum Failure {
     /// which field was wrong, never the field's contents. A cause chain that started carrying them
     /// again would reach a caller through here, which is why the assertion lives beside the chain
     /// and not beside this variant.
-    NotAQuestion { detail: String },
+    NotAQuestion { detail: Detail },
     /// The body is larger than the configured bound.
     ///
     /// Separate from [`Self::NotAQuestion`] even though both arrive as the same extractor
@@ -197,7 +308,7 @@ impl Failure {
             Self::ToolNotEnabled { capability } => {
                 format!("`{capability}` is not enabled on this deployment")
             }
-            Self::NotAQuestion { ref detail } => detail.clone(),
+            Self::NotAQuestion { ref detail } => detail.to_string(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
             Self::RateLimited => String::from("too many requests; slow down and retry"),
             Self::Timeout => String::from("the request exceeded this service's time bound"),
@@ -269,7 +380,7 @@ impl IntoResponse for Failure {
 
 #[cfg(test)]
 mod tests {
-    use super::Failure;
+    use super::{Detail, Failure};
 
     #[test]
     fn an_internal_failure_says_nothing_about_the_deployment() {
@@ -303,7 +414,7 @@ mod tests {
                 capability: "sutura:sql.run",
             },
             Failure::NotAQuestion {
-                detail: String::from("`grain` is not a grain"),
+                detail: Detail(String::from("`grain` is not a grain")),
             },
             Failure::TooLarge,
             Failure::RateLimited,
@@ -428,7 +539,7 @@ mod tests {
     fn a_malformed_question_carries_the_message_that_names_the_field() {
         // The one variant that reflects text, and the text is about the caller's own request.
         let failure = Failure::NotAQuestion {
-            detail: String::from("`grain` is not one of: day, week, month, quarter, year"),
+            detail: Detail(String::from("`grain` is not one of: day, week, month, quarter, year")),
         };
         assert!(failure.detail().contains("grain"), "{}", failure.detail());
     }

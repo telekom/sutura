@@ -85,9 +85,9 @@ pub(crate) async fn run_sql(
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
     body: Result<Json<RunSqlBody>, JsonRejection>,
 ) -> Result<RunSqlOutcome, Failure> {
-    let Json(body) = body.map_err(|rejection| super::query::rejected(&rejection))?;
+    let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
     let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| Failure::NotAQuestion {
-        detail: cause.to_string(),
+        detail: crate::problem::Detail::of(&cause),
     })?;
 
     let admission_wait = state.metrics().admission_started();

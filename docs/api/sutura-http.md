@@ -2773,6 +2773,35 @@ is a description of the deployment. The detail is logged and the response says t
 nothing else. Every other variant's detail is either fixed text or a message about the caller's
 own request.
 
+### `struct Detail`
+
+```rust
+pub struct Detail
+```
+
+A sentence about the caller's own request, and never anything else.
+
+**The only two doors are `Detail::of` and the module-private `Detail::from_rejection`.**
+Both are this module's own reader of the value that ends up in `Failure::NotAQuestion` - the
+chain walk and the redaction live here and nowhere else, so a call site that wants a `detail`
+gets one of these two renderings or a type error, never a `format!` of its own.
+
+#### Methods
+
+```rust
+pub fn of(error: &dyn core::error::Error) -> Self
+```
+
+Walks `error`'s `#[source]` chain onto one line, for a caller.
+
+`Display` on a `thiserror` enum prints the outermost message only, and for a malformed
+question the outer message is the field and the cause is what was wrong with it - so both
+halves are needed for the message to be actionable.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`
+
 ### `enum Failure`
 
 ```rust
