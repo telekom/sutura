@@ -380,7 +380,32 @@ ci_key = gcp.serviceaccount.Key(
 #
 # The issuer is config, and so is the allowed audience: the JWTs the caller presents
 # must be signed by `issuer_uri` and carry an `aud` in `allowed_audiences`. Google as
-# the issuer means the audience is a Google OAuth client id the id_token was minted for.
+# the issuer means the audience is a Google OAuth client id the id_token was minted for -
+# `allowed_audiences` defaults below to the pool's own STS audience, which is what
+# sutura's broker mints its assertions' `aud` as.
+#
+# `audience` is STS's own `audience` request parameter for this provider, and Google
+# requires the project NUMBER there (`invalid_target` otherwise) - never the id used
+# everywhere else in this file. It is built from `project_number` plus the CONFIG ids
+# (`workload_pool_id`/`workload_provider_id`), not from the `workload_pool`/
+# `workload_provider` resource outputs, so it has no dependency on the provider it also
+# seeds the default `allowed_audiences` for.
+project_number = gcp.organizations.get_project(project_id=project).number
+
+audience = (
+    f"//iam.googleapis.com/projects/{project_number}"
+    f"/locations/global/workloadIdentityPools/{cfg.require('workload_pool_id')}"
+    f"/providers/{cfg.require('workload_provider_id')}"
+)
+
+# Defaults to `[audience]` - the pool's own audience, matching the `aud` sutura's broker
+# mints - so a deployment that never sets `workload_allowed_audiences` still accepts the
+# tokens sutura exchanges. A configured list adds audiences on top of that default; if it
+# is set but omits `audience`, it is appended rather than leaving the provider unable to
+# verify sutura's own tokens.
+allowed_audiences = cfg.get_object("workload_allowed_audiences") or [audience]
+if audience not in allowed_audiences:
+    allowed_audiences = [*allowed_audiences, audience]
 
 workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
@@ -400,21 +425,11 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     },
     oidc=gcp.iam.WorkloadIdentityPoolProviderOidcArgs(
         issuer_uri=cfg.require("workload_issuer_uri"),
-        allowed_audiences=cfg.require_object("workload_allowed_audiences"),
+        allowed_audiences=allowed_audiences,
         # Disabled: the test mints its own JWTs for the two subjects (different `sub`s)
         # rather than holding a signing key Google could verify for issuing.
     ),
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
-)
-
-audience = pulumi.Output.concat(
-    "//iam.googleapis.com/",
-    "projects/",
-    project,
-    "/locations/global/workloadIdentityPools/",
-    workload_pool.workload_identity_pool_id,
-    "/providers/",
-    workload_provider.workload_identity_pool_provider_id,
 )
 
 # The iamcredentials hop - telekom/sutura#376. After STS exchanges a subject's token to a pool
@@ -429,8 +444,8 @@ audience = pulumi.Output.concat(
 # member the account's minted id_token `sub` (its numeric `unique_id`, via
 # `google.subject <- assertion.sub`) resolves to - so each principal may impersonate only itself.
 # The member uses the project NUMBER, the form Google requires for a workload identity pool
-# principal (the project id is not accepted), resolved here from the configured project id.
-project_number = gcp.organizations.get_project(project_id=project).number
+# principal (the project id is not accepted) - `project_number`, resolved above alongside
+# `audience` for the same reason.
 for tag, sa in (("a", sa_a), ("b", sa_b)):
     gcp.serviceaccount.IAMMember(
         f"principal-{tag}-workload-identity-user",

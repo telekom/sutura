@@ -35,6 +35,13 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   id (`unique_id`) - the `sub` its minted id_token carries and hence the pool subject it resolves
   to - so a principal can impersonate only itself.
 
+`workload_audience` carries the project **number**, not the project id: STS's own `audience`
+request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to
+`[workload_audience]` - the pool's own audience, matching the `aud` sutura's broker mints - so a
+stack that never sets it still accepts sutura's tokens; a configured list only adds audiences on
+top (and gets the default appended if it omits it). This changed `workload_audience`'s shape, so a
+stack that already ran `infra-set` under the old (broken) value must run it again after `infra-up`.
+
 ## Setup (one time, per developer or CI)
 
 The real project/names live in your own `Pulumi.<stack>.yaml`, which is gitignored.
