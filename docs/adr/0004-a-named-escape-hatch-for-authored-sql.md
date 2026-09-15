@@ -34,7 +34,7 @@ adapter reaching `sutura-sql` - every catalog adapter this workspace ships, not 
 carries authored SQL today - so the PLACEMENT is held by that gate and not by this paragraph.
 **The OUTCOME is a second, narrower mechanism**, because `FORBIDDEN_EDGES` names crates and cannot
 see a normal dependency added straight to `sutura-app` - the crate both composition roots sit on -
-which is outside every one of its three entries and would still put the generator into the network
+which is outside every entry the table holds and would still put the generator into the network
 binary's default closure. `nix/shipped.nix`'s `checks.shipped-features` closes that gap for
 `sutura-serve` by banning `polyglot-sql` from its embedded dependency list, read off the artifact
 `cargo auditable` records rather than off any manifest; `sutura` legitimately links the crate, for
