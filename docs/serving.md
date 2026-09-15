@@ -54,6 +54,121 @@ written into the log by hand, so an operator meets them without reading this pag
 Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
 it, and the bucket it counts against is a network address rather than a principal.
 
+## Running it
+
+The engine reads files, so there is nothing to provision. Three ways in, and they take the same
+environment - which is **not** three catalog keys: a `sources.<alias>` entry says what kind of data
+system the catalog's models read, where its files are and which identity a query reaches it as, and
+a catalog naming a source nobody declared is a startup refusal that names the source.
+
+**From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
+ones are statically linked and need no libc at all - and verify it before you run it;
+[verifying a release](verifying-a-release.md) is that page. The `cd` below is into the corpus, and
+**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the commands that
+put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
+corpus is at `sutura-corpus/` in the directory you are standing in; a clone puts it at
+`examples/single-player` instead, and the `cd` is the only line that differs.
+
+```bash
+tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
+BINARY="$PWD/sutura-serve"
+cd sutura-corpus/examples/single-player
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  "$BINARY"
+```
+
+**Or the image.** The `-serve` tags are this binary; the unsuffixed ones are the command-line tool.
+The entrypoint is the server and it takes no arguments, so `docker run` with none starts it.
+
+```bash
+docker run --rm --network host \
+  --workdir /examples \
+  -v "$PWD/examples/single-player:/examples:ro" \
+  -e SUTURA__SECURITY__IDENTITY=single-user \
+  -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+  -e SUTURA__SOURCES__LOCAL__KIND=files \
+  -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
+  -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  ghcr.io/telekom/sutura:latest-serve
+```
+
+**`--network host` rather than `-p 8080:8080`, and the difference is a startup refusal rather than a
+preference.** The default bind is loopback, and inside a container loopback is the container - so a
+published port would reach nothing. Binding `0.0.0.0` instead makes this deployment one other hosts
+can reach, and that needs `security.access_token` and a `security.tls_termination` that says which
+cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
+the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
+65532 with no shell and no package manager in it.
+
+**Every published x86_64 image is smoke-tested with this shape before a release is cut** -
+`.github/serve-smoke.sh`, the same mount and the same keys plus a port of its own - and the test is
+not a liveness probe. It starts the image, asks the `recurring_revenue` question from
+[`examples/single-player`](https://github.com/telekom/sutura/tree/main/examples/single-player),
+checks the certified January figure is in the answer, and checks that a question the catalog refuses
+comes back `403`. The arm64 pair is built and not run, because executing it would need an emulator
+registered on the runner.
+
+**Or from source**, which is what a change to this repository is tested with:
+
+```bash
+ROOT="$PWD"
+cd examples/single-player
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
+```
+
+It binds `127.0.0.1:8080`, needs no token there, and serves the browser interface at `/docs`. Startup
+loads the catalog through its port and re-executes **every declared anchor** against the data system;
+a bundle whose anchors do not reproduce the numbers their author certified starts nothing. That is not
+a check the startup sequence performs and could forget - the type the service accepts has no other
+constructor.
+
+**Two suites are the thing to read next rather than this page**, and they are suites rather than
+transcripts. `crates/sutura-serve/tests/served.rs` starts this binary against
+`examples/single-player` on a kernel-chosen port and asserts the liveness probe answering only once
+the catalog has loaded, a question with no bearer token refused by the gate, a certified question
+answered, the catalog route, a refusal arriving as its documented status, a caller's own token
+verified and every forgery refused alike, a published key set this deployment cannot use stopping the
+process, and **four of the refusals in [the table below](#what-it-will-not-start-with) on the binary
+that makes them** - a
+non-loopback bind with no TLS termination declared, a production deployment with no credential, a
+configured source with no `security.identity`, and a misspelled key, each asserted as exit `1`, no
+listener opened, and the sentence `sutura_config` renders for that deployment. `just serve-e2e` runs
+it. `crates/sutura-http/src/harness.rs` asserts the
+envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
+`400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
+development and not in production. It reaches ten refusal reasons, a subset nothing here restates
+as a fraction of the whole list - the exhaustive one is `crates/sutura-http/src/wire/refusal.rs`,
+which lists every variant's status and `code` and assigns them in a match with no wildcard arm, so
+a new refusal is a compile error until somebody decides what it is on the wire.
+
+**What neither asserts, next to the claim:** the startup banner's own wording. `announce_identity`
+in `crates/sutura-runtime/src/banner.rs` emits the `NO PER-CALLER IDENTITY` sentence from the
+config types, and no test compares it to a string - so quoting it on a page is a promise no gate
+keeps. It is step 5 and the four refusal cases exit at step 3, so they reach it in neither direction.
+Nor does anything pin a response's JSON *formatting* or the `detail` sentences beside the codes.
+
+**And the refusals in [the table below](#what-it-will-not-start-with) are not all held on the
+binary.** Four are; the rest are asserted
+over `Settings::load` alone, and nothing in the tree forces a new one onto either venue - there is no
+exhaustive match over the refusal enum the way `crates/sutura-http/src/wire/refusal.rs` has one over
+the wire's. A startup refusal also names **no configuration layer**, so a deployment refused because
+`SUTURA_CONFIG_DIR` was wrong is refused in the same words as one refused for its own file
+(`telekom/sutura#445`).
+
+A hand-captured session in `examples/single-player/README.md` used to hold the read-next role, and
+`docs/adr/0005` had already recorded it as stale - it showed `200 OK` for refusals, which stopped
+being true when a refusal got a status of its own. It is deleted rather than re-captured: a
+transcript nobody runs goes stale silently, and a suite cannot.
+
 ## What it will not start with
 
 Every one of these is a **refusal to start**, not a warning. A warning is read by whoever happens to
@@ -1074,119 +1189,6 @@ A grace period shorter than a question is not refused, and it is not a misconfig
 says "stop on time even if that means abandoning an answer in flight", which is a legitimate posture
 for a deployment being replaced. Nothing here can know how long a question takes, so nothing here can
 check it - the number that *is* checked is that it is neither zero nor above five minutes.
-
-## Running it
-
-The engine reads files, so there is nothing to provision. Three ways in, and they take the same
-environment - which is **not** three catalog keys: a `sources.<alias>` entry says what kind of data
-system the catalog's models read, where its files are and which identity a query reaches it as, and
-a catalog naming a source nobody declared is a startup refusal that names the source.
-
-**From a published release**, with no Rust toolchain. Take the tarball for your triple - the musl
-ones are statically linked and need no libc at all - and verify it before you run it;
-[verifying a release](verifying-a-release.md) is that page. The `cd` below is into the corpus, and
-**no release asset carries it**: [the corpus](getting-started.md#the-corpus) is the commands that
-put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
-corpus is at `sutura-corpus/` in the directory you are standing in; a clone puts it at
-`examples/single-player` instead, and the `cd` is the only line that differs.
-
-```bash
-tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
-BINARY="$PWD/sutura-serve"
-cd sutura-corpus/examples/single-player
-SUTURA__SECURITY__IDENTITY=single-user \
-SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
-SUTURA__SOURCES__LOCAL__KIND=files \
-SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
-SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  "$BINARY"
-```
-
-**Or the image.** The `-serve` tags are this binary; the unsuffixed ones are the command-line tool.
-The entrypoint is the server and it takes no arguments, so `docker run` with none starts it.
-
-```bash
-docker run --rm --network host \
-  --workdir /examples \
-  -v "$PWD/examples/single-player:/examples:ro" \
-  -e SUTURA__SECURITY__IDENTITY=single-user \
-  -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
-  -e SUTURA__SOURCES__LOCAL__KIND=files \
-  -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
-  -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  ghcr.io/telekom/sutura:latest-serve
-```
-
-**`--network host` rather than `-p 8080:8080`, and the difference is a startup refusal rather than a
-preference.** The default bind is loopback, and inside a container loopback is the container - so a
-published port would reach nothing. Binding `0.0.0.0` instead makes this deployment one other hosts
-can reach, and that needs `security.access_token` and a `security.tls_termination` that says which
-cleartext hop the token crosses; without both, the process refuses to start and names both. Which is
-the right shape for a real deployment and the wrong one for reading this page. The image runs as uid
-65532 with no shell and no package manager in it.
-
-**Every published x86_64 image is smoke-tested with this shape before a release is cut** -
-`.github/serve-smoke.sh`, the same mount and the same keys plus a port of its own - and the test is
-not a liveness probe. It starts the image, asks the `recurring_revenue` question from
-[`examples/single-player`](https://github.com/telekom/sutura/tree/main/examples/single-player),
-checks the certified January figure is in the answer, and checks that a question the catalog refuses
-comes back `403`. The arm64 pair is built and not run, because executing it would need an emulator
-registered on the runner.
-
-**Or from source**, which is what a change to this repository is tested with:
-
-```bash
-ROOT="$PWD"
-cd examples/single-player
-SUTURA__SECURITY__IDENTITY=single-user \
-SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
-SUTURA__SOURCES__LOCAL__KIND=files \
-SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
-SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
-```
-
-It binds `127.0.0.1:8080`, needs no token there, and serves the browser interface at `/docs`. Startup
-loads the catalog through its port and re-executes **every declared anchor** against the data system;
-a bundle whose anchors do not reproduce the numbers their author certified starts nothing. That is not
-a check the startup sequence performs and could forget - the type the service accepts has no other
-constructor.
-
-**Two suites are the thing to read next rather than this page**, and they are suites rather than
-transcripts. `crates/sutura-serve/tests/served.rs` starts this binary against
-`examples/single-player` on a kernel-chosen port and asserts the liveness probe answering only once
-the catalog has loaded, a question with no bearer token refused by the gate, a certified question
-answered, the catalog route, a refusal arriving as its documented status, a caller's own token
-verified and every forgery refused alike, a published key set this deployment cannot use stopping the
-process, and **four of the refusals in the table above on the binary that makes them** - a
-non-loopback bind with no TLS termination declared, a production deployment with no credential, a
-configured source with no `security.identity`, and a misspelled key, each asserted as exit `1`, no
-listener opened, and the sentence `sutura_config` renders for that deployment. `just serve-e2e` runs
-it. `crates/sutura-http/src/harness.rs` asserts the
-envelope one status at a time, in process and with no socket: the token gate, `sql` in a body as a
-`400` naming the field, the bounds, the rate-limit tiers, and the interface description served in
-development and not in production. It reaches ten refusal reasons, a subset nothing here restates
-as a fraction of the whole list - the exhaustive one is `crates/sutura-http/src/wire/refusal.rs`,
-which lists every variant's status and `code` and assigns them in a match with no wildcard arm, so
-a new refusal is a compile error until somebody decides what it is on the wire.
-
-**What neither asserts, next to the claim:** the startup banner's own wording. `announce_identity`
-in `crates/sutura-runtime/src/banner.rs` emits the `NO PER-CALLER IDENTITY` sentence from the
-config types, and no test compares it to a string - so quoting it on a page is a promise no gate
-keeps. It is step 5 and the four refusal cases exit at step 3, so they reach it in neither direction.
-Nor does anything pin a response's JSON *formatting* or the `detail` sentences beside the codes.
-
-**And the refusals in the table are not all held on the binary.** Four are; the rest are asserted
-over `Settings::load` alone, and nothing in the tree forces a new one onto either venue - there is no
-exhaustive match over the refusal enum the way `crates/sutura-http/src/wire/refusal.rs` has one over
-the wire's. A startup refusal also names **no configuration layer**, so a deployment refused because
-`SUTURA_CONFIG_DIR` was wrong is refused in the same words as one refused for its own file
-(`telekom/sutura#445`).
-
-A hand-captured session in `examples/single-player/README.md` used to hold the read-next role, and
-`docs/adr/0005` had already recorded it as stale - it showed `200 OK` for refusals, which stopped
-being true when a refusal got a status of its own. It is deleted rather than re-captured: a
-transcript nobody runs goes stale silently, and a suite cannot.
 
 ## What is not built
 

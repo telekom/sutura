@@ -74,7 +74,7 @@ about the directory it read; a source that supplies part of the model declares t
 conformance test is that what it declared is exactly what it produced.
 [What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came from.
 
-**This sentence used to say lineage arrives through that port too, and it does not.** There is no
+**Lineage does not arrive through that port.** There is no
 lineage type anywhere in the workspace and none is planned: a plan reads at most two data systems, a
 measure reads columns a model declares, and where a column came from upstream changes neither. It is
 real metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
@@ -328,12 +328,10 @@ own declaration.
 it:* the boot path re-executes every anchor before a listener is bound, and there is no caller then, so
 `Warehouse::verify_anchor` takes no credential at all.
 
-**What bounds it is a lint, and its input type is a self-check rather than a barrier - a correction a
-second review forced on this page.** This paragraph used to say the method "cannot be handed a
-question" because it takes an `AnchorPlan`; a reviewer disproved that in one function by fabricating
-the tuple the constructor took. The constructor is public, every value it reads is publicly
-constructible, and Rust has no cross-crate friend visibility, so no arrangement of guards there can
-be an authority. Two mechanisms now, stated apart:
+**What bounds it is a lint, and its input type is a self-check rather than a barrier.** The method
+can be handed a fabricated `AnchorPlan`, not just a caller's own question: the constructor is public,
+every value it reads is publicly constructible, and Rust has no cross-crate friend visibility, so no
+arrangement of guards there can be an authority. Two mechanisms now, stated apart:
 
 - `clippy.toml` bans `Warehouse::verify_anchor`. `sutura_app::verify_anchors` holds the single
   `#[expect]`, so a second call site anywhere in the workspace is a build error until somebody writes
@@ -756,7 +754,7 @@ statement about a laptop and not about a warehouse, so this remains a compiler w
 door: what the port bought is that the day a real source arrives, there is no code path for it to be
 read as the process through.
 
-**The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
+**The HTTP transport is here**: an axum surface with a
 versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
 description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
 the deployment; `security.inbound` instead establishes the caller in `direct` or `behind-gateway`
