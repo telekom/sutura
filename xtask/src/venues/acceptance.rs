@@ -104,7 +104,7 @@
 //!   the job DOES read them too. `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied
 //!   *the credential is written* with no write in the job, while `# never echo "$SUTURA_BQ_KEY"`
 //!   was reported as the key on a printing line and failed a CORRECT job. [`shape::is_comment`] is
-//!   read ONCE, where `problems` separates the commands from the shell's every line - four
+//!   read ONCE, where [`scan`] separates the commands from the shell's every line - four
 //!   readers each remembering to skip a comment is the shape this list is about.
 //!
 //! # And one more, which is a QUANTIFIER rather than a shape
@@ -867,6 +867,29 @@ mod tests {
         let found = scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &leak);
         assert!(
             found.iter().any(|p| p.contains("leaked-key.json") && p.contains("no `rm`")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn the_exchanged_identity_job_s_minted_assertions_are_removed_like_a_key_copy() {
+        // The two minted bearer files spell no secret and no redirect, so `credential_placement`'s
+        // write read cannot see them as copies - their removal used to be held by this step's own
+        // text alone. The mint is now recognised by its app's name and its out path is held to the
+        // same two rules as a key copy; this is the removal half, made red by taking the real
+        // cleanup step and leaving one assertion out of it. (Nominally a fork of the scan above,
+        // but it perturbs THIS file's one fix: an `rm` dropped, not a write added.)
+        let root = crate::repo::root().expect("the repo root");
+        let workflow = std::fs::read_to_string(root.join(EXCHANGED_WORKFLOW)).expect(EXCHANGED_WORKFLOW);
+        assert_eq!(scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &workflow), Vec::<String>::new());
+
+        let left_behind = workflow.replace(
+            "rm -f \"$RUNNER_TEMP/assertion-a.txt\" \"$RUNNER_TEMP/assertion-b.txt\"",
+            "rm -f \"$RUNNER_TEMP/assertion-b.txt\"",
+        );
+        let found = scan(EXCHANGED_WORKFLOW, EXCHANGED_JOB, &left_behind);
+        assert!(
+            found.iter().any(|p| p.contains("assertion-a.txt") && p.contains("no `rm`")),
             "{found:?}"
         );
     }

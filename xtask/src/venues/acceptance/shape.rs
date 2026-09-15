@@ -1,7 +1,7 @@
 //! What a line of that workflow IS, apart from what the job must hold.
 //!
 //! Every reader here answers one question about one line - is this a step key, does this print,
-//! does this turn tracing on, is this path under `$RUNNER_TEMP` - and `problems` composes
+//! does this turn tracing on, is this path under `$RUNNER_TEMP` - and `scan` composes
 //! them into the properties. The split is where the review value is: **ten of these predicates
 //! were green for the wrong reason across two rounds of review**, each because it read a line as
 //! text where the thing it was deciding is a shape, and each is now stated once with the escape it
@@ -126,7 +126,7 @@ pub(super) fn redirects_to_file(line: &str) -> bool {
 /// Is this body line a shell comment, and therefore a CLAIM rather than a command?
 ///
 /// One predicate for a distinction three readers had made separately or not at all, and it is read
-/// ONCE - where `problems` separates the commands from every line of the shell - because
+/// ONCE - where [`scan`](super::scan) separates the commands from every line of the shell - because
 /// four readers each remembering to skip a comment is the shape this whole module is about.
 /// [`shell`] keeps comments deliberately, since a `${{ }}` written in one is still an expression in
 /// the file and the interpolation check is its reader; every other reader decides what the job
@@ -369,7 +369,7 @@ pub(super) fn under_runner_temp(path: &str) -> Option<&str> {
 
 /// The path below a plain or braced `$RUNNER_TEMP` expansion, with the whole word or just the
 /// directory optionally double-quoted. A single-quoted variable is literal, not this directory.
-fn named_under_runner_temp(word: &str) -> Option<&str> {
+pub(super) fn named_under_runner_temp(word: &str) -> Option<&str> {
     let quoted = word.starts_with('"');
     let word = word.strip_prefix('"').unwrap_or(word);
     let path = word
@@ -438,6 +438,28 @@ pub(super) fn removes(line: &str, file: &str) -> bool {
         .flat_map(argument_words)
         .filter_map(named_under_runner_temp)
         .any(|named| named == file)
+}
+
+/// The bearer file a `bigquery-mint-subject-assertion` invocation writes, from its out argument.
+///
+/// The flake app mints a Google-issued ID token from a secret-derived key and writes it to the path
+/// its LAST argument names, `<key path> <audience> <out path>` (`.github/workflows/
+/// bigquery-exchanged-identity.yml`). The line spells no secret and no redirect, so
+/// [`writes_under_runner_temp`] and the secret-name read never see the out file as a copy; the value
+/// is still derived from a secret and has to be placed under `$RUNNER_TEMP` and removed like one -
+/// which is why [`super::properties::credential_placement`] reads it. Recognised by the app's own
+/// name and read through [`argument_words`] and [`command_spans`] for the same reasons [`removes`]
+/// reads an `rm` that way: the last argument, not the last token a naive split would see.
+pub(super) fn bigquery_mint_out(line: &str) -> Option<&str> {
+    command_spans(line)
+        .into_iter()
+        .map(command)
+        .find(|invocation| {
+            invocation
+                .trim_start()
+                .starts_with("nix run .#bigquery-mint-subject-assertion --")
+        })
+        .and_then(|invocation| argument_words(invocation).last())
 }
 
 /// Does a print verb on this line take the credential FILE as an argument?

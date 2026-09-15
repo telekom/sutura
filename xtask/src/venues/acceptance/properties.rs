@@ -2,8 +2,8 @@
 //!
 //! That is the distinction the parent module already draws over `mod shape;`, and this file is its
 //! other side: `shape` says what a step, a condition, a redirect or a print IS, and each function
-//! here spends those predicates on one property of the job. The parent's `problems` is the
-//! composition and nothing here composes anything - the four questions are separate because they
+//! here spends those predicates on one property of the job. The parent's [`scan`](super::scan) is
+//! the composition and nothing here composes anything - the four questions are separate because they
 //! read different things, and a fifth reads the credential's expiry out of the job.
 //!
 //! **Every limit is recorded in the parent's own module documentation**, beside the list of ways an
@@ -19,8 +19,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::shape::{
-    FORK_RULE, Source, configures_tracing, dispatch_condition, dispatch_only, downgrades_failure, emits_file, env_name_shaped,
-    exits_non_zero, keyed_block, prints, removes, states_fork_rule, step_key, traces, waits_for, writes_under_runner_temp,
+    FORK_RULE, Source, bigquery_mint_out, configures_tracing, dispatch_condition, dispatch_only, downgrades_failure, emits_file,
+    env_name_shaped, exits_non_zero, keyed_block, named_under_runner_temp, prints, removes, states_fork_rule, step_key, traces,
+    waits_for, writes_under_runner_temp,
 };
 
 /// The job this one waits for, so a cloud request is not spent on a tree the lints refuse.
@@ -134,6 +135,14 @@ pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str])
     }) {
         Some((_, condition)) if states_fork_rule(condition) => {}
         Some((_, condition)) if on_demand && dispatch_condition(condition) => {}
+        Some((line, _)) if on_demand => problems.push(format!(
+            "{workflow}: the `{job}` job's own condition is `{}`, which has to be \
+             `github.event_name == 'workflow_dispatch'` - a `workflow_dispatch`-only file is \
+             reached only by a dispatch, so the fork rule does not apply, and an `==` against \
+             exactly that event is the line that states who may run it. A `||` beside it makes \
+             its own branch a second answer",
+            line.trim()
+        )),
         Some((line, _)) => problems.push(format!(
             "{workflow}: the `{job}` job's own condition is `{}`, which has to test `{FORK_RULE}` \
              and may not negate it - skip where the runner had no choice, run where somebody in \
@@ -169,12 +178,14 @@ pub(super) fn who_may_run(workflow: &str, job: &str, text: &str, block: &[&str])
 /// job went when that file came back under the 1000-line cap.
 ///
 /// So the WRITES are read. Each recognised redirect into `$RUNNER_TEMP` from a command that names
-/// a secret is a second copy of that secret, and each one has to be deleted by name.
+/// a secret is a second copy of that secret, and each one has to be deleted by name. A subject-
+/// assertion mint is the one write this reads past the secret name: its out path is a bearer file
+/// DERIVED from the key, recognised by the app's own name, and held to the same two rules.
 ///
-/// **What it does not reach**, beside the parent's own limits table: a copy made by a command that
-/// does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a removal
-/// in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are not
-/// interpreted either. These need data flow or execution reasoning, which nothing here has.
+/// **What it does not reach**, beside the parent's own limits table: any OTHER copy made by a command
+/// that does not spell the secret's name - a `cp` of the key file, a `base64 -d` of it - and a
+/// removal in a step whose `if:` never fires. A `cd`-relative write and other shell-built paths are
+/// not interpreted either. These need data flow or execution reasoning, which nothing here has.
 pub(super) fn credential_placement(
     workflow: &str,
     job: &str,
@@ -232,6 +243,24 @@ pub(super) fn credential_placement(
             // the leg READS it - a credential this job never wrote is still a credential this job
             // must not leave behind.
             placed.insert(file);
+        }
+    }
+
+    // A subject-assertion mint writes a bearer file DERIVED from a secret; its line spells no
+    // secret and no redirect, so the name-×-redirect read above cannot see it as a copy. Recognised
+    // by the app's own name, and the out path is held to the same two rules as a key copy: it has
+    // to be under `$RUNNER_TEMP`, and a cleanup `rm` has to remove it. The mint's out path is its
+    // last argument - see [`shape::bigquery_mint_out`](super::shape::bigquery_mint_out).
+    for out in commands.iter().filter_map(|line| bigquery_mint_out(line)) {
+        if let Some(file) = named_under_runner_temp(out) {
+            placed.insert(file);
+        } else {
+            problems.push(format!(
+                "{workflow}: the `{job}` job mints a subject assertion to {out}, which is not under \
+                 `${{{{ runner.temp }}}}/` - a bearer file derived from a secret has to be placed \
+                 and removed like a key copy, and one written into the checkout is one `git add .` \
+                 from a public leak"
+            ));
         }
     }
 

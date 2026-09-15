@@ -56,8 +56,8 @@
 //! **1. The environment does not carry a subject assertion per principal - it is minted at job time
 //! instead, and that is still true after telekom/sutura#376's wiring.** A plain RFC 8693 exchange
 //! yields exactly ONE identity per subject token - the identity of whoever the token's `sub` is - so
-//! two principals need two subject tokens. `bq-test` never stores them: a workflow step mints both,
-//! per push run manually (`workflow_dispatch`), from the same per-principal service-account keys
+//! two principals need two subject tokens. `bq-test` never stores them: a workflow step mints both
+//! on a manual dispatch (`workflow_dispatch`), from the same per-principal service-account keys
 //! already held there, through `examples/mint_subject_assertion.rs`, and writes each to a file this
 //! cell reads via `SUTURA_BQ_PRINCIPAL_A_ASSERTION_FILE`/`_B_` - never through a step's `env:`
 //! mapping, which a runner would print before the step that produces the value runs. It **fails** on

@@ -110,6 +110,10 @@ jobs:
       # content through `${{ }}` - only paths and the audience (a `secrets.*` value, so masked
       # wherever `just` echoes the recipe line), all safe to appear in a runner's pre-execution
       # `env:` dump.
+      #
+      # Each minted bearer file is derived from a secret, even though the line names none, so
+      # `xtask/src/venues/acceptance.rs` reads the mint's out argument as a copy and holds it to
+      # the same two rules as a key: under `$RUNNER_TEMP`, and removed by a cleanup `rm` by name.
       - name: Mint the two subject assertions
         env:
           SUTURA_BQ_WORKLOAD_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
@@ -151,6 +155,10 @@ jobs:
       # The cell itself: `nix run .#bigquery-exchanged-identity` is `check-venues`' anchor for this
       # venue - see this file's own header. Both assertion values reach the cell as FILE PATHS, never
       # as `${{ }}`-resolved values, for the reason `tests/support/support.rs`'s `named_file` exists.
+      #
+      # Limit: run with `--no-capture`, an `.expect` on the mint's exchange renders a refusal with
+      # `Debug` - the provider's own error text, never a token. The first dispatch against a
+      # not-yet-bound pool is the run most likely to reach it.
       - name: Exchanged-identity leg
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
@@ -175,5 +183,5 @@ jobs:
       - name: Remove the credentials
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json" \
-                "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt"
+          rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
+          rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt"
