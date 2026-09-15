@@ -29,3 +29,10 @@ naming them separately rather than folding one into the other.
 
 The anchor is what this metric produces for 2026-09-01 against the committed two-row CSV: both
 orders clear the filter, and `1200 + 3100 = 4300`.
+
+**Stated, not executed.** The one test that composes this whole directory
+(`the_authored_sql_example_does_not_boot_against_the_in_process_engine`, in `crates/sutura-app`)
+hits the authored-SQL refusal before `verify_anchors` ever runs, so this bundle never reaches the
+engine and this number has never been checked against it - it is arithmetic in prose, the same
+category `order_value_spread`'s fragment is until an adapter declares
+`Warehouse::EXECUTES_AUTHORED_SQL`.
