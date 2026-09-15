@@ -17,7 +17,7 @@
 //! all - see [`super::scoped`] for the measurement - so a name-collided failure passed both
 //! halves and the false green survived the fix that was supposed to remove it.
 //!
-//! FIVE ANSWERS, NOT TWO. An unrelated base failure is neither red-by-assertion nor "the base
+//! SIX ANSWERS, NOT TWO. An unrelated base failure is neither red-by-assertion nor "the base
 //! tree does not build", and calling it either one misleads in a different direction. It is
 //! [`BaseOutcome::RedOutsideTheDiff`], and it FAILS: the gate's precondition - a base tree red
 //! only where this diff put it - was not met, so it has no answer to give. That is the same
@@ -28,6 +28,10 @@
 //! [`BaseOutcome::Unattributed`] is a run that got PAST the compiler and reported no failure this
 //! can name: it used to be folded into `DidNotCompile` and printed *the base tree does not build*
 //! about a tree that built fine, which is how a missing status word turned into a wrong sentence.
+//! [`BaseOutcome::DidNotResolve`] is the mirror mistake, one step earlier: cargo failing to parse
+//! the manifest or find a target never reaches the compiler at all, so it used to fall into
+//! `Unattributed` and print *it got past the compiler* about a run that never got there -
+//! `github.com/telekom/sutura#716`.
 //!
 //! AND A GREEN RUN IS THREE ANSWERS, none of which this classifier could reach on its own.
 //! *These tests pass without the change* is the defect the gate exists for **only if the diff added
@@ -44,12 +48,12 @@
 //! case it deliberately leaves in reach, and why the defect this gate exists for still FAILS.
 //!
 //! AND NEITHER INCONCLUSIVE ANSWER IS A PASS ANY MORE, which is `github.com/telekom/sutura#307`.
-//! Both returned [`Verdict::Pass`] - exit 0 - so a required CI step whose whole input is the exit
+//! Both returned [`crate::Verdict::Pass`] - exit 0 - so a required CI step whose whole input is the exit
 //! code read *measured nothing* exactly as it reads *red on base, green on head*. Measured twice on
 //! finished branches: one green `ci` step over `the base tree does not build` (a `-D dead-code`
 //! error) while the same commit refused locally, and one branch-level `INCONCLUSIVE` because a
 //! changed public signature left the held-at-HEAD test files unable to compile against base. They
-//! return [`Verdict::Inconclusive`] now, whose exit code is 3, so the default for any consumer is
+//! return [`crate::Verdict::Inconclusive`] now, whose exit code is 3, so the default for any consumer is
 //! CLOSED and a venue that means to continue over it has to say so. Failing was weighed and
 //! rejected: the harness move lands on `DidNotCompile` every time and a gate that reddens correct
 //! work gets disabled. What each venue does with the 3 is in `ci.yml` and `devenv.nix`.
@@ -59,11 +63,10 @@
 //! the six were NAMED by the filterset and not one of them ran. [`earned`] is the choice, in one
 //! place and pure, because it was made at the call site and pinned by review only.
 
-use crate::Verdict;
 use crate::causality::coverage::{Attributed, Coverage};
 use crate::causality::place::AddedTest;
 use crate::causality::provenance::Moved;
-use crate::causality::reverted::{self, Excused, Reverted};
+use crate::causality::reverted::{Excused, Reverted};
 
 /// Evidence that a base run REPORTED PER-TEST RESULTS, and therefore that the filterset's names
 /// are also what was measured.
@@ -106,6 +109,10 @@ pub(crate) enum BaseOutcome {
     NotRun,
     /// Red past the compiler, with no failure any line attributes to a test.
     Unattributed,
+    /// Cargo could not resolve the manifest, so the compiler never ran at all. Distinct from
+    /// [`Self::DidNotCompile`]: that is a build that failed, this is a build that was never
+    /// attempted, and the two sentences are not interchangeable.
+    DidNotResolve,
     /// The tree did not build. Red, but it proves nothing about behaviour.
     DidNotCompile,
 }
@@ -124,7 +131,7 @@ pub(crate) enum BaseOutcome {
 /// is left to the report - with SOME of them moved the failure stands, the rest passed both ways.
 ///
 /// **THE ORDER IS A MESSAGE AND NOT A VERDICT.** Both non-defect answers are
-/// [`Verdict::Inconclusive`], so a diff that is both exits 3 either way; `moved` goes first
+/// [`crate::Verdict::Inconclusive`], so a diff that is both exits 3 either way; `moved` goes first
 /// because *these tests were not added here* asks for less.
 pub(crate) fn classify_base(
     text: &str,
@@ -146,6 +153,11 @@ pub(crate) fn classify_base(
             (Moved::Nothing | Moved::Partly(_), Reverted::Behaviour) => BaseOutcome::Green,
         };
     }
+    // Checked before `did_not_compile`: a manifest cargo cannot resolve never reaches the
+    // compiler, so it is not that outcome's build failure either.
+    if failed_to_resolve(text) {
+        return BaseOutcome::DidNotResolve;
+    }
     if did_not_compile(text) {
         return BaseOutcome::DidNotCompile;
     }
@@ -163,6 +175,11 @@ pub(crate) fn classify_base(
     } else {
         BaseOutcome::RedByAssertion { failed: under_test }
     }
+}
+
+/// Did cargo fail to resolve the manifest, never reaching the compiler?
+fn failed_to_resolve(text: &str) -> bool {
+    text.contains("failed to parse manifest") || text.contains("no targets specified in the manifest")
 }
 
 /// Did the tree fail to build?
@@ -297,8 +314,9 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// half of #307, and it was one `.ratio()` at the call site: pure and in one place here, so a test
 /// can read the CHOICE rather than a synthetic [`Coverage`].
 ///
-/// Five of the eight print it: [`BaseOutcome::RedByAssertion`] in its verdict line, both
-/// inconclusive arms in theirs, and the two green arms that are not the defect
+/// Six of the nine print it: [`BaseOutcome::RedByAssertion`] in its verdict line, all three
+/// always-inconclusive arms in theirs ([`BaseOutcome::Unattributed`], [`BaseOutcome::DidNotResolve`],
+/// [`BaseOutcome::DidNotCompile`]), and the two green arms that are not the defect
 /// ([`BaseOutcome::GreenAfterAMove`], [`BaseOutcome::GreenOverAnUnreachableRevert`]) - whose tests
 /// DID run in both trees, so the measurement is real there and what it is not is evidence about
 /// the change. The other three are asserted anyway, because the mapping is what a mutation moves
@@ -318,210 +336,24 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
         | BaseOutcome::RedByAssertion { .. } => Attributed::PerTest(PerTestResults(())),
         // Nothing this diff added was measured on base: the tree did not build, the filter matched
         // none of them, no failure was attributable, or the run stopped on something else.
-        BaseOutcome::RedOutsideTheDiff { .. } | BaseOutcome::NotRun | BaseOutcome::Unattributed | BaseOutcome::DidNotCompile => {
-            Attributed::Nothing
-        }
+        BaseOutcome::RedOutsideTheDiff { .. }
+        | BaseOutcome::NotRun
+        | BaseOutcome::Unattributed
+        | BaseOutcome::DidNotResolve
+        | BaseOutcome::DidNotCompile => Attributed::Nothing,
     })
 }
 
-/// Turn a base run into the gate's verdict.
-///
-/// `retried` only changes what the operator is told: after a second attempt, "not separable at
-/// file level" is no longer the likely explanation, because the tree WAS coherently at base.
-///
-/// **NO ARM HERE CITES ANOTHER ARM'S OUTPUT.** The retry branch used to say *the remedy is the same
-/// as for the harness move below*, and the harness-move paragraph is the `else if` this branch
-/// excludes - so the reader was pointed at lines that run never printed. It restates the remedy
-/// instead, which costs two lines and contains no fact no code produced. This module's whole subject
-/// is printed claims, so it is the last place to keep one.
-///
-/// The coverage sentence rides on the PASSING verdict specifically: that is the line a handoff
-/// cites, and it read as a statement about the change while the run covered a subset of the tests
-/// the branch added. [`earned`] decides which wording each outcome may print; `prove`'s own arms
-/// print theirs before either run, where they are asking for something rather than reporting
-/// coverage.
-pub(crate) fn report_base(
-    outcome: &BaseOutcome,
-    output: &str,
-    retried: bool,
-    coverage: &Coverage,
-    moved: &Moved,
-    reverted: &Reverted,
-) -> Verdict {
-    let measured = earned(outcome, coverage);
-    // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
-    // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
-    // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
-    // which outcomes contradict is now [`contradicts`] and has its own assertions; the `println!`
-    // itself is still uncovered, which is true of every printed line here and is why `remedies`
-    // keeps its wording in pure functions.
-    reverted::verdict::emit_contradiction(outcome, reverted, &mut reverted::verdict::to_stdout);
-    match *outcome {
-        BaseOutcome::Green => {
-            eprintln!("xtask test-causality: FAILED - green against base behaviour");
-            eprintln!();
-            eprintln!("The tests this diff added pass with the implementation reverted, so they do");
-            eprintln!("not test the change. Make the test exercise the new behaviour, or say plainly");
-            eprintln!("that it is not a regression test.");
-            // WHICH OF THEM THIS IS NOT ABOUT. A test the base tree already had cannot be red
-            // against a behaviour nobody changed, so it is not the one to go and fix - and the
-            // failure stands anyway, because the others passed both ways. When EVERY test in scope
-            // was already there this arm is unreachable: that is `GreenAfterAMove`.
-            for one in moved.names() {
-                eprintln!("  already at base: {one}  (this failure is not about that one)");
-            }
-            Verdict::Fail
-        }
-        BaseOutcome::GreenAfterAMove { ref moved } => {
-            println!("  base: green - and the base tree already had every test in scope");
-            for one in moved {
-                println!("    already at base: {one}");
-            }
-            println!();
-            println!("xtask test-causality: INCONCLUSIVE - these tests were not ADDED here.");
-            println!("Every test in scope exists at the base commit in a `.rs` file this diff also");
-            println!("touched, which is what a MOVED test looks like from the base side - so passing");
-            println!("there is not the defect this gate names, and reporting one would blame the");
-            println!("refactor this repository asks for when a file hits the line cap.");
-            println!("Two readings this cannot separate, so state which: if they moved, nothing is");
-            println!("wrong with the change; if they are genuinely new and their names collide with");
-            println!("something this diff also touched, they DO pass both ways - prove it by MUTATION.");
-            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
-            Verdict::Inconclusive
-        }
-        // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
-        // words that explain it are one thing to keep true rather than two.
-        BaseOutcome::GreenOverAnUnreachableRevert { ref excused } => {
-            reverted::verdict::explain(excused, &measured, &mut reverted::verdict::to_stdout)
-        }
-        BaseOutcome::RedByAssertion { ref failed } => {
-            println!("  base: red by assertion, as required");
-            for one in failed {
-                println!("    red on base: {one}");
-            }
-            println!("{}", tail(output, 12));
-            println!("xtask test-causality: ok - red on base, green on head ({measured})");
-            Verdict::Pass
-        }
-        BaseOutcome::RedOutsideTheDiff { ref failed } => {
-            eprintln!("xtask test-causality: FAILED - the base tree is red outside this diff");
-            for one in failed {
-                eprintln!("    outside the diff: {one}");
-            }
-            eprintln!();
-            eprintln!("Not one of those is a test this diff added, so the run says nothing about");
-            eprintln!("whether the change is causal - and reading it as evidence is the defect this");
-            eprintln!("check exists to stop. The base tree has to be green where the diff is not:");
-            eprintln!("provision what those tests need, or fix them, and ask again.");
-            Verdict::Fail
-        }
-        BaseOutcome::NotRun => {
-            if retried {
-                println!("xtask test-causality: INCONCLUSIVE - the coherent base tree ran none of the added tests");
-                println!("The first reconstruction could not compile while implementation files were held at HEAD;");
-                println!("after restoring those files, the scoped filter matched no base-side tests. This is a");
-                println!("structural limitation of a change whose implementation and measurement target are new,");
-                println!("not evidence that the tests pass against the old behavior.");
-                println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
-                return Verdict::Inconclusive;
-            }
-            eprintln!("xtask test-causality: FAILED - the tests this diff added did not run on base");
-            eprintln!("{}", tail(output, 8));
-            eprintln!();
-            eprintln!("nextest matched none of them in the reconstructed tree, so nothing was");
-            eprintln!("measured. The usual cause is ORPHANING: a new test module whose `mod`");
-            eprintln!("declaration lives in a file that was reverted is never compiled, and Rust");
-            eprintln!("builds no unreferenced file. When a file with tests hits the line cap, move");
-            eprintln!("the harness out of it and leave every assertion where it is.");
-            Verdict::Fail
-        }
-        BaseOutcome::Unattributed => {
-            println!("  base: red, and no line attributes it to a test");
-            println!("{}", tail(output, 12));
-            println!();
-            println!("xtask test-causality: INCONCLUSIVE - the base run named no failure.");
-            println!("It got past the compiler, so this is not a build failure: a runner that died");
-            println!("before reporting, a linker signal, or a status this gate does not recognise.");
-            println!("Nothing is proven either way - state the evidence in the handoff.");
-            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
-            Verdict::Inconclusive
-        }
-        BaseOutcome::DidNotCompile => {
-            println!("  base: did not compile");
-            println!("{}", tail(output, 12));
-            println!();
-            println!("xtask test-causality: INCONCLUSIVE - the base tree does not build.");
-            println!("That is red, but a test that never ran is not evidence about behaviour.");
-            if retried {
-                println!("This is the SECOND attempt: every changed file is at base here, so the");
-                println!("build failure is in the changed tests themselves - they reference");
-                println!("something this branch introduced, which is usually a public signature");
-                println!("this change altered: a test file kept at HEAD cannot compile against the");
-                println!("base implementation. Nothing is wrong with the change. Scope this gate");
-                println!("PER COMMIT against the commit before the signature change, or prove by");
-                println!("MUTATION.");
-            } else if missing_module_file(output) {
-                println!("A `mod` here points at a file the base tree does not have, which is the");
-                println!("HARNESS MOVE shape and the EXPECTED answer to it: a file with no");
-                println!("`#[test]` is revertible, the file declaring it is held for adding tests,");
-                println!("so the declaration outlives its target. Nothing is wrong with the change.");
-                println!("What it costs is the proof, so a MUTATION takes its place: break what");
-                println!("each new test claims, one at a time, and paste the test that reddens.");
-                println!("Scope that to a whole test binary, never a name pattern - a filter that");
-                println!("omits the guarding test reports green and proves nothing.");
-            } else {
-                // MEASURED, and it is why this fork gained a third cause: driven end to end over a
-                // diff whose only change was a public function's ARITY plus a test calling it, this
-                // arm printed *not separable at file level* - the wrong fix, sending the author to
-                // split a change that is already split. Nothing was held back there, so neither the
-                // retry above nor `missing_module_file` could catch it.
-                println!("Two causes reach here and they ask for different things. Either the change");
-                println!("is not separable at file level - the test and what it needs arrived");
-                println!("together - or this change altered a PUBLIC SIGNATURE that a test file kept");
-                println!("at HEAD calls, so the base implementation cannot compile against it: look");
-                println!("for E0061 or E0308 above naming one of your own items. For that second");
-                println!("cause nothing is wrong with the change; scope this gate PER COMMIT against");
-                println!("the commit before the signature change, or prove by MUTATION. Either way,");
-                println!("state the evidence in the handoff.");
-            }
-            // WHY THIS IS NOT A PASS AND NOT A FAILURE. It returned `Verdict::Pass` - exit 0 - and
-            // a required CI step reads the exit code and nothing else, so this shape was cited as
-            // red-before-green evidence on a finished branch that had none. Failing instead is the
-            // decision that was rejected: the HARNESS MOVE above and the changed-signature retry
-            // both land here, both are legitimate, and a gate that reddens correct work gets
-            // disabled. Exit 3 puts the choice in the venue with the default closed.
-            println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}:");
-            println!("the base tree ran nothing, whatever the filterset was able to name.");
-            Verdict::Inconclusive
-        }
-    }
-}
-
-/// Did the base tree fail because a module's FILE is not there?
-///
-/// `error[E0583]` is the HARNESS-MOVE shape, and it is the EXPECTED outcome of following this
-/// gate's own advice rather than a mistake: when a test file hits the line cap the harness moves
-/// out, a file with no `#[test]` is revertible while the file declaring `mod <harness>;` is held
-/// for adding tests, so the base tree has a declaration whose target is gone. Seen on #119 and
-/// again on #283. Telling that author "the change is not separable at file level" sends them to
-/// the wrong fix, which is why the message forks here rather than reading the same for both.
-fn missing_module_file(text: &str) -> bool {
-    text.contains("[E0583]") || text.contains("file not found for module")
-}
-
-/// The last `n` lines, so a failure shows the assertion rather than the whole compile log.
-pub(crate) fn tail(text: &str, n: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines.get(start..).map_or_else(String::new, |rest| rest.join("\n"))
-}
+// Split at the unexemptable 1000-line cap: `report` owns turning a classified `BaseOutcome` into
+// the gate's verdict and printed explanation, this module owns classifying one. See its own
+// header for why that seam and not a `part2`.
+mod report;
+pub(crate) use report::{report_base, tail};
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BaseOutcome, Coverage, Moved, Reverted, Verdict, classify_base, earned, missing_module_file, names_no_tests, report_base,
-        tail,
-    };
+    use super::{BaseOutcome, Moved, Reverted, classify_base, earned, names_no_tests, report_base};
+    use crate::Verdict;
     use crate::causality::fixtures::{UNRELATED_RED, audit_record, named, scoped};
     use crate::causality::place::AddedTest;
 
@@ -534,11 +366,6 @@ mod tests {
     /// call the real function.
     fn classified(text: &str, succeeded: bool, scoped: &[AddedTest]) -> BaseOutcome {
         classify_base(text, succeeded, scoped, &Moved::Nothing, &Reverted::Behaviour)
-    }
-
-    /// The report for a scope whose every test is new here, for the same reason.
-    fn reported(outcome: &BaseOutcome, output: &str, retried: bool, coverage: &Coverage) -> Verdict {
-        report_base(outcome, output, retried, coverage, &Moved::Nothing, &Reverted::Behaviour)
     }
 
     #[test]
@@ -722,6 +549,21 @@ mod tests {
     }
 
     #[test]
+    fn a_manifest_that_never_resolved_never_reached_the_compiler() {
+        // #716. The classifier's four `did_not_compile` substrings never appear in a cargo
+        // resolution failure, so this used to fall through to `Unattributed` and print "it got
+        // past the compiler" about a run that never got there.
+        let manifest = concat!(
+            "error: failed to parse manifest at `/x/Cargo.toml`\n",
+            "\n",
+            "Caused by:\n",
+            "  no targets specified in the manifest\n",
+        );
+        let under_test = scoped("pa", "pa/src/lib.rs", &["t"]);
+        assert_eq!(classified(manifest, false, &under_test), BaseOutcome::DidNotResolve);
+    }
+
+    #[test]
     fn a_build_failure_wins_over_a_test_run_failure_line() {
         // nextest prints "error: test run failed" when the build failed too. Reading that as a
         // real red is the false green this gate already had once.
@@ -874,83 +716,6 @@ mod tests {
     }
 
     #[test]
-    fn a_declaration_outliving_its_file_is_the_harness_move_rather_than_an_author_error() {
-        // Measured twice in this repository - #119 and #283 - and it is what following the
-        // line-cap advice produces: the harness file added no `#[test]` so it is reverted, the
-        // test file declaring `mod <harness>;` is held, and the base tree cannot build. Still
-        // `DidNotCompile`, because it genuinely did not - but the operator is told the shape
-        // rather than "the change is not separable at file level", which is a different fix.
-        let text = concat!(
-            "error[E0583]: file not found for module `naming`\n",
-            " --> crates/sutura-exec-bigquery/tests/corpus.rs:31:1\n",
-            "error: could not compile `sutura-exec-bigquery` (test \"corpus\")\n",
-        );
-        assert!(missing_module_file(text));
-        assert!(!missing_module_file("error[E0432]: unresolved import `crate::thing`"));
-        let under_test = scoped("sutura-exec-bigquery", "crates/sutura-exec-bigquery/tests/corpus.rs", &["t"]);
-        assert_eq!(classified(text, false, &under_test), BaseOutcome::DidNotCompile);
-    }
-
-    #[test]
-    fn the_tail_is_the_end_of_the_log() {
-        assert_eq!(tail("a\nb\nc", 2), "b\nc");
-        assert_eq!(tail("", 3), "");
-    }
-
-    #[test]
-    fn an_inconclusive_base_is_neither_a_pass_nor_a_failure() {
-        // #307. Both of these returned `Verdict::Pass`, so a required CI step - whose whole input
-        // is the exit code - read *measured nothing* exactly as it read a proof. Neither may be
-        // exit 0 again, and neither may be a FAILURE either: the harness move lands on
-        // `DidNotCompile` every time and so does a changed public signature on the retry, both
-        // legitimate, and a gate that reddens correct work gets disabled.
-        let six = named(6);
-        assert_eq!(
-            reported(&BaseOutcome::DidNotCompile, "error[E0583]", false, &six),
-            Verdict::Inconclusive
-        );
-        assert_eq!(
-            reported(&BaseOutcome::DidNotCompile, "error[E0061]", true, &six),
-            Verdict::Inconclusive
-        );
-        assert_eq!(
-            reported(&BaseOutcome::Unattributed, "linker exited with signal 9", false, &six),
-            Verdict::Inconclusive
-        );
-
-        // And the other four keep the direction they had, because this change is about the two
-        // answers that measured nothing and not about the ones that measured something.
-        assert_eq!(
-            reported(
-                &BaseOutcome::RedByAssertion {
-                    failed: vec![String::from("pa tests::t")]
-                },
-                "FAIL [ 0.0s ] pa tests::t",
-                false,
-                &six
-            ),
-            Verdict::Pass
-        );
-        assert_eq!(reported(&BaseOutcome::Green, "ok", false, &six), Verdict::Fail);
-        assert_eq!(reported(&BaseOutcome::NotRun, "no tests to run", false, &six), Verdict::Fail);
-        assert_eq!(
-            reported(&BaseOutcome::NotRun, "no tests to run", true, &six),
-            Verdict::Inconclusive
-        );
-        assert_eq!(
-            reported(
-                &BaseOutcome::RedOutsideTheDiff {
-                    failed: vec![String::from("pb tests::other")]
-                },
-                "FAIL [ 0.0s ] pb tests::other",
-                false,
-                &six
-            ),
-            Verdict::Fail
-        );
-    }
-
-    #[test]
     fn an_outcome_that_ran_nothing_has_earned_no_numerator() {
         // THE WORDING HALF of #307, and the mutation this exists to catch is one method call:
         // `6 of 6 added tests measured` beside *the base tree does not build* says six tests ran
@@ -967,6 +732,11 @@ mod tests {
             earned(&BaseOutcome::Unattributed, &six),
             "0 of 6 added tests measured",
             "a run with no attributable failure attributed nothing"
+        );
+        assert_eq!(
+            earned(&BaseOutcome::DidNotResolve, &six),
+            "0 of 6 added tests measured",
+            "a manifest cargo never resolved ran nothing"
         );
         assert_eq!(earned(&BaseOutcome::NotRun, &six), "0 of 6 added tests measured");
         assert_eq!(
