@@ -409,6 +409,8 @@
         #   * `oci-<triple>`, `oci-serve-<triple>`            - one image per shipped artifact
         #   * `<binary>-<feature>-<triple>-ci`                - the feature-on link probes
         #   * `feature-probes-<triple>`                       - which of those exist, as a file
+        #   * `<binary>-all-features-<musl-triple>-performance-probe` - #685 step 1: every
+        #     optional feature, fat LTO, on musl - not a shipped artefact either
         #
         # `sutura-serve` and its images are what closed #111: before them every published
         # artefact was the command-line tool, so nothing a release published could answer a
@@ -416,7 +418,8 @@
         # and their manifests are the entries here that are NOT shipped artifacts - see
         # `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
-          // shipped.localImages // shipped.featurePackages // shipped.probeManifests // {
+          // shipped.localImages // shipped.featurePackages // shipped.probeManifests
+          // shipped.allFeaturesProbes // {
           default = shipped.nativeBinaries.sutura;
 
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
