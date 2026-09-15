@@ -165,9 +165,11 @@
 //! surface is reached at all is an architecture decision rather than a refactor.
 //! `Asking::PerRequest` exists on the type and is exercised by this module's own tests, with hand-
 //! built `RequestContext` values reusing a `Peer` a real handshake produced - `rmcp::service::Peer::new`
-//! is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Nothing in
-//! this crate produces the value over any real request path yet: `telekom/sutura#378`'s PR3 is the
-//! HTTP transport feature that would, and PR4 is the composition root that chooses to mount it.
+//! is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Behind
+//! this crate's own default-off `http` feature, `crate::http::service` now produces the value over
+//! a real request - the pinned streamable-HTTP transport injects the request's own `Parts` into the
+//! extensions this arm reads, and `http::tests` drives that over real bytes; PR4 is the composition
+//! root that chooses to mount it behind the real `establish_asked` layer.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -300,9 +302,10 @@ impl<S> AgentSurface<S> {
     /// directly: that is the shape the pinned `rmcp` HTTP server transport actually produces
     /// (`docs/adr/0023`, quoting `streamable_http_server/tower.rs`) and the shape
     /// `sutura_http::capability::establish_asked` inserts a `sutura_app::Asked` into today - one wire
-    /// type, read by both transports, neither depending on the other. Nothing in this crate builds
-    /// one of those `Parts` over a real request yet; the tests that exercise this arm build one by
-    /// hand, the same shape a served HTTP transport will hand over.
+    /// type, read by both transports, neither depending on the other. Behind this crate's own default-
+    /// off `http` feature, `crate::http::service` builds one of those `Parts` over a real request and
+    /// `http::tests` exercises this arm through it; the in-process cells here still build one by hand,
+    /// the same shape the transport hands over.
     ///
     /// Returns the refusal rather than a fallback when `PerRequest` finds nothing: an absent
     /// `sutura_app::Asked` must never read as `Asking::TheProcessOwner` would, which is why `Asking`
@@ -441,9 +444,10 @@ where
 ///
 /// **Refused, never `crate::principal::established()`.** That substitution is the one
 /// [`AgentSurface::asked`] exists to make unrepresentable - see the module documentation and
-/// [`crate::Asking`]. Nothing in this crate produces the value this reads today:
-/// the HTTP transport that would (`telekom/sutura#378` PR3) is not wired here, so on this tree the
-/// arm always refuses. A different code from [`not_granted`]'s, and deliberately: this is not a
+/// [`crate::Asking`]. Behind this crate's own default-off `http` feature, `crate::http::service`
+/// produces the value this reads, so the arm answers over that transport; over standard input and
+/// output (`serve_stdio`) there is no caller to establish, so the arm always refuses there. A
+/// different code from [`not_granted`]'s, and deliberately: this is not a
 /// statement about which tool exists or which scope it needs - there is no caller yet to grant or
 /// refuse one to.
 fn no_established_caller() -> ErrorData {

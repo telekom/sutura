@@ -261,7 +261,11 @@ isolation and changes nothing a deployment can reach. Its one fixed decision, ca
 the mount so it does not arrive as an unstated default: `legacy_session_mode: false`, which makes
 every request self-contained - a `Mcp-Session-Id` header is never looked up, by any message type -
 so a caller can never be answered under an earlier request's identity because no session exists for
-one to leak into. This costs nothing a current MCP client needs: the pinned SDK still serves
+one to leak into. That limit is held by that one config flag: the transport still constructs the
+SDK's session manager, and `legacy_session_mode: false` is what keeps it idle - and even where a
+session exists, `rmcp`'s `create_session` takes no identity argument, so a session is never bound to
+a caller; the caller is re-resolved per request from each request's `Asked`. This costs nothing a
+current MCP client needs: the pinned SDK still serves
 `initialize`, `tools/list` and every other call one-shot under this configuration, protocol version
 `2025-11-25` (its own advertised latest) included.
 

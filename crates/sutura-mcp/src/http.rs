@@ -68,8 +68,9 @@
 //! - **The exact SEP-2243 header-validation helpers this module's tests exercise
 //!   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
 //!   no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
-//!   exhaustively traced line by line.** Flagged as the narrowest residual risk in this file: a
-//!   build-token lane compiling these cells for the first time is where that gets settled.
+//!   exhaustively traced line by line.** Flagged as the narrowest residual risk in this file; it
+//!   is settled by the four cells below compiling and passing against the pinned SDK, not by an
+//!   exhaustive manual trace.
 
 use std::sync::Arc;
 
@@ -88,6 +89,16 @@ use crate::{AgentSurface, Asking};
 /// A function rather than a `const`: `StreamableHttpServerConfig` is `#[non_exhaustive]` - a
 /// struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
 /// `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
+///
+/// **The limit the two pins carry, stated rather than assumed contractually:** only
+/// `legacy_session_mode` and `json_response` are set here; the other eight fields are inherited
+/// from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
+/// default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
+/// serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
+/// the module documentation). And [`service`] still constructs a [`LocalSessionManager`]; that
+/// manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
+/// caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
+/// re-resolved per request out of each request's `Asked`, never out of a session.
 #[must_use]
 pub fn config() -> StreamableHttpServerConfig {
     StreamableHttpServerConfig::default()
@@ -242,9 +253,11 @@ mod tests {
         post_with(app, body, None).await
     }
 
-    /// The same, with a caller-chosen `Mcp-Session-Id` header - used only by
-    /// [`a_reused_session_id_carries_no_weight_across_two_different_callers`] to fabricate reuse.
-    async fn post_with(app: Router, body: Value, session_id: Option<&str>) -> Value {
+    /// The same, returning the HTTP status alongside the parsed body - used where the status is
+    /// part of the assertion (the no-caller refusal is a JSON-RPC error the pinned SDK serves as
+    /// HTTP 200, not a 5xx, on both the `json_response` path, `tower.rs:2003`, and the negotiated
+    /// path, `tower.rs:637`).
+    async fn post_with_status(app: Router, body: Value, session_id: Option<&str>) -> (axum::http::StatusCode, Value) {
         let mut builder = axum::http::Request::builder()
             .method("POST")
             .uri("/mcp")
@@ -260,10 +273,18 @@ mod tests {
             ))
             .expect("a well-formed test request builds");
         let response = app.oneshot(request).await.expect("a tower service's Error is Infallible");
+        let status = response.status();
         let bytes = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("the hermetic response body reads to completion");
-        serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the response body is JSON: {cause}"))
+        let value = serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the response body is JSON: {cause}"));
+        (status, value)
+    }
+
+    /// The same, with a caller-chosen `Mcp-Session-Id` header - used only by
+    /// [`a_reused_session_id_carries_no_weight_across_two_different_callers`] to fabricate reuse.
+    async fn post_with(app: Router, body: Value, session_id: Option<&str>) -> Value {
+        post_with_status(app, body, session_id).await.1
     }
 
     fn tool_names(response: &Value) -> Vec<String> {
@@ -314,8 +335,11 @@ mod tests {
     /// real HTTP wire, not just in-process - `server/tests/asking.rs`'s
     /// `a_tool_call_with_no_established_caller_is_refused_and_never_answered_as_the_deployment`
     /// proves the same substitution in-process; this cell is the new thing PR3 adds, because a
-    /// status- or shape-mapping regression between `ErrorData` and the wire is invisible to that
-    /// test.
+    /// code-, status- or shape-mapping regression between `ErrorData` and the wire is invisible to
+    /// that test. It asserts the JSON-RPC error CODE (`INVALID_REQUEST` = `-32600`) and the HTTP
+    /// status the pinned SDK maps it to (`200`, on both the `json_response` path, `tower.rs:2003`,
+    /// and the negotiated path, `tower.rs:637`) - so a mis-set code or an accidental 5xx reddens
+    /// this cell, not just a wrong message string.
     #[tokio::test]
     async fn a_request_with_no_established_caller_is_refused_over_http() {
         let transport = super::service(
@@ -326,15 +350,34 @@ mod tests {
         );
         let app = router_with_no_established_caller(transport);
         drop(post(app.clone(), initialize(1)).await);
-        let refused = post(app, tools_list(2)).await;
-        let message = refused
+        let (status, refused) = post_with_status(app, tools_list(2), None).await;
+        let error = refused
             .get("error")
-            .and_then(|error| error.get("message"))
+            .and_then(Value::as_object)
+            .unwrap_or_else(|| panic!("no established caller must answer a JSON-RPC error object: {refused}"));
+        let code = error
+            .get("code")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| panic!("the refusal carries a numeric JSON-RPC error code: {refused}"));
+        assert_eq!(
+            code, -32600,
+            "`no_established_caller` is `INVALID_REQUEST` (-32600), got: {refused}"
+        );
+        let message = error
+            .get("message")
             .and_then(Value::as_str)
-            .unwrap_or_else(|| panic!("no established caller must answer a JSON-RPC error naming the reason: {refused}"));
+            .unwrap_or_else(|| panic!("the refusal names the reason in `message`: {refused}"));
         assert!(
             message.contains("could not establish who is asking"),
             "expected `no_established_caller`'s own message, got: {refused}"
+        );
+        // `INVALID_REQUEST` is not in the SDK's BAD_REQUEST/NOT_FOUND set, so `jsonrpc_http_status`
+        // falls to `_ => StatusCode::OK` (`tower.rs:637`); the `json_response` stateless arm writes
+        // the same 200 explicitly (`tower.rs:2003`). It is a JSON-RPC refusal, not a 5xx.
+        assert_eq!(
+            status,
+            axum::http::StatusCode::OK,
+            "the pinned SDK serves this refusal as HTTP 200, got: {status} {refused}"
         );
     }
 
@@ -382,6 +425,12 @@ mod tests {
     /// answered - but that failure shape (a protocol-level refusal, not a scope mismatch) is the
     /// wrong signal for THIS property; asserting the field directly names the actual thing that
     /// changed.
+    ///
+    /// **Only these two fields are contractual**: `StreamableHttpServerConfig` has ten fields, the
+    /// other eight are inherited from the SDK's `Default` through the builder ([`config`] applies
+    /// both pins through the builder precisely because the struct is `#[non_exhaustive]`), and this
+    /// cell asserts exactly what this module decides - `legacy_session_mode` (stateless sessions)
+    /// and `json_response` - and nothing it merely inherits.
     #[test]
     fn the_streamable_http_config_pins_stateless_sessions() {
         let config = super::config();

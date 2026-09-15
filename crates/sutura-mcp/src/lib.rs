@@ -87,9 +87,10 @@
 //!   arrive in, so `crate::principal::established()` (still
 //!   `sutura_domain::identity::Subject::TheDeploymentItself`) is the honest chain for this transport
 //!   regardless of what the type can now express. `sutura_http::inbound` is where leg 1 lives and it
-//!   is unreachable from here - an adapter never calls another adapter - so `Asking::PerRequest` is
-//!   read but never produced by anything in this crate; PR3 adds the feature that mounts an HTTP
-//!   transport capable of carrying one, and PR4 is the composition root that chooses to.
+//!   is unreachable from here - an adapter never calls another adapter - so, over the pipe,
+//!   `Asking::PerRequest` is read but never produced. Behind this crate's own default-off `http`
+//!   feature, `http::service` is what produces one over a real request - the streamable-HTTP
+//!   transport - and PR4 is the composition root that chooses to mount it.
 //!
 //!   **The consequence for what a scope gates here is stated rather than left implicit:** the
 //!   capability set this surface offers is narrowable, and over standard input and output nothing

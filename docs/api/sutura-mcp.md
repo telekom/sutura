@@ -96,9 +96,10 @@ this crate, and the handler is three methods written by hand.
   arrive in, so `crate::principal::established()` (still
   `sutura_domain::identity::Subject::TheDeploymentItself`) is the honest chain for this transport
   regardless of what the type can now express. `sutura_http::inbound` is where leg 1 lives and it
-  is unreachable from here - an adapter never calls another adapter - so `Asking::PerRequest` is
-  read but never produced by anything in this crate; PR3 adds the feature that mounts an HTTP
-  transport capable of carrying one, and PR4 is the composition root that chooses to.
+  is unreachable from here - an adapter never calls another adapter - so, over the pipe,
+  `Asking::PerRequest` is read but never produced. Behind this crate's own default-off `http`
+  feature, `http::service` is what produces one over a real request - the streamable-HTTP
+  transport - and PR4 is the composition root that chooses to mount it.
 
   **The consequence for what a scope gates here is stated rather than left implicit:** the
   capability set this surface offers is narrowable, and over standard input and output nothing
@@ -321,8 +322,9 @@ of an SSE stream to parse. A future tool that DID need to stream would need this
 - **The exact SEP-2243 header-validation helpers this module's tests exercise
   (`validate_standard_headers`, `validate_request_protocol_version_meta`) were read for their
   no-op conditions on a plain, non-`stateless_protocol_metadata_required` request and not
-  exhaustively traced line by line.** Flagged as the narrowest residual risk in this file: a
-  build-token lane compiling these cells for the first time is where that gets settled.
+  exhaustively traced line by line.** Flagged as the narrowest residual risk in this file; it
+  is settled by the four cells below compiling and passing against the pinned SDK, not by an
+  exhaustive manual trace.
 
 ### `fn config`
 
@@ -336,6 +338,16 @@ This deployment's fixed transport configuration - see the module documentation f
 A function rather than a `const`: `StreamableHttpServerConfig` is `#[non_exhaustive]` - a
 struct-expression literal cannot name its fields at all - and its `Default` builds a fresh
 `CancellationToken`, so the two pins below can only be applied through the SDK's own builder.
+
+**The limit the two pins carry, stated rather than assumed contractually:** only
+`legacy_session_mode` and `json_response` are set here; the other eight fields are inherited
+from the SDK's `Default` through the builder and are not pinned - a future field with an unsafe
+default would arrive silently, and `allowed_hosts` stays loopback-only, so a composition root
+serving outside loopback must override it (the transport refuses every unrecognised `Host`, see
+the module documentation). And `service` still constructs a `LocalSessionManager`; that
+manager is kept idle by `legacy_session_mode: false` alone. Nothing here binds a session to a
+caller, and the SDK's own `create_session` takes no identity argument regardless - the caller is
+re-resolved per request out of each request's `Asked`, never out of a session.
 
 ### `fn service`
 
@@ -526,9 +538,11 @@ arrive in - `docs/adr/0014`'s closing section says as much, and says that decidi
 surface is reached at all is an architecture decision rather than a refactor.
 `Asking::PerRequest` exists on the type and is exercised by this module's own tests, with hand-
 built `RequestContext` values reusing a `Peer` a real handshake produced - `rmcp::service::Peer::new`
-is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Nothing in
-this crate produces the value over any real request path yet: `telekom/sutura#378`'s PR3 is the
-HTTP transport feature that would, and PR4 is the composition root that chooses to mount it.
+is `pub(crate)` in the pinned SDK, so nothing outside `rmcp` can mint one from nothing. Behind
+this crate's own default-off `http` feature, `crate::http::service` now produces the value over
+a real request - the pinned streamable-HTTP transport injects the request's own `Parts` into the
+extensions this arm reads, and `http::tests` drives that over real bytes; PR4 is the composition
+root that chooses to mount it behind the real `establish_asked` layer.
 
 ### `struct AgentSurface`
 

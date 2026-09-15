@@ -18,8 +18,7 @@ description = "The agent-facing surface. Transport only: one tool over MCP, and 
 # (`uuid`, `rand`, `tokio-stream`, `http`, `http-body`, `http-body-util`, `bytes`, `base64`, `tower`,
 # `async-trait`, `tower-service`) already resolve through `axum`/`tower-http` elsewhere in this
 # workspace. Measured against `Cargo.lock` with `grep -c '^name = "<crate>"$'`, not assumed from
-# the vendored source alone - see `.../378p3-plan.md`'s dependency section for the counted baseline
-# a build-token lane re-checks against the real resolve this feature produces.
+# the vendored source alone.
 #
 # Off by default so a plain `cargo build`/`just check` never resolves `sse-stream` at all. This is
 # NOT the `crate-map` skill's native/outbound-TLS rule - the closure pulls no HTTP client
