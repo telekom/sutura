@@ -92,8 +92,9 @@ pub(crate) fn check() -> Verdict {
             eprintln!("  {problem}");
         }
         eprintln!();
-        eprintln!("Every `.nest`/`.nest_service`/`.route_service` in `sutura-http` or `sutura-serve` must be either");
-        eprintln!("the governed subtree's own `.nest(API_V1_PREFIX, ...)` or inside `crate::router::Ungoverned::mount`.");
+        eprintln!("Every `.nest`/`.nest_service`/`.route_service`/`.fallback_service`, and a wildcard `.route`, in");
+        eprintln!("`sutura-http` or `sutura-serve` must be either the governed subtree's own");
+        eprintln!("`.nest(API_V1_PREFIX, ...)` or inside `crate::router::Ungoverned::mount`.");
         return Verdict::Fail;
     }
     println!("xtask check-boundaries: ok - every ungoverned mount lives inside `Ungoverned::mount` ({files} source file(s))");

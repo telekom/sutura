@@ -307,6 +307,15 @@ without an orchestrator being reconfigured. It carries no version, no build iden
 dependency list, no configuration and no catalog content, because an unauthenticated caller can
 always reach it - so every field it might have is a field handed to anybody who can route a packet.
 
+**A limit on the allowlist, not on the two routes above.** `/health` and `/metrics` are the existing
+shape of a plain, non-wildcard `.route(` merged at the top level of `assemble` outside the version
+prefix and outside `Ungoverned::mount` - and nothing new here holds that shape. A future route
+merged the same way is not caught by the `Ungoverned` type (it never touches the mount), by
+`check-boundaries`' text scan (only `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and
+a wildcard `.route` are needles - a named `.route(` is deliberately not one, for the reason stated
+at `xtask/src/boundaries/ungoverned.rs`), by `ungoverned_routes()`'s allowlist record (nothing is
+recorded for it to check), or by a behaviour cell (none dials it). It is held by review alone.
+
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
 
