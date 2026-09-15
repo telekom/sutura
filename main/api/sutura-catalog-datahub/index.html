@@ -2679,12 +2679,14 @@ behind this crate's default-off <code>http</code> feature, with a personal acces
 module header states what is measured against a live <code>DataHub</code> and what is not - only the
 <code>metric</code> entity's wire shape is, today. The recorded fixture source in <code>fixture</code> and the two
 test doubles (<code>tests::Stub</code>, the acceptance suite's <code>Composed</code>) remain what every other test in
-this crate reads against. <strong>And nothing serves the new reader yet:</strong> no composition root links
-this crate (its only dependant is <code>sutura-app</code>, as a dev-dependency), and <code>sutura-serve</code> refuses
-<code>catalog.kind: datahub</code> by name - that half is a separate, stacked change. Everything here is
-decided and tested; what is not is a served composition - the <em>Built and not wired</em> register in
-<code>.agents/skills/sutura/query-surface/SKILL.md</code> records it, and that register is the one place it
-may be read from - it is not an invariant.</p>
+this crate reads against. <strong>A composition root now serves it, behind <code>sutura-serve</code>'s default-off
+<code>datahub</code> feature:</strong> that feature links this crate (with <code>http</code>) and opens <code>catalog.kind: datahub</code>,
+reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
+is still not is a live-<code>DataHub</code> read path in CI and the rest of the wire mapping - the fixed
+<code>bigquery</code> platform alias and the last page unmeasured against a live instance, both stated in
+<code>http</code>'s own module header. The <em>Built and not wired</em> register in
+<code>.agents/skills/sutura/query-surface/SKILL.md</code> keeps those limits; it no longer records "no
+composition root".</p>
 <p><strong>What that register no longer says is that the cost is unmeasured.</strong> <code>docs/adr/0016</code>'s
 <em>Revision, 2026-09-04</em> has the numbers, off a provisioned instance: a bundle's metric half is ONE
 paged request carrying <code>structuredProperties</code> and <code>metricInfo</code> inline, not a request per metric -
@@ -2904,16 +2906,18 @@ decides.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The dialect the raw expression string is written in.</p>
-<p>Part of the promotion candidate's other half; see <code>Self::expression</code> for why nothing reads
-it yet.</p>
+<p>Part of the promotion candidate's other half; read by the same <code>test_support</code> page builder
+<code>expression</code> is, and nowhere on the read path.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The promotion candidate's other half - the raw expression string in a dialect nothing here
 renders.</p>
-<p>No consumer today, and <code>docs/adr/0016</code> says so rather than pretending otherwise: the aspect
-is decoded and a metric without the <code>sutura</code> property is set aside, never converted, and its
-expression is not re-read. These accessors and <code>Self::dialect</code> are the readable shape a
-future reporter would use.</p>
+<p>One consumer today, outside the read path: <code>crate::test_support</code>'s <code>metric_page</code> builder
+reads it (and <code>Self::dialect</code>) to make its fake serve the recorded fixture's OWN content,
+so the wire page cannot drift from the corpus it certifies against. <code>docs/adr/0016</code> still
+says the read path never converts it: the aspect is decoded and a metric without the
+<code>sutura</code> property is set aside. These accessors are the readable shape a future reporter
+would use.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">expression</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
@@ -3301,6 +3305,93 @@ request timeout in front of it cannot answer inside the budget the caller was pr
 column names and one metric document, not query rows, and what this defends against is the same
 case that constant does - something that is not the endpoint answering - rather than a
 realistic upper bound on a legitimate page.</p>
+<h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
+<p>A real local HTTP server - "ports get fakes, not mocked HTTP" - and the happy-path DataHub wire
+pages this crate's own tests need, made <code>pub</code> so a DIFFERENT crate's integration test can build
+the same fake rather than a second one.</p>
+<p><strong>Moved out of <code>tests/http_reader.rs</code> by issue #202's second PR, not written fresh.</strong> That file's
+own <code>FakeServer</code>/<code>Scripted</code>/page builders were <code>mod tests</code>-private, which is exactly right for a
+<code>#[cfg(test)]</code>-only fake used by one crate - until a SECOND crate needed one too:
+<code>sutura-serve</code>'s own served-binary suite (<code>crates/sutura-serve/tests/served/datahub.rs</code>) wants a
+real loopback DataHub server to boot a composed <code>catalog.kind: datahub</code> deployment against, and
+an integration test binary cannot see another crate's <code>tests/</code> directory at all - Rust does not
+expose one. The only way to share this fake is through the LIBRARY, which is what this module is.</p>
+<p><strong><code>#[cfg(feature = "http")]</code>, not <code>#[cfg(test)]</code>.</strong> A downstream crate's OWN test compilation is
+what needs to see this, and <code>#[cfg(test)]</code> on an item is private to the crate that sets it - it
+never crosses the dependency edge the way a feature does. That means this module compiles into
+any NON-test build with <code>--features http</code> too (<code>sutura-serve --features datahub</code>, in particular)
+- dead code there, never called by production composition, but real object code in a shipped
+binary. <strong>Stated rather than hidden:</strong> <code>.agents/skills/sutura/crate-map/SKILL.md</code>'s "why a
+networked adapter hides behind a default-off feature" argument is about the DEPENDENCY EDGE the
+four cross builds' <code>crane.buildDepsOnly</code> derivation carries - <code>std::net::TcpListener</code> adds none,
+so this module does not reopen that measurement. A dedicated <code>test-support</code>-only feature is the
+natural follow-up if the object-code cost itself becomes the concern instead of the edge.</p>
+<h3 id="struct-scripted"><code>struct Scripted</code><a class="headerlink" href="#struct-scripted" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scripted</span>
+</span></code></pre></div>
+<p>One scripted answer: a status, a body, and how long to wait before sending it.</p>
+<h4 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">delayed</span><span class="p">(</span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">,</span><span class="w"> </span><span class="n">delay</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ok</span><span class="p">(</span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">raw</span><span class="p">(</span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A response whose body is opaque bytes, as a size-cap test needs: a body that must be too
+big to be legal JSON (the length check runs before decode), so it is not served through
+the JSON-typed constructors above.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-75-1"><a id="__codelineno-75-1" name="__codelineno-75-1" href="#__codelineno-75-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="n">status</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="n">body</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h3 id="struct-fakeserver"><code>struct FakeServer</code><a class="headerlink" href="#struct-fakeserver" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-76-1"><a id="__codelineno-76-1" name="__codelineno-76-1" href="#__codelineno-76-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FakeServer</span>
+</span></code></pre></div>
+<p>A real local HTTP/1.1 server answering one <code>Scripted</code> response per connection, in order, then
+closing. Captures each request's <code>authorization</code> header so a test can assert the bearer was sent.</p>
+<h4 id="methods_14">Methods<a class="headerlink" href="#methods_14" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-77-1"><a id="__codelineno-77-1" name="__codelineno-77-1" href="#__codelineno-77-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">addr</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SocketAddr</span>
+</span></code></pre></div>
+<p>The bound loopback address, for a case that builds its own (malformed) endpoint string
+around it rather than using <code>Self::endpoint</code> as-is.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-78-1"><a id="__codelineno-78-1" name="__codelineno-78-1" href="#__codelineno-78-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">finish</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">CapturedAuthorizations</span>
+</span></code></pre></div>
+<p>Joins the server thread and returns every request's <code>authorization</code> header, in order.</p>
+<p>Only called by a test that knows exactly how many connections it will make - a test that
+deliberately stops short drops the server instead, and the abandoned thread exits with the
+process.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="n">answers</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h3 id="fn-dataset_page"><code>fn dataset_page</code><a class="headerlink" href="#fn-dataset_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dataset_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>dataset</code> page, over the two models the certified fixture metric needs: <code>orders</code> (carrying
+every column the metric's measure, time column and required filter name) and <code>customers</code>
+(carrying the dimension's column). Model name and table are the same string, because
+<code>HttpAspectReader::read_datasets</code>'s own doc names that as a real limit rather than hiding it.</p>
+<h3 id="fn-relationship_page"><code>fn relationship_page</code><a class="headerlink" href="#fn-relationship_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>semanticModel</code> page, over the one relationship the certified fixture metric's dimension
+reaches <code>customers</code> through.</p>
+<h3 id="fn-metric_page"><code>fn metric_page</code><a class="headerlink" href="#fn-metric_page" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-83-1"><a id="__codelineno-83-1" name="__codelineno-83-1" href="#__codelineno-83-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metric_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
+</span></code></pre></div>
+<p>One <code>metric</code> page carrying the recorded fixture's OWN certified metric, read through the crate's
+public port rather than restated here - the recorded corpus and this page cannot drift.</p>
+<h3 id="fn-happy_path_answers"><code>fn happy_path_answers</code><a class="headerlink" href="#fn-happy_path_answers" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">happy_path_answers</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Scripted</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The three pages a <code>read()</code> call makes, in order, all answering <code>200</code> - what a real <code>DataHub</code>
+carrying exactly the recorded fixture's content would serve.</p>
+<h3 id="type_alias-capturedauthorizations"><code>type_alias CapturedAuthorizations</code><a class="headerlink" href="#type_alias-capturedauthorizations" title="Permanent link">&para;</a></h3>
+<p>Every request this fake server has answered, in order: <code>authorization</code> header or <code>None</code>.</p>
+<h3 id="constant-deployment_property"><code>constant DEPLOYMENT_PROPERTY</code><a class="headerlink" href="#constant-deployment_property" title="Permanent link">&para;</a></h3>
+<p>The structured property name the happy-path pages below register the certified metric's content
+under - a fixed test constant, deliberately independent of the deployment's OWN choice, the same
+way <code>tests/provisioned.rs</code>'s <code>DEPLOYMENT_PROPERTY</code> is: a fake registering the adapter's own field
+name would pass equally whether the name were the deployment's choice or a constant this crate
+requires.</p>
 
 
 

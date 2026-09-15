@@ -1653,6 +1653,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Revision, 2026-09-14: the reader, and exactly how far its own measurement reaches">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#addendum-same-day-the-composition-and-the-settings-keys-the-deadline-and-cap-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Addendum, same day: the composition, and the settings keys the deadline and cap use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3225,6 +3242,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Revision, 2026-09-14: the reader, and exactly how far its own measurement reaches">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#addendum-same-day-the-composition-and-the-settings-keys-the-deadline-and-cap-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Addendum, same day: the composition, and the settings keys the deadline and cap use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -4367,12 +4401,41 @@ crate's default-off <code>http</code> feature. What it does and does not change:
   follow-up for a deployment's own CA, for the endpoints that do use TLS; it is not built here.</li>
 <li><strong>Tested against a real local HTTP server, not mocked HTTP</strong> - <code>tests/http_reader.rs</code>, over the
   recorded fixture's own corpus so the fake and the fixture cannot drift.</li>
-<li><strong>Still not served.</strong> No composition root links this crate, and <code>sutura-serve</code> refuses
+<li><strong>Still not served, by this PR.</strong> No composition root links this crate, and <code>sutura-serve</code> refuses
   <code>catalog.kind: datahub</code> by name - unchanged by this revision. That half is <code>catalog.kind: datahub</code>
-  settings and composition, a stacked change immediately after this one, and its own PR body states
-  the same limit: a reader nobody can configure is not yet a "yes" to issue #202's practical use.
+  settings and composition, a stacked change immediately after this one (below).
   <code>.agents/skills/sutura/query-surface/SKILL.md</code>'s <em>Built and not wired</em> register carries the current
   split between the two.</li>
+</ul>
+<h3 id="addendum-same-day-the-composition-and-the-settings-keys-the-deadline-and-cap-use">Addendum, same day: the composition, and the settings keys the deadline and cap use<a class="headerlink" href="#addendum-same-day-the-composition-and-the-settings-keys-the-deadline-and-cap-use" title="Permanent link">&para;</a></h3>
+<p><strong>Status: accepted.</strong> The stacked PR this revision named above lands <code>sutura-serve</code>'s side: a build
+with <code>--features datahub</code> no longer refuses <code>catalog.kind: datahub</code> by name.</p>
+<ul>
+<li><strong>The deadline and the response-size cap ARE settings, with defaults, exactly as the bullet above
+  asks.</strong> <code>catalogs.&lt;name&gt;.deadline_seconds</code> and <code>catalogs.&lt;name&gt;.max_response_bytes</code>, both optional;
+  absent means [<code>http::DEFAULT_TIMEOUT_SECONDS</code>]/[<code>http::DEFAULT_MAX_RESPONSE_BYTES</code>] - which stay
+  CONSTANTS in this crate (this crate owns the range, <code>ReadBounds::parse</code> is where a declared zero is
+  refused), because <code>sutura-config</code> does not depend on this adapter and cannot name them itself. The
+  composition root is the single point that resolves "absent" to the constant.</li>
+<li><strong>The endpoint is parsed by the composition root too, for the same single-owner reason - and this
+  is where <code>http::Endpoint::parse</code>'s loopback-plaintext-only rule (above) actually bites a
+  deployment.</strong> <code>sutura_config::CatalogSettings::endpoint</code> stays an unparsed <code>Option&lt;&amp;str&gt;</code>, the same
+  "was the key written" ownership split; <code>open_one_datahub_catalog</code> is where <code>Endpoint::parse</code> runs,
+  and its <code>InvalidEndpoint</code> refusal is what a deployment sees if it writes <code>http://</code> to a host that
+  is not an IP loopback literal.</li>
+<li><strong>A <code>datahub</code> entry's platform-to-source mapping is a single fixed alias, <code>bigquery</code>.</strong> Decision 7
+  leaves that mapping to the deployment; <code>sutura_config::CatalogSettings</code> carries no such mapping for
+  a <code>datahub</code> entry yet. A deployment whose models live on a platform other than <code>bigquery</code> cannot be
+  served by this composition today - a real limit, not a placeholder.</li>
+<li><strong>A heterogeneous catalog set - one deployment serving BOTH a markdown and a datahub catalog at
+  once - is an architecture decision NOT taken here.</strong> <code>sutura_app::Surface::start_composed</code> takes
+  one <code>C: SemanticCatalog</code> per call, and <code>SemanticCatalog::KIND</code>/<code>capabilities()</code> are per-TYPE
+  associated items with no instance to dispatch on - so, unlike <code>OpenedSources</code> over data-system
+  adapters (reached through the SAME <code>Warehouse</code> trait's <em>instance</em> methods), there is no single
+  Rust type that is faithfully "a markdown catalog OR a datahub catalog". Wave one is <strong>one catalog
+  kind per deployment</strong>: <code>sutura-serve</code>'s composition reads every declared catalog's kind, refuses a
+  mix by name, and opens one of two monomorphic vectors. <code>.agents/skills/sutura/crate-map/SKILL.md</code>
+  carries the same sentence, so a reader of either finds it rather than only one.</li>
 </ul>
 
 

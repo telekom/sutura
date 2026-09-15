@@ -4291,22 +4291,47 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalogs[].kind</code></td>
 <td><code>markdown</code></td>
-<td>Which adapter opens this catalog. <code>datahub</code> parses; no shipped binary links the adapter, so it is refused by the composition root instead</td>
+<td>Which adapter opens this catalog. <code>markdown</code> or <code>datahub</code>; a build without <code>--features datahub</code> refuses the latter by name, naming the feature. <strong>A deployment declares catalogs of ONE kind</strong> - a <code>markdown</code> and a <code>datahub</code> entry together are refused, not merged; see <code>docs/adr/0016</code></td>
 </tr>
 <tr>
 <td><code>catalogs[].dir</code></td>
 <td><code>catalog</code></td>
-<td>at most 1,000 documents / 16 MiB of documents in total; more is a startup refusal naming the bound; raising it is a source change, not a setting</td>
+<td><code>markdown</code> only for its meaning; <strong>required non-empty for every kind, including <code>datahub</code></strong>, which does not read it - a stated limit of the settings surface rather than a per-kind field. At most 1,000 documents / 16 MiB of documents in total; more is a startup refusal naming the bound; raising it is a source change, not a setting</td>
 </tr>
 <tr>
 <td><code>catalogs[].data_dir</code></td>
 <td><code>data</code></td>
-<td><strong>Printed by the startup banner and read by nothing that opens a data system.</strong> A served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line</td>
+<td><code>markdown</code> only for its meaning; <strong>printed by the startup banner and read by nothing that opens a data system</strong> even for a <code>markdown</code> catalog - a served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code>, and the <code>sutura</code> command reads that same entry or else the directory on its command line. Required non-empty for <code>datahub</code> too, unread, the same stated limit as <code>dir</code> above</td>
 </tr>
 <tr>
 <td><code>catalogs[].version</code></td>
 <td><code>unversioned</code></td>
 <td>A commit id or a build number. What identifies the snapshot</td>
+</tr>
+<tr>
+<td><code>catalogs[].endpoint</code></td>
+<td>absent, <strong>required for <code>datahub</code></strong></td>
+<td><code>datahub</code> only. <code>scheme://host[:port]</code>, no trailing slash. <code>https://</code> to any host, <strong>verified against the binary's compiled-in roots - no deployment CA yet, <code>security.outbound</code> is the future seam (#742 lineage)</strong>; <code>http://</code> only to an IP loopback literal - anything else is a startup refusal naming the endpoint</td>
+</tr>
+<tr>
+<td><code>catalogs[].token_file</code></td>
+<td>absent, <strong>required for <code>datahub</code></strong></td>
+<td><code>datahub</code> only. Absolute path to a personal access token, read once at startup; the token itself is never written to settings</td>
+</tr>
+<tr>
+<td><code>catalogs[].metric_property</code></td>
+<td>absent, <strong>required for <code>datahub</code></strong></td>
+<td><code>datahub</code> only. The deployment-chosen structured property name a certified metric's content is read from - <code>docs/adr/0016</code> decision 7's <em>not ours to say</em>, so there is no default</td>
+</tr>
+<tr>
+<td><code>catalogs[].deadline_seconds</code></td>
+<td>absent</td>
+<td><code>datahub</code> only. Absent means <code>sutura_catalog_datahub::http::DEFAULT_TIMEOUT_SECONDS</code>. Shared across the (up to) three requests one read makes; a declared zero is refused</td>
+</tr>
+<tr>
+<td><code>catalogs[].max_response_bytes</code></td>
+<td>absent</td>
+<td><code>datahub</code> only. Absent means <code>sutura_catalog_datahub::http::DEFAULT_MAX_RESPONSE_BYTES</code>. Read before decode; a declared zero is refused</td>
 </tr>
 </tbody>
 </table>
