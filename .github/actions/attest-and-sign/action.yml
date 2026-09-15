@@ -11,10 +11,11 @@ inputs:
       writes it. `leaf` is one architecture, `list` is a manifest list. Read rather than derived,
       so a reference added to the push step is signed without a second list agreeing to it.
 
-      A `leaf`'s NAME is its asset key - `<triple>` for `sutura`, `serve-<triple>` for
-      `sutura-serve` - which is also the stem of the SBOM beside it, so nothing here has to know
-      how many binaries ship. A `list`'s name is `<prefix>glibc` or `<prefix>musl` on the same
-      rule, and `list-names` below is what says which of them must be present.
+      A `leaf`'s NAME is its asset key - `<triple>` for `sutura` - which is also the stem of the
+      SBOM beside it, so nothing here has to know how many binaries ship. A second shipped
+      binary would be prefixed instead, the same rule `keyFor` in `nix/shipped.nix` uses. A
+      `list`'s name is `glibc` or `musl` on the same rule, and `list-names` below is what says
+      which of them must be present.
     required: false
     default: dist/image-digests.txt
   assets-dir:
@@ -23,15 +24,16 @@ inputs:
     default: dist
   expected-leaves:
     description: >
-      How many `leaf` references must be present. What this catches is a PARTIAL set - seven
-      leaves where eight were built - which is silent: the loop signs what it finds and reports
+      How many `leaf` references must be present. What this catches is a PARTIAL set - three
+      leaves where four were built - which is silent: the loop signs what it finds and reports
       success. An EMPTY set is caught one layer earlier and by something else, because `grep`
       with no match exits non-zero and `set -eu` aborts the step; so this is the check for the
       case where the file is present, well formed, and short.
 
-      Two shipped binaries at four triples is eight.
+      One shipped binary at four triples is four. Was eight before `github.com/telekom/
+      sutura#685` step 2 folded a second shipped binary, `sutura-serve`, into this one.
     required: false
-    default: "8"
+    default: "4"
   list-names:
     description: >
       The `list` names that must be present, space separated, in the order the provenance steps
@@ -40,7 +42,7 @@ inputs:
       cannot open a matrix, so each list needs its own step - which means each needs its own
       output, which means the names have to be known here rather than counted.
     required: false
-    default: glibc musl serve-glibc serve-musl
+    default: glibc musl
   registry:
     description: Registry to authenticate against for the image signatures and attestations.
     required: false
@@ -291,8 +293,10 @@ runs:
       with:
         subject-checksums: subjects.sha256
 
-    # And provenance for the two MANIFEST LISTS - the references the notes tell a consumer to pin,
-    # and the only ones an unqualified `docker pull` can resolve.
+    # And provenance for the TWO MANIFEST LISTS - the references the notes tell a consumer to pin,
+    # and the only ones an unqualified `docker pull` can resolve. Was four, one pair per shipped
+    # binary, before `github.com/telekom/sutura#685` step 2 folded the second binary,
+    # `sutura-serve`, into this one.
     #
     # `subject-digest` rather than a path, because there is no local file whose hash is an image's
     # digest: a manifest digest is the sha256 of the index bytes the registry holds.
@@ -306,13 +310,14 @@ runs:
     # It would also need registry credentials, which means staying logged in across a step this
     # file does not control.
     #
-    # FOUR STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
-    # opened in the middle of a job. Written out means the four lists are visibly four things
-    # rather than four iterations of something. That is also the reason `list-names` exists as an
+    # TWO STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
+    # opened in the middle of a job. Written out means the two lists are visibly two things
+    # rather than two iterations of something. That is also the reason `list-names` exists as an
     # input and is only counted in the signing step - the assertion belongs where the loop can act
-    # on it, and these four steps are the hardcoded consequence of there being four names.
+    # on it, and these steps are the hardcoded consequence of there being names at all: a third
+    # name is a third step, not a rewrite of the shape.
     #
-    # An output name cannot hold a `-` and be read back as `steps.lists.outputs.serve-glibc` in
+    # An output name cannot hold a `-` and be read back as `steps.lists.outputs.some-name` in
     # every expression context, so the key is the name with `-` folded to `_`. The digests file
     # keeps the hyphenated name, because that is what a human reads.
     - name: Read the list digests
@@ -366,19 +371,10 @@ runs:
         subject-name: ${{ steps.lists.outputs.musl_name }}
         subject-digest: ${{ steps.lists.outputs.musl }}
 
-    # And the server's two lists. `sutura-serve` is what closed #111: before it, no published
-    # artefact could answer a question over HTTP, so there was nothing here to attest.
-    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-      id: serve_glibc_provenance
-      with:
-        subject-name: ${{ steps.lists.outputs.serve_glibc_name }}
-        subject-digest: ${{ steps.lists.outputs.serve_glibc }}
-
-    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-      id: serve_musl_provenance
-      with:
-        subject-name: ${{ steps.lists.outputs.serve_musl_name }}
-        subject-digest: ${{ steps.lists.outputs.serve_musl }}
+    # `sutura-serve` used to have its own two lists here, and was what closed #111: before it, no
+    # published artefact could answer a question over HTTP. `github.com/telekom/sutura#685`
+    # step 2 folded that binary into `sutura serve`, so its provenance is the same `glibc`/`musl`
+    # lists above rather than a second pair.
 
     - name: Collect the provenance bundles
       shell: bash
@@ -388,10 +384,7 @@ runs:
         ASSET_BUNDLE: ${{ steps.asset_provenance.outputs.bundle-path }}
         GLIBC_BUNDLE: ${{ steps.glibc_provenance.outputs.bundle-path }}
         MUSL_BUNDLE: ${{ steps.musl_provenance.outputs.bundle-path }}
-        SERVE_GLIBC_BUNDLE: ${{ steps.serve_glibc_provenance.outputs.bundle-path }}
-        SERVE_MUSL_BUNDLE: ${{ steps.serve_musl_provenance.outputs.bundle-path }}
       run: |
         set -eu
         nix run .#xtask -- collect-provenance subjects.sha256 "$IMAGE_DIGESTS" \
-          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" \
-          "$MUSL_BUNDLE" "$SERVE_GLIBC_BUNDLE" "$SERVE_MUSL_BUNDLE"
+          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" "$MUSL_BUNDLE"

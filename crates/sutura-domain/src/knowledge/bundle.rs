@@ -537,14 +537,17 @@ impl Knowledge {
             }
         }
         // **Before any of the four indices are built, and on the INPUT rather than on what indexing
-        // produces.** This used to run last, over the assembled bundle, on the argument that what the
-        // cap bounds is the size of the rendered prompt and the input is "a different thing, equal to
-        // it only for as long as indexing never drops a note." That property holds - four separate
-        // duplicate checks refuse rather than overwrite - so the two sums are the same total, and
-        // computing it first means an oversized input is refused before it pays for what indexing
-        // costs: parsing every phrase's identity, cloning every referent into a map, walking the claim
-        // index for a collision. `KnowledgeInput` owns its `Vec`s, so this reads memory the caller
-        // already allocated rather than allocating more - the check itself is not what was expensive.
+        // produces.** This used to run last, over the assembled bundle, on the argument that what
+        // the cap bounds is the size of the rendered prompt and the input is "a different thing,
+        // equal to it only for as long as indexing never drops a note." That property holds, but
+        // only because four separate duplicate checks refuse rather than overwrite, not because of
+        // the code's shape: a fifth index that overwrote instead of refusing would make the input
+        // sum and the assembled sum diverge, and this cap would then bound the wrong one - silently,
+        // with every test still green. Computing the cap first still means an oversized input is
+        // refused before it pays for what indexing costs: parsing every phrase's identity, cloning
+        // every referent into a map, walking the claim index for a collision. `KnowledgeInput` owns
+        // its `Vec`s, so this reads memory the caller already allocated rather than allocating more -
+        // the check itself is not what was expensive.
         let bytes = input.authored_bytes();
         if bytes > MAX_KNOWLEDGE_BYTES {
             return Err(InconsistentKnowledge::KnowledgeTooLarge {

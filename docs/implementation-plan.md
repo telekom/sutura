@@ -686,7 +686,7 @@ for, and a model with no data file behind it - and **seven** missing tests acros
 `sutura-serve` had none at all. Two arms were already covered and got nothing added; two remain untested
 and are named there rather than papered over, one being unreachable (a `const` that parses).
 
-**Touches.** `crates/sutura-serve/src/main.rs` and `crates/sutura-cli/src/commands.rs` test modules
+**Touches.** `crates/sutura-cli/src/serve.rs` and `crates/sutura-cli/src/commands.rs` test modules
 only. No production code.
 
 **Tests.** One per binary, each asserting the multi-source arm and asserting it is NOT the neighbouring

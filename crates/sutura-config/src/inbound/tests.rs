@@ -181,6 +181,38 @@ fn a_cleartext_issuer_and_a_query_or_fragment_are_both_refused_and_say_which() {
 }
 
 #[test]
+fn embedded_userinfo_is_refused_without_being_quoted_back() {
+    // A resource identifier that carries a username or password would be served back byte-exact
+    // and unauthenticated as RFC 9728 protected-resource metadata - the check runs before storage,
+    // not before serving, so this value never becomes reachable at all.
+    let error = ResourceIdentifier::parse("https://user:pass@sutura.example.com")
+        .expect_err("userinfo before the host is a credential, not an identifier");
+    assert_eq!(
+        error,
+        InvalidInboundValue::HasUserinfo {
+            key: ResourceIdentifier::KEY,
+            position: 17,
+        }
+    );
+    // The username and password are never rendered - only the key and the `@`'s position are.
+    // (The fixed word "userinfo" is expected in the message; the credential value is not.)
+    let rendered = error.to_string();
+    assert!(!rendered.contains("user:pass"), "the credential reached the message");
+
+    // A username with no password is refused the same way.
+    assert!(matches!(
+        ResourceIdentifier::parse("https://user@sutura.example.com"),
+        Err(InvalidInboundValue::HasUserinfo { .. })
+    ));
+    // The shared parser refuses it for an issuer URL too - an issuer is the same kind of
+    // deployment-topology value, compared byte for byte, and not a credential carrier either.
+    assert!(matches!(
+        IssuerUrl::parse("https://user:pass@issuer.example.com"),
+        Err(InvalidInboundValue::HasUserinfo { .. })
+    ));
+}
+
+#[test]
 fn an_invisible_or_homoglyph_character_cannot_reach_an_identifier() {
     // There is no separate invisible-character check, and this is why there does not need to be one:
     // the accepted set is ASCII, so every invisible code point, every direction-changing one and

@@ -178,7 +178,7 @@ mod tests {
         // The composition root loads `DataHubCatalog` TWICE at boot - once here for `catalog::load`
         // (so the engine can be opened for the sources the catalog names) and once inside
         // `LocalService::start_composed`, which loads the catalog it serves rather than trusting the
-        // bundle it was handed (`crates/sutura-serve/src/main.rs` says so). Each `load()` reads the
+        // bundle it was handed (`crates/sutura-cli/src/serve.rs` says so). Each `load()` reads the
         // three pages, so the fake must answer SIX connections: `happy_path_answers()` twice. Because
         // every response carries `Connection: close`, the reader opens a fresh connection per page,
         // so after boot the fake has served exactly those six and `finish()` (below) joins a thread

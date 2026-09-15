@@ -51,9 +51,10 @@ pub(crate) fn report_base(
             eprintln!("not test the change. Make the test exercise the new behaviour, or say plainly");
             eprintln!("that it is not a regression test.");
             // WHICH OF THEM THIS IS NOT ABOUT. A test the base tree already had cannot be red
-            // against a behaviour nobody changed, so it is not the one to go and fix - and the
-            // failure stands anyway, because the others passed both ways. When EVERY test in scope
-            // was already there this arm is unreachable: that is `GreenAfterAMove`.
+            // against a behaviour nobody changed, so it is not the one to go and fix. This arm is
+            // now unreachable for anything but `Moved::Nothing`: a scope that is EVERY test moved
+            // is `GreenAfterAMove`, and a scope that is SOME of them moved is
+            // `GreenAfterAPartialMove` below, both handled separately.
             for one in moved.names() {
                 eprintln!("  already at base: {one}  (this failure is not about that one)");
             }
@@ -75,6 +76,35 @@ pub(crate) fn report_base(
             println!("something this diff also touched, they DO pass both ways - prove it by MUTATION.");
             println!("This exit is INCONCLUSIVE (code 3) rather than a pass, and {measured}.");
             Verdict::Inconclusive
+        }
+        // #775. This used to fall into `BaseOutcome::Green` above: the moved subset passing made
+        // `succeeded` true, and the genuinely new subset - which cannot have a base-side function
+        // to have run at all - was silently never measured. Still FAILS, but the message now
+        // tells a reader which tests to leave alone and which to fix the wiring on, rather than
+        // telling them to delete a test that never ran.
+        BaseOutcome::GreenAfterAPartialMove {
+            ref moved,
+            ref unmeasured,
+        } => {
+            eprintln!("xtask test-causality: FAILED - some of the tests this diff added never ran on base");
+            eprintln!();
+            eprintln!("The base tree already had these, so their passing is not the defect:");
+            for one in moved {
+                eprintln!("  already at base: {one}");
+            }
+            eprintln!();
+            eprintln!("These are genuinely new and never ran - the base tree has no function of that");
+            eprintln!("name to have run at all, so the whole run's `succeeded` came from the moved");
+            eprintln!("subset alone:");
+            for one in unmeasured {
+                eprintln!("  never ran on base: {one}");
+            }
+            eprintln!();
+            eprintln!("This is the ORPHANING shape `NotRun` names for a whole run, here on a subset:");
+            eprintln!("the usual cause is a `mod` declaration for the new test's file sitting in a");
+            eprintln!("file this diff reverted. Fix the wiring so it compiles at base, or say plainly");
+            eprintln!("the named tests are not a regression test.");
+            Verdict::Fail
         }
         // The SENTENCE is `super::reverted`'s, beside the rule that decides it: an excuse and the
         // words that explain it are one thing to keep true rather than two.

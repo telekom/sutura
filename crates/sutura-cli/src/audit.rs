@@ -66,7 +66,7 @@ fn records(question: &str) -> Vec<serde_json::Value> {
 /// off-loopback `SUTURA__SERVER__HOST` stops it on TLS termination, from a command that binds
 /// nothing. Either one leaves no record, and [`only`] then fails with `one record per outcome: []` -
 /// an assertion about the audit record for what is actually a settings refusal, on a machine where
-/// somebody runs `sutura-serve` too. `crates/sutura-cli/tests/mcp.rs` records this exact pair
+/// somebody runs `crate::serve` too. `crates/sutura-cli/tests/mcp.rs` records this exact pair
 /// turning six passing tests red, and `tests/declared_source.rs` strips every such variable from the
 /// child it spawns for that reason.
 ///

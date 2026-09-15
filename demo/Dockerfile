@@ -1,9 +1,11 @@
 # The local chat demo, as demo-only packaging.
 #
-# The shipped Linux-musl `sutura-serve` package holds ONE executable, so it cannot supervise the
+# The shipped Linux-musl `sutura` package holds ONE executable, so it cannot supervise the
 # chat client or answer a shell probe. `demo/start.sh` passes that Nix store path as the read-only
 # `sutura-server` build context; no global intermediate image tag exists for another worktree to
-# replace. The chat client's image supplies the shell and Python around that release binary.
+# replace. The chat client's image supplies the shell and Python around that release binary, and
+# what runs it is `sutura serve` - `github.com/telekom/sutura#685` step 2 folded the standalone
+# `sutura-serve` binary this used to run into that subcommand.
 #
 # NOT a release artifact. `just demo` builds this locally from the Open WebUI base image and the
 # named Nix server package context; a release publishes the server image on its own. A compose
@@ -18,8 +20,9 @@ ARG SUTURA_DEMO_BASE_IMAGE
 FROM ${SUTURA_DEMO_BASE_IMAGE}
 
 # The shipped server executable, at the path the supervisor below calls. Copied OUT of the image
-# rather than rebuilt, so what the demo drives is the same binary a release publishes.
-COPY --from=sutura-server /bin/sutura-serve /usr/local/bin/sutura-serve
+# rather than rebuilt, so what the demo drives is the same binary a release publishes - `run.sh`
+# invokes it as `sutura serve`.
+COPY --from=sutura-server /bin/sutura /usr/local/bin/sutura
 
 # The demo's own code, and the read-only corpus it serves. COPIED rather than bind-mounted: a host
 # bind mount belongs to the machine and every worktree would share it, which the compose tier

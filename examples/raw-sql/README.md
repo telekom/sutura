@@ -9,7 +9,7 @@ documents - a settings change on top of an ordinary deployment, not a different 
 takes no catalog: it is unparsed text handed straight to the data system, so there is nothing here
 that resembles `single-player/`'s models and metrics. What changes is `examples/single-player`'s own
 served deployment, plus `tools.run_sql.enabled: true` and a role grant. The runnable proof is
-`crates/sutura-serve/tests/served.rs`'s `a_postgres_source_answers_a_raw_sql_statement_from_the_served_binary`,
+`crates/sutura-cli/tests/served.rs`'s `a_postgres_source_answers_a_raw_sql_statement_from_the_served_binary`,
 which starts the real `sutura-serve` binary against the provisioned Postgres tier and asks the
 question below over `POST /v1/sql/run` - the request and the response shown here are the value that
 test asserts the binary returned, not a transcript kept in step by hand. (The body is pretty-printed
@@ -122,7 +122,7 @@ curl -s -X POST http://127.0.0.1:<port>/v1/sql/run \
 
 Read what is missing from that body as carefully as what is in it: no `provenance`, no
 `definition_version`, no `definition_digest`, no `executed_as` - there is nowhere on this outcome's
-wire shape to put any of them. `crates/sutura-serve/tests/served.rs`'s
+wire shape to put any of them. `crates/sutura-cli/tests/served.rs`'s
 `a_postgres_source_answers_a_certified_question_from_the_served_binary` asks this same Postgres
 deployment for `recurring_revenue` and gets back `outcome: "answer"` with a `provenance` object
 beside the rows: same transport, same bearer gate, and a reader can tell which kind of answer they

@@ -524,7 +524,7 @@ remove the property the test would be checking around.
   credential comes from, and the only source built today reads a developer's own login.
 
   **Corrected: `sutura-serve` links the adapter now**, behind the default-off `bigquery` feature -
-  `crates/sutura-serve/src/main.rs`'s `OpenedSources::BigQuery` and `BigQuerySource` type alias to
+  `crates/sutura-cli/src/serve.rs`'s `OpenedSources::BigQuery` and `BigQuerySource` type alias to
   `sutura_exec_bigquery::BigQueryWarehouse`. A default build (the feature off) still links none of
   it, which is the sense in which "refuses `kind: bigquery` by name" survives.
 - **`just validate` does not cover the acceptance leg and cannot.** The nix check sandbox has no

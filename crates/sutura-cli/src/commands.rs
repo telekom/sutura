@@ -397,7 +397,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         // `LocalService::start` takes the port, re-runs every anchor, and hands back a service only
         // if the bundle is fit to serve. The bundle is still needed here, before the engine exists,
         // to know which tables to attach - which is the same double load `crate::mcp` and
-        // `sutura-serve` both do, and `refuse_unattached` below is what closes the gap it leaves.
+        // `crate::serve` both do, and `refuse_unattached` below is what closes the gap it leaves.
         let catalog = catalog_reader(Path::new(&root))?;
         let pinned = catalog.load().map_err(|e| render(&e))?;
         let question = read_question(Path::new(&question_path))?;

@@ -259,7 +259,7 @@ bodies near-identical in what they carry.
   lists every `RefusalReason` variant with the status and `code` each is given,
   `every_refusal_carries_a_status_a_code_and_a_sentence` drives that list, and the exhaustive match
   with no wildcard arm makes a new variant a COMPILE error rather than an untested one - which is
-  the property a transcript could never have. `crates/sutura-serve/tests/served.rs` asserts a
+  the property a transcript could never have. `crates/sutura-cli/tests/served.rs` asserts a
   refusal's status against the same directory over a real port, and
   `crates/sutura-http/src/harness.rs` asserts the envelope per status in process for the subset the
   default fixture pair can produce. The reasons it does not reach are `DimensionNotFilterable`,

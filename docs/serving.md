@@ -1,21 +1,26 @@
 # Serving over HTTP
 
-`sutura-serve` answers certified questions over HTTP. It is a **second binary**, separate from the
-`sutura` command-line tool, and **a release publishes it**: a tarball and a container image at each of
-the four shipped triples, signed and with provenance like everything else on the page.
+`sutura serve` answers certified questions over HTTP. It is a **subcommand of `sutura`**, and
+**a release publishes it**: a tarball and a container image at each of the four shipped triples,
+signed and with provenance like everything else on the page.
 
-That is a change. Until then the release artifacts contained the command-line tool and nothing else,
-so the HTTP surface, the caller-token verification, the rate limiter and the generated interface
-description shipped in no artefact on any platform, and this page's only answer to "how do I run it"
-was `cargo run`. It is still a second binary rather than a subcommand: `sutura` is a tool a person
-runs and this is a service a platform schedules, and folding an async runtime, an I/O driver and a web
-framework into the former would put them in every `sutura compile`.
+That is a change from when the tool first shipped. Before that, the release artifacts contained the
+command-line tool and nothing else, so the HTTP surface, the caller-token verification, the rate
+limiter and the generated interface description shipped in no artefact on any platform, and this
+page's only answer to "how do I run it" was `cargo run`. It was then a second BINARY,
+`sutura-serve`, rather than a subcommand - `sutura` was a tool a person ran and this was a service a
+platform scheduled, and folding an async runtime, an I/O driver and a web framework into the former
+would have put them in every `sutura compile`. `github.com/telekom/sutura#685` step 2 folded it in
+anyway: the cost lands once, in what a `cargo build` produces, and `doctor`, `compile` and `query`
+still run one process each and start no listener.
 
-**What the published server does not carry** is in-process TLS and the BigQuery adapter. Both are
-default-off features, both cost an outbound rustls closure on two statically linked triples, and both
-are a **startup refusal that names the feature** rather than a silent degradation - so asking for
-either on a published binary stops the process rather than serving something weaker than asked for.
-A deployment that needs one builds from source; [Terminating it in this process](#terminating-it-in-this-process) and the `bigquery` source notes below say which command.
+**What the published binary does not carry** is in-process TLS, the BigQuery adapter, the Postgres
+adapter and the DataHub adapter. Each is a default-off feature, each costs an outbound rustls
+closure on two statically linked triples, and each is a **startup refusal that names the feature**
+rather than a silent degradation - so asking for one on a published binary stops the process rather
+than serving something weaker than asked for. A deployment that needs one builds from source;
+[Terminating it in this process](#terminating-it-in-this-process) and the `bigquery` source notes
+below say which command.
 
 ## Read this part first
 
@@ -70,19 +75,19 @@ corpus is at `sutura-corpus/` in the directory you are standing in; a clone puts
 `examples/single-player` instead, and the `cd` is the only line that differs.
 
 ```bash
-tar -xzf sutura-serve-x86_64-unknown-linux-musl.tar.gz
-BINARY="$PWD/sutura-serve"
+tar -xzf sutura-x86_64-unknown-linux-musl.tar.gz
+BINARY="$PWD/sutura"
 cd sutura-corpus/examples/single-player
 SUTURA__SECURITY__IDENTITY=single-user \
 SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
 SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
 SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  "$BINARY"
+  "$BINARY" serve
 ```
 
-**Or the image.** The `-serve` tags are this binary; the unsuffixed ones are the command-line tool.
-The entrypoint is the server and it takes no arguments, so `docker run` with none starts it.
+**Or the image.** One tag, one binary: the default command is `--version`, so `docker run` with an
+argument of `serve` is what starts the server rather than printing it and exiting.
 
 ```bash
 docker run --rm --network host \
@@ -93,7 +98,7 @@ docker run --rm --network host \
   -e SUTURA__SOURCES__LOCAL__KIND=files \
   -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
   -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  ghcr.io/telekom/sutura:latest-serve
+  ghcr.io/telekom/sutura:latest serve
 ```
 
 **`--network host` rather than `-p 8080:8080`, and the difference is a startup refusal rather than a
@@ -122,7 +127,7 @@ SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
 SUTURA__SOURCES__LOCAL__KIND=files \
 SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/data" \
 SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-serve
+  cargo run --manifest-path "$ROOT/Cargo.toml" -p sutura-cli -- serve
 ```
 
 It binds `127.0.0.1:8080`, needs no token there, and serves the browser interface at `/docs`. Startup
@@ -132,7 +137,7 @@ a check the startup sequence performs and could forget - the type the service ac
 constructor.
 
 **Two suites are the thing to read next rather than this page**, and they are suites rather than
-transcripts. `crates/sutura-serve/tests/served.rs` starts this binary against
+transcripts. `crates/sutura-cli/tests/served.rs` starts this binary against
 `examples/single-player` on a kernel-chosen port and asserts the liveness probe answering only once
 the catalog has loaded, a question with no bearer token refused by the gate, a certified question
 answered, the catalog route, a refusal arriving as its documented status, a caller's own token
@@ -371,10 +376,10 @@ bound that surface exactly as they bound this one.
 
 A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
 feature: the streamable-HTTP transport `docs/adr/0023` decided on. Since `telekom/sutura#378` PR4
-the `sutura-serve` binary mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
+`sutura serve` mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
 which is why it only ever serves where a caller can be verified. It is OFF by default at both gates:
 
-- **Build time (`sutura-serve`'s `agent` feature).** A build without the feature cannot reference
+- **Build time (`sutura-cli`'s `agent` feature).** A build without the feature cannot reference
   `sutura_mcp::http` at all, so the route is compiled out of the artefact; setting
   `server.agent_surface.enabled` against such a build is a startup refusal naming the feature.
 - **Deployment time (`server.agent_surface.enabled`, default `false`).** Even a build with the
@@ -510,7 +515,7 @@ The second one comes back `404`:
 ```
 
 Both of those are `examples/single-player` over the wire, each captured as one line of JSON and
-reformatted here. What ASSERTS them is `crates/sutura-serve/tests/served.rs`, against that same
+reformatted here. What ASSERTS them is `crates/sutura-cli/tests/served.rs`, against that same
 directory on a kernel-chosen port, and the in-process harness in `crates/sutura-http/src/harness.rs`
 one status at a time.
 
@@ -824,14 +829,14 @@ job that outlives the request it is answering is billed for a result nobody is w
 **Three things about which builds can serve this**, and the first is the one to check before writing
 the block above:
 
-- **`sutura-serve` opens it only when built with `--features bigquery`.** A binary without the feature
+- **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the feature
   refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
   outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
   decision a reviewer can see in a manifest line.
 - **No published artifact opens it, and that is now a FEATURE decision rather than a packaging one.**
-  A release publishes `sutura-serve`, and it publishes it with cargo's default features - so
-  `bigquery` is off in every published tarball and image. Opening a dataset means building from
-  source with `--features bigquery`.
+  A release publishes `sutura`, and it publishes it with cargo's default features - so `bigquery`
+  is off in every published tarball and image. Opening a dataset means building from source with
+  `--features bigquery`.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.
@@ -852,11 +857,11 @@ start, and there is no fallback.
 
 ### A `postgres` source, least authority, and its channel
 
-Postgres is behind the default-off `postgres` feature on both binaries. A default build refuses the
-entry by name and tells the operator which feature is absent; current published artifacts leave it
-off. A source build enables it explicitly with `--features postgres`, the same shape as
-`--features bigquery` above; no `just` task and no nix package builds it, and release packaging
-chooses the default set.
+Postgres is behind the default-off `postgres` feature on `sutura`, including its `serve`
+subcommand. A default build refuses the entry by name and tells the operator which feature is
+absent; current published artifacts leave it off. A source build enables it explicitly with
+`--features postgres`, the same shape as `--features bigquery` above; no `just` task and no nix
+package builds it, and release packaging chooses the default set.
 
 One remote, server-verified source is declared like this:
 
@@ -905,10 +910,10 @@ separate callers, this static source cannot deliver it: every question uses the 
 the same policy result. Per-subject Postgres credentials are separate work.
 
 The gate-backed example loads `examples/single-player/data/*.csv` into the provisioned Postgres tier,
-starts the real `sutura-serve` binary with the declaration above over verified loopback TLS, and asks
+starts the real `sutura serve` binary with the declaration above over verified loopback TLS, and asks
 the example's certified June revenue question over HTTP. Run it with `just test`, which is where the
-tier is provisioned - `just serve-e2e` scopes `cargo nextest` to `sutura-serve` alone and does not
-source `nix/with-tier.sh`, so run from a shell with no tier up it returns without asserting. No fixed
+tier is provisioned - `just serve-e2e` scopes `cargo nextest` to `sutura-cli` and does not source
+`nix/with-tier.sh`, so run from a shell with no tier up it returns without asserting. No fixed
 fixture port is involved either way.
 
 | Posture                   | What it means                                                          | What decides what a subject sees                                                |
@@ -1057,7 +1062,7 @@ For the deployment where nothing sits in front. It needs **a build that has a TL
 which neither the default build nor the published binary is:
 
 ```bash
-cargo run -p sutura-serve --features tls
+cargo run -p sutura-cli --features tls -- serve
 ```
 
 The feature is default-off because most deployments do not use it, and a TLS stack compiled into an

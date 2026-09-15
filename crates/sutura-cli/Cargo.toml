@@ -14,11 +14,21 @@ name = "sutura"
 path = "src/main.rs"
 
 [features]
+# In-process TLS termination for `sutura serve`. Default-off; see `sutura-http`'s feature of the
+# same name.
+#
+# Named on BOTH crates rather than only on the library, because this is the crate that produces
+# the binary: `--features tls` is what an operator types, and it has to reach `sutura-config` as
+# well so the startup refusal for "asked for in-process TLS, built without it" agrees with what is
+# actually linked. Arrived here whole from `sutura-serve`'s manifest of the same name -
+# `github.com/telekom/sutura#685` step 2 folded that crate into this one's `serve` module.
+tls = ["sutura-config/tls", "sutura-http/tls"]
+
 # The BigQuery adapter, and with it the outbound HTTP stack its wire needs.
 #
 # **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
-# decision `sutura-serve`'s feature of the same name carries. No published binary links an outbound
-# TLS stack, and `checks.shipped-features` asserts that out of each binary's own embedded dependency
+# decision every other adapter feature below carries. No published binary links an outbound
+# TLS stack, and `checks.shipped-features` asserts that out of the binary's own embedded dependency
 # list rather than out of this manifest.
 #
 # **The build-cost reason this comment used to give was measured false, and the correction is worth
@@ -37,8 +47,8 @@ path = "src/main.rs"
 # `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
 # registration is compiled, linted and tested on every run, and a bare `cargo build` is unchanged.
 #
-# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes both
-# binaries with cargo's DEFAULT features. The gate that holds it is named in the first paragraph;
+# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes the binary
+# with cargo's DEFAULT features. The gate that holds it is named in the first paragraph;
 # what this one adds is that turning the feature on here would not change what a release contains.
 #
 # **Which gate sees the feature OFF, because every other one passes `--all-features`.**
@@ -54,14 +64,63 @@ path = "src/main.rs"
 # check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
+# Loads and drops a real fixture table over BigQuery - `sutura-exec-bigquery`'s own `fixtures`
+# feature, turned on here for `just e2e-datahub-bigquery` alone. Arrived from `sutura-serve`'s
+# manifest at the fold.
+#
+# **Kept off `bigquery` itself, on purpose.** `fixtures` is a write path (`CREATE OR REPLACE TABLE`
+# / `DROP TABLE`) this binary's composition root (`src/sources/bigquery.rs`) never calls - nothing
+# routes an HTTP request to it - and `sutura-exec-bigquery`'s own doc for it says "no shipped build
+# holds it". Folding it into `bigquery` would make that false for the one build that DOES turn
+# `bigquery` on alone: `nix/shipped.nix`'s `probeFeatures`, which measures the operator-facing
+# adapter's own cost. A separate feature keeps that probe measuring exactly what `--features
+# bigquery` means for an operator, while `--all-features` - what `just lint`, `just test`, `just
+# e2e-datahub-bigquery` and every nix check already pass - still turns this on too, since that flag
+# enables every feature this manifest declares.
+bigquery-e2e-fixtures = ["bigquery", "sutura-exec-bigquery/fixtures"]
+
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
 # **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
 # decision `bigquery` above carries. `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls`
 # pulls the rustls closure with `ring` in it; keeping this feature off leaves that out of the
-# published binary until a deployment asks for it. There is no wire feature of its own - unlike
-# `bigquery`, there is no HTTP stack here, only the rustls connector the driver links.
-postgres = ["dep:sutura-exec-postgres"]
+# published binary until a deployment asks for it.
+#
+# **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
+# a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
+# by `tests/served/harness/postgres.rs`, which loads the example corpus into the real tier before
+# starting the composed binary; it is a normal, optional dependency rather than a dev-dependency
+# because Cargo has no way to make a dev-dependency optional, so it sits here unused by anything
+# `sutura serve` itself calls. The adapter owns every driver type `sutura serve` composes with.
+postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
+
+# The DataHub metadata adapter's HTTP reader (issue #202), for `sutura serve`'s `catalog.kind:
+# datahub`, and with it the outbound HTTP stack that reader needs.
+#
+# **Default-off for the same ARTEFACT reason `bigquery` above is**, and arrived from
+# `sutura-serve`'s manifest at the fold. `sutura-catalog-datahub` already has a non-optional
+# `ureq` DEV-dependency (its own `tests/provisioned.rs`), so this feature adds no new edge into
+# the outbound TLS closure at the four cross builds' shared dependency derivation.
+#
+# `sutura-catalog-datahub/http` rather than a bare feature name on the dependency alone, mirroring
+# `bigquery` above: the adapter crate's own feature gates its reader module, and this crate's
+# feature is what an operator building `sutura` types.
+datahub = ["dep:sutura-catalog-datahub", "sutura-catalog-datahub/http"]
+
+# The agent surface: `sutura-mcp`'s streamable-HTTP transport, mounted by the composition root at
+# `sutura serve`'s `/mcp`.
+#
+# **Default-off, and the reason is the ARTEFACT plus the identity posture rather than build time.**
+# No published binary should serve a second, independently routed tool surface by accident, and the
+# surface only makes sense behind leg 1 (`security.inbound`) - so this feature turns on
+# `sutura-mcp`'s `http` module (`sutura-mcp` itself is already an unconditional dependency, for
+# `sutura mcp`'s own stdio transport) and `sutura-http`'s `agent` feature that holds the mount point
+# and the assembly-time refusal. Arrived from `sutura-serve`'s manifest at the fold - there
+# `sutura-mcp` was optional and this feature also named `dep:sutura-mcp`; here it is already linked,
+# so only the two sub-features carry over. `nix/shipped.nix` gains no `probeFeatures` entry here -
+# `sse-stream`'s musl link is unattempted, deferred to a follow-up, the same deferral
+# `checks.shipped-features` already documents.
+agent = ["sutura-mcp/http", "sutura-http/agent"]
 
 [dependencies]
 sutura-app = { workspace = true }
@@ -95,23 +154,47 @@ sutura-exec-bigquery = { workspace = true, optional = true }
 # ABSENT from the default build rather than merely unused, which is the property the cross builds
 # need. The adapter owns its driver's connection config, so this root names no driver crate itself.
 sutura-exec-postgres = { workspace = true, optional = true }
+# The driver config used by `sutura serve`'s served-e2e loader, behind the `postgres` feature.
+# Normal composition maps the declaration into `sutura_exec_postgres::connection`, so it names no
+# driver type; `tests/served/harness/postgres.rs` loads the example corpus into the real tier
+# before starting the composed binary and needs `Config` for that one setup connection. The
+# adapter owns all TLS types, so this root needs no TLS crate. Optional rather than a
+# dev-dependency because Cargo cannot make a dev-dependency optional - see `sutura-serve`'s
+# former manifest, folded in at `github.com/telekom/sutura#685` step 2.
+tokio-postgres = { workspace = true, optional = true }
+# The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
+# `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
+sutura-catalog-datahub = { workspace = true, optional = true }
 # the single-player composition. An agent client launches the process and speaks MCP on its pipes,
 # matching `examples/single-player` - which is exactly the shape roadmap wanted. The dependency is
 # pure Rust (`rmcp`, `schemars`), so it cross-compiles to musl like the engine it drives.
 sutura-mcp = { workspace = true }
+# `sutura serve`'s HTTP surface, unconditional the same way `sutura-mcp` above is: since
+# `github.com/telekom/sutura#685` step 2 folded `sutura-serve` into this crate's `serve` module,
+# the transport it composes is a normal edge of the one composition-root crate rather than of a
+# second binary.
+sutura-http = { workspace = true }
+# For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
+# the type on its way to `serve::run`.
+axum = { workspace = true }
 # `TracingAuditSink`, the implementor of the `AuditSink` the service requires, plus the async
-# runtime that drives `serve_stdio`. The sink writes to `tracing`; a locally launched process has no
-# subscriber, so records go nowhere until a composition installs one - the same posture the `query`
-# command takes, which since issue #266's A1 composes the same service rather than writing no
-# record at all.
+# runtime that drives `serve_stdio` and `serve::run`. The sink writes to `tracing`; a locally
+# launched `sutura query`/`mcp` process has no subscriber, so records go nowhere until a
+# composition installs one - the same posture `sutura serve` takes deliberately, since it installs
+# one at boot.
 sutura-runtime = { workspace = true }
-# The runtime `serve_stdio` runs in. `rt-multi-thread` is on in this binary regardless - the engine
-# drives its own current-thread runtime but the workspace resolves the feature through it - so this
-# feature line is what the direct call to `Runtime::new()` compiles under, not a decision about how
-# wide to run. One peer on one pipe: width buys nothing here.
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+# The runtime `serve_stdio` and `serve::run` build. `net`, `signal` and `sync` arrived from
+# `sutura-serve`'s own manifest at the fold - the listener, the shutdown signal and the shutdown
+# flag `serve::run` needs and `serve_stdio` does not. `rt-multi-thread` is on regardless of which
+# command runs - the engine drives its own current-thread runtime but the workspace resolves the
+# feature through it - so this feature line is not a decision about how wide either command runs.
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
 # A question arrives as a file a person wrote, so it is read the same way a catalog document is.
 serde_norway = { workspace = true }
+# `serve::run`'s own logging, moved here from a dev-dependency at the fold: `sutura-serve` logged
+# unconditionally, and folding it in means every `sutura` invocation links `tracing` now rather
+# than only a test binary's.
+tracing = { workspace = true }
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`:
 # this way the C is never compiled - not even a build script - on a macOS or Windows laptop,
 # so the one platform we ship on is the only one that pays for it. `Cargo.lock` still records
@@ -138,9 +221,32 @@ serde_json = { workspace = true }
 # second thing to keep in step.
 sutura-runtime = { workspace = true, features = ["test-capture"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
-# `subscriber::with_default`, which is what scopes that subscriber to the thread the command runs
-# on. Only a test installs one: this binary deliberately installs none.
-tracing = { workspace = true }
+# `tests/served.rs`'s harness client, for the one thing `served/harness.rs`'s own hand-rolled
+# plaintext parser does not cover: a request to a REAL server it did not write -
+# `nix/keycloak-tier.nix`'s own Keycloak, over its token endpoint and its JWKS document. Folded in
+# from `sutura-serve`'s manifest: `sutura-exec-bigquery::wire` is this crate's own precedent for
+# the exact shape (`.post(url).send_form(form)`, `.get(url).call()`, `body_mut().read_to_string()`).
+ureq = { workspace = true }
+# Decodes a compact JWT's payload segment (base64url, unpadded) to read the `aud` a real issuer
+# minted, rather than assuming one - see `served/harness/keycloak.rs`. Already pinned for
+# `sutura-exec-bigquery`'s assertion signing; `URL_SAFE_NO_PAD` is the one engine this crate reaches
+# for, so a hand-rolled decoder is not a second implementation of something this workspace already
+# carries correctly.
+base64 = { workspace = true }
+# The mock authorization server, for the leg-1 cases in `tests/served.rs`: a generated key pair, a
+# JWK set published to a real path and a token minter every claim of which is a parameter. The same
+# fixture `sutura-http` drives its router tests from - the feature is named because it is
+# default-off in that crate.
+sutura-dev = { workspace = true, features = ["mock-issuer"] }
+# The boot-line TLS anchors cell (`tests/served/datahub.rs`): a real `rustls` loopback server
+# presenting an `rcgen`-issued IP-SAN leaf whose CA a composed `datahub` deployment declares as
+# `security.outbound.transport_anchors`, so the served binary's catalog boot proves the anchored
+# handshake against the same corpus its plaintext sibling serves. Both are already pinned at the
+# workspace root and resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure, so this
+# adds no new package and dev-edges are exempt from the shipped-features gate. Folded from
+# `sutura-serve`'s manifest by `github.com/telekom/sutura#685` step 2 at #768's merge.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true

@@ -96,6 +96,18 @@ pub enum InvalidInboundValue {
         delimiter: char,
         position: usize,
     },
+    /// A username, a password, or both, before the host.
+    ///
+    /// A resource identifier is not a credential by design - see the module documentation - but a
+    /// URL that carries one **is** a credential, and this value is served back unauthenticated as
+    /// RFC 9728 protected-resource metadata. The position marks the `@` that separates userinfo
+    /// from the host; the userinfo itself never reaches this message.
+    #[error(
+        "{key} carries userinfo before the host (an `@` at position {position}). A resource \
+         identifier is not a credential, and this exact value is served back with no token as \
+         protected-resource metadata - write the host alone"
+    )]
+    HasUserinfo { key: &'static str, position: usize },
     /// A character outside the accepted set.
     ///
     /// The position and not the character, for the reason the module documentation gives: every
@@ -542,6 +554,13 @@ fn parse_https_uri(key: &'static str, raw: &str) -> Result<String, InvalidInboun
     let parsed = url::Url::parse(trimmed).map_err(|_cause| InvalidInboundValue::MalformedUrl { key })?;
     if parsed.host_str().is_none() || !percent_escapes_are_complete(trimmed) {
         return Err(InvalidInboundValue::MalformedUrl { key });
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        // The `@` this userinfo ends at is inside the authority, so it is the first one after the
+        // scheme - ASCII throughout, because the permitted-character loop above already refused
+        // anything else, so a byte offset is a char position.
+        let position = after_scheme.find('@').map_or(0, |offset| REQUIRED_SCHEME.len() + offset);
+        return Err(InvalidInboundValue::HasUserinfo { key, position });
     }
     // Stored exactly as written past the trim. See the module documentation: nothing is normalised,
     // because the comparison downstream is byte for byte against what an issuer was configured with.

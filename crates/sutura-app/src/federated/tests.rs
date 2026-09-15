@@ -707,7 +707,7 @@ fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
     // **Not the shipped binary any more, and the correction matters here of all places.**
     // `sutura-exec-datafusion` declares the constant and is non-optional in both published
     // binaries, so a release ANSWERS a two-source question - see
-    // `crates/sutura-serve/tests/served.rs`. This cell is about the gate, not about the shipped
+    // `crates/sutura-cli/tests/served.rs`. This cell is about the gate, not about the shipped
     // set: what still reaches it is `sutura-exec-bigquery`, any adapter taking the default, and
     // this fake.
     let fact_source = SourceName::parse("facts").expect("facts");

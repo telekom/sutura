@@ -7,7 +7,7 @@
 //! caller who never reaches for `Ungoverned` at all - the backstop that closes `#758` M6 (a subtree
 //! merged with no `Ungoverned` in sight). It refuses any
 //! `.nest`/`.nest_service`/`.route_service`/`.fallback_service`, and a wildcard `.route("...{*...",
-//! …)`, in `sutura-http` or `sutura-serve` except inside `Ungoverned::mount`, and except the governed
+//! …)`, in `sutura-http` or `sutura-cli` except inside `Ungoverned::mount`, and except the governed
 //! subtree's own `.nest(API_V1_PREFIX, …)`, which `crate::router::governed_routes`/
 //! `every_route_governed` holds by a different mechanism.
 //!
@@ -39,7 +39,7 @@ pub(crate) fn check() -> Verdict {
     };
     let mut problems: Vec<String> = Vec::new();
     let mut files = 0usize;
-    for base in ["crates/sutura-http/src", "crates/sutura-serve/src"] {
+    for base in ["crates/sutura-http/src", "crates/sutura-cli/src"] {
         let dir = root.join(base);
         if !dir.is_dir() {
             eprintln!("xtask check-boundaries: FAILED - `{base}` is not a directory; the ungoverned-mount scan reads nothing");
@@ -93,7 +93,7 @@ pub(crate) fn check() -> Verdict {
         }
         eprintln!();
         eprintln!("Every `.nest`/`.nest_service`/`.route_service`/`.fallback_service`, and a wildcard `.route`, in");
-        eprintln!("`sutura-http` or `sutura-serve` must be either the governed subtree's own");
+        eprintln!("`sutura-http` or `sutura-cli` must be either the governed subtree's own");
         eprintln!("`.nest(API_V1_PREFIX, ...)` or inside `crate::router::Ungoverned::mount`.");
         return Verdict::Fail;
     }

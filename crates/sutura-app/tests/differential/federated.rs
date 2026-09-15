@@ -71,7 +71,7 @@
 //! it declares `Warehouse::EXECUTES_LEGS`, and it is non-optional in both shipped binaries.
 //!
 //! **Neither side is the served deployment.** These sides open adapters in-process from a bundle
-//! this file loads; `crates/sutura-serve/tests/served.rs` is the only place a two-source question
+//! this file loads; `crates/sutura-cli/tests/served.rs` is the only place a two-source question
 //! reaches the composed binary over HTTP.
 
 use std::path::{Path, PathBuf};

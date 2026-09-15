@@ -66,7 +66,7 @@ pub(crate) fn open_bigquery(
     Err(format!(
         "[{named}] declares `kind: bigquery`, and this binary was built without the `bigquery` \
          feature - so it links no BigQuery adapter and composes the in-process engine only. Build \
-         `sutura-serve` with `--features bigquery`, or declare a `files` source"
+         `sutura-cli` with `--features bigquery`, or declare a `files` source"
     ))
 }
 

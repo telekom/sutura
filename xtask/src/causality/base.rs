@@ -33,19 +33,29 @@
 //! `Unattributed` and print *it got past the compiler* about a run that never got there -
 //! `github.com/telekom/sutura#716`.
 //!
-//! AND A GREEN RUN IS THREE ANSWERS, none of which this classifier could reach on its own.
+//! AND A GREEN RUN IS FOUR ANSWERS, none of which this classifier could reach on its own.
 //! *These tests pass without the change* is the defect the gate exists for **only if the diff added
 //! them**, and a diff cannot tell an added test from a MOVED one - so moving a test into a new file,
 //! which is what this repository's own guidance asks for when a file hits the line cap, produced
 //! *FAILED - green against base behaviour* about a change with no defect in it.
 //! [`BaseOutcome::GreenAfterAMove`] is the second answer and it is INCONCLUSIVE;
 //! `super::provenance::Moved` is the input, because the base TREE is the only place that fact
-//! lives. A mix still fails: the tests that were new passed both ways.
+//! lives.
 //!
 //! THE THIRD IS ABOUT THE OTHER HALF OF THAT PREMISE - what was REVERTED rather than what was
 //! measured. [`BaseOutcome::GreenOverAnUnreachableRevert`] is also INCONCLUSIVE and
 //! `super::reverted` is both the input and the sentence; that module carries the argument, the
 //! case it deliberately leaves in reach, and why the defect this gate exists for still FAILS.
+//!
+//! THE FOURTH IS A MIX, AND IT USED TO COLLAPSE INTO THE FIRST. Some of the scope moved and the
+//! rest is genuinely new in the same file - the shape a file hitting the line cap produces when
+//! its harness carries both a relocated test and a new one. The moved names passing tells you
+//! nothing; but the new names cannot have a base-side function to have run at all, so a whole-run
+//! `succeeded` came from the moved subset alone and the new tests were never measured, not proven
+//! green. [`BaseOutcome::GreenAfterAPartialMove`] says so and still FAILS -
+//! `github.com/telekom/sutura#775`: the old answer here was [`BaseOutcome::Green`], which is the
+//! right diagnosis only for [`super::provenance::Moved::Nothing`] and told a reader to delete a
+//! test that was never run rather than to fix its wiring.
 //!
 //! AND NEITHER INCONCLUSIVE ANSWER IS A PASS ANY MORE, which is `github.com/telekom/sutura#307`.
 //! Both returned [`crate::Verdict::Pass`] - exit 0 - so a required CI step whose whole input is the exit
@@ -94,6 +104,12 @@ pub(crate) enum BaseOutcome {
     /// fails in; this variant is why *green against base behaviour* no longer blames the refactor
     /// this repository's own guidance asks for when a file hits the line cap.
     GreenAfterAMove { moved: Vec<String> },
+    /// Some of them moved, the rest is genuinely new in the same scope, and this is NOT the same
+    /// answer as [`Self::Green`]. `moved` passing tells you nothing; the rest cannot have a
+    /// function of that name at base to have run at all, so a whole-run `succeeded` came only
+    /// from the moved subset. Still FAILS, because the new subset is unmeasured rather than
+    /// proven green - the diagnosis a reader needs is "fix the wiring", not "delete the test".
+    GreenAfterAPartialMove { moved: Vec<String>, unmeasured: Vec<String> },
     /// They passed, and NOTHING THAT WAS REVERTED could have made them fail. Not a defect either:
     /// a green run over a partition that restores no line the tests in scope can execute is a
     /// fact about the partition. `super::reverted::Reverted` is the classification and its header
@@ -124,11 +140,14 @@ pub(crate) enum BaseOutcome {
 /// first false green. And a run that matched no test prints no failure at all, so it is settled
 /// before the failure list is consulted rather than falling through as "unknown".
 ///
-/// A GREEN RUN IS THREE ANSWERS, and telling them apart takes two inputs the run does not carry.
+/// A GREEN RUN IS FOUR ANSWERS, and telling them apart takes two inputs the run does not carry.
 /// The premise - *a test the diff ADDED must be red against the base behaviour* - has a subject
 /// and an object. `moved` settles the subject: were these tests added here. `reverted` settles the
-/// object: is what was put back something they could have executed. Everything else `moved` says
-/// is left to the report - with SOME of them moved the failure stands, the rest passed both ways.
+/// object: is what was put back something they could have executed. A SCOPE moved is
+/// [`BaseOutcome::GreenAfterAMove`]; a scope PARTLY moved is [`BaseOutcome::GreenAfterAPartialMove`]
+/// and stays a failure, but the report now says why: the moved names are not the defect and the
+/// rest never had a base-side function to have run at all, so `succeeded` came only from the
+/// moved subset and nothing measured the new one.
 ///
 /// **THE ORDER IS A MESSAGE AND NOT A VERDICT.** Both non-defect answers are
 /// [`crate::Verdict::Inconclusive`], so a diff that is both exits 3 either way; `moved` goes first
@@ -150,7 +169,19 @@ pub(crate) fn classify_base(
             (_, Reverted::Nothing(excused)) => BaseOutcome::GreenOverAnUnreachableRevert {
                 excused: excused.outcomes().to_vec(),
             },
-            (Moved::Nothing | Moved::Partly(_), Reverted::Behaviour) => BaseOutcome::Green,
+            // `Moved::Partly` names the subset the base tree already had; the rest of `scoped`
+            // is genuinely new and has no base-side function to have run at all, so it is
+            // `unmeasured` rather than folded into the same `Green` this diff exists to catch.
+            (Moved::Partly(names), Reverted::Behaviour) => BaseOutcome::GreenAfterAPartialMove {
+                moved: names.clone(),
+                unmeasured: scoped
+                    .iter()
+                    .map(AddedTest::name)
+                    .filter(|name| !names.iter().any(|one| one == name))
+                    .map(String::from)
+                    .collect(),
+            },
+            (Moved::Nothing, Reverted::Behaviour) => BaseOutcome::Green,
         };
     }
     // Checked before `did_not_compile`: a manifest cargo cannot resolve never reaches the
@@ -314,13 +345,15 @@ fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// half of #307, and it was one `.ratio()` at the call site: pure and in one place here, so a test
 /// can read the CHOICE rather than a synthetic [`Coverage`].
 ///
-/// Six of the nine print it: [`BaseOutcome::RedByAssertion`] in its verdict line, all three
+/// Six of the ten print it: [`BaseOutcome::RedByAssertion`] in its verdict line, all three
 /// always-inconclusive arms in theirs ([`BaseOutcome::Unattributed`], [`BaseOutcome::DidNotResolve`],
 /// [`BaseOutcome::DidNotCompile`]), and the two green arms that are not the defect
 /// ([`BaseOutcome::GreenAfterAMove`], [`BaseOutcome::GreenOverAnUnreachableRevert`]) - whose tests
 /// DID run in both trees, so the measurement is real there and what it is not is evidence about
-/// the change. The other three are asserted anyway, because the mapping is what a mutation moves
-/// and an arm that starts printing must not have to re-derive it.
+/// the change. The other four are asserted anyway, because the mapping is what a mutation moves
+/// and an arm that starts printing must not have to re-derive it -
+/// [`BaseOutcome::GreenAfterAPartialMove`] joins them rather than the six: its moved subset ran,
+/// but the scope it is about includes tests that did not, so the numerator stays understated.
 ///
 /// **AND IT IS NOW THE ONLY PLACE THAT CAN MINT [`PerTestResults`]**, which is the half review found
 /// missing: being pure and in one place did not stop a caller with no outcome at all printing the
@@ -335,12 +368,16 @@ fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
         | BaseOutcome::GreenOverAnUnreachableRevert { .. }
         | BaseOutcome::RedByAssertion { .. } => Attributed::PerTest(PerTestResults(())),
         // Nothing this diff added was measured on base: the tree did not build, the filter matched
-        // none of them, no failure was attributable, or the run stopped on something else.
+        // none of them, no failure was attributable, or the run stopped on something else. A
+        // partial move is here too, understated on purpose: its moved subset did run, but the
+        // scope this outcome is about is the one that did not, and this module's own rule is that
+        // the overstating direction must not compile.
         BaseOutcome::RedOutsideTheDiff { .. }
         | BaseOutcome::NotRun
         | BaseOutcome::Unattributed
         | BaseOutcome::DidNotResolve
-        | BaseOutcome::DidNotCompile => Attributed::Nothing,
+        | BaseOutcome::DidNotCompile
+        | BaseOutcome::GreenAfterAPartialMove { .. } => Attributed::Nothing,
     })
 }
 
@@ -663,16 +700,19 @@ mod tests {
             Verdict::Inconclusive
         );
 
-        // AND A MIX STILL FAILS, which a blanket rule would have lost: one test moved, one is new,
-        // and the new one passed both ways - which is exactly the defect this gate exists for.
+        // AND A MIX STILL FAILS, but #775 is why it may no longer say `Green`: one test moved,
+        // one is genuinely new, and the new one has no base-side function to have run at all - it
+        // was NEVER MEASURED, not "passed both ways". Folding it into `Green` told a reader to
+        // delete a test that was never run.
         let mixed = Moved::Partly(vec![String::from("a_moved_assertion")]);
         let two = scoped("pa", "pa/src/lib.rs", &["a_moved_assertion", "genuinely_new"]);
+        let partial = BaseOutcome::GreenAfterAPartialMove {
+            moved: vec![String::from("a_moved_assertion")],
+            unmeasured: vec![String::from("genuinely_new")],
+        };
+        assert_eq!(classify_base(green, true, &two, &mixed, &Reverted::Behaviour), partial);
         assert_eq!(
-            classify_base(green, true, &two, &mixed, &Reverted::Behaviour),
-            BaseOutcome::Green
-        );
-        assert_eq!(
-            report_base(&BaseOutcome::Green, green, false, &named(2), &mixed, &Reverted::Behaviour),
+            report_base(&partial, green, false, &named(2), &mixed, &Reverted::Behaviour),
             Verdict::Fail
         );
     }

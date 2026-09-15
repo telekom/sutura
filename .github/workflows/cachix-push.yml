@@ -236,15 +236,18 @@ jobs:
           name: sutura-cross-build
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CROSS_BUILD }}
           pushFilter: "(-source$|nixpkgs)"
-      # `cross` is the largest closure - four triples x two shipped binaries - so it is the one to
+      # `cross` is the largest closure - four triples x the shipped binary - so it is the one to
       # watch first against its 5 GB bucket.
       - name: Realise and publish this triple's cross-build closure
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          # The two shipped binaries, the exact set `cross-link.yml` realises on `main`.
-          for bin in sutura sutura-serve; do
+          # The shipped binary, the exact set `cross-link.yml` realises on `main`. A loop rather
+          # than one bare `nix build`, unchanged since `github.com/telekom/sutura#685` step 2
+          # folded the second binary this used to iterate: a future third binary is an entry in
+          # this list, not a rewrite of the step.
+          for bin in sutura; do
             nix build --print-build-logs ".#${bin}-${TARGET}-ci"
           done
 

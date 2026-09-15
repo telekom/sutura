@@ -1,10 +1,11 @@
 # Publish on a tag: every shipped binary at four triples, and a container image for each. Both
 # kinds, because a binary is what you drop on a host and an image is what a platform schedules.
 #
-# TWO SHIPPED BINARIES since `github.com/telekom/sutura#111`, so eight tarballs and eight images:
-# `sutura`, the command-line tool, and `sutura-serve`, which answers certified questions over HTTP.
-# Before that issue every published artefact was the tool, so nothing a release published could
-# serve a question at all.
+# ONE SHIPPED BINARY, `sutura` - four tarballs and four images. It answers certified questions
+# over HTTP too, as `sutura serve`: `github.com/telekom/sutura#111` shipped that surface as a
+# second binary, `sutura-serve`, and `github.com/telekom/sutura#685` step 2 folded it back into
+# this one. Before #111 every published artefact was the tool alone, so nothing a release
+# published could serve a question at all.
 #
 # `nix/shipped.nix` is the list, and `cargo xtask check-shipped-binaries` is what makes `BINARIES`
 # below agree with it - on a pull request, before anything is tagged. NOT the arrival check in
@@ -77,9 +78,10 @@ env:
   # this literal produced, so it catches a target lost in the artifact round-trip and cannot catch a
   # binary this literal never mentioned.
   #
-  # `sutura` first, and the order is read: it is what an unqualified `docker pull` and an
-  # unqualified download mean here, and it is the first row of every table in the notes.
-  BINARIES: sutura sutura-serve
+  # `sutura` alone since `github.com/telekom/sutura#685` step 2 - it is what an unqualified
+  # `docker pull` and an unqualified download mean here, and it is the first row of every table
+  # in the notes.
+  BINARIES: sutura
 
 jobs:
   # A release must not ship what the gates never saw, and they run ONCE rather than per target:
@@ -480,23 +482,21 @@ jobs:
       # pull - unreviewed content, published.
       #
       # ONE IMAGE PER SHIPPED BINARY PER TARGET, tagged with the binary's key and the RUST
-      # TRIPLE, so an image and a tarball from the same run are traceable to each other. Eight
-      # leaf tags now rather than four - `<version>-<triple>` for the command-line tool and
-      # `<version>-serve-<triple>` for the server - and they are what the four manifest lists
-      # below reference.
+      # TRIPLE, so an image and a tarball from the same run are traceable to each other. Four
+      # leaf tags - `<version>-<triple>` - one per target, all for `sutura`: `github.com/
+      # telekom/sutura#111` shipped a second binary, `sutura-serve`, with its own
+      # `<version>-serve-<triple>` set, and `github.com/telekom/sutura#685` step 2 folded it back
+      # into this one, so the second set is gone rather than merely unused.
       #
-      # **ONE REGISTRY REPOSITORY, tags prefixed, rather than a second `ghcr.io/.../sutura-serve`.**
-      # Both were on the table for `github.com/telekom/sutura#111` and the deciding cost is
+      # **ONE REGISTRY REPOSITORY** - the deciding cost, back when there were two binaries, was
       # operational rather than aesthetic: a second GHCR package needs its visibility and its
       # per-repository write grant configured by hand, outside this file, before anything can push
       # to it - so a release would fail on a setting no reviewer of this diff can see. One
-      # repository also keeps ONE provenance `subject-name`, one `docker login`, and one place a
-      # reader looks. What it costs is that `:latest-serve` reads less well than
-      # `sutura-serve:latest`, and the notes' tables are where that is made unambiguous.
+      # repository keeps ONE provenance `subject-name`, one `docker login`, and one place a
+      # reader looks - unaffected by the fold, since it was never about a binary count.
       #
-      # FOUR MANIFEST LISTS, each spanning linux/amd64 and linux/arm64: `:<version>` / `:latest`
-      # for the tool on glibc, `:<version>-musl` / `:latest-musl` for its static pair, and
-      # `-serve` inserted into all four for the server.
+      # TWO MANIFEST LISTS, each spanning linux/amd64 and linux/arm64: `:<version>` / `:latest`
+      # for glibc, `:<version>-musl` / `:latest-musl` for the static pair.
       #
       # This file used to say a manifest list was "its own change" and point `:<version>` and
       # `:latest` at the x86_64 glibc image with a plain `docker tag`. It was its own
@@ -517,10 +517,9 @@ jobs:
       # thing they get by typing nothing. The 1 MiB-against-13 MiB argument is real and it
       # belongs to whoever types `-musl`.
       #
-      # AND `sutura` KEEPS THEM TOO, for the same reason one level up: `:latest` has always been
-      # the command-line tool, and pointing it at the server because the server is the more
-      # deployable artefact would be exactly that silent change. Which of the two you get is
-      # something you should have to type.
+      # `:latest` has always been `sutura`, and since `github.com/telekom/sutura#685` step 2
+      # there is nothing else it could resolve to - the server it used to have to be
+      # distinguished from is `sutura serve` now, a command rather than a second image.
       - name: Push the images
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -548,9 +547,9 @@ jobs:
             # The same key rule as the build action and the arrival check above.
             if [ "$bin" = sutura ]; then key="$target"; else key="${bin#sutura-}-${target}"; fi
             # Each stream script names its image after the binary it holds, so a tarball arrives
-            # as `sutura:latest` or `sutura-serve:latest`; retag before the next iteration takes
-            # the name away. Loading and pushing never EXECUTES the image - the smoke tests ran
-            # in `build`, under a token that cannot write to a registry.
+            # as `sutura:latest`; retag before the next iteration takes the name away. Loading
+            # and pushing never EXECUTES the image - the smoke tests ran in `build`, under a
+            # token that cannot write to a registry.
             docker load -i "images/sutura-oci-${key}.tar.gz"
             docker tag "${bin}:latest" "${IMAGE}:${tag}-${key}"
             # The digest is the only durable answer to "which build is running", so it comes
@@ -675,7 +674,7 @@ jobs:
       # config, so the file and the release body cannot disagree.
       #
       # The second part is the artifacts. They were always attached and never mentioned, so a
-      # reader got a list of pull requests and no way to tell which of eight tarballs to take
+      # reader got a list of pull requests and no way to tell which of the four tarballs to take
       # or what to pull. Everything in it is read back off the files themselves - sizes from
       # the assets, linkage from `file`, digests from image-digests.txt - so the notes cannot
       # describe a build that did not happen.
@@ -745,10 +744,11 @@ jobs:
             echo
             echo "### Binaries"
             echo
-            # A BINARY COLUMN, because there are two now and which one a reader wants is the
-            # first choice they make: `sutura` is the command-line tool, `sutura-serve` answers
-            # certified questions over HTTP. Read off the facts file rather than derived, so the
-            # table cannot describe an artefact the build did not produce.
+            # A BINARY COLUMN, kept even with one row today: `sutura` is both the command-line
+            # tool and, as `sutura serve`, what answers certified questions over HTTP. Read off
+            # the facts file rather than derived, so the table cannot describe an artefact the
+            # build did not produce, and a second shipped binary is a second row rather than a
+            # rewrite of this loop.
             echo "| Binary | Target | Asset | Size | Linking |"
             echo "| --- | --- | --- | --- | --- |"
             while IFS='|' read -r bin target linkage; do
@@ -859,7 +859,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
             echo "| binaries, image tarballs, SBOMs, the two licence documents, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
-            echo "| images, eight leaves and four manifest lists | n/a | the four manifest lists | \`cosign\`, all twelve references |"
+            echo "| images, four leaves and two manifest lists | n/a | the two manifest lists | \`cosign\`, all six references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
             echo
             echo "| Check | Command |"

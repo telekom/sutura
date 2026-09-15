@@ -424,11 +424,18 @@ list of term columns rather than one measure expression; it omits the bucket for
 **No existing golden moves, and that is checkable rather than asserted.** `QueryPlan` is untouched, so
 the 63 statement snapshots, the 63 parameter snapshots and the 21 `plan@markdown` snapshots are all
 renderings of a type this change does not edit. AGENTS.md's counted claim about 63 goldens reading
-`LIMIT 10001` therefore stands as written, and `check-guidance`'s counter -
-`xtask/src/guidance/claims.rs:273`, which holds the literal `LIMIT 10001` - does not need to move
-either. **The limit of that claim:** it holds because the new legs are new snapshots, so the first
-person to add a leg golden must not put a `LIMIT` in it, and nothing mechanical stops them. The
-generator emitting none is what makes it hard to get wrong.
+`LIMIT 10001` therefore stands as written, and `check-guidance`'s counter - the `Counted` row named
+"SQL goldens carrying the row cap" at `xtask/src/guidance/claims/counts.rs:137`, which holds the
+literal `LIMIT 10001` at `:144` - does not need to move either. **The limit of that claim:** it
+holds because the new legs are new snapshots, so the first person to add a leg golden must not put
+a `LIMIT` in it, and nothing mechanical stops them. The generator emitting none is what makes it
+hard to get wrong.
+
+**A limit on this citation itself, per `github.com/telekom/sutura#771`.** No gate reads a line
+number, so a later refactor that moves this counter again would falsify this pointer exactly as
+silently as it falsified the one it replaces - `just hygiene` runs the check the line points at,
+but not whether the line still points at it; grep for the row's NAME, `"SQL goldens carrying the
+row cap"`, rather than trusting either line number.
 
 **And a correction this record owes, because it claimed a mechanism it does not have.** An earlier
 version of the ordered plan said the lookup-leg plan type would be *"the first step that moves the

@@ -109,7 +109,7 @@ surface has a threat model the command line does not: a token is required beyond
 it authenticates the deployment rather than the caller, a refusal carries an error status AND a
 machine-readable `code` AND a sentence, and the service refuses to start in a posture nobody chose.
 `docs/serving.md` is the configuration reference for all of that, and two suites hold the halves of
-it. `crates/sutura-serve/tests/served.rs` runs **against this directory** on a kernel-chosen port:
+it. `crates/sutura-cli/tests/served.rs` runs **against this directory** on a kernel-chosen port:
 the token gate, a certified answer, a refusal arriving as its documented status, the catalog route,
 a caller's own token against every forgery, and a published key set this deployment cannot use
 stopping the process - `just serve-e2e` runs it. The four startup refusals a reader is most likely

@@ -58,11 +58,15 @@ members = [
   # here rather than into either.
   "crates/sutura-tls",
   "crates/sutura-cli",
-  # The service runtime. Four crates rather than one, and the split is the dependency direction:
+  # The service runtime. Three crates rather than a fourth for the composition root:
   # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
-  # (the subscriber, the panic hook, the shutdown signal), `sutura-http` is transport only, and
-  # `sutura-serve` is the composition root that names the adapters. Nothing here is reachable from
-  # `sutura-domain` or `sutura-app`, which is what `cargo xtask check-boundaries` asserts.
+  # (the subscriber, the panic hook, the shutdown signal), and `sutura-http` is transport only.
+  # The composition root that names the adapters and drives this transport is `sutura serve`,
+  # inside `sutura-cli` (`crates/sutura-cli/src/serve.rs`) since `github.com/telekom/sutura#685`
+  # step 2 folded the `sutura-serve` binary that used to hold it - there is only one composition
+  # root crate now, the same one `doctor`, `compile` and `query` already live in. Nothing here is
+  # reachable from `sutura-domain` or `sutura-app`, which is what `cargo xtask check-boundaries`
+  # asserts.
   "crates/sutura-config",
   "crates/sutura-runtime",
   "crates/sutura-http",
@@ -71,7 +75,6 @@ members = [
   # another adapter is the one direction this layout forbids. The cost of that rule is a second wire
   # type, and the cost is paid deliberately - `crates/sutura-mcp/src/wire.rs` says so at length.
   "crates/sutura-mcp",
-  "crates/sutura-serve",
   "xtask",
   "dev",
 ]
@@ -102,7 +105,7 @@ sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
-# It came back with the code that needs it, which is exactly what its absence predicted: `sutura-serve`
+# It came back with the code that needs it, which is exactly what its absence predicted: `sutura-cli`
 # links it behind that crate's own default-off `wire` feature, through a default-off `bigquery` feature
 # of its own. So the entry is inherited where a member wants the edge - behind a feature for a shipped
 # build, unconditionally where the edge is dev-only and does not propagate - and the four cross builds
@@ -343,7 +346,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 # `http::request::Parts` directly - not through `axum` - because that is the type the pinned `rmcp`
 # HTTP server transport injects into a tool call's `rmcp::service::RequestContext::extensions`
 # (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
-# `sutura-http`/`sutura-serve`, and `Cargo.lock` holds exactly one version of it.
+# `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
 http = "1.5"
 # The middleware abstraction every layer below is written against.
 tower = "0.5"
@@ -356,14 +359,14 @@ tower-http = { version = "0.7", default-features = false, features = ["trace", "
 # `default-features = false` on `tower_governor` is a supply-chain decision, and it was measured
 # rather than reasoned about: the default set pulls `tonic`, which is a whole gRPC framework - and
 # with it `h2`, `hyper-timeout`, `tokio-stream` and their closure - into a service that speaks
-# HTTP/1 and nothing else. `cargo tree -p sutura-serve -i tonic` found it; turning the defaults off
+# HTTP/1 and nothing else. `cargo tree -p sutura-cli -i tonic` found it; turning the defaults off
 # removes it and takes the compiled closure from 303 packages to 297. Six packages is not the point;
 # a gRPC stack nobody calls is.
 governor = "0.10"
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 
 # In-process TLS termination, behind the default-off `tls` feature on `sutura-http` and
-# `sutura-serve`. OPTIONAL there, so with the feature off none of this is in the build.
+# `sutura-cli`. OPTIONAL there, so with the feature off none of this is in the build.
 #
 # rustls and NOT OpenSSL, and the reason is the shipped artifacts rather than a preference. Two of
 # the four are musl and nixpkgs has no musl OpenSSL, so an `openssl-sys` edge would either fail the

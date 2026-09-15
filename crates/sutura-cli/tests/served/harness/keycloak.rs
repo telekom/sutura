@@ -8,7 +8,7 @@
 //! server this suite did not write, whose responses this fixture has no business assuming the shape
 //! of - chunked or not, redirected or not. `ureq` is the crate `sutura-exec-bigquery::wire` already
 //! uses for exactly this (`.post(url).send_form(form)`, `.get(url).call()`,
-//! `body_mut().read_to_string()`), and `crates/sutura-serve/Cargo.toml` records why adding it here
+//! `body_mut().read_to_string()`), and `crates/sutura-cli/Cargo.toml` records why adding it here
 //! costs nothing new.
 //!
 //! **Reached only by its own `just` task, never by `just test`.** Two reasons, both load-bearing.

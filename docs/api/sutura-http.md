@@ -49,14 +49,14 @@ and there are exactly two ways in: one takes no argument, and the other takes a
 `VerifiedCaller`, whose only constructor is a signature check and which implements no
 `Deserialize`. So no *field* of a request can contribute to a chain either way.
 
-**`/health` carries nothing.** It is the one path an unauthenticated caller can always reach, so
-every field it might have is a field handed to anybody who can route a packet. No version, no
+**`/health` carries nothing.** It is one of two paths an unauthenticated caller can always reach,
+so every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.
 
-A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
-token. That document is deliberately only the exact resource identifier and the configured
-authorization server; it is absent in gateway and single-player deployments and shares the probe
-rate limit with liveness.
+**The second is the RFC 9728 protected-resource metadata document**, which a directly validating
+deployment also exposes without a token. That document is deliberately only the exact resource
+identifier and the configured authorization server; it is absent in gateway and single-player
+deployments and shares the probe rate limit with liveness.
 
 # What is deliberately absent
 
@@ -3559,7 +3559,7 @@ either runs.
   `line` only from a line starting `-----BEGIN ` and `end_marker` only from that label, never
   from key material between the markers. No type in this repository can hold another crate's
   `Display` impl, so a version bump that changed what it prints would change silently, unlogged
-  by anything here. `crates/sutura-serve/src/main.rs`'s `flatten` walks `#[source]` to
+  by anything here. `crates/sutura-cli/src/serve.rs`'s `flatten` walks `#[source]` to
   exhaustion and prints every `cause.to_string()`, so this reaches an operator's terminal
   through the same three `#[source]` hops the module's own safety argument above already
   covers for the path - `cause` is the one field that argument does not reach.

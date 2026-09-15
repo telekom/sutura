@@ -25,7 +25,7 @@ credential:
    pinned against `examples/wave-one/refusal.json`'s `status`/`code`; a request with no credential is
    refused `401` before the question is looked at.
 
-The cell that drives it end to end is `crates/sutura-serve/tests/served/e2e.rs`'s
+The cell that drives it end to end is `crates/sutura-cli/tests/served/e2e.rs`'s
 `the_wave_one_path_answers_a_verified_caller_under_the_shared_key`, invoked by `just e2e-datahub-bigquery`.
 
 ## What it does not demonstrate

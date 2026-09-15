@@ -32,7 +32,7 @@
 //! # The client is hand-written, deliberately
 //!
 //! No dev-dependency is added: the MCP stdio framing is one JSON-RPC object per line, so a client
-//! is `writeln!` plus `read_line`. `crates/sutura-serve/tests/served.rs` takes the same decision
+//! is `writeln!` plus `read_line`. `crates/sutura-cli/tests/served.rs` takes the same decision
 //! about HTTP for a cost reason; here the reason is evidence. An SDK client on both ends of the
 //! pipe would be the SDK agreeing with itself, and it is also free to tolerate a line this suite
 //! exists to forbid. A client that is not ours is what makes *stdout is the protocol* an assertion
@@ -160,7 +160,7 @@ mod tests {
 
     /// Starts the agent surface over the documented example.
     ///
-    /// No `#[expect(clippy::zombie_processes)]`, unlike `crates/sutura-serve/tests/served.rs`'s
+    /// No `#[expect(clippy::zombie_processes)]`, unlike `crates/sutura-cli/tests/served.rs`'s
     /// `start`, and that is measured rather than assumed: the lint does not fire here, and an
     /// expectation that never fires is itself an error under `-D warnings`. The reaping is real
     /// either way - every path out of an [`Agent`], a clean [`Agent::close`] or a panicking
@@ -541,7 +541,7 @@ mod tests {
     #[test]
     fn a_certified_question_is_answered_over_the_binarys_pipes() {
         // The agent-surface half of the sentence roadmap #22 was waiting for, and the same figure
-        // `tests/example.rs` asserts over the libraries and `crates/sutura-serve/tests/served.rs`
+        // `tests/example.rs` asserts over the libraries and `crates/sutura-cli/tests/served.rs`
         // asserts over HTTP - here through a spawned process, the real engine and the real static
         // broker, over the protocol an agent client speaks.
         //

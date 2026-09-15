@@ -12,11 +12,11 @@ inputs:
       Space-separated shipped binaries, as `cross-link.yml`'s `BINARIES` holds them, which must
       stay in step with `binaries` in `nix/shipped.nix`.
     required: false
-    default: sutura sutura-serve
+    default: sutura
   result-prefix:
     description: >
       Where the `Link check` step put its symlinks. The binary's own name is appended, so
-      `result-ci-` finds `result-ci-sutura` and `result-ci-sutura-serve`.
+      `result-ci-` finds `result-ci-sutura`.
     required: false
     default: result-ci-
 

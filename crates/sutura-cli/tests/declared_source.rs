@@ -6,7 +6,7 @@
 //! `Sources::defaults(..).with_overlay(..)`, so `environment_from_process`,
 //! `config_dir_from_process` and the `<dir>/base.yaml` layering - the whole door this change is
 //! about - were exercised by nothing at all, and no test set `SUTURA_CONFIG_DIR`. The one that could
-//! is a spawned binary, for the reason `crates/sutura-serve/tests/served.rs` gives at its own head:
+//! is a spawned binary, for the reason `crates/sutura-cli/tests/served.rs` gives at its own head:
 //! `std::env::set_var` is `unsafe` in this edition and the workspace forbids it, so what a test can
 //! decide is what a CHILD sees.
 //!
