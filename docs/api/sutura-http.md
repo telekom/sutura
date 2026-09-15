@@ -2797,6 +2797,41 @@ is a description of the deployment. The detail is logged and the response says t
 nothing else. Every other variant's detail is either fixed text or a message about the caller's
 own request.
 
+### `struct Detail`
+
+```rust
+pub struct Detail
+```
+
+A sentence about the caller's own request, and never anything else.
+
+**The only two doors are `Detail::of` and the module-private `Detail::from_rejection`.**
+Both are this module's own reader of the value that ends up in `Failure::NotAQuestion` - the
+chain walk and the redaction live here and nowhere else, so a call site that wants a `detail`
+gets one of these two renderings or a type error, never a `format!` of its own.
+
+**The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
+gate - a private tuple field plus a module-private constructor (`E0603`/`E0624` from another
+module, confirmed by hand), nothing more. `Detail` is not on that gate's `SEALED` list; its
+mechanism targets a different violation (a sequence-shaped witness narrowed by `.take(n)`),
+which a scalar wrapper like this one does not fit anyway.
+
+#### Methods
+
+```rust
+pub fn of(error: &dyn core::error::Error) -> Self
+```
+
+Walks `error`'s `#[source]` chain onto one line, for a caller.
+
+`Display` on a `thiserror` enum prints the outermost message only, and for a malformed
+question the outer message is the field and the cause is what was wrong with it - so both
+halves are needed for the message to be actionable.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`
+
 ### `enum Failure`
 
 ```rust
@@ -2840,10 +2875,11 @@ come from the variant, so two handlers cannot answer the same situation with dif
   is the reason a caller with every scope this surface issues still cannot reach the route.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 
-  **The one `String` in this enum, two lines under the rule that warns about one**, so the
-  reason is here rather than left as an exception a reader has to reconstruct. `detail` is not
-  free-form: it is `describe()`'s walk of one
-  `sutura_domain::question::MalformedQuestion`'s cause chain, and that type's own note is
+  **No bare `String` to except any more.** `detail` is `Detail`, a witness type whose only
+  constructors - `Detail::of`'s chain walk and the module-private `Detail::from_rejection` -
+  perform the redaction themselves, so the carve-out this doc used to argue for a `String`
+  field is gone along with the field. `detail` is not free-form: it is `Detail::of`'s walk of
+  one `sutura_domain::question::MalformedQuestion`'s cause chain, and that type's own note is
   where the property this relies on is stated and asserted - no variant of it, and no link of
   any variant's chain, carries the caller's own value. So this holds a rendered sentence about
   which field was wrong, never the field's contents. A cause chain that started carrying them
