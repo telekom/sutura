@@ -261,10 +261,10 @@ bound that surface exactly as they bound this one.
 
 A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
 feature: the streamable-HTTP transport `docs/adr/0023` decided on. Since `telekom/sutura#378` PR4
-the `sutura-serve` binary mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
+`sutura serve` mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
 which is why it only ever serves where a caller can be verified. It is OFF by default at both gates:
 
-- **Build time (`sutura-serve`'s `agent` feature).** A build without the feature cannot reference
+- **Build time (`sutura-cli`'s `agent` feature).** A build without the feature cannot reference
   `sutura_mcp::http` at all, so the route is compiled out of the artefact; setting
   `server.agent_surface.enabled` against such a build is a startup refusal naming the feature.
 - **Deployment time (`server.agent_surface.enabled`, default `false`).** Even a build with the

@@ -32,13 +32,19 @@
 //! `sutura-serve` into `sutura-cli` as a subcommand.** One crate, `sutura-cli`, has two files that
 //! each independently compose a transport (`src/mcp.rs`, `src/serve.rs`) and each build their own
 //! bound - which used to be two crates, each a separate PROCESS, and is now two ARGV DISPATCH
-//! TARGETS in one binary, mutually exclusive at runtime because `main.rs`'s own `COMMANDS` table
-//! calls at most one of them per invocation. **That mutual exclusivity is not something this text
-//! scan can see or prove** - it is `crate::boot_order`'s and `main.rs`'s own dispatch tests'
-//! claim, not this gate's. What this gate still holds, at the FILE granularity a fold like that
-//! needs: a file that composes a transport builds exactly one bound of its own, and a bound built
-//! anywhere else in the crate - a helper module, a shared type - is refused the same as before.
-//! `roots` derives which files count, the same way it always derived which crates did.
+//! TARGETS in one binary, mutually exclusive at runtime because `main.rs`'s own `dispatch` calls at
+//! most one root's `run` per invocation - structural control flow, not a test. **That mutual
+//! exclusivity is not something this text scan can see or prove, and it is a NARROWER claim than
+//! the code once made for it.** `main.rs`'s own `#[cfg(test)] mod tests` never calls `dispatch` -
+//! only `requested`, the routing decision - so it holds nothing about `dispatch`'s execution arm.
+//! What reacts, measurably, is the `sutura-cli::mcp` integration suite (spawns the compiled binary,
+//! speaks the wire protocol): injecting an extra call to the OTHER root inside `dispatch`'s `Run`
+//! arm turns 11 of its tests red, but only for the SAME-root-invoked-twice shape and only because
+//! the extra call happens to receive valid arguments - it says nothing about a cross-root double
+//! dispatch. What this gate still holds, at the FILE granularity a fold like that needs: a file
+//! that composes a transport builds exactly one bound of its own, and a bound built anywhere else
+//! in the crate - a helper module, a shared type - is refused the same as before. `roots` derives
+//! which files count, the same way it always derived which crates did.
 //!
 //! # The five rules
 //!
@@ -75,12 +81,19 @@
 //! invisible too - see [`call_count`], which is where the count stopped being per line.
 //!
 //! **A root is one FILE, and a crate's one binary may hold several.** A member declaring two
-//! `[[bin]]` targets would still fail the second rule if either binary itself built two bounds; a
-//! `[[bin]]` whose `path` is not `src/main.rs` is not seen as a root by that name alone - it falls
-//! back to whichever file in its crate composes a transport, and only a bound built OUTSIDE every
-//! such file still fails the FIRST rule, which is the safe direction. `sutura-cli`'s `mcp.rs` and
-//! `serve.rs` are the measured case: two root files, one crate, one binary, never both live in the
-//! same process because argv dispatch picks one.
+//! `[[bin]]` targets would still fail the second rule if either binary itself built two bounds.
+//! `is_bin` treats `src/bin/*.rs` (and `src/bin/*/main.rs`) as a root unconditionally, same as
+//! `src/main.rs` - **this was open until `github.com/telekom/sutura#784`'s review**: the fallback
+//! (any file in the crate that composes a transport roots itself) used to be the ONLY way such a
+//! file was seen, and it is keyed off `src/main.rs` alone, so a crate with no `src/main.rs` at
+//! all - `sutura-mcp`, which is a library - never entered `binary_crates` and a `[[bin]]` grown
+//! under it composed a transport with zero bound completely invisibly. `sutura-cli`'s `mcp.rs` and
+//! `serve.rs` are the measured case for the fallback: two root files, one crate, one binary, never
+//! both live in the same process because argv dispatch picks one. `sutura-mcp`'s `serve_stdio` and
+//! `service` are the measured case for staying EXCUSED: both take an `Admission` as a parameter and
+//! call `AgentSurface::new(` on a crate with no `src/main.rs` and no `src/bin/`, so neither reads as
+//! a root - and adding a real `src/bin/*.rs` there does not change that, because `is_bin` never
+//! widens `binary_crates`.
 //!
 //! **`crates/` only**, so a composition root written outside it - `dev/`, `xtask/` - is outside
 //! every rule. Both of those are tools, neither serves a transport, and this file's own fixtures
@@ -248,6 +261,7 @@ fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
         // what keeps a LIBRARY's own taker call - `sutura-mcp` constructs `AgentSurface::new(` in
         // its own code, and has no `src/main.rs` - from reading as a root that never builds one.
         let is_root_file = is_main(rel)
+            || is_bin(rel)
             || (binary_crates.contains(&crate_of(rel))
                 && code.iter().enumerate().any(|(index, line)| {
                     !tests.covers(index.saturating_add(1)) && TAKERS.iter().any(|needle| call_count(line, needle) > 0)
@@ -309,6 +323,24 @@ fn is_main(rel: &str) -> bool {
     !name.is_empty() && rel == format!("crates/{name}/src/main.rs")
 }
 
+/// Is `rel` one of a crate's OTHER binary targets - `src/bin/*.rs` or `src/bin/*/main.rs` - the
+/// shape cargo auto-discovers a `[[bin]]` from with no manifest entry needed?
+///
+/// **Unconditionally a root, the same as [`is_main`] and for the same reason: each is its own
+/// process regardless of what it composes.** Deliberately NOT folded into `binary_crates`: that set
+/// exists so a fold like `github.com/telekom/sutura#685`'s can let several files inside ONE binary
+/// (`sutura-cli`'s `mcp.rs`, `serve.rs`) each root themselves, because every file under such a
+/// crate's `src/` compiles into that SAME single process. A `src/bin/*.rs` file is the opposite
+/// shape: a second, SEPARATE binary artifact that a crate's library files (`lib.rs`, `http.rs`) are
+/// merely linked BY, never compiled INTO. Adding its crate to `binary_crates` would make every
+/// library file that calls a taker - `sutura-mcp`'s `serve_stdio`/`service`, which take an
+/// `Admission` as a parameter and are the excused case [`every_serving_root_builds_one`]'s own test
+/// names - misread as an unbounded root the day some OTHER file in the same crate grew a `[[bin]]`.
+fn is_bin(rel: &str) -> bool {
+    let name = crate_of(rel);
+    !name.is_empty() && rel.starts_with(&format!("crates/{name}/src/bin/")) && in_scope(rel)
+}
+
 /// Which files under `crates/` are composition roots.
 ///
 /// **Derived, and that is the difference from `check-boot-order`'s declared list**: a crate with a
@@ -328,7 +360,7 @@ fn is_main(rel: &str) -> bool {
 fn roots(files: &[String], found: &Scan) -> BTreeSet<String> {
     files
         .iter()
-        .filter(|rel| is_main(rel))
+        .filter(|rel| is_main(rel) || is_bin(rel))
         .cloned()
         .chain(found.takers.keys().filter(|owner| owner.contains('/')).cloned())
         .collect()
@@ -581,7 +613,7 @@ mod tests {
     use super::{
         BOUND, DOOR, DOOR_DEFINED_IN, DOOR_SIGNATURE, Scan, TAKERS, at_least_one_bound_is_built, at_most_one_bound_per_crate,
         call_count, crate_of, door_is_still_defined, every_serving_root_builds_one, every_site_is_in_a_composition_root,
-        every_taker_is_still_called, located, no_bound_hides_behind_an_alias, roots, scan,
+        every_taker_is_still_called, is_bin, located, no_bound_hides_behind_an_alias, roots, scan,
     };
 
     /// A fixture tree: the paths the gate lists, and what each one holds.
@@ -745,6 +777,66 @@ fn run() -> Result<(), String> {
         assert!(error.contains("crates/sutura-cli/src/mcp.rs"), "{error}");
         // And a file that is NOT a root is left alone: `sutura-mcp` itself constructs the handler.
         assert_eq!(every_serving_root_builds_one(&found, &BTreeSet::new()), Ok(()));
+    }
+
+    #[test]
+    fn a_bin_target_that_builds_no_bound_is_red() {
+        // `github.com/telekom/sutura#784`'s review, finding 2: a crate with no `src/main.rs` at all
+        // - so `binary_crates` never held it before this test's own fix - grows a REAL second
+        // `[[bin]]` (cargo auto-discovers `src/bin/*.rs`, no manifest entry needed) that composes a
+        // transport and builds no bound. Before `is_bin` existed this was invisible: `roots` only
+        // ever added a bare crate name here, and `every_serving_root_builds_one` skips anything
+        // `roots` does not contain.
+        assert!(is_bin("crates/sutura-mcp/src/bin/probe_agent_server.rs"));
+        assert!(!is_bin("crates/sutura-mcp/src/lib.rs"));
+        assert!(
+            !is_bin("crates/sutura-mcp/src/main.rs"),
+            "src/main.rs is is_main's, not is_bin's"
+        );
+        let files = [String::from("crates/sutura-mcp/src/bin/probe_agent_server.rs")];
+        let found = scanned(&[(
+            "crates/sutura-mcp/src/bin/probe_agent_server.rs",
+            "fn main() {\n    let a = AgentSurface::new(service, permitted, prose);\n}\n",
+        )]);
+        let roots = roots(&files, &found);
+        assert_eq!(
+            roots,
+            named(&["crates/sutura-mcp/src/bin/probe_agent_server.rs"]),
+            "{roots:?}"
+        );
+        let error = every_serving_root_builds_one(&found, &roots).expect_err("a second bin target that serves bounds it too");
+        assert!(error.contains("composes a transport"), "{error}");
+        assert!(error.contains("probe_agent_server.rs"), "{error}");
+    }
+
+    #[test]
+    fn a_bin_target_does_not_widen_which_library_files_root_themselves() {
+        // The guard [`is_bin`]'s own doc names: `sutura-mcp`'s `serve_stdio`/`service` take an
+        // `Admission` as a parameter and call `AgentSurface::new(` in library code that is not
+        // `src/main.rs` and not `src/bin/*.rs`. That stays excused EVEN WHILE a sibling `[[bin]]`
+        // exists in the same crate - `is_bin` never adds the crate to `binary_crates`, unlike
+        // `is_main`, so `lib.rs` never falls back into rooting itself just because some other file
+        // in the crate happens to be a second binary now.
+        let files = [
+            String::from("crates/sutura-mcp/src/lib.rs"),
+            String::from("crates/sutura-mcp/src/bin/probe_agent_server.rs"),
+        ];
+        let found = scanned(&[
+            (
+                "crates/sutura-mcp/src/lib.rs",
+                "pub fn serve_stdio(admission: Admission) {\n    let a = AgentSurface::new(service, permitted, prose, admission, reply);\n}\n",
+            ),
+            (
+                "crates/sutura-mcp/src/bin/probe_agent_server.rs",
+                "fn main() {\n    let a = AgentSurface::new(service, permitted, prose);\n}\n",
+            ),
+        ]);
+        let roots = roots(&files, &found);
+        assert!(
+            !roots.contains("crates/sutura-mcp/src/lib.rs"),
+            "the excused library shape must stay excused: {roots:?}"
+        );
+        assert!(roots.contains("crates/sutura-mcp/src/bin/probe_agent_server.rs"), "{roots:?}");
     }
 
     #[test]
