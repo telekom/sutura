@@ -989,6 +989,7 @@ economise.
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
+   | `check-answer-path-caches` | the Rust under `crates/sutura-app/src` and `crates/sutura-domain/src` - for a `HashMap`/`BTreeMap` field whose value type is one read off the answer path |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |
