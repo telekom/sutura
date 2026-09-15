@@ -3847,11 +3847,17 @@ list of term columns rather than one measure expression; it omits the bucket for
 <p><strong>No existing golden moves, and that is checkable rather than asserted.</strong> <code>QueryPlan</code> is untouched, so
 the 63 statement snapshots, the 63 parameter snapshots and the 21 <code>plan@markdown</code> snapshots are all
 renderings of a type this change does not edit. AGENTS.md's counted claim about 63 goldens reading
-<code>LIMIT 10001</code> therefore stands as written, and <code>check-guidance</code>'s counter -
-<code>xtask/src/guidance/claims.rs:273</code>, which holds the literal <code>LIMIT 10001</code> - does not need to move
-either. <strong>The limit of that claim:</strong> it holds because the new legs are new snapshots, so the first
-person to add a leg golden must not put a <code>LIMIT</code> in it, and nothing mechanical stops them. The
-generator emitting none is what makes it hard to get wrong.</p>
+<code>LIMIT 10001</code> therefore stands as written, and <code>check-guidance</code>'s counter - the <code>Counted</code> row named
+"SQL goldens carrying the row cap" at <code>xtask/src/guidance/claims/counts.rs:137</code>, which holds the
+literal <code>LIMIT 10001</code> at <code>:144</code> - does not need to move either. <strong>The limit of that claim:</strong> it
+holds because the new legs are new snapshots, so the first person to add a leg golden must not put
+a <code>LIMIT</code> in it, and nothing mechanical stops them. The generator emitting none is what makes it
+hard to get wrong.</p>
+<p><strong>A limit on this citation itself, per <code>github.com/telekom/sutura#771</code>.</strong> No gate reads a line
+number, so a later refactor that moves this counter again would falsify this pointer exactly as
+silently as it falsified the one it replaces - <code>just hygiene</code> runs the check the line points at,
+but not whether the line still points at it; grep for the row's NAME, <code>"SQL goldens carrying the
+row cap"</code>, rather than trusting either line number.</p>
 <p><strong>And a correction this record owes, because it claimed a mechanism it does not have.</strong> An earlier
 version of the ordered plan said the lookup-leg plan type would be <em>"the first step that moves the
 definition digest, because a new domain type changes a serialized form"</em>. <strong>That is false.</strong>
