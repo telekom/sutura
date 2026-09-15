@@ -578,7 +578,12 @@ mod tests {
             let scratch = Scratch::new("foreign-issuer");
             let presented = issue();
             let declared_ca = issue();
-            let server = TlsFakeServer::start(&presented, vec![Scripted::raw(200, Vec::new())]);
+            // The full happy-path corpus, not an empty body: an empty response fails to decode as
+            // JSON regardless of whether the handshake was trusted, so it cannot tell "refused at
+            // the handshake" apart from "trusted, then failed to parse" - a verification bug that
+            // let the wrong issuer through would go unnoticed. Real pages make the read SUCCEED if
+            // the handshake wrongly trusts this peer, so only a genuine refusal turns this red.
+            let server = TlsFakeServer::start(&presented, happy_path_answers());
             let instance = reader(&server.endpoint(), Some(declared(&scratch, "declared-root", &declared_ca)));
             instance
                 .read()
@@ -588,7 +593,8 @@ mod tests {
         #[test]
         fn absent_anchors_are_the_compiled_in_default_and_refuse_a_self_signed_peer() {
             let issued = issue();
-            let server = TlsFakeServer::start(&issued, vec![Scripted::raw(200, Vec::new())]);
+            // See the sibling cell above for why this is the full corpus rather than an empty body.
+            let server = TlsFakeServer::start(&issued, happy_path_answers());
             let instance = reader(&server.endpoint(), None);
             instance
                 .read()
