@@ -1606,18 +1606,20 @@ jobs:
           K: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+          SUTURA_BQ_CROSS_DATASET: ${{ vars.SUTURA_BQ_CROSS_DATASET }}
+          SUTURA_BQ_CROSS_DATASET_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
         run: |
           set -eu
           python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
             2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
-          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE; do
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE SUTURA_BQ_CROSS_DATASET SUTURA_BQ_CROSS_DATASET_PROJECT; do
             if [ -z "$(printenv "$name" || true)" ]; then
               echo "the bq-test environment defines no $name - it names a resource this leg has to be pointed at" >&2
               exit 1
             fi
             printf '::add-mask::%s\n' "$(printenv "$name")"
           done
-          echo "three resource names masked for the rest of this job"
+          echo "five resource names masked for the rest of this job"
         # `K` separately, so the credential path is an environment value rather than an interpolation.
         # Same rule the rest of this file follows: no `${{ }}` reaches a shell body.
 
@@ -1637,6 +1639,32 @@ jobs:
         run: |
           set -eu
           nix run .#bigquery-acceptance -- --no-capture
+
+      # The same-project cross-DATASET venue (`nix run .#bigquery-cross-dataset`), after the
+      # acceptance cells, on the same credential, gate and concurrency group. Not a reason the job
+      # ran; once here it fails loudly when unset rather than skipping, matching the acceptance rule.
+      # `check-workflows` verifies that the app output exists. The billing project and the RLS and
+      # cross dataset all live in the project the CI key names (the cell's admission requires every
+      # destination in the billing project), so `SUTURA_BQ_CROSS_BILLING_PROJECT` and
+      # `SUTURA_BQ_RLS_PROJECT` take the one provisioned `SUTURA_BQ_CROSS_DATASET_PROJECT`.
+      - name: Cross-dataset venue
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_CROSS_DATASET: ${{ vars.SUTURA_BQ_CROSS_DATASET }}
+          SUTURA_BQ_CROSS_DATASET_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
+          SUTURA_BQ_CROSS_BILLING_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
+          SUTURA_BQ_RLS_PROJECT: ${{ vars.SUTURA_BQ_CROSS_DATASET_PROJECT }}
+          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
+        run: |
+          set -eu
+          for name in SUTURA_BQ_CROSS_DATASET SUTURA_BQ_CROSS_DATASET_PROJECT SUTURA_BQ_CROSS_BILLING_PROJECT SUTURA_BQ_RLS_PROJECT SUTURA_BQ_RLS_DATASET; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment defines no $name - it names a resource this venue has to be pointed at" >&2
+              exit 1
+            fi
+          done
+          nix run .#bigquery-cross-dataset -- --no-capture
 
       # Always, so a cancelled or failed run does not leave a key on a runner that some other job on
       # the same machine could read.

@@ -102,6 +102,13 @@ VARS = {
     # own five (telekom/sutura#123: sutura does not re-verify a source's row-level security). Nothing
     # reads them now; dropped rather than left to describe a cell that no longer exists.
     "SUTURA_BQ_RLS_DATASET": "dataset",
+    # The cross-resource writable venue's two values: the disposable dataset it loads its dimension
+    # into, and the project that dataset lives in (the same billing project the CI key names - the
+    # cell's admission requires every destination in the billing project, so `project` is the one
+    # value all three project-shaped reads take). The dataset and project are both exported by the
+    # stack; `project` is a plain output value, pushed as a var like the datasets above.
+    "SUTURA_BQ_CROSS_DATASET": "cross_dataset",
+    "SUTURA_BQ_CROSS_DATASET_PROJECT": "project",
 }
 need(*VARS.values())
 for gh_name, out in VARS.items():

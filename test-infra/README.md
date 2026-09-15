@@ -182,7 +182,7 @@ run is still a thing somebody has to know.
 | Kind | Names |
 | --- | --- |
 | `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
-| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_CROSS_DATASET`, `SUTURA_BQ_CROSS_DATASET_PROJECT` |
 
 The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values, and they are
 secrets rather than vars for a reason that is not credential material: each names the acceptance
@@ -200,6 +200,13 @@ which drops a table's row access policies - and the program refuses a configurat
 coincide. The four names that used to sit beside it - the policied table, the grouping column and
 each principal's grouping value - were the withdrawn two-principal cell's own (telekom/sutura#123:
 sutura does not re-verify a source's row-level security); nothing reads them now.
+
+The two `SUTURA_BQ_CROSS_*` vars are the writable cross-resource venue's own
+(`bigquery-cross-dataset`): the disposable dataset its dimension loads into, and the project that
+dataset lives in. Both exported by the stack; `SUTURA_BQ_CROSS_DATASET_PROJECT` is the same project
+the CI key names (the cell's admission requires every destination in the billing project), so the
+job's other two project-shaped reads (`SUTURA_BQ_CROSS_BILLING_PROJECT`, `SUTURA_BQ_RLS_PROJECT`)
+take the same value.
 
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the
