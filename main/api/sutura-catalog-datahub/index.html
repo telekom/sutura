@@ -3342,14 +3342,14 @@ the same fake rather than a second one.</p>
 <p><strong>Moved out of <code>tests/http_reader.rs</code> by issue #202's second PR, not written fresh.</strong> That file's
 own <code>FakeServer</code>/<code>Scripted</code>/page builders were <code>mod tests</code>-private, which is exactly right for a
 <code>#[cfg(test)]</code>-only fake used by one crate - until a SECOND crate needed one too:
-<code>sutura-serve</code>'s own served-binary suite (<code>crates/sutura-serve/tests/served/datahub.rs</code>) wants a
+<code>sutura-cli</code>'s own served-binary suite (<code>crates/sutura-cli/tests/served/datahub.rs</code>) wants a
 real loopback DataHub server to boot a composed <code>catalog.kind: datahub</code> deployment against, and
 an integration test binary cannot see another crate's <code>tests/</code> directory at all - Rust does not
 expose one. The only way to share this fake is through the LIBRARY, which is what this module is.</p>
 <p><strong><code>#[cfg(feature = "http")]</code>, not <code>#[cfg(test)]</code>.</strong> A downstream crate's OWN test compilation is
 what needs to see this, and <code>#[cfg(test)]</code> on an item is private to the crate that sets it - it
 never crosses the dependency edge the way a feature does. That means this module compiles into
-any NON-test build with <code>--features http</code> too (<code>sutura-serve --features datahub</code>, in particular)
+any NON-test build with <code>--features http</code> too (<code>sutura-cli --features datahub</code>, in particular)
 - dead code there, never called by production composition, but real object code in a shipped
 binary. <strong>Stated rather than hidden:</strong> <code>.agents/skills/sutura/crate-map/SKILL.md</code>'s "why a
 networked adapter hides behind a default-off feature" argument is about the DEPENDENCY EDGE the

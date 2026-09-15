@@ -2717,7 +2717,7 @@ it costs; the two reasons it was absent are answered rather than repealed:</p>
    <code>BigQueryWarehouse::load_fixture</code>, runs the corpus questions, and compares its rows with the
    engine's for the same plan. That is where the join, the ratio and <code>ISOWEEK</code> are reached.</li>
 </ol>
-<p>So nothing here may be cited as an invariant. <code>sutura-serve</code> DOES link this adapter and dispatch
+<p>So nothing here may be cited as an invariant. <code>sutura serve</code> DOES link this adapter and dispatch
 <code>kind: bigquery</code> behind its default-off <code>bigquery</code> feature - <code>docs/adr/0017</code>'s second amendment
 records the day the last <em>not wired</em> was spent. A default build links none of it, and
 the <code>data_systems:</code> axis of the golden matrix gains no entry - because a cell in that registry
@@ -2730,7 +2730,7 @@ carried as a <code>Presented::SubjectToken</code> and sent as this job's bearer,
 the statement under whoever that token is. The <code>wire</code>'s own credential source stays for the
 shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-the composition root that links this adapter: <code>crates/sutura-serve/src/broker.rs</code> composes
+the composition root that links this adapter: <code>crates/sutura-cli/src/serve/broker.rs</code> composes
 <code>sts::WorkloadIdentityBroker</code> today - wired in serve, not proven live, the same limit
 <code>docs/adr/0018</code> states for it.</p>
 <p><strong>ONE of the two subject shapes, and the other is refused rather than degraded.</strong> A
@@ -2742,8 +2742,9 @@ that refusal, and the reason it is a refusal is the reason the whole-shape <code
 it replaced existed: a leg accepted here would be submitted under the transport's own credential
 while provenance, read off this source's posture, reported the answer as impersonated.</p>
 <p><strong>What no version of this is:</strong> a deployment where a served source executes as its asker.
-<code>sutura-serve</code> refuses an <code>impersonation-at-source</code> <code>bigquery</code> entry by name, because no broker
-that exchanges is attached to a served source yet - see that crate's <code>build_bigquery</code>.</p>
+<code>sutura serve</code> refuses an <code>impersonation-at-source</code> <code>bigquery</code> entry by name, because no broker
+that exchanges is attached to a served source yet - see <code>sutura-cli</code>'s
+<code>crates/sutura-cli/src/serve/bigquery.rs</code>, <code>build_bigquery</code>.</p>
 <h1 id="two-things-this-adapter-deliberately-does-not-offer">Two things this adapter deliberately does not offer<a class="headerlink" href="#two-things-this-adapter-deliberately-does-not-offer" title="Permanent link">&para;</a></h1>
 <p><strong>No arbitrary SQL entry point.</strong> <code>BigQueryWarehouse::execute</code> takes an <code>Executable</code> and
 renders the statement itself; <code>transport::JobRequest::new</code> is <code>pub(crate)</code>, so there is no way to

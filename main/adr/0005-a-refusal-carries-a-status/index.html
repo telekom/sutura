@@ -3239,7 +3239,7 @@ bodies near-identical in what they carry.</p>
   lists every <code>RefusalReason</code> variant with the status and <code>code</code> each is given,
   <code>every_refusal_carries_a_status_a_code_and_a_sentence</code> drives that list, and the exhaustive match
   with no wildcard arm makes a new variant a COMPILE error rather than an untested one - which is
-  the property a transcript could never have. <code>crates/sutura-serve/tests/served.rs</code> asserts a
+  the property a transcript could never have. <code>crates/sutura-cli/tests/served.rs</code> asserts a
   refusal's status against the same directory over a real port, and
   <code>crates/sutura-http/src/harness.rs</code> asserts the envelope per status in process for the subset the
   default fixture pair can produce. The reasons it does not reach are <code>DimensionNotFilterable</code>,

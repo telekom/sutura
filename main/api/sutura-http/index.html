@@ -5217,7 +5217,7 @@ either runs.</p>
   <code>line</code> only from a line starting <code>-----BEGIN</code> and <code>end_marker</code> only from that label, never
   from key material between the markers. No type in this repository can hold another crate's
   <code>Display</code> impl, so a version bump that changed what it prints would change silently, unlogged
-  by anything here. <code>crates/sutura-serve/src/main.rs</code>'s <code>flatten</code> walks <code>#[source]</code> to
+  by anything here. <code>crates/sutura-cli/src/serve.rs</code>'s <code>flatten</code> walks <code>#[source]</code> to
   exhaustion and prints every <code>cause.to_string()</code>, so this reaches an operator's terminal
   through the same three <code>#[source]</code> hops the module's own safety argument above already
   covers for the path - <code>cause</code> is the one field that argument does not reach.

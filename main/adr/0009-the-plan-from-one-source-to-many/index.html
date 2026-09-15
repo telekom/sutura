@@ -3464,7 +3464,7 @@ number at all:</p>
 </tr>
 <tr>
 <td><code>test/startup-source-refusals</code></td>
-<td>Red against a build with the more-than-one-source arm of <code>open_engine</code> removed. <strong>That arm has a test now, and it changed shape as well as gaining one</strong>: the refusal is per-KIND rather than per-source-count, and <code>crates/sutura-serve/src/tests.rs</code> asserts on its own sentence - <em>one kind of data system at a time</em>. Two sources of one kind load and both open, which is what <code>docs/adr/0006</code>'s correction records</td>
+<td>Red against a build with the more-than-one-source arm of <code>open_engine</code> removed. <strong>That arm has a test now, and it changed shape as well as gaining one</strong>: the refusal is per-KIND rather than per-source-count, and <code>crates/sutura-cli/src/serve/tests.rs</code> asserts on its own sentence - <em>one kind of data system at a time</em>. Two sources of one kind load and both open, which is what <code>docs/adr/0006</code>'s correction records</td>
 </tr>
 <tr>
 <td><code>feat/source-registry</code></td>
