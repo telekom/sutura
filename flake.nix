@@ -717,6 +717,42 @@
           program = "${keycloakTier.tier}/bin/sutura-keycloak-tier";
         };
 
+        # `nix run .#keycloak-served-test` - the one cell that needs a REAL identity provider rather
+        # than the mock, on `apps.bigquery-acceptance`'s pattern: an app rather than a check because
+        # `checks.*` run once per `wholeTree` build and this leg's own JVM boot is a cost `just
+        # validate` should not add to every one of them - `nix/keycloak-tier.nix`'s own header names
+        # the same tradeoff for why this tier is not yet in `checks.nextest`'s `preCheck`.
+        #
+        # **Unlike BigQuery this needs no secret and no network beyond loopback - the tier is
+        # started HERE, by this app, rather than assumed already up.** `sutura-keycloak-tier` is put
+        # on `PATH` from `keycloakTier.tier`, the SAME derivation `apps.keycloak-tier` runs by hand,
+        # so the tier this test drives is the one `checks.keycloak-tier` already proves comes up
+        # clean. NOT `exec`'d into the final command: an `exec` replaces this shell's own process
+        # image, which would skip the `trap` below entirely and leave the JVM running after a failing
+        # cell - the one outcome a fail-CLOSED test app may not produce.
+        apps.keycloak-served-test = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-keycloak-served-test" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            sutura-keycloak-tier start
+            trap 'sutura-keycloak-tier stop' EXIT
+            # `exec` inside a SUBSHELL, not the outer script: `check-warm-start` (xtask/src/warm_start.rs)
+            # requires a live `exec cargo ` line, on the same theory every other warmed consumer follows -
+            # but exec'ing the outer shell here would replace it before the `trap` above ever fires, which
+            # is exactly the JVM-left-running outcome this app exists not to produce. The parens make this
+            # `exec` replace only the subshell's own process image; the outer shell - and its trap - survive
+            # to run `sutura-keycloak-tier stop` once the subshell (and `set -e` above) exits.
+            (
+              exec cargo nextest run --cargo-profile ci -p sutura-serve --run-ignored only \
+                -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)' "$@"
+            )
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has

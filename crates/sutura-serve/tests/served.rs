@@ -60,6 +60,14 @@
 #[path = "served/harness.rs"]
 mod harness;
 
+// Split out of `mod tests` below by `cargo xtask max-lines`'s 1000-line cap - the one `#[ignore]`d
+// cell that needs a real Keycloak tier, a sibling module for the same reason `harness` is one: see
+// its own header for why a `#[path]` module lives here and not nested inside `tests`.
+#[cfg(unix)]
+#[cfg(test)]
+#[path = "served/keycloak_test.rs"]
+mod keycloak_test;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {

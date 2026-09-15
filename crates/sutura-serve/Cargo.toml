@@ -109,7 +109,9 @@ tracing = { workspace = true }
 # the four cross builds compile rustls and `ring` for a binary linking none of it. That closure is
 # already in all four dependency derivations - `crane.buildDepsOnly` is unscoped and builds
 # dev-dependencies, and `sutura-catalog-datahub` already has a non-optional `ureq` dev-dependency -
-# so the cost argument was spent before it was written. The narrower reasons above are the real ones.
+# so the cost argument was spent before it was written. The narrower reasons above are the real ones,
+# and they are about THIS request only - the plaintext loopback one this suite makes of its own
+# spawned binary. `ureq` below is a second fixture's client, talking to somebody else's server.
 [dev-dependencies]
 serde_json = { workspace = true }
 # The log-capture writer, for the one test that reads a boot line back - `sutura-http` already
@@ -117,6 +119,20 @@ serde_json = { workspace = true }
 # for a second entry rather than a normal-dependency feature: the helpers around the writer use
 # `expect`, which is denied outside test code.
 sutura-runtime = { workspace = true, features = ["test-capture"] }
+# `served/harness/keycloak.rs`'s client, for the ONE thing the reasons above do not cover: a request
+# to a REAL server this suite did not write - `nix/keycloak-tier.nix`'s own Keycloak, over its token
+# endpoint and its JWKS document. That is not "one plaintext loopback request of a fixed shape" -
+# it is whatever a real Quarkus/Keycloak answers, chunked or not, and `served/harness.rs`'s own
+# hand-rolled `parse` deliberately refuses a chunked response. Already paid for, per the comment
+# above; `sutura-exec-bigquery::wire` is this crate's own precedent for the exact shape
+# (`.post(url).send_form(form)`, `.get(url).call()`, `body_mut().read_to_string()`).
+ureq = { workspace = true }
+# Decodes a compact JWT's payload segment (base64url, unpadded) to read the `aud` a real issuer
+# minted, rather than assuming one - see `keycloak.rs`'s own header. Already pinned for
+# `sutura-exec-bigquery`'s assertion signing; `URL_SAFE_NO_PAD` is the one engine this crate reaches
+# for, so a hand-rolled decoder is not a second implementation of something this workspace already
+# carries correctly.
+base64 = { workspace = true }
 # The mock authorization server, for the leg-1 cases in `tests/served.rs`: a generated key pair, a
 # JWK set published to a real path and a token minter every claim of which is a parameter.
 #

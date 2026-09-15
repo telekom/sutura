@@ -156,6 +156,15 @@ ci.yml:pr-cache
 # permanently pending - the failure mode this file's own header warns about.
 ci.yml:bigquery-acceptance
 
+# The provisioned-Keycloak leg-1 venue: `if: needs.ci.outputs.identity == 'true'`, so it reports
+# nothing at all on a pull request whose diff does not touch the `identity` category - the same
+# reason `format.yml:format` below is advisory rather than the reason `bigquery-acceptance` above
+# is. Unlike that one it reads no secret and needs no environment, so a fork's pull request can run
+# it when the paths select it; what still rules out `[required]` is that most pull requests do not
+# touch those paths at all, and a required context that does not report on most runs is exactly the
+# permanently-pending merge this file's header warns about.
+ci.yml:keycloak-served-test
+
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
 # `check-docs` inside `ci` is what holds the nav and the pages.

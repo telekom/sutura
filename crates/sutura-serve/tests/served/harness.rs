@@ -34,9 +34,21 @@
 #[cfg(feature = "postgres")]
 #[path = "harness/postgres.rs"]
 mod postgres;
+// No feature gate, unlike `postgres` above: this fixture pulls in no optional adapter crate, only
+// `sutura_dev::provisioned` and `serde_json`, both already unconditional dependencies of this test
+// binary - see `served/harness/keycloak.rs`'s own header for why it is reached by its own `just`
+// task rather than by `just test` even so.
+// `pub(crate)`, the same discipline `reading` below already uses: `KeycloakFixture` itself, not
+// only the `settings` constructor re-exported below, is what the wave-one E2E lane's own sibling
+// cell needs - the realm's issuer and published key set, to mint its own deployments against the
+// same tier - reached as `crate::harness::keycloak::KeycloakFixture`, the same shape
+// `crate::harness::reading::Reading` already is.
+#[path = "harness/keycloak.rs"]
+pub(crate) mod keycloak;
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
 
+pub(crate) use keycloak::settings as keycloak_settings;
 #[cfg(feature = "postgres")]
 pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
 #[cfg(feature = "postgres")]

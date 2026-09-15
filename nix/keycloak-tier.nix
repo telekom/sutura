@@ -77,6 +77,26 @@ let
   # The two subjects `docs/adr/0008`'s property needs. Deliberately not people: a fixture that
   # looks like somebody's account in a public repository is a disclosure with extra steps.
   subjects = [ "subject-a" "subject-b" ];
+  # The `aud` a token from this client carries, and it is a FIXED, hardcoded audience mapper
+  # rather than this realm's own default. Measured on 2026-09-14: with no mapper at all, a
+  # password-grant token's `aud` is the literal string `account` - Keycloak's built-in "account"
+  # client scope, present on every realm and not shaped like a resource identifier at all.
+  # `sutura-config`'s `security.inbound.resource` refuses anything that is not an absolute
+  # `https://` URI (the same rule an audience-confusion attack would need broken to matter), so a
+  # deployment declaring `account` as its resource never starts. `RFC 2606`'s reserved
+  # `.example.com` for the same reason this repository's own fixtures already use it (see
+  # `crates/sutura-serve/tests/served/harness.rs`'s `RESOURCE`) - not a real host, and not a
+  # secret, so unlike the realm's passwords it is a plain literal rather than generated per start.
+  resourceAudience = "https://sutura-dev-cli.example.com";
+  # Every scope `sutura_app::Capability::scope` licenses (`crates/sutura-app/src/capability.rs`),
+  # DUPLICATED here rather than derived - this is nix, and nothing here reads Rust source. A real
+  # token carries whatever ITS issuer granted, byte for byte, in `sutura_http::inbound::caller`'s
+  # own `Scopes::parse` (RFC 6749's space-delimited string) - unlike `resourceAudience` this is not
+  # a value this tier invents, it is a name this workspace already owns three of, so `provision`
+  # creates one client scope PER NAME and attaches each as a DEFAULT client scope: Keycloak lists a
+  # granted client scope's own NAME in the `scope` claim it mints, which is what makes this the
+  # right mechanism rather than a hardcoded-claim mapper synthesizing a value nothing granted.
+  capabilityScopes = [ "sutura:catalog.read" "sutura:metrics.ask" "sutura:sql.run" ];
 in
 # `rec` so `check` can drive `tier`: the check exists to run this exact script, and a second
 # reference to it through `flake.nix` would be a second thing to keep pointing here.
@@ -100,6 +120,9 @@ rec {
       pkgs.coreutils
       pkgs.jq
       pkgs.flock
+      # For the self-signed certificate `start` generates below - see the comment there for why
+      # the realm's own issuer has to be `https://`, not merely reachable.
+      pkgs.openssl
       endpoints.script
     ];
     text = ''
@@ -109,6 +132,8 @@ rec {
       state="$root/.sutura-dev"
       realm=${realm}
       client=${client}
+      resourceAudience=${resourceAudience}
+      capabilityScopes="${builtins.concatStringsSep " " capabilityScopes}"
       subjects="${builtins.concatStringsSep " " subjects}"
 
       # The server's own directory, UNDER THE WORKTREE - where the tree is the key and there is
@@ -230,9 +255,29 @@ rec {
         sed -n 's|.*Listening on: http://127\.0\.0\.1:\([0-9]*\).*|\1|p' "$log" | tail -1
       }
 
+      # The SAME log line's other half - Quarkus prints both ports together, `Listening on:
+      # http://127.0.0.1:<p> and https://127.0.0.1:<p2>` - so this is `published_port`'s own
+      # pattern over the second clause. `provision` is the only reader: the realm's issuer and
+      # every request `start` and `provision` make of the admin API go over THIS port, never the
+      # http one - see the `resourceAudience` comment above for why a plaintext issuer is refused
+      # outright rather than merely inconvenient. `endpoints.json` still publishes the http port,
+      # unchanged: that file is a generic reachability address for `sutura_dev::discovery` and
+      # nothing here reads an OIDC document off it.
+      published_https_port() {
+        [ -f "$log" ] || return 0
+        sed -n 's|.*Listening on: .*https://127\.0\.0\.1:\([0-9]*\).*|\1|p' "$log" | tail -1
+      }
+
       provision() {
         port="$1"
-        base="http://127.0.0.1:$port"
+        https_port="$(published_https_port)"
+        if [ -z "$https_port" ]; then
+          echo "keycloak tier: the server's log names no https port - see start's own https-*" >&2
+          echo "               options and the certificate this function generates for them" >&2
+          tail -20 "$log" >&2
+          exit 1
+        fi
+        base="https://127.0.0.1:$https_port"
         client_secret="$(generated)"
 
         # The admin console is answerable a moment after the port is, so the login is retried
@@ -240,20 +285,41 @@ rec {
         # created is not something to continue past.
         for _ in $(seq 1 30); do
           if kcadm.sh config credentials --config "$admincfg" --server "$base" \
-            --realm master --user "$admin_user" --password "$admin_password" >/dev/null 2>&1; then
+            --realm master --user "$admin_user" --password "$admin_password" \
+            "''${kcadm_trust[@]}" >/dev/null 2>&1; then
             break
           fi
           sleep 2
         done
 
-        kcadm.sh create realms --config "$admincfg" -s realm="$realm" -s enabled=true >/dev/null
+        kcadm.sh create realms --config "$admincfg" -s realm="$realm" -s enabled=true \
+          "''${kcadm_trust[@]}" >/dev/null
         # Confidential, with the direct access grant: that is the flow a test uses to obtain a
         # token for a named subject without a browser. `standardFlowEnabled=false` because nothing
         # here redirects, and a client offering a flow nobody uses is surface for free.
-        kcadm.sh create clients --config "$admincfg" -r "$realm" \
+        # The `protocolMappers` entry is the fix for the gap `resourceAudience`'s own comment
+        # states: with no mapper, a token's `aud` is the realm-wide built-in `account` client
+        # scope, not a resource identifier `security.inbound.resource` will accept. A hardcoded
+        # `oidc-audience-mapper`, added at creation rather than as a second `kcadm.sh update`
+        # call, puts the fixed value on every access token this client's grants mint.
+        client_uuid="$(kcadm.sh create clients --config "$admincfg" -r "$realm" \
           -s clientId="$client" -s enabled=true -s publicClient=false \
           -s directAccessGrantsEnabled=true -s standardFlowEnabled=false \
-          -s secret="$client_secret" >/dev/null
+          -s secret="$client_secret" \
+          -s 'protocolMappers=[{"name":"resource-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$resourceAudience"'","id.token.claim":"false","access.token.claim":"true","introspection.token.claim":"true"}}]' \
+          "''${kcadm_trust[@]}" -i)"
+
+        # One client scope PER CAPABILITY, DEFAULT (auto-granted, no consent screen) - see
+        # `capabilityScopes`'s own comment above for why this is a client scope per name rather
+        # than a mapper synthesizing the `scope` claim's value.
+        for capability_scope in $capabilityScopes; do
+          scope_uuid="$(kcadm.sh create client-scopes --config "$admincfg" -r "$realm" \
+            -s name="$capability_scope" -s protocol=openid-connect \
+            -s 'attributes={"include.in.token.scope":"true","display.on.consent.screen":"false"}' \
+            "''${kcadm_trust[@]}" -i)"
+          kcadm.sh update "clients/$client_uuid/default-client-scopes/$scope_uuid" \
+            --config "$admincfg" -r "$realm" "''${kcadm_trust[@]}"
+        done
 
         # `requiredActions=[]` and a complete profile are load-bearing, not decoration. Measured on
         # 2026-09-03: a user created with a username alone is refused at the token endpoint with
@@ -264,15 +330,16 @@ rec {
           kcadm.sh create users --config "$admincfg" -r "$realm" \
             -s username="$subject" -s enabled=true -s emailVerified=true \
             -s email="$subject@example.com" -s firstName="$subject" -s lastName=fixture \
-            -s 'requiredActions=[]' >/dev/null
+            -s 'requiredActions=[]' "''${kcadm_trust[@]}" >/dev/null
           kcadm.sh set-password --config "$admincfg" -r "$realm" \
-            --username "$subject" --new-password "$(subject_password "$subject")" >/dev/null
+            --username "$subject" --new-password "$(subject_password "$subject")" \
+            "''${kcadm_trust[@]}" >/dev/null
         done
 
         # PROVE IT, before reporting success. A tier whose realm came up half-provisioned must fail
         # here, where the message is about provisioning, rather than in whatever reads it next.
         for subject in $subjects; do
-          token="$(curl -sS --max-time 20 -X POST \
+          token="$(curl -sS --max-time 20 --cacert "$cacertfile" -X POST \
             "$base/realms/$realm/protocol/openid-connect/token" \
             -d grant_type=password -d client_id="$client" -d client_secret="$client_secret" \
             -d username="$subject" -d "password=$(subject_password "$subject")")"
@@ -293,6 +360,15 @@ rec {
           {
             printf '{"issuer":"%s/realms/%s",' "$base" "$realm"
             printf '"discovery":"%s/realms/%s/.well-known/openid-configuration",' "$base" "$realm"
+            # The CA `start` generated for THIS `https://` issuer above - NOT the leaf `kc.sh`
+            # serves, `$certfile`, which a client cannot trust directly (see the `CaUsedAsEndEntity`
+            # comment above `cacertfile`'s own declaration). Not a secret (a certificate is the
+            # public half), published anyway because it is the one fact a reader needs to trust
+            # this loopback server at all: no public CA signed the leaf, and a client that does not
+            # load this CA explicitly gets `certificate_unknown` against a real provider's real
+            # TLS, the same failure a network attacker's own certificate would produce. An absolute
+            # path, like every other file this script writes beside it.
+            printf '"tls_certificate_file":"%s",' "$cacertfile"
             printf '"realm":"%s","client":{"id":"%s","secret":"%s"},' \
               "$realm" "$client" "$client_secret"
             printf '"admin":{"username":"%s","password":"%s"},' "$admin_user" "$admin_password"
@@ -399,6 +475,53 @@ rec {
         export KC_BOOTSTRAP_ADMIN_USERNAME="$admin_user"
         export KC_BOOTSTRAP_ADMIN_PASSWORD="$admin_password"
 
+        # A throwaway CA and a leaf it signs, fresh per start like every other credential here.
+        # NOT for confidentiality - loopback traffic in this sandbox is not the threat this
+        # defends - but because `security.inbound.authorization_server`
+        # (`crates/sutura-config/src/inbound/primitive.rs`) refuses anything that is not
+        # `https://`, unconditionally, and a served deployment declaring this realm's OWN issuer
+        # has to name it byte-for-byte. Measured on 2026-09-14: the same realm behind
+        # `--http-enabled=true` alone mints tokens whose `iss` is `http://...`, which is not a
+        # spelling that refusal accepts - so the tier has to actually SERVE https, not merely
+        # claim to, for a real deployment to ever declare it.
+        #
+        # **TWO certificates, not one, and that is measured rather than simpler-looking.** A
+        # single self-signed cert handed to `kc.sh` AND trusted directly as a root fails every
+        # TLS client here with `CaUsedAsEndEntity`: X.509 path validation refuses a certificate
+        # that is simultaneously the trusted root and the leaf a server presents, because a root
+        # (`CA:true`) is not a valid end-entity certificate. `cacertfile`/`cakeyfile` are a
+        # `CA:true` root that never leaves this script; `certfile`/`keyfile` are a `CA:false` leaf
+        # it signs, and `kc.sh` gets only the leaf. A client trusting `cacertfile` alone still
+        # verifies `certfile` correctly - that one edge, root-signs-leaf, is a valid chain.
+        cacertfile="$home/keycloak-ca-cert.pem"
+        cakeyfile="$home/keycloak-ca-key.pem"
+        certfile="$home/keycloak-cert.pem"
+        keyfile="$home/keycloak-key.pem"
+        csrfile="$home/keycloak-cert.csr"
+        leafextfile="$home/keycloak-cert.ext"
+        truststorefile="$home/keycloak-truststore.p12"
+        trustpass="$(generated)"
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout "$cakeyfile" -out "$cacertfile" -days 1 \
+          -subj "/CN=sutura-keycloak-tier-ca" \
+          -addext "basicConstraints=critical,CA:true" -addext "keyUsage=critical,keyCertSign,cRLSign" \
+          >/dev/null 2>&1
+        openssl req -newkey rsa:2048 -nodes -keyout "$keyfile" -out "$csrfile" \
+          -subj "/CN=127.0.0.1" >/dev/null 2>&1
+        printf 'subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:false\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n' \
+          > "$leafextfile"
+        openssl x509 -req -in "$csrfile" -CA "$cacertfile" -CAkey "$cakeyfile" -CAcreateserial \
+          -out "$certfile" -days 1 -extfile "$leafextfile" >/dev/null 2>&1
+        # This script's own trust of the CA above, built with `openssl pkcs12` rather than
+        # `keytool` so this stays one dependency rather than two - `kcadm.sh --truststore` reads
+        # PKCS12, not a bare PEM.
+        openssl pkcs12 -export -nokeys -in "$cacertfile" -out "$truststorefile" \
+          -passout "pass:$trustpass" >/dev/null 2>&1
+        # One array, not a flag pair repeated at every `kcadm.sh` call site below: `provision`'s
+        # admin session is over `$base`, which is `https://...` now, and `kcadm.sh` trusts nothing
+        # by default - the CA this SAME script minted a moment ago is exactly what an unconfigured
+        # JVM refuses.
+        kcadm_trust=(--truststore "$truststorefile" --trustpass "$trustpass")
+
         # `set -m` puts the launch in its own process group; `stop` kills the group, because
         # `kc.sh` spawns the JVM rather than replacing itself with it.
         #
@@ -411,7 +534,9 @@ rec {
         ( exec {start_fd}>"$lockfile"
           flock -x "$start_fd"
           exec kc.sh start --optimized --cache=local --http-enabled=true --hostname-strict=false \
-            --http-host=127.0.0.1 --http-port=0 --http-management-port=0
+            --http-host=127.0.0.1 --http-port=0 --http-management-port=0 \
+            --https-certificate-file="$certfile" --https-certificate-key-file="$keyfile" \
+            --https-port=0
         ) >"$log" 2>&1 &
         echo "$!" > "$pidfile"
         set +m
@@ -588,7 +713,14 @@ rec {
       # Two subjects, because one is not the property `docs/adr/0008` draws.
       realm=.sutura-dev/keycloak-realm.json
       test "$(jq -r '.subjects | length' "$realm")" = 2
-      test "$(jq -r '.issuer' "$realm")" = "http://127.0.0.1:$port/realms/${realm}"
+      # The issuer is the realm's OWN `https://` loopback URL off the port the OS chose for the
+      # https listener - the same line `provision` reads (`published_https_port`), because the
+      # http port `endpoints.json` publishes and this https port are different OS choices and the
+      # realm file says nothing about the http one. `endpoints.json`'s own port is asserted above
+      # it is positive and loopback; it is the reachability address, not the issuer spelling.
+      https_port="$(sed -n 's|.*Listening on: .*https://127\.0\.0\.1:\([0-9]*\).*|\1|p' "$kc_home/server.log" | tail -1)"
+      test -n "$https_port"
+      test "$(jq -r '.issuer' "$realm")" = "https://127.0.0.1:$https_port/realms/${realm}"
 
       # --- A LOST PIDFILE ALONE DOES NOT PRODUCE A SECOND JVM ---
       # `github.com/telekom/sutura#528` item 1a: the old guard was `[ -f "$pidfile" ]` first, so

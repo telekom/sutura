@@ -4048,6 +4048,7 @@ name = "sutura-serve"
 version = "0.5.1"
 dependencies = [
  "axum",
+ "base64 0.23.1",
  "mimalloc",
  "serde_json",
  "sutura-app",
@@ -4064,6 +4065,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "ureq",
 ]
 
 [[package]]
