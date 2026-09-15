@@ -190,6 +190,12 @@ pub(crate) struct RawWorkloadIdentity {
     /// The OAuth scope the exchanged credential is minted for, e.g.
     /// `https://www.googleapis.com/auth/bigquery.readonly`.
     pub(crate) scope: String,
+    /// The declared subject -> service-account map for the second hop, telekom/sutura#376's
+    /// `iamcredentials.generateAccessToken` step. Absent or empty keeps today's bare exchange: a
+    /// subject with no entry here is never granted a fallback identity, refused instead - see
+    /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
+    #[serde(default)]
+    pub(crate) impersonate: std::collections::BTreeMap<String, String>,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.

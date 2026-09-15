@@ -194,7 +194,7 @@ fn executed_as(record: &CallRecord<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use sutura_domain::audit::{AuditSink as _, CallRecord};
-    use sutura_domain::identity::{Actor, ActorChain, Expiry, PrincipalChain, Subject, SubjectId};
+    use sutura_domain::identity::{Actor, ActorChain, Expiry, PrincipalChain, Subject};
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{RefusalReason, ToolOutcome};
 
@@ -267,9 +267,7 @@ mod tests {
         // filtering the rows - so a record naming the subject and the definition version and nothing
         // else cannot answer, afterwards, whose access produced the answer. The record says both.
         let outcome = an_answer_on_a_shared_source();
-        let chain = PrincipalChain::of(Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        });
+        let chain = PrincipalChain::of(Subject::verified("someone@example.com").expect("a test subject is a subject"));
         let rendered = crate::testing::capture(|| {
             TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
         });
@@ -348,9 +346,7 @@ mod tests {
     fn a_refused_question_is_recorded_with_its_chain() {
         // The half a log line gets wrong by omission. The chain is on the record as well as the
         // refusal variant, so a refusal is attributable rather than merely counted.
-        let chain = PrincipalChain::of(Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        });
+        let chain = PrincipalChain::of(Subject::verified("someone@example.com").expect("a test subject is a subject"));
         let rendered = written(&chain);
         assert!(rendered.contains("refused"), "{rendered}");
         assert!(rendered.contains("s***@e***.c***"), "{rendered}");
@@ -364,9 +360,7 @@ mod tests {
         // bytes. This is the domain's distinguishability test carried through to what is actually
         // emitted, because a type that can tell them apart and a writer that flattens both to the
         // same line would still lose the distinction.
-        let subject = || Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        };
+        let subject = || Subject::verified("someone@example.com").expect("a test subject is a subject");
         let alone = written(&PrincipalChain::of(subject()));
         let acted_for = written(
             &PrincipalChain::of(subject()).acting(
