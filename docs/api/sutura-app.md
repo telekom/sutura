@@ -446,8 +446,8 @@ sits ahead of `declared_keys::hold` and `verify_anchors` in the body below, and 
 ahead of `declared_keys::hold` is held INCIDENTALLY, by the `examples/authored-sql` cell: that
 catalog declares a relationship and attaches no data to it, so a block moved below `hold`
 fails there first, on `declared_keys::hold`'s own refusal, rather than on this one. Nothing
-separates the placement from `verify_anchors` alone, and no fixture's fake counts an anchor
-or a declared key that was never touched.
+separates the placement from `verify_anchors` alone, so no fixture's anchor or declared key is
+ever touched to prove that half of the ordering.
 
 ## `use SpendBudget`
 
