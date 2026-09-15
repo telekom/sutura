@@ -68,17 +68,14 @@ pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::identity::{ActorChain, Attribution, PrincipalChain, Subject, SubjectId};
+    use sutura_domain::identity::{ActorChain, Attribution, PrincipalChain, Subject};
 
     use crate::inbound::{Scopes, VerifiedCaller};
 
     use super::{established, of_verified};
 
     fn a_person() -> Subject {
-        Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-        }
+        Subject::verified("someone@example.com").expect("a test subject is a subject")
     }
 
     #[test]

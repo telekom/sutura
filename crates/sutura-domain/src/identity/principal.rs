@@ -275,6 +275,22 @@ impl fmt::Debug for SubjectKey {
     }
 }
 
+/// The two halves a verified subject carries, sealed behind one type so they cannot disagree.
+///
+/// A verified caller is rendered under the masked [`SubjectId`] (what a record shows) and looked
+/// up in an impersonating source's map under the full [`SubjectKey`] (the one read that must not
+/// be a masked projection) - and this is the only type that holds both. Its fields are private, so
+/// **no code outside this module can build one or seat a different value in either half**: the only
+/// door is [`Subject::verified`], which parses both from the same verified `sub` and returns them
+/// together. That is what makes the doc sentence ("can never disagree about who was verified") true
+/// by type rather than by recall - the enum's variant fields inherit the public enum's visibility,
+/// so a plain two-field variant could not have said that.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VerifiedPrincipal {
+    id: SubjectId,
+    key: SubjectKey,
+}
+
 /// Who a question is attributed to, and what established it.
 ///
 /// **Two variants and not one string, because the difference is the one that must never be guessable
@@ -291,11 +307,11 @@ pub enum Subject {
     /// to stand here said nothing constructed it, which had already stopped being true in one file
     /// and been carried to no other.
     ///
-    /// `id` is the masked [`SubjectId`] a record renders; `key` is the same verified `sub` retained
-    /// in full as a [`SubjectKey`], for the one read that must not collapse it - the
-    /// subject-to-account impersonation map (`docs/adr/0032`). The two come from the same parse at
-    /// construction and can never disagree about who was verified.
-    Verified { id: SubjectId, key: SubjectKey },
+    /// The payload is the one sealed [`VerifiedPrincipal`]: the masked [`SubjectId`] a record
+    /// renders and the full [`SubjectKey`] the subject-to-account map (`docs/adr/0032`) reads. Both
+    /// halves come from the same parse of the same `sub`, produced together by [`Subject::verified`]
+    /// - the only door, so they can never disagree about who was verified.
+    Verified(VerifiedPrincipal),
     /// No caller identity was established. The transport authenticated the deployment and not
     /// whoever asked, so the deployment is the only principal there is.
     ///
@@ -310,10 +326,26 @@ impl Subject {
     ///
     /// A `&'static str` from an exhaustive match rather than a `Display`, because it has to be a
     /// value a query over records can group by and a value nothing caller-supplied can collide with.
+    /// The single way a verified identity enters the process: one parse of the verified `sub`
+    /// yields both the masked [`SubjectId`] a record renders and the full [`SubjectKey`] the
+    /// subject-to-account impersonation map (`docs/adr/0032`) reads, sealed together in
+    /// [`VerifiedPrincipal`]. Because the two halves are produced here from the same input and no
+    /// other constructor exists, they can never disagree about who was verified.
+    pub fn verified(raw: &str) -> Result<Self, InvalidPrincipalId> {
+        Ok(Self::Verified(VerifiedPrincipal {
+            id: SubjectId::parse(raw)?,
+            key: SubjectKey::parse(raw)?,
+        }))
+    }
+
+    /// What established this subject, as a stable label for a record field.
+    ///
+    /// A `&'static str` from an exhaustive match rather than a `Display`, because it has to be a
+    /// value a query over records can group by and a value nothing caller-supplied can collide with.
     #[inline]
     pub const fn established(&self) -> &'static str {
         match *self {
-            Self::Verified { .. } => "verified",
+            Self::Verified(..) => "verified",
             Self::TheDeploymentItself => "deployment",
         }
     }
@@ -325,8 +357,8 @@ impl Subject {
     /// as an unnamed person.
     #[inline]
     pub const fn id(&self) -> Option<&SubjectId> {
-        match *self {
-            Self::Verified { ref id, .. } => Some(id),
+        match self {
+            Self::Verified(verified) => Some(&verified.id),
             Self::TheDeploymentItself => None,
         }
     }
@@ -336,8 +368,8 @@ impl Subject {
     /// itself, which has nothing to be exchanged for and is refused before it is ever looked up.
     #[inline]
     pub const fn key(&self) -> Option<&SubjectKey> {
-        match *self {
-            Self::Verified { ref key, .. } => Some(key),
+        match self {
+            Self::Verified(verified) => Some(&verified.key),
             Self::TheDeploymentItself => None,
         }
     }
@@ -655,20 +687,14 @@ impl RequestContext {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey,
-        TaskId,
-    };
+    use super::{Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId};
 
     fn actor(raw: &str) -> Actor {
         Actor::parse(raw).expect("a test actor is an actor")
     }
 
     fn a_person() -> Subject {
-        Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-            key: SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
-        }
+        Subject::verified("someone@example.com").expect("a test subject is a subject")
     }
 
     #[test]
@@ -748,10 +774,7 @@ mod tests {
         assert_eq!(nobody.subject().established(), "deployment");
         assert_eq!(nobody.subject().id(), None, "the deployment has no subject identifier");
 
-        let named_like_one = Subject::Verified {
-            id: SubjectId::parse("deployment").expect("a test subject is a subject"),
-            key: SubjectKey::parse("deployment").expect("a test subject is a subject"),
-        };
+        let named_like_one = Subject::verified("deployment").expect("a test subject is a subject");
         assert_eq!(named_like_one.established(), "verified");
         assert_ne!(named_like_one, Subject::TheDeploymentItself);
     }

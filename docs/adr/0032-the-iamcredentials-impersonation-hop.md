@@ -40,7 +40,11 @@ the same reasoning `docs/adr/0031` already gives for `(audience, scope)`: the ta
 "what was asked for", and a subject permitted to impersonate more than one account depending on
 requested scope must not have one account's cached credential served for another. Two round trips
 (STS, then `iamcredentials`) are cached as the one entry the FINAL credential is - not two entries for
-one leg.
+one leg. Carrying the full `SubjectKey` in the chain is what makes the key mask-safe, too: because the
+chain now holds the verified `sub` itself rather than a masked projection, two subjects whose masks
+collide (any two opaque `sub`s sharing a first character) are two distinct `ExchangeKey`s and each
+pays its own exchange - the pre-existing ADR 0031 defect of serving one caller another's cached
+credential on a mask collision is closed as a side effect, held by `two_subjects_with_a_colliding_mask_pay_two_exchanges`.
 
 **The audit trail's limit, stated rather than left implied.** The resolved service account is not
 threaded onto `sutura_domain::audit::CallRecord` or `Provenance` in this change.

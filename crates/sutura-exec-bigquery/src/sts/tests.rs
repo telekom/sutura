@@ -6,7 +6,7 @@
 
 use sutura_domain::identity::{
     Agreed, CredentialBroker as _, CredentialsDoNotFitTheRequest, Expiry, Minted, Presented, PrincipalChain, RequestContext,
-    Secret, SourceSet, Subject, SubjectId, SubjectKey,
+    Secret, SourceSet, Subject, SubjectKey,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
@@ -114,10 +114,7 @@ fn caller(assertion: Option<&str>) -> RequestContext {
 /// collision cells, which need a caller whose MASK collides with `someone@example.com`'s
 /// (`steve@example.com` masks identically to `s***@e***.c***`) while its FULL subject differs.
 fn caller_with(raw: &str, assertion: Option<&str>) -> RequestContext {
-    let chain = PrincipalChain::of(Subject::Verified {
-        id: SubjectId::parse(raw).expect("a test subject is a subject"),
-        key: SubjectKey::parse(raw).expect("a test subject is a subject"),
-    });
+    let chain = PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject"));
     match assertion {
         Some(raw) => RequestContext::with_assertion(chain, Secret::new(raw)),
         None => RequestContext::of(chain),

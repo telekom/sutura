@@ -172,7 +172,7 @@ mod tests {
     use sutura_domain::warehouse::{PreFlight, Warehouse};
 
     use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+        Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
     };
     use sutura_domain::source::SourcePosture;
     use sutura_exec_bigquery::{BigQueryWarehouse, WorkloadIdentity, WorkloadIdentityBroker};
@@ -843,12 +843,7 @@ mod tests {
         // One subject id per principal: the token is what STS exchanges, the subject is how this
         // answer is recorded - built twice, once for each check.
         let rows_for = |token: &str, id: &str| -> Vec<(String, String)> {
-            let chain = |id: &str| {
-                PrincipalChain::of(Subject::Verified {
-                    id: SubjectId::parse(id).expect("a subject id parses"),
-                    key: sutura_domain::identity::SubjectKey::parse(id).expect("a subject id parses"),
-                })
-            };
+            let chain = |id: &str| PrincipalChain::of(Subject::verified(id).expect("a subject id parses"));
             let context = RequestContext::with_assertion(chain(id), Secret::new(String::from(token)));
             let minted = broker
                 .mint(&context, &SourceSet::of(source()))

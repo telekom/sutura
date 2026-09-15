@@ -319,7 +319,7 @@ mod tests {
 
     use sutura_domain::identity::{
         Actor, ActorChain, CredentialBroker as _, Expiry, Minted, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
-        SubjectId, TaskId,
+        TaskId,
     };
     use sutura_domain::model::SourceName;
 
@@ -339,10 +339,7 @@ mod tests {
     }
 
     fn subject(id: &str) -> Subject {
-        Subject::Verified {
-            id: SubjectId::parse(id).expect("a test subject id is a subject id"),
-            key: sutura_domain::identity::SubjectKey::parse(id).expect("a test subject id is a subject id"),
-        }
+        Subject::verified(id).expect("a test subject id is a subject id")
     }
 
     fn workload() -> WorkloadIdentity {
@@ -494,6 +491,45 @@ mod tests {
         // stay at 1 - which is exactly the cross-subject leak this key shape exists to make
         // unrepresentable.
         assert_eq!(calls.get(), 2, "two different subjects must each pay their own round trip");
+    }
+
+    #[test]
+    fn two_subjects_with_a_colliding_mask_pay_two_exchanges() {
+        // Two opaque numeric `sub`s whose masks are the SAME (`1***`): exactly the collision the
+        // pre-hop cache served each other's credential under, because it keyed on the chain and the
+        // chain then carried only the masked projection. Today the chain carries the full
+        // `SubjectKey` for the access-control read, so two subjects that look identical when
+        // rendered still live in two cache entries - a second mint for one is never served the
+        // other's credential.
+        let (exchange, calls) = CountingExchange::lasting(600);
+        let broker = broker_with_cache(exchange, 8, 300);
+
+        assert_eq!(
+            subject("12345").id().map(ToString::to_string),
+            Some("1***".to_owned()),
+            "the fixture must really be a mask collision, or this cell proves nothing"
+        );
+        assert_eq!(
+            subject("1abc").id().map(ToString::to_string),
+            Some("1***".to_owned()),
+            "the fixture must really be a mask collision, or this cell proves nothing"
+        );
+
+        let _a = broker
+            .mint(&context_for(subject("12345")), &one_source())
+            .expect("a fixture mint does not error");
+        let _b = broker
+            .mint(&context_for(subject("1abc")), &one_source())
+            .expect("a fixture mint does not error");
+
+        // If the key collapsed the two callers' chain to their shared mask, `1abc` would hit
+        // `12345`'s entry and this would stay at 1 - the cache serving one caller the other's
+        // exchanged credential. Seating the key on the masked form makes this greened red.
+        assert_eq!(
+            calls.get(),
+            2,
+            "a mask collision must not collapse two callers into one cache entry"
+        );
     }
 
     #[test]
