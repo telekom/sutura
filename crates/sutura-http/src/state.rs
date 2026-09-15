@@ -83,16 +83,16 @@ pub struct ServiceState {
 /// The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
 /// `sutura-mcp` type a transport crate composes.
 ///
-/// Built by the composition root from `sutura_mcp::http::service`. It is kept as an `axum::Router`
-/// (the transport nested at the router's own root) rather than tower's `BoxCloneService`: this
-/// crate's `ServiceState` must be `Sync` (`OpenApiRouter`'s state bound), and tower's boxed clone
-/// service erases only `+ Send`, whereas `axum::Router` is genuinely `Clone + Send + Sync` and
-/// implements `tower::Service` itself - so `crate::router` can `nest_service` it at `AGENT_MOUNT_PATH`
-/// behind the same layers the versioned surface runs behind, still without naming a `sutura-mcp` type.
+/// Built by the composition root from `sutura_mcp::http::service`. It is kept as an [`Ungoverned`]
+/// value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+/// rather than tower's `BoxCloneService` for the reason [`Self::new`] states) so the path
+/// [`Ungoverned::mount`] was given travels with the router end to end - this type never unfuses the
+/// two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+/// than the one the transport actually answers on.
 #[cfg(feature = "agent")]
 #[derive(Clone)]
 pub struct AgentMount {
-    router: axum::Router,
+    mount: Ungoverned,
 }
 
 #[cfg(feature = "agent")]
@@ -104,8 +104,9 @@ impl AgentMount {
     /// requires `T::Response: IntoResponse` rather than `Response<Body>`, and the
     /// `StreamableHttpService` a transport crate hands over yields `Response<BoxBody<…>>`, so the
     /// wrapper must not pin the response body. `crate::router` applies the leg 1 and `establish_asked`
-    /// layers around this router with `route_layer`, then `assemble` merges it. Cloning the router
-    /// shares one underlying transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
+    /// layers around this router with [`Ungoverned::layered`]/[`Ungoverned::try_layered`], then
+    /// `assemble` merges and records it in one call. Cloning the router shares one underlying
+    /// transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
     #[must_use]
     pub fn new<S>(service: S) -> Self
     where
@@ -119,19 +120,25 @@ impl AgentMount {
     {
         // The one physical `nest_service` in this crate or `sutura-serve` lives inside
         // `Ungoverned::mount`, which is what makes an ungoverned mount and its allowlist row one
-        // value (`xtask::boundaries::ungoverned` holds that it is the only call site).
+        // value (`xtask::boundaries::ungoverned` holds that it is the only call site). Kept as the
+        // `Ungoverned` value itself, not unfused into a bare `Router` here - see the struct doc.
         Self {
-            router: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service).router(),
+            mount: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service),
         }
     }
 
-    /// A clone of the mounted router, for `crate::router` to layer and merge into the assembly.
+    /// A clone of the fused mount, for `crate::router::agent_subtree` to layer and merge into the
+    /// assembly.
     ///
+    /// Hands back the whole [`Ungoverned`] value rather than its router, so a caller can only
+    /// transform it via [`Ungoverned::layered`]/[`Ungoverned::try_layered`] (which carry `path`
+    /// forward untouched) or extract it via [`Ungoverned::merge_into`] (which merges and records in
+    /// one call) - there is no accessor here that hands back a bare, re-fusable `Router`.
     /// `axum::Router` clones share one underlying transport, so nesting several routers over one
     /// mount are one mounted transport - the same property `sutura_mcp::http::service`'s own clone
     /// carries.
-    pub(crate) fn router(&self) -> axum::Router {
-        self.router.clone()
+    pub(crate) fn ungoverned(&self) -> Ungoverned {
+        self.mount.clone()
     }
 }
 

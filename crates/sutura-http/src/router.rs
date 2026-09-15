@@ -628,15 +628,26 @@ fn inbound_layered(
     )))
 }
 
-/// An ungoverned subtree, fused with the allowlist row that names it.
+/// An ungoverned subtree, fused with the path it was mounted at.
 ///
 /// The only way anything outside the governed subtree is mounted, and therefore the ALLOWLIST'S
 /// MECHANISM rather than the recorder's memory. [`agent_subtree`] produces one of these and
 /// `assemble` consumes it via [`Self::merge_into`] - the merge and the path [`check_ungoverned`]
-/// must see are ONE call, so a subtree that is merged into the router is, by construction,
-/// recorded, and an unrecorded merge cannot be expressed. The structural half lives in
-/// `xtask::boundaries::ungoverned`, which refuses a `.nest`/`.nest_service`/
-/// `.route_service` anywhere in `sutura-http` or `sutura-serve` except [`Self::mount`].
+/// must see are ONE call, so a subtree that is merged into the router is, by construction, recorded.
+///
+/// **What holds that, precisely:** no method on this type hands back a bare [`Router`] - [`Self::mount`]
+/// builds the value, [`Self::layered`]/[`Self::try_layered`] transform the fused router IN PLACE while
+/// `path` travels with it unread and unrewritten, and [`Self::merge_into`] is the only way to extract
+/// the router at all, and it extracts by merging and recording in the same statement. So a caller
+/// holding an `Ungoverned` cannot merge it without recording it, and cannot re-fuse its router under a
+/// different literal path than the one [`Self::mount`] was given - the two mutation-table cells
+/// `sutura/gates` names (an unrecorded `.merge`, and a mount recorded under a path other than the one
+/// it serves) are both refused by this shape rather than by a caller's discipline.
+///
+/// The structural half lives in `xtask::boundaries::ungoverned`, which refuses a
+/// `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and a wildcard `.route` anywhere in
+/// `sutura-http` or `sutura-serve` except inside [`Self::mount`] - a backstop for a mount primitive
+/// written with no `Ungoverned` in sight at all, not for what this type already holds.
 #[cfg(feature = "agent")]
 #[derive(Clone, Debug)]
 pub(crate) struct Ungoverned {
@@ -667,14 +678,21 @@ impl Ungoverned {
         }
     }
 
-    /// The same value around an already-nested router, for [`agent_subtree`]'s layered subtree.
-    pub(crate) const fn new(path: &'static str, router: Router) -> Self {
-        Self { router, path }
+    /// Applies `f` to the fused router while `path` travels with the value unread - a layer added
+    /// here cannot relabel what it is layering.
+    pub(crate) fn layered(self, f: impl FnOnce(Router) -> Router) -> Self {
+        Self {
+            router: f(self.router),
+            path: self.path,
+        }
     }
 
-    /// A clone of the fused router, for a layer to wrap before the value is merged and recorded.
-    pub(crate) fn router(&self) -> Router {
-        self.router.clone()
+    /// The fallible form, for a layer that can itself refuse to attach (leg 1's own gate check).
+    pub(crate) fn try_layered<E>(self, f: impl FnOnce(Router) -> Result<Router, E>) -> Result<Self, E> {
+        Ok(Self {
+            router: f(self.router)?,
+            path: self.path,
+        })
     }
 
     /// Merges this ungoverned subtree into `router` AND records its path, in one call.
@@ -682,7 +700,7 @@ impl Ungoverned {
     /// This is the atomicity that makes the allowlist structural rather than recorder's recall: a
     /// bare `merge` has no route to the fused router except this method's own merge, so a subtree
     /// that is merged is, by construction, handed to [`check_ungoverned`]. An unrecorded merge
-    /// cannot be expressed.
+    /// cannot be expressed, because nothing else on this type returns a bare `Router`.
     pub(crate) fn merge_into(self, router: &mut Router, recorded: &mut Vec<&'static str>) {
         *router = router.clone().merge(self.router);
         recorded.push(self.path);
@@ -701,7 +719,9 @@ impl Ungoverned {
 ///
 /// Returns `Option<Ungoverned>` rather than a bare router so the mount and its allowlist row stay
 /// one value end to end: `assemble` merges what this hands back and records the path it rides
-/// inside, and the type (not the recorder) is what stops them drifting.
+/// inside. The path itself is never restated here - [`Ungoverned::layered`]/[`Ungoverned::try_layered`]
+/// carry forward whatever [`state::AgentMount::new`](crate::state::AgentMount::new) mounted at, so
+/// this function cannot record a path other than the one the transport is actually nested under.
 #[cfg(feature = "agent")]
 fn agent_subtree(
     state: &ServiceState,
@@ -713,11 +733,11 @@ fn agent_subtree(
     if declared.is_none() {
         return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
     }
-    let subtree = mount
-        .router()
-        .route_layer(axum::middleware::from_fn(crate::capability::establish_asked));
-    let subtree = inbound_layered("agent", subtree, state, declared)?;
-    Ok(Some(Ungoverned::new(crate::constants::AGENT_MOUNT_PATH, subtree)))
+    let mount = mount
+        .ungoverned()
+        .layered(|router| router.route_layer(axum::middleware::from_fn(crate::capability::establish_asked)));
+    let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
+    Ok(Some(mount))
 }
 
 /// The generated document and the browser interface over it, or an empty router.
