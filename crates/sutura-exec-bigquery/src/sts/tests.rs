@@ -723,8 +723,8 @@ fn the_hop_requests_the_bounded_lifetime_not_an_operator_chosen_ceiling() {
     let WorkloadIdentityBroker { impersonation, .. } = &broker;
     assert_eq!(
         impersonation.the_one_lifetime_asked(),
-        super::IMPERSONATED_LIFETIME,
-        "the broker must request the bounded ceiling, whatever the mutation widened it to"
+        Duration::from_secs(3_600),
+        "the broker must request the bounded ceiling, whatever the constant was mutated to (M7)"
     );
 }
 
