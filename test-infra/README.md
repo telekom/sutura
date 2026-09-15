@@ -25,7 +25,15 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   broker that performs sutura's exchange (`StsOverHttp`) sends an RFC 8693 `jwt` subject
   token, which is exactly the shape workload-pool OIDC providers accept (and workforce pools
   do not). The exported `workload_audience` is what a deployment declares as
-  `sources.<alias>.workload_identity.audience`.
+  `sources.<alias>.workload_identity.audience`;
+- two `roles/iam.workloadIdentityUser` bindings, one per principal, granting each principal's
+  pool subject the right to impersonate its own service account. That binding is what turns the
+  STS-exchanged credential from a federated `principal://.../subject/...` into the service
+  account's own identity: without it an `iamcredentials.generateAccessToken` hop is refused and
+  `SESSION_USER()` keeps reading the federated subject, never the principal's account the
+  exchanged-identity cell asserts against. Each member is keyed by that principal's own account
+  id (`unique_id`) - the `sub` its minted id_token carries and hence the pool subject it resolves
+  to - so a principal can impersonate only itself.
 
 ## Setup (one time, per developer or CI)
 

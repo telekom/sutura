@@ -417,6 +417,38 @@ audience = pulumi.Output.concat(
     workload_provider.workload_identity_pool_provider_id,
 )
 
+# The iamcredentials hop - telekom/sutura#376. After STS exchanges a subject's token to a pool
+# principal, an `iamcredentials.generateAccessToken` call on that principal's OWN service account
+# is what turns the exchanged credential into that ACCOUNT - `SESSION_USER()` reads the account's
+# email, not the `principal://...` federated string it would else produce. The comparison that
+# names the answer is `each_principal_is_who_this_source_says_it_is_executing_as`, which a federated
+# string can never satisfy, so without these bindings every exchange resolves to a federated pool
+# subject and never the principal.
+#
+# Authorized by `roles/iam.workloadIdentityUser`, bound to the pool SUBJECT of that account - the
+# member the account's minted id_token `sub` (its numeric `unique_id`, via
+# `google.subject <- assertion.sub`) resolves to - so each principal may impersonate only itself.
+# The member uses the project NUMBER, the form Google requires for a workload identity pool
+# principal (the project id is not accepted), resolved here from the configured project id.
+project_number = gcp.organizations.get_project(project=project).number
+for tag, sa in (("a", sa_a), ("b", sa_b)):
+    gcp.serviceaccount.IAMMember(
+        f"principal-{tag}-workload-identity-user",
+        service_account_id=sa.email,
+        role="roles/iam.workloadIdentityUser",
+        member=pulumi.Output.concat(
+            "principal://iam.googleapis.com/projects/",
+            project_number,
+            "/locations/global/workloadIdentityPools/",
+            workload_pool.workload_identity_pool_id,
+            "/subject/",
+            sa.unique_id,
+        ),
+        opts=pulumi.ResourceOptions(
+            provider=gcp_provider, depends_on=[sa, workload_pool]
+        ),
+    )
+
 
 # --------------------------------------------------------------------------- #
 # Outputs - the values the CI job and sutura-config consume. Keys are secrets.
