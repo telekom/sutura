@@ -157,7 +157,11 @@ pub(crate) fn run() -> Result<(), String> {
     let outbound = outbound_anchors(&settings)?;
 
     // 6. The adapters, then the service. Both ports are named exactly here.
-    let catalogs = catalog::open_catalog(settings.catalogs())?;
+    // The ONE boot-time `outbound` value flows to BOTH the catalog adapter and the source wire: a
+    // deployment that declares `security.outbound.transport_anchors` verifies its `datahub` catalog
+    // reader against the same CA set its `bigquery` wire is verified against - never a second read
+    // of the bundle (`outbound_anchors` resolved it once, above).
+    let catalogs = catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = catalog::load(&catalogs)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.

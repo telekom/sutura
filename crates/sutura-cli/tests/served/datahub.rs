@@ -57,8 +57,14 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::io::{Read as _, Write as _};
+    use std::net::{TcpListener, TcpStream};
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
 
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use sutura_catalog_datahub::test_support::{DEPLOYMENT_PROPERTY, FakeServer, happy_path_answers};
 
     use crate::harness::{LOOPBACK, SINGLE_USER, TOKEN, VERSION, config_path, derived_beside, start_configured, v1};
@@ -108,6 +114,15 @@ mod tests {
 
         fn token_file(&self) -> PathBuf {
             self.0.join("token")
+        }
+
+        /// Writes a declared `security.outbound.transport_anchors` PEM bundle into this data
+        /// directory (a sibling of the settings directory, which `written()` clears), returning its
+        /// absolute path - the path a deployment's `security.outbound` names.
+        fn bundle_file(&self, name: &str, certificate: &rcgen::Certificate) -> PathBuf {
+            let path = self.0.join(name);
+            std::fs::write(&path, certificate.pem()).expect("the anchor bundle is writable");
+            path
         }
     }
 
@@ -202,5 +217,184 @@ mod tests {
                 .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
             "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
         );
+    }
+
+    /// **The boot-line cell that holds the CATALOG seam of #742's review-held limit**: a
+    /// `catalog.kind: datahub` deployment whose endpoint dials an HTTPS loopback fake (leaf issued
+    /// by a CA the deployment declares as `security.outbound.transport_anchors`) BOOTS and answers -
+    /// proving the served binary threads its ONE boot-time `outbound` value into the catalog reader,
+    /// whose handshake against the declared CA is what lets the catalog load at all. A reader that
+    /// ignored the anchors (or a composition root that never handed them over) would refuse the
+    /// self-signed leaf at CATALOG LOAD and the process would never report listening. This closes
+    /// only the CATALOG half of #742's limit; the STS/job seam (`broker.rs:101`) stays
+    /// review-held - handing the STS agent `None` still passes the whole suite.
+    ///
+    /// **RED/GREEN.** Removing the `outbound` threading from `sutura-serve/src/catalog.rs` (or
+    /// dropping the `.tls_config(..)` arm from the reader) makes the boot handshake refuse the
+    /// leaf, `refused_to_start` fires, and this test goes red. GREEN is boot + the same certified
+    /// answer the plaintext sibling asserts.
+    ///
+    /// **The fake and the corpus.** A loopback TLS server presenting an `rcgen`-issued IP-SAN leaf
+    /// and answering the SAME `happy_path_answers()` (twice - `catalog::load` plus
+    /// `LocalService::start_composed` read the three pages each, exactly as the plaintext sibling
+    /// reasons), so a deployment declaring that leaf's own certificate as its anchor stores
+    /// verifies it. `security.outbound` is anchors only, so no client identity is involved.
+    #[test]
+    fn a_declared_anchor_bundle_lets_the_served_datahub_catalog_boot_and_answer() {
+        let case = "datahub-answer-anchored";
+        let data = DataDir::prepared(case);
+        let issued = issue();
+        let bundle = data.bundle_file("declared-root.pem", &issued.certificate);
+        let mut answers = happy_path_answers();
+        answers.extend(happy_path_answers());
+        let tls = TlsDataHub::start(&issued, answers);
+        let deployment = start_configured(case, &settings_with_anchors(&tls, &data, &bundle));
+
+        let reply = deployment.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), QUESTION);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body["outcome"], "answer", "{}", reply.body);
+        assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "412345"]]));
+    }
+
+    /// A self-signed leaf whose SAN names the IP literal the endpoint dials (`127.0.0.1`): server
+    /// name verification is by dial, so the SAN must match the literal in the declared `endpoint`.
+    struct Issued {
+        certificate: rcgen::Certificate,
+        key: rcgen::KeyPair,
+    }
+
+    fn issue() -> Issued {
+        // `CertificateParams::new` turns a SAN string that parses as an IP into
+        // `SanType::IpAddress` - the SAN rustls checks an IP dial against.
+        let params =
+            rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP subject alternative name parameterizes");
+        let key = rcgen::KeyPair::generate().expect("a key pair generates");
+        let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
+        Issued { certificate, key }
+    }
+
+    fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
+        let chain: Vec<CertificateDer<'static>> = vec![issued.certificate.der().clone()];
+        let key = PrivateKeyDer::try_from(issued.key.serialize_der()).expect("a generated key is a usable private key");
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        Arc::new(
+            rustls::ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .expect("the default protocol versions are safe")
+                .with_no_client_auth()
+                .with_single_cert(chain, key)
+                .expect("a freshly generated chain and its own key are a usable pair"),
+        )
+    }
+
+    /// A loopback TLS `DataHub` fake answering the given scripted pages, presenting one leaf. The
+    /// deployment's catalog is read twice (load plus serve), so the corpus below carries six pages.
+    struct TlsDataHub {
+        addr: std::net::SocketAddr,
+        handle: Option<thread::JoinHandle<()>>,
+    }
+
+    impl TlsDataHub {
+        fn start(issued: &Issued, answers: Vec<sutura_catalog_datahub::test_support::Scripted>) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
+            let addr = listener.local_addr().expect("a bound listener has a local address");
+            let config = server_config(issued);
+            let handle = thread::spawn(move || serve_until(&listener, &config, &answers));
+            Self {
+                addr,
+                handle: Some(handle),
+            }
+        }
+    }
+
+    impl Drop for TlsDataHub {
+        fn drop(&mut self) {
+            let _ignored = self.handle.take();
+        }
+    }
+
+    fn serve_until(
+        listener: &TcpListener,
+        config: &Arc<rustls::ServerConfig>,
+        answers: &[sutura_catalog_datahub::test_support::Scripted],
+    ) {
+        let _ignored = listener.set_nonblocking(true);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut next = 0;
+        while next < answers.len() && Instant::now() < deadline {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // On Darwin, an accepted socket inherits the LISTENER's non-blocking flag -
+                    // undone here so the read/write calls below block normally rather than
+                    // racing a `WouldBlock` mid-handshake or mid-response.
+                    let _ignored = stream.set_nonblocking(false);
+                    serve_connection(stream, config, &answers[next]);
+                    next += 1;
+                }
+                Err(cause) if cause.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn serve_connection(
+        stream: TcpStream,
+        config: &Arc<rustls::ServerConfig>,
+        answer: &sutura_catalog_datahub::test_support::Scripted,
+    ) {
+        let mut tcp: TcpStream = stream;
+        let mut connection = rustls::ServerConnection::new(Arc::clone(config)).expect("a server connection builds");
+        {
+            let mut tls = rustls::Stream::new(&mut connection, &mut tcp);
+            let mut request = [0_u8; 2048];
+            let _ignored = tls.read(&mut request);
+            let head = format!(
+                "HTTP/1.1 {} OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                answer.status_code(),
+                answer.body().len()
+            );
+            let _ignored = tls.write_all(head.as_bytes());
+            let _ignored = tls.write_all(answer.body());
+        }
+        // A graceful `close_notify` before the socket drops - see `http_reader.rs`'s own
+        // `serve_connection` for why an abrupt drop reads as `UnexpectedEof` on the client side.
+        connection.send_close_notify();
+        let _ignored = connection.complete_io(&mut tcp);
+    }
+
+    /// The settings for the anchored boot-line cell - the plaintext sibling's [`settings`], with the
+    /// endpoint dialed over `https://` and a `security.outbound.transport_anchors` naming the CA
+    /// that signed the fake's leaf. Absolute bundle path (a relative one is refused).
+    fn settings_with_anchors(tls: &TlsDataHub, data: &DataDir, bundle: &Path) -> String {
+        let anchors = format!("  outbound:\n    transport_anchors: \"{}\"\n", bundle.display());
+        format!(
+            "server:\n\
+             {LOOPBACK}\
+             security:\n\
+             {SINGLE_USER}  access_token: \"{TOKEN}\"\n\
+             {ANCHORS}telemetry:\n  \
+               format: \"bunyan\"\n\
+             catalogs:\n  \
+               - name: \"{CATALOG}\"\n    \
+                 kind: \"datahub\"\n    \
+                 dir: \"/unused-for-datahub\"\n    \
+                 data_dir: \"/unused-for-datahub\"\n    \
+                 version: \"{VERSION}\"\n    \
+                 endpoint: \"https://{addr}\"\n    \
+                 token_file: \"{token_file}\"\n    \
+                 metric_property: \"{DEPLOYMENT_PROPERTY}\"\n\
+             sources:\n  \
+               {CATALOG}:\n    \
+                 kind: \"files\"\n    \
+                 data_dir: \"{data_dir}\"\n    \
+                 posture: \"shared-service-user\"\n",
+            addr = tls.addr,
+            token_file = data.token_file().display(),
+            data_dir = data.0.display(),
+            ANCHORS = anchors,
+        )
     }
 }

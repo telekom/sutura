@@ -64,6 +64,21 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # check rather than the four `cross` link builds and a developer's memory.
 bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
 
+# Loads and drops a real fixture table over BigQuery - `sutura-exec-bigquery`'s own `fixtures`
+# feature, turned on here for `just e2e-datahub-bigquery` alone. Arrived from `sutura-serve`'s
+# manifest at the fold.
+#
+# **Kept off `bigquery` itself, on purpose.** `fixtures` is a write path (`CREATE OR REPLACE TABLE`
+# / `DROP TABLE`) this binary's composition root (`src/sources/bigquery.rs`) never calls - nothing
+# routes an HTTP request to it - and `sutura-exec-bigquery`'s own doc for it says "no shipped build
+# holds it". Folding it into `bigquery` would make that false for the one build that DOES turn
+# `bigquery` on alone: `nix/shipped.nix`'s `probeFeatures`, which measures the operator-facing
+# adapter's own cost. A separate feature keeps that probe measuring exactly what `--features
+# bigquery` means for an operator, while `--all-features` - what `just lint`, `just test`, `just
+# e2e-datahub-bigquery` and every nix check already pass - still turns this on too, since that flag
+# enables every feature this manifest declares.
+bigquery-e2e-fixtures = ["bigquery", "sutura-exec-bigquery/fixtures"]
+
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
 # **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
@@ -223,6 +238,15 @@ base64 = { workspace = true }
 # fixture `sutura-http` drives its router tests from - the feature is named because it is
 # default-off in that crate.
 sutura-dev = { workspace = true, features = ["mock-issuer"] }
+# The boot-line TLS anchors cell (`tests/served/datahub.rs`): a real `rustls` loopback server
+# presenting an `rcgen`-issued IP-SAN leaf whose CA a composed `datahub` deployment declares as
+# `security.outbound.transport_anchors`, so the served binary's catalog boot proves the anchored
+# handshake against the same corpus its plaintext sibling serves. Both are already pinned at the
+# workspace root and resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure, so this
+# adds no new package and dev-edges are exempt from the shipped-features gate. Folded from
+# `sutura-serve`'s manifest by `github.com/telekom/sutura#685` step 2 at #768's merge.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true

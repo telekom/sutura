@@ -31,7 +31,7 @@ fn a_datahub_catalog_with_no_token_file_is_refused_naming_it() {
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::super::catalog::open_catalog(&catalogs).expect_err("no endpoint was declared");
+    let err = super::super::catalog::open_catalog(&catalogs, None).expect_err("no endpoint was declared");
     assert!(err.contains("endpoint"), "{err}");
     assert!(
         !err.contains("--features datahub"),
@@ -79,7 +79,7 @@ fn a_datahub_catalog_with_a_plaintext_endpoint_beyond_loopback_is_refused() {
     )
     .expect("a non-empty endpoint, token_file and metric_property are all this type checks");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::super::catalog::open_catalog(&catalogs).expect_err("a plaintext non-loopback endpoint is refused");
+    let err = super::super::catalog::open_catalog(&catalogs, None).expect_err("a plaintext non-loopback endpoint is refused");
     assert!(err.contains("datahub.example.internal"), "{err}");
     assert!(err.contains("endpoint"), "{err}");
 }

@@ -44,7 +44,19 @@ pub(crate) const TASKS: &[Task] = &[
         name: "check-hook-tiers",
         description: "the pre-push stage runs only the security checks, and compiles nothing",
         kind: Kind::Hygiene(Reads::Code),
-        falsifier: Falsifier::declared_in_programme(),
+        // A real own-rule seed, not the placeholder: `default_install_hook_types:` drops
+        // `commit-msg` while the push stage stays security-only, so `decide_install_types` is
+        // the only thing that can fail this tree - `decide` alone would pass it. Without this,
+        // the falsifier tree carries no `.pre-commit-config.yaml` at all, and `run` refuses on
+        // the missing-file arm before either rule is reached - the bare exit code says nothing
+        // about the two rules this gate exists for, exactly `telekom/sutura#371`'s residue.
+        falsifier: Falsifier {
+            seeds: &[(
+                hooks::CONFIG,
+                "default_install_hook_types: [pre-commit, pre-push]\ndefault_stages: [pre-commit]\nrepos:\n  - repo: local\n    hooks:\n      - id: secret-sweep\n        entry: bash nix/run-gate.sh secrets\n        stages: [pre-push]\n      - id: cargo-deny\n        entry: bash nix/run-gate.sh supply-chain\n        stages: [pre-push]\n",
+            )],
+            in_scope: Some(hooks::CONFIG),
+        },
         run: hooks::run,
     },
     Task {

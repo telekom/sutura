@@ -15,7 +15,7 @@ description = "A SemanticCatalog adapter over DataHub's entity aspects: a DECLAR
 # `.agents/skills/sutura/crate-map/SKILL.md`'s "Why a networked adapter hides behind a default-off
 # feature". `dep:ureq` rather than a plain feature name, so the optional dependency below has no
 # feature of its own a caller could enable without meaning to.
-http = ["dep:ureq"]
+http = ["dep:ureq", "dep:sutura-tls"]
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -27,6 +27,17 @@ thiserror = { workspace = true }
 # nothing new enters `Cargo.lock` - the same argument `docs/adr/0018` makes, and
 # `cargo xtask check-shared-client` is what holds it.
 ureq = { workspace = true, optional = true }
+# The loaded outbound trust anchors a deployment's `security.outbound.transport_anchors` resolves to,
+# behind the same default-off `http` feature as `ureq`: replacing `ureq`'s compiled-in roots with a
+# deployment's own CA is a TLS-decision, so it arrives with the TLS stack and not in the `serde +
+# thiserror + sutura-domain` library closure. Normal (not dev), because `src/http.rs`'s constructor
+# folds the loaded certificates into `ureq`'s own `RootCerts` at runtime, not in a test.
+#
+# **`sutura-tls` carries no network client** - it reads bytes and returns `CertificateDer`; which
+# ureq-based adapter turns those bytes into `ureq::tls::RootCerts` is each adapter's own decision,
+# stated in that crate's module header. This crate makes the same fold `sutura-exec-bigquery`'s
+# `wire/tls.rs` makes, over the same `LoadedAnchors`.
+sutura-tls = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The compiler: the multi-player example test (`tests/multi_player.rs`) proves the recorded
@@ -43,6 +54,15 @@ sutura-semantic = { workspace = true }
 # and a developer running `just test` without `--features http` should still get the first.
 sutura-dev = { workspace = true }
 ureq = { workspace = true }
+# The TLS handshake cells (`tests/http_reader.rs::tls_anchors`, behind the `http` feature): a real
+# `rustls::ServerConnection` on a loopback `TcpListener` presenting an `rcgen`-issued self-signed
+# leaf, dialled by the reader's own `ureq::Agent` built from a declared bundle - the same fixture
+# shape `sutura-exec-bigquery`'s `wire/tests/tls.rs`, `sutura-tls`'s own suite and
+# `sutura-exec-postgres`'s hermetic negative all rest on. Both are already pinned at the workspace
+# root (and already resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure), so this
+# adds no new package and dev-edges are exempt from the shipped-features gate.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 [lints]
 workspace = true
