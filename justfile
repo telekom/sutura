@@ -602,8 +602,10 @@ bigquery-exchanged-identity:
     echo "bigquery-exchanged-identity: no workflow runs it - see the test file's header for what is missing."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only -E 'binary(exchanged_identity)'
 
-# The one cell that needs a REAL identity provider rather than the mock - a real RS256 signature, a
-# real JWKS document, a real discovery document, none of which `sutura_dev::issuer` can generate.
+# The one cell that needs a REAL identity provider rather than the mock - a real RS256 signature
+# over a real JWKS document, neither of which `sutura_dev::issuer` can generate. The binary reads
+# the JWKS as its `key_set_file`; the HARNESS fetched it over HTTPS, nobody reads a discovery
+# document here.
 # `#[ignore]`d, so `just test` never reaches it: `nix/keycloak-tier.nix`'s own header names the JVM
 # boot as a cost every `cargo nextest run` should not pay, and `sutura_dev::provisioned::here`'s
 # skip/fail flag is shared with the Postgres tier - see `crates/sutura-serve/tests/served/harness/
@@ -620,8 +622,14 @@ keycloak-served-test:
     set -euo pipefail
     echo "keycloak-served-test: scope sutura-serve - the one composed-binary cell over a real Keycloak tier."
     echo "keycloak-served-test: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    # Tear down only a tier THIS recipe started. `status` answers 0 (up - not ours), 3 (a JVM runs
+    # but is unclaimed - not ours either) or 1 (nothing running - our cold start owns the teardown).
+    # A finish that ran `start` and stopped regardless would take down a tier somebody else brought
+    # up (#724); that bug's unguarded `stop` is out of scope here, named, not fixed.
+    rc=0
+    nix run .#keycloak-tier -- status >/dev/null 2>&1 || rc=$?
     nix run .#keycloak-tier -- start
-    trap 'nix run .#keycloak-tier -- stop' EXIT
+    if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-serve --run-ignored only \
       -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
 

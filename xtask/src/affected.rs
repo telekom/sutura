@@ -406,6 +406,25 @@ mod tests {
     }
 
     #[test]
+    fn a_serve_or_keycloak_tier_change_selects_identity_not_core() {
+        for path in ["crates/sutura-serve/src/x.rs", "nix/keycloak-tier.nix"] {
+            let cats = selected(&[path]);
+            assert!(!cats.core, "{path} must not fall open to core - it names the identity tier");
+            assert!(cats.needs("identity"), "{path} must select identity");
+            for other in [
+                "data_source_datafusion",
+                "data_source_duckdb",
+                "data_source_postgres",
+                "data_source_bigquery",
+                "catalog_local",
+                "catalog_datahub",
+            ] {
+                assert!(!cats.needs(other), "{other} must not be selected by {path}");
+            }
+        }
+    }
+
+    #[test]
     fn a_change_to_a_shared_crate_emits_every_cell() {
         let cats = selected(&["crates/sutura-domain/src/lib.rs"]);
         assert!(cats.core, "a shared crate matches no category, so it must run everything");

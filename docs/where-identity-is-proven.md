@@ -378,8 +378,11 @@ states for why this tier is not (yet) in `checks.nextest`'s `preCheck`.
 
 **What only this venue can answer, and it is one claim.** The mock issuer generates no RSA key by
 deliberate design (`docs/where-identity-is-proven.md`'s own mock-issuer section says so), so nothing
-before this venue ran a real provider's own signature, its published JWKS document or its discovery
-document through the composed binary. `crates/sutura-serve/tests/served.rs`'s
+before this venue ran a real IdP's RS256 signature over its published JWKS through the composed
+binary. What runs here is exactly that: the binary has no HTTP client, so the JWKS reaches it only
+as the `key_set_file` its settings name - a document the TEST HARNESS fetched over HTTPS, trusting
+only the tier's CA, and wrote to scratch - and no discovery document is read by the binary at all.
+`crates/sutura-serve/tests/served.rs`'s
 `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused` is
 the cell: a password-grant token for one provisioned subject is accepted with the right rows and a
 `verified` audit record, a token for the OTHER subject names a different subject in that record, and
@@ -398,10 +401,15 @@ https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042).
    **read off the token rather than asserted** - that is a real provider's own audience for its own
    client, not a third party's, and #105's row above stays `no` here.
 2. **Two subjects reading two row sets.** Same exclusion as the Postgres venue above: this
-   deployment reads its fixture files under one shared identity whoever asks, and the cell's
-   `executed_as` assertion says so.
+   deployment reads its fixture files under one shared identity whoever asks.
 3. **Anything about leg 2.** No data system's own grant is involved; the claim is entirely about
    leg 1 verifying a real signature.
+4. **The RFC 9068 token-class check does not apply here.** This realm's password-grant token
+   carries `typ: JWT`, so the fixture's settings declare `token_type: "any"` rather than the
+   `at+jwt` default - what verifies is a real signature and a real key set, not that this
+   deployment's own class-check also applies to a provider that does not mint RFC 9068's class by
+   default. That is fixture-only: the diff touches no `sutura-config` code, so no production
+   default moves.
 
 ## A real dataset under a shared key
 
