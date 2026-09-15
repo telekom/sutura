@@ -2709,13 +2709,13 @@ and this does not build.</p>
 and there are exactly two ways in: one takes no argument, and the other takes a
 <code>VerifiedCaller</code>, whose only constructor is a signature check and which implements no
 <code>Deserialize</code>. So no <em>field</em> of a request can contribute to a chain either way.</p>
-<p><strong><code>/health</code> carries nothing.</strong> It is the one path an unauthenticated caller can always reach, so
-every field it might have is a field handed to anybody who can route a packet. No version, no
+<p><strong><code>/health</code> carries nothing.</strong> It is one of two paths an unauthenticated caller can always reach,
+so every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.</p>
-<p>A directly validating deployment also exposes its RFC 9728 protected-resource metadata without a
-token. That document is deliberately only the exact resource identifier and the configured
-authorization server; it is absent in gateway and single-player deployments and shares the probe
-rate limit with liveness.</p>
+<p><strong>The second is the RFC 9728 protected-resource metadata document</strong>, which a directly validating
+deployment also exposes without a token. That document is deliberately only the exact resource
+identifier and the configured authorization server; it is absent in gateway and single-player
+deployments and shares the probe rate limit with liveness.</p>
 <h1 id="what-is-deliberately-absent">What is deliberately absent<a class="headerlink" href="#what-is-deliberately-absent" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>No CORS layer.</strong> A browser is not a client of this surface. An allow-list nobody needs is an
