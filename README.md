@@ -25,7 +25,9 @@ sutura:
 
 ## Status
 
-Very much WIP; basic skeleton and CI pipelines there.
+A governed single-player semantic compiler and executor is built and served over HTTP, behind a
+token that authenticates the deployment rather than the caller. Per-subject execution - the leg that
+makes multiplayer real rather than a shared identity - is a design target, not built yet.
 
 There are 2 flavours of sutura:
 
