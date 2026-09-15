@@ -28,17 +28,17 @@ command is written here because a bare figure in prose is one nobody can re-chec
 | Measured                                                                                                          | Value                                                                                                                                                                                                                                                                               |
 | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | occurrences of `broker`, case-insensitive, in the agent surface's composition root `crates/sutura-cli/src/mcp.rs` | **0**. `git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker` over a file `grep -c ''` reports at 471 lines                                                                                                                                              |
-| `crates/sutura-mcp/src/lib.rs:162`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
+| `crates/sutura-mcp/src/lib.rs:212`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
 | what that function opens                                                                                          | `rmcp::transport::stdio()` - the process's own pipes                                                                                                                                                                                                                                |
 | `crates/sutura-mcp/Cargo.toml` first-party dependencies                                                           | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker**                                                                                                                                                                                      |
 | the chain the agent surface establishes                                                                           | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
-| what capabilities that surface grants                                                                             | `crates/sutura-cli/src/mcp.rs:133` and `:233` pass `Permitted::every_capability()`, fixed at construction                                                                                                                                                                           |
-| the same question on the HTTP surface                                                                             | `crates/sutura-http/src/capability.rs:138` `pub fn permitted_for(request: &Request) -> Permitted`, **per request**, from the verified caller's scopes                                                                                                                               |
+| what capabilities that surface grants                                                                             | `crates/sutura-cli/src/mcp.rs:145` and `:257` pass `Permitted::every_capability()`, fixed at construction                                                                                                                                                                           |
+| the same question on the HTTP surface                                                                             | `crates/sutura-http/src/capability.rs:172` `pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted`, taking the `Asked` already derived rather than the raw request, **per request**, from the verified caller's scopes                                            |
 
 Two things follow, and they are different. The first is that the pipe is the cause: a `Permitted`
 fixed at construction and a `const fn` chain are both correct for a transport whose caller is
 whoever launched the process. The second is that the command-line tool's
-`StaticCredentialBroker` (`crates/sutura-cli/src/sources.rs:147`) is **not** a gap and must not be
+`StaticCredentialBroker` (`crates/sutura-cli/src/sources.rs:158`) is **not** a gap and must not be
 reported as one - a single-user tool's operator *is* the subject, and an exchange there would be
 impersonation of the person already at the keyboard.
 
@@ -180,7 +180,7 @@ macro and no SDK feature beyond the transport itself.
 
 ### It composes with the router this repository already builds
 
-`crates/sutura-http/src/router.rs:180` returns a `Result<Router, RouterNotBuilt>` over `axum`'s own
+`crates/sutura-http/src/router.rs:291` returns a `Result<Router, RouterNotBuilt>` over `axum`'s own
 `Router`. The SDK's service is a
 `tower_service::Service`:
 
@@ -300,7 +300,7 @@ this decision to have settled.
 - **It is not a claim that two callers get two answers.** Nothing in the default suite asserts
   that two subjects read two different row sets: the scaffold for it is
   `two_subjects_with_different_grants_read_two_different_row_sets` at
-  `crates/sutura-exec-bigquery/tests/acceptance.rs:768`, `#[ignore]`d and needing a real project.
+  `crates/sutura-exec-bigquery/tests/acceptance.rs:791`, `#[ignore]`d and needing a real project.
   This record changes none of that.
 - **It does not decide the exchange chain.** See the next section: one hop is built, and the chain
   the requirement asks for is a separate design with its own failure modes.
@@ -326,7 +326,7 @@ The requirement this record serves is that the agent surface takes the caller's 
 whatever enterprise identity provider issued it and reaches a credential the data source accepts,
 through **however many exchanges that takes**.
 
-Measured at `5ae3bde`: the broker performs one. `crates/sutura-exec-bigquery/src/sts.rs:344`:
+Measured at `5ae3bde`: the broker performs one. `crates/sutura-exec-bigquery/src/sts.rs:420`:
 
 ```rust
 let credential = self
@@ -335,9 +335,9 @@ let credential = self
     .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
 ```
 
-against the port at `crates/sutura-exec-bigquery/src/sts.rs:111`,
+against the port at `crates/sutura-exec-bigquery/src/sts.rs:116`,
 `fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`,
-whose one non-test implementor is `StsOverHttp` at `crates/sutura-exec-bigquery/src/wire/sts.rs:95`.
+whose one non-test implementor is `StsOverHttp` at `crates/sutura-exec-bigquery/src/wire/sts.rs:114`.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -

@@ -147,7 +147,7 @@ record that recommends work nobody has done.
 
 **Run here:** every dialect-rendering fact, from a throwaway crate with its own `[workspace]` table
 that renders this repository's own statement shape through the same three calls
-`crates/sutura-sql/src/generate.rs:302-307` makes. Every DuckDB fact, against the pinned
+`crates/sutura-sql/src/generate.rs:503-508` makes. Every DuckDB fact, against the pinned
 `v1.5.5 (Variegata) d8cdaa33fd` from `nix/duckdb.nix`. Every count over the corpus, the aggregate
 vocabulary and the dialect features, from the files.
 
@@ -261,7 +261,7 @@ from nixpkgs to a library, and `just validate` - which builds in the nix sandbox
 that counts as verified here - could not build it. Reasoned from the dependency situation, not
 attempted.
 
-Which is why `docs/architecture.md:104-105` already has the answer and this record adopts it:
+Which is why [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) already has the answer and this record adopts it:
 **Arrow Flight SQL, uniformly, rather than a linked native driver each.** Under that transport a
 leg's adapter is one crate parameterised by an endpoint and a `Dialect` rather than one crate per data
 system; the proprietary client lives in a gateway process outside our artifact; and the type mapping
@@ -327,10 +327,10 @@ the shapes are enumerated here against the types that exist, and each is priced.
 this record decides.**
 
 **Read the existing type first, because it cannot express any of the three.** `QueryPlan` at
-`crates/sutura-domain/src/plan.rs:319-332` holds twelve fields and four of them decide this section:
+`crates/sutura-domain/src/plan.rs:411-424` holds twelve fields and four of them decide this section:
 `bucket: PlanBucket` and `measure: PlanMeasure` are required and not `Option`; `measure_label` is one
 label; and `max_rows` is set to `MAX_ROWS` by the constructor, which takes no parameter for it.
-`generate` at `crates/sutura-sql/src/generate.rs:233` projects the keys, then one bucket expression,
+`generate` at `crates/sutura-sql/src/generate.rs:513` projects the keys, then one bucket expression,
 then **exactly one** measure expression; groups by the keys and the bucket; and always emits
 `LIMIT plan.row_limit()`.
 
@@ -392,13 +392,13 @@ Three things about `Fact` carry the whole decision:
 - **`LegTerm` holds a `PlanTerm` and a label, and NOT a `PlanMeasure`. That is the mechanism, and it is
   a type rather than a convention.** `PlanMeasure` has exactly two variants and the only one that
   carries two terms is the one that DIVIDES them: `measure_expression` at
-  `crates/sutura-sql/src/generate.rs:200` emits `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`
+  `crates/sutura-sql/src/generate.rs:345` emits `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`
   for a `Ratio`. So **a decomposed `Avg` travelling as a sum and a count, and a ratio travelling as an
   undivided numerator and denominator, are not expressible by `PlanMeasure` at all** - which makes
   Decision 2 a domain change rather than a generator one, and is the single sharpest reason a leg
   needs its own type. With `LegTerm` there is no `Ratio` shape a leg can carry, so `ZeroDenominator`
   cannot reach a leg's statement and a division per leg is not something a reviewer has to notice.
-  `PlanTerm` is reused unchanged, and that is free because `plan.rs:180-190` already mirrors `Term`
+  `PlanTerm` is reused unchanged, and that is free because `plan.rs:267-277` already mirrors `Term`
   at the plan level for exactly this reason - *"so an adapter that renders one half of a ratio and
   one that renders a whole measure reach for the same function"*.
 
@@ -440,8 +440,9 @@ row cap"`, rather than trusting either line number.
 **And a correction this record owes, because it claimed a mechanism it does not have.** An earlier
 version of the ordered plan said the lookup-leg plan type would be *"the first step that moves the
 definition digest, because a new domain type changes a serialized form"*. **That is false.**
-`DefinitionDigest::of` at `crates/sutura-domain/src/definitions.rs:91` takes the `Definitions` and the
-`Knowledge` and nothing else. `QueryPlan` is not under the digest, `LegPlan` will not be either, and no
+`DefinitionDigest::of` at `crates/sutura-domain/src/definitions.rs:91` takes the `Definitions`, the
+`Knowledge` and a `ContributionManifest`, and nothing else. `QueryPlan` is not under the digest,
+`LegPlan` will not be either, and no
 plan-shape change moves a digest. What a new plan type moves is its own new snapshots, and what moves a
 digest is a catalog edit - including moving a model to a second source, which is the fact that actually
 matters here and is stated correctly in *What does not change* below.
@@ -499,7 +500,7 @@ that is unchanged: the combine is called by `sutura-app`, above every adapter.
 the combine.** The decision: **the port's currency stays `RowSet` for the first federated milestone,
 and the conversion to Arrow lives in exactly one function inside the combiner crate.**
 
-Why not move the port to Arrow first, which is the direction `docs/architecture.md:113-127` records:
+Why not move the port to Arrow first, which is the direction [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) records:
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
@@ -557,7 +558,7 @@ stated as a quantity rather than as "we pay the processing cost".
 
 Grouping the fact leg by a remote join key is a strictly finer grouping than the answer, so the
 combine has to aggregate again. Whether that is correct depends entirely on the aggregate.
-`Aggregate` is the six-variant closed enum at `crates/sutura-domain/src/model.rs:190-197`, and the
+`Aggregate` is the six-variant closed enum at `crates/sutura-domain/src/model.rs:350-357`, and the
 third column is what each one costs a leg:
 
 | `Aggregate`                     | How it travels                                                                                                                                                                                                                        | What the leg carries                              |
