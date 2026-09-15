@@ -3635,6 +3635,22 @@ it will answer at once, and how long a peer waits for one of them: a pipe has no
 arrive in, which is the limit stated beside the mode rather than left as a default, and the two
 numbers are <a href="#capacity"><code>runtime.max_concurrent_queries</code></a> and <code>server.request_timeout_seconds</code>, which
 bound that surface exactly as they bound this one.</p>
+<p>A second, default-off transport for the same agent surface exists behind <code>sutura-mcp</code>'s own <code>http</code>
+feature: the streamable-HTTP transport <code>docs/adr/0023</code> decided on, exposed as a plain
+<code>tower_service::Service</code> a composition root nests behind its own router. <strong>Nothing this binary
+serves links it yet</strong> - <code>telekom/sutura#378</code> PR4 is the composition-root change that mounts it
+behind this surface's leg 1 and <code>establish_asked</code>; until then the feature compiles and is tested in
+isolation and changes nothing a deployment can reach. Its one fixed decision, carried here ahead of
+the mount so it does not arrive as an unstated default: <code>legacy_session_mode: false</code>, which makes
+every request self-contained - a <code>Mcp-Session-Id</code> header is never looked up, by any message type -
+so a caller can never be answered under an earlier request's identity because no session exists for
+one to leak into. That guarantee is held by one config flag: the transport still constructs the
+SDK's session manager, and <code>legacy_session_mode: false</code> is what keeps it idle - and even where a
+session exists, <code>rmcp</code>'s <code>create_session</code> takes no identity argument, so a session is never bound to
+a caller; the caller is re-resolved per request from each request's <code>Asked</code>. This costs nothing a
+current MCP client needs: the pinned SDK still serves
+<code>initialize</code>, <code>tools/list</code> and every other call one-shot under this configuration, protocol version
+<code>2025-11-25</code> (its own advertised latest) included.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
