@@ -3827,11 +3827,14 @@ dependencies = [
 name = "sutura-catalog-datahub"
 version = "0.5.1"
 dependencies = [
+ "rcgen",
+ "rustls",
  "serde",
  "serde_json",
  "sutura-dev",
  "sutura-domain",
  "sutura-semantic",
+ "sutura-tls",
  "thiserror 2.0.20",
  "ureq",
 ]
@@ -4075,6 +4078,8 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "mimalloc",
+ "rcgen",
+ "rustls",
  "serde_json",
  "sutura-app",
  "sutura-catalog-datahub",

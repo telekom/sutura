@@ -42,7 +42,16 @@ pub(crate) enum OpenedCatalogs {
 /// Every declared entry must share ONE `sutura_config::CatalogKind` - a deployment naming both a
 /// `markdown` and a `datahub` catalog is refused here, for the reason the module header gives; the
 /// same shape `crate::open_engine`'s `one_kind` already holds for `sources:`.
-pub(crate) fn open_catalog(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
+///
+/// **`outbound` is `security.outbound.transport_anchors`, resolved ONCE by `main` at boot and
+/// handed here** so the `datahub` catalog reader verifies its endpoint against the SAME CA set the
+/// `bigquery` source wire is verified against - the composition-root decision `main.rs` states. A
+/// `markdown` catalog reads files and never dials, so only the `Datahub` arm consumes it; `None`
+/// leaves the reader on `ureq`'s compiled-in roots, the behaviour before `security.outbound`.
+pub(crate) fn open_catalog(
+    catalogs: &sutura_config::Catalogs,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
+) -> Result<OpenedCatalogs, String> {
     let mut kinds = catalogs.each().map(sutura_config::CatalogSettings::kind);
     // `Catalogs::parse` refuses an empty list, so there is always a first kind - the `ok_or_else`
     // below is unreachable in practice and named rather than `unwrap`, which this workspace denies.
@@ -61,7 +70,7 @@ pub(crate) fn open_catalog(catalogs: &sutura_config::Catalogs) -> Result<OpenedC
         sutura_config::CatalogKind::Markdown => Ok(OpenedCatalogs::Markdown(
             catalogs.each().map(open_one_markdown_catalog).collect(),
         )),
-        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs),
+        sutura_config::CatalogKind::Datahub => open_datahub_catalogs(catalogs, outbound),
     }
 }
 
@@ -102,10 +111,13 @@ fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> Local
 
 /// Opens every declared `datahub` catalog, behind this crate's `datahub` feature.
 #[cfg(feature = "datahub")]
-fn open_datahub_catalogs(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
+fn open_datahub_catalogs(
+    catalogs: &sutura_config::Catalogs,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
+) -> Result<OpenedCatalogs, String> {
     catalogs
         .each()
-        .map(open_one_datahub_catalog)
+        .map(|settings| open_one_datahub_catalog(settings, outbound))
         .collect::<Result<Vec<_>, String>>()
         .map(OpenedCatalogs::Datahub)
 }
@@ -118,7 +130,10 @@ fn open_datahub_catalogs(catalogs: &sutura_config::Catalogs) -> Result<OpenedCat
 /// `open_bigquery`'s does: an operator can act on "build with `--features datahub`", and
 /// `cargo xtask check-feature-remedies` is what keeps that instruction honest.
 #[cfg(not(feature = "datahub"))]
-fn open_datahub_catalogs(_catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
+fn open_datahub_catalogs(
+    _catalogs: &sutura_config::Catalogs,
+    _outbound: Option<&sutura_tls::LoadedAnchors>,
+) -> Result<OpenedCatalogs, String> {
     Err(String::from(
         "catalog.kind: datahub names a metadata adapter this binary was not built to link - build \
          sutura-serve with --features datahub, or declare markdown catalogs",
@@ -169,9 +184,16 @@ fn read_token(settings: &sutura_config::CatalogSettings) -> Result<sutura_domain
 /// stays an unparsed `Option<&str>`, since that crate cannot depend on this adapter's `Endpoint`
 /// type); the adapter's own refusal (`InvalidEndpoint`) surfaces here as the settings-layer error a
 /// deployment sees.
+///
+/// **`outbound` closes the loop from `main`'s ONE boot-time resolution of
+/// `security.outbound.transport_anchors` to the reader's own `ureq` agent** - the same value, cloned,
+/// that the `bigquery` wire folds into its `RootCerts::Specific`. `None` (no declared
+/// `security.outbound`) hands the reader `ureq`'s compiled-in roots, the behaviour before #125;
+/// the reader itself never reads the bundle a second time.
 #[cfg(feature = "datahub")]
 fn open_one_datahub_catalog(
     settings: &sutura_config::CatalogSettings,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::http::HttpAspectReader>, String> {
     use sutura_catalog_datahub::http::{
         DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds,
@@ -203,7 +225,7 @@ fn open_one_datahub_catalog(
             settings.name()
         )
     })?;
-    let reader = HttpAspectReader::new(endpoint, property, token, bounds);
+    let reader = HttpAspectReader::new(endpoint, property, token, bounds, outbound.cloned());
     let mut sources = std::collections::BTreeMap::new();
     drop(sources.insert(String::from("bigquery"), settings.name().clone()));
     Ok(sutura_catalog_datahub::DataHubCatalog::new(

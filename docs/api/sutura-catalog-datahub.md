@@ -797,10 +797,9 @@ resolves past userinfo correctly, and `Endpoint::parse` additionally refuses any
 prefix outright rather than trusting that resolution to stay correct.
 
 `ureq`'s compiled-in default root set (for an `https://` endpoint), `max_redirects(0)` and the
-proxy left on (`Proxy::try_from_env()`) are the other three pins
-`sutura_exec_bigquery::wire::WireAgent::pinned` states for `BigQuery`. **Follow-up, not built
-here:** issue #125 PR2's `security.outbound.transport_anchors` is the future seam for a
-deployment's own CA, for the endpoints that do use TLS.
+proxy left on (`Proxy::try_from_env()`) are the other pins; a deployment MAY replace the
+compiled-in roots with its own CA via `security.outbound.transport_anchors` (`#125`), folded in
+`super::tls_roots` - anchors only, no client identity.
 
 ### `enum InvalidReadBounds`
 
@@ -968,14 +967,16 @@ second constructor would not.
 #### Methods
 
 ```rust
-pub fn new(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds) -> Self
+pub fn new(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
 ```
 
-Opens a reader. `endpoint` is already validated - a caller reaches one only through
-`Endpoint::parse`, so a reader cannot be built pointed at a plaintext non-loopback host.
-`property` is the deployment's; `token` is read from a settings-declared file at boot by the
-composition root, never inline; `bounds` is `ReadBounds::parse`'s output, so a reader
-cannot be built with an unchecked pair either.
+Opens a reader. `endpoint` (only `Endpoint::parse`), `property`, `token` (read from a
+settings-declared file at boot) and `bounds` (only `ReadBounds::parse`) are all checked first.
+
+**`anchors` is `security.outbound.transport_anchors` (`#125`), resolved once at boot**: `None`
+leaves `ureq`'s compiled-in `RootCerts::WebPki` (every deployment before `security.outbound`),
+`Some` replaces it with `RootCerts::Specific` from exactly the declared certificates - never a
+union of the two (see `super::tls_roots`); anchors only, no `ClientCert` in either arm.
 
 #### Implements
 
@@ -1036,6 +1037,12 @@ One scripted answer: a status, a body, and how long to wait before sending it.
 #### Methods
 
 ```rust
+pub fn body(&self) -> &[u8]
+```
+
+The body this scripted answer is served with - see `Self::status_code` for why it is public.
+
+```rust
 pub fn delayed(body: &serde_json::Value, delay: Duration) -> Self
 ```
 
@@ -1054,6 +1061,15 @@ the JSON-typed constructors above.
 ```rust
 pub fn status(status: u16, body: &str) -> Self
 ```
+
+```rust
+pub const fn status_code(&self) -> u16
+```
+
+The status this scripted answer is served with - public so a TLS loopback variant of the
+fake (the `src/http.rs` anchors cells, a served-binary boot-line cell) can serve the SAME
+answers this server does, instead of a second worth of page-building. Named `status_code`
+rather than `status` because `Self::status` is already the constructor's name.
 
 ### `struct FakeServer`
 

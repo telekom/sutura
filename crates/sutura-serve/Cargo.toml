@@ -175,6 +175,14 @@ base64 = { workspace = true }
 # in that crate - `xtask` links the same library for a compose project name and should not compile a
 # crypto backend for it.
 sutura-dev = { workspace = true, features = ["mock-issuer"] }
+# The boot-line TLS anchors cell (`tests/served/datahub.rs`): a real `rustls` loopback server
+# presenting an `rcgen`-issued IP-SAN leaf whose CA a composed `datahub` deployment declares as
+# `security.outbound.transport_anchors`, so the served binary's catalog boot proves the anchored
+# handshake against the same corpus its plaintext sibling serves. Both are already pinned at the
+# workspace root and resolved in `Cargo.lock` via `sutura-exec-postgres`'s rustls closure, so this
+# adds no new package and dev-edges are exempt from the shipped-features gate.
+rcgen = { workspace = true }
+rustls = { workspace = true }
 
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`, for
 # the reason `sutura-cli`'s manifest gives: this way the C is never compiled - not even a build

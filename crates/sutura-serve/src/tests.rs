@@ -641,7 +641,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![datahub]).expect("one declared catalog is a registry");
-    let err = super::catalog::open_catalog(&catalogs).expect_err("this build does not link the datahub feature");
+    let err = super::catalog::open_catalog(&catalogs, None).expect_err("this build does not link the datahub feature");
     assert!(err.contains("catalog.kind: datahub"), "{err}");
     assert!(
         err.contains("--features datahub"),
@@ -656,7 +656,7 @@ fn a_declared_catalog_kind_this_build_cannot_open_is_a_boot_refusal_naming_it() 
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown]).expect("one declared catalog is a registry");
-    super::catalog::open_catalog(&catalogs).expect("markdown is the kind every build links");
+    super::catalog::open_catalog(&catalogs, None).expect("markdown is the kind every build links");
 }
 
 // `the_datahub_refusal_offers_no_rebuild_this_binary_has_no_feature_for`
@@ -695,7 +695,7 @@ fn catalogs_of_more_than_one_kind_in_one_deployment_are_refused() {
     )
     .expect("a directory and a version are a settings");
     let catalogs = Catalogs::parse(vec![markdown, datahub]).expect("two distinctly-named catalogs are a registry");
-    let err = super::catalog::open_catalog(&catalogs).expect_err("a mix of catalog kinds is refused");
+    let err = super::catalog::open_catalog(&catalogs, None).expect_err("a mix of catalog kinds is refused");
     assert!(err.contains("markdown"), "{err}");
     assert!(err.contains("datahub"), "{err}");
 }
@@ -737,7 +737,7 @@ fn a_deployment_with_more_than_one_catalog_opens_one_per_declared_entry() {
         .expect("a directory and a version are a settings")
     };
     let catalogs = Catalogs::parse(vec![entry("structure"), entry("metrics")]).expect("two names are a registry");
-    let opened = super::catalog::open_catalog(&catalogs).expect("two markdown catalogs open");
+    let opened = super::catalog::open_catalog(&catalogs, None).expect("two markdown catalogs open");
     let super::catalog::OpenedCatalogs::Markdown(opens) = opened else {
         panic!("a markdown-only deployment opens the markdown vector");
     };
