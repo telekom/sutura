@@ -295,12 +295,12 @@ asking the kernel to choose - is reported as the port it actually got.
 The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
 `sutura-mcp` type a transport crate composes.
 
-Built by the composition root from `sutura_mcp::http::service`. It is kept as an `axum::Router`
-(the transport nested at the router's own root) rather than tower's `BoxCloneService`: this
-crate's `ServiceState` must be `Sync` (`OpenApiRouter`'s state bound), and tower's boxed clone
-service erases only `+ Send`, whereas `axum::Router` is genuinely `Clone + Send + Sync` and
-implements `tower::Service` itself - so `crate::router` can `nest_service` it at `AGENT_MOUNT_PATH`
-behind the same layers the versioned surface runs behind, still without naming a `sutura-mcp` type.
+Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
+value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
+`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
+two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+than the one the transport actually answers on.
 
 ## `use ServiceState`
 
@@ -3341,12 +3341,12 @@ pub struct AgentMount
 The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
 `sutura-mcp` type a transport crate composes.
 
-Built by the composition root from `sutura_mcp::http::service`. It is kept as an `axum::Router`
-(the transport nested at the router's own root) rather than tower's `BoxCloneService`: this
-crate's `ServiceState` must be `Sync` (`OpenApiRouter`'s state bound), and tower's boxed clone
-service erases only `+ Send`, whereas `axum::Router` is genuinely `Clone + Send + Sync` and
-implements `tower::Service` itself - so `crate::router` can `nest_service` it at `AGENT_MOUNT_PATH`
-behind the same layers the versioned surface runs behind, still without naming a `sutura-mcp` type.
+Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
+value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
+`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
+two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+than the one the transport actually answers on.
 
 #### Methods
 
@@ -3361,8 +3361,9 @@ The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder liv
 requires `T::Response: IntoResponse` rather than `Response<Body>`, and the
 `StreamableHttpService` a transport crate hands over yields `Response<BoxBody<…>>`, so the
 wrapper must not pin the response body. `crate::router` applies the leg 1 and `establish_asked`
-layers around this router with `route_layer`, then `assemble` merges it. Cloning the router
-shares one underlying transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
+layers around this router with `Ungoverned::layered`/`Ungoverned::try_layered`, then
+`assemble` merges and records it in one call. Cloning the router shares one underlying
+transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
 
 #### Implements
 
