@@ -165,6 +165,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - |
 | The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | redundant |
 | The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | redundant |
+| A verified caller's own token is the `subject_token` the **shipped** exchanging broker offers over the **AGENT SURFACE**, byte-for-byte | - | **unrun** - the standing test is `sutura_mcp::http::tests::the_subject_token_the_shipped_broker_offers_over_the_agent_route_is_the_document_it_verified`, run under `just test` | - | - | - | - | - |
 | A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
@@ -242,6 +243,19 @@ source that ships:
   the same `403` as above, produced by the **shipped** exchanging broker rather than a fake that only
   refuses, plus the two assertions a status code cannot carry: nothing reached the authorization server
   and nothing reached the data system.
+- `the_subject_token_the_shipped_broker_offers_over_the_agent_route_is_the_document_it_verified` - the
+  **join over the agent surface**, and the claim the HTTP half's `…_exchanges_the_document_leg_one_verified`
+  cannot carry: the HTTP route and the `/mcp` route converge on the same
+  `Surface::answer(RequestContext, &Query)` → `CredentialBroker::mint` → `StsExchange`, so the same
+  shipped broker over the same recording exchange is driven through the agent surface's real
+  streamable-HTTP transport (`crates/sutura-mcp/src/http.rs`), and the `subject_token` it is offered is
+  byte-for-byte the JWT the transport established per request. `two_callers_over_the_agent_route_offer_two_different_subject_tokens`
+  is the same claim's two-caller half. The cross-transport byte-identity holds **by transitivity over
+  the shared presented JWT** (`subject_token_http == J` and `subject_token_mcp == J`), not by one
+  process co-observing both surfaces - `sutura-http`/`sutura-mcp` cannot depend on each other, and
+  `sutura-serve` is bin-only, so no composed binary can host the fake exchange. These two cells are
+  `#[cfg(feature = "http")]`, so they run only under `just test --all-features`; no green run has been
+  observed, so the row stays `unrun`.
 
 The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last five in
 `crates/sutura-http/src/identity_e2e.rs`, which is the same split the code has: one file is about
@@ -519,7 +533,10 @@ more than the row above staying `not built` while the sentence sat in prose.
 
 `sutura_exec_bigquery::WorkloadIdentityBroker` decides correctly against a fake exchange,
 `StsOverHttp` serializes the documented request, and the mock-issuer venue above now shows that broker
-reached **through the transport** with the caller's own verified token as the `subject_token`. What has
+reached **through the transport** with the caller's own verified token as the `subject_token` - on the
+HTTP surface, and now on the agent surface too (the agent-route cell runs the same broker over the
+same fake exchange through `sutura_mcp`'s real streamable-HTTP transport, byte-for-byte over one
+presented JWT by transitivity with the HTTP half; see the mock-issuer section). What has
 never happened is an exchange against a real endpoint, and no answer any deployment has produced was
 evaluated under an asker.
 

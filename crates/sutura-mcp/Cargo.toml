@@ -90,7 +90,7 @@ tracing = { workspace = true }
 # The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes
 # the snapshot and the byte-compare fails until somebody re-accepts it.
 insta = { workspace = true }
-# The other transport, for ONE differential test: that its `QuestionBody` and this crate's own
+# The sibling transport, for ONE differential test: that its `QuestionBody` and this crate's own
 # `AskArgs` parse the same wire input into the same `Query`, through the one shared conversion now
 # inward of both in `sutura_domain::question`. *An adapter never calls another adapter* is a NORMAL-
 # dependency rule - `cargo xtask check-boundaries` walks `Edges::Normal` only - and a dev-dependency
@@ -99,6 +99,14 @@ insta = { workspace = true }
 # `sutura-exec-bigquery` dev-depends on `sutura-exec-datafusion` for. Adds no PACKAGE to
 # `Cargo.lock`: `sutura-http`'s whole tree is already resolved there, by `sutura-serve`.
 sutura-http = { workspace = true }
+# The shipped exchanging broker and the `StsExchange` port it mints over, for the byte-join cells in
+# `src/http.rs`: a real implementor of the port records each call's `subject_token` so a router-level
+# cell over the agent surface can assert it equals the JWT the transport established per request. A
+# dev-dependency is how an ADAPTER reaches another adapter's port - the same boundary-exemption the
+# `sutura-http` dev-dependency above already licenses: `check-boundaries` walks `Edges::Normal` only,
+# and a test support edge adds no shipped dependency. Adds no PACKAGE to `Cargo.lock`:
+# `sutura-exec-bigquery` is already resolved through `sutura-serve`.
+sutura-exec-bigquery = { workspace = true }
 # The far side of every test in `src/server.rs`: a REAL MCP client from the same SDK, over an
 # in-memory duplex. That is what "with no client of ours in the loop" means - nothing this crate
 # wrote sits between the assertion and the protocol.

@@ -156,9 +156,17 @@ mod tests {
     use axum::response::Response;
     use serde_json::{Value, json};
     use sutura_app::prompt::CatalogProse;
+    use sutura_app::surface::{Surface, SurfaceFailure};
     use sutura_app::{Asked, Capability, Permitted};
     use sutura_config::{Environment, RequestTimeout, Settings, Sources};
-    use sutura_domain::identity::{PrincipalChain, RequestContext, Subject, SubjectId};
+    use sutura_domain::identity::{
+        CredentialBroker as _, Expiry, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+    };
+    use sutura_domain::pinned::PinnedDefinitions;
+    use sutura_domain::query::ToolOutcome;
+    use sutura_domain::raw::{RawOutcome, RawRefusalReason};
+    use sutura_domain::warehouse::RowSet;
+    use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
     use sutura_runtime::Admission;
     use tower::ServiceExt as _;
 
@@ -436,5 +444,316 @@ mod tests {
         let config = super::config();
         assert!(!config.legacy_session_mode, "{config:?}");
         assert!(config.json_response, "{config:?}");
+    }
+
+    // ----------------------------------------------------------------- the byte-join ----
+
+    /// The workload-identity pool an impersonating source declares. Not a real one, and cannot be.
+    ///
+    /// The value is asserted on rather than merely passed, which is what shows the broker sends the
+    /// declaration it holds **for that source** rather than something the request contributed.
+    const POOL: &str =
+        "//iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/example/providers/example";
+
+    /// The scope that declaration asks for. A published Google scope string, which is public.
+    const SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
+
+    /// One call the broker made to the exchange, recorded as it was made.
+    ///
+    /// A named struct and not a tuple, because the assertion that matters is on **which** of the
+    /// three values: `subject_token` is the seam this module exists to close, and a positional `.2`
+    /// in a failure message would not say so.
+    pub(crate) struct Exchanged {
+        /// The audience the broker asked for.
+        audience: String,
+        /// The scope the broker asked for.
+        scope: String,
+        /// The document the broker offered as the subject's own credential.
+        subject_token: String,
+    }
+
+    /// The fixture exchange's own defect, which nothing here provokes.
+    #[derive(Debug, thiserror::Error)]
+    #[error("the fixture exchange in this module cannot fail, and did")]
+    struct NoFixtureExchangeFailure;
+
+    /// A real implementor of `sutura_exec_bigquery::StsExchange` that records each `subject_token`.
+    ///
+    /// **A real implementor of the narrow port, which is the point.** The shipped broker's real code
+    /// path - `WorkloadIdentityBroker::mint` - is exercised against it with no network: a fake at
+    /// the port runs the broker's real decisions, where a fixture broker of this crate's own would
+    /// be asserting on itself. Its sibling with the same name lives in
+    /// `sutura_http::identity_e2e`; that one is `pub` to nothing this crate can name, so the two
+    /// stays are separate, as the two transports stay separate.
+    ///
+    /// Records through an unbounded channel rather than a lock, for the reason
+    /// `sutura_http::identity_e2e` gives: `clippy.toml` bans `std::sync::Mutex`, and
+    /// `tokio::sync::Mutex` cannot be taken from a synchronous port method.
+    struct RecordsWhatItWasAskedToExchange {
+        asked: tokio::sync::mpsc::UnboundedSender<Exchanged>,
+        handed: tokio::sync::mpsc::UnboundedSender<String>,
+    }
+
+    impl RecordsWhatItWasAskedToExchange {
+        /// Records one exchange call and answers with a credential naming the document offered.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "reading the subject token IS the assertion: that the document leg 1 verified is \
+                      what the shipped broker offered an exchange over the agent route"
+        )]
+        fn exchange_and_report(&self, audience: &str, scope: &str, subject_token: &Secret) -> StsCredential {
+            let offered = String::from(subject_token.expose_secret());
+            drop(self.asked.send(Exchanged {
+                audience: String::from(audience),
+                scope: String::from(scope),
+                subject_token: offered.clone(),
+            }));
+            // The far end: the credential the broker received from the exchange, reported exactly as
+            // it would be presented on the leg - so a test can assert what the adapter would have
+            // executed under, not just what was offered.
+            drop(self.handed.send(format!("sts-token-for/{offered}")));
+            StsCredential::of(
+                Secret::new(format!("sts-token-for/{offered}")),
+                Expiry::At {
+                    unix_seconds: in_an_hour(),
+                },
+            )
+        }
+    }
+
+    impl StsExchange for RecordsWhatItWasAskedToExchange {
+        type Error = NoFixtureExchangeFailure;
+
+        fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
+            Ok(self.exchange_and_report(audience, scope, subject_token))
+        }
+    }
+
+    /// An hour from now, as a JWT timestamp - a real deadline rather than `NothingExpires`, for the
+    /// reason `sutura_http::identity_e2e`'s own helper gives.
+    fn in_an_hour() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+            .saturating_add(3_600)
+    }
+
+    /// A surface whose `answer` runs the **shipped** exchanging broker over the recording exchange.
+    ///
+    /// This is the join's far half over the agent surface: `Surface::answer` is where every surface
+    /// (the HTTP and the agent half alike) converges on `CredentialBroker::mint`, so a surface that
+    /// mints through the shipped `WorkloadIdentityBroker` with the caller's own assertion lets a
+    /// router-level cell read the `subject_token` the exchange was actually offered, byte for byte.
+    /// It answers with a real `ToolOutcome` so the cell observes a normal tool result rather than a
+    /// transport error.
+    struct ExchangingSurface {
+        definitions: PinnedDefinitions,
+        broker: WorkloadIdentityBroker<RecordsWhatItWasAskedToExchange>,
+        queried: SourceSet,
+        answer_rows: RowSet,
+    }
+
+    impl ExchangingSurface {
+        fn new(exchange: RecordsWhatItWasAskedToExchange) -> Self {
+            let definitions = testing::bundle();
+            let broker = WorkloadIdentityBroker::empty(exchange).impersonating(
+                testing::source(),
+                WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)),
+            );
+            let answer_rows = RowSet::new(
+                vec![String::from("revenue")],
+                vec![vec![sutura_domain::warehouse::Value::Integer(testing::ANCHORED_VALUE)]],
+            )
+            .expect("a one-cell result is a result set");
+            Self {
+                definitions,
+                broker,
+                queried: SourceSet::of(testing::source()),
+                answer_rows,
+            }
+        }
+    }
+
+    impl Surface for ExchangingSurface {
+        fn definitions(&self) -> &PinnedDefinitions {
+            &self.definitions
+        }
+
+        fn answer(
+            &self,
+            context: &RequestContext,
+            _query: &sutura_domain::query::Query,
+            _deadline: sutura_domain::warehouse::deadline::Deadline,
+        ) -> Result<ToolOutcome, SurfaceFailure> {
+            // The whole point: whichever mint a defect would produce is what this cell observes
+            // through the exchange's channel. A subject the broker can exchange nothing for is
+            // `Minted::Refused`, so nothing reaches the source and nothing is recorded - which is
+            // what mutation one reddens on.
+            self.broker
+                .mint(context, &self.queried)
+                .map_err(|cause| SurfaceFailure::Broker { cause: Box::new(cause) })?;
+            Ok(ToolOutcome::Answer {
+                provenance: self.definitions.provenance(testing::ran_shared()),
+                rows: self.answer_rows.clone(),
+            })
+        }
+
+        /// Not exercised by the byte-join cells; refuses cleanly so a future test names it by
+        /// accident fails on an assertion rather than a trap.
+        fn run_sql(
+            &self,
+            _context: &RequestContext,
+            _statement: &sutura_domain::raw::RawStatement,
+        ) -> Result<RawOutcome, SurfaceFailure> {
+            Ok(RawOutcome::Refusal {
+                reason: RawRefusalReason::StatementFailed,
+            })
+        }
+    }
+
+    /// One exchanging surface's whole mounted transport, plus the two receiving ends a test reads:
+    /// the exchange calls the broker made, and the far end of what the exchange returned.
+    ///
+    /// A named struct rather than a tuple, because `clippy::type_complexity` is right about what two
+    /// generic types in one return position read like.
+    struct Exchanging {
+        transport: Transport<ExchangingSurface>,
+        asked: tokio::sync::mpsc::UnboundedReceiver<Exchanged>,
+        far_end: tokio::sync::mpsc::UnboundedReceiver<String>,
+    }
+
+    fn exchanging() -> Exchanging {
+        let (asked_tx, asked) = tokio::sync::mpsc::unbounded_channel();
+        let (handed_tx, far_end) = tokio::sync::mpsc::unbounded_channel();
+        let exchange = RecordsWhatItWasAskedToExchange {
+            asked: asked_tx,
+            handed: handed_tx,
+        };
+        let transport = super::service(
+            Arc::new(ExchangingSurface::new(exchange)),
+            CatalogProse::Quoted,
+            admission(),
+            reply(),
+        );
+        Exchanging {
+            transport,
+            asked,
+            far_end,
+        }
+    }
+
+    /// A caller `Asked` carrying the compact JWT leg 1 would have verified - placed into the
+    /// `RequestContext` Secret exactly as `sutura_http::capability::establish_asked` would, so the
+    /// broker's exchange sees the caller's own document rather than a value derived another way.
+    fn asserted_asked(jwt: &str) -> Asked {
+        let subject = Subject::Verified {
+            id: SubjectId::parse("ada@example.com").expect("a test subject id is a subject id"),
+        };
+        let context = RequestContext::with_assertion(PrincipalChain::of(subject), Secret::new(String::from(jwt)));
+        Asked::established(context, Permitted::every_capability())
+    }
+
+    /// One `tools/call` of `ask_metric`, the same certified question the in-process server suite
+    /// drives - given the bundle's own metric, grain and June range.
+    fn tools_call_ask(id: i64) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": "ask_metric",
+                "arguments": {
+                    "metric": "revenue",
+                    "grain": "month",
+                    "range": { "start": "2026-06-01", "end": "2026-07-01" }
+                }
+            }
+        })
+    }
+
+    /// **The join over the agent surface.** One verified caller's compact JWT `J`, one `/mcp`
+    /// `tools/call` - and the `subject_token` the shipped exchanging broker offered the fake
+    /// exchange is `J`, byte for byte. This is the half the HTTP surface's own
+    /// `identity_e2e::the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` proves
+    /// for its own route; the cross-transport identity is **by transitivity over the shared
+    /// presented JWT** (`subject_token_http == J` and `subject_token_mcp == J`), not by co-observing
+    /// both transports in one process - `sutura-http` and `sutura-mcp` cannot depend on each other
+    /// (an adapter-to-adapter edge `check-boundaries` refuses), and `sutura-serve` is bin-only, so no
+    /// composed binary can host the fake. Two callers offer two distinct tokens in the cell below.
+    #[tokio::test]
+    async fn the_subject_token_the_shipped_broker_offers_over_the_agent_route_is_the_document_it_verified() {
+        let joining = exchanging();
+        let mut asked = joining.asked;
+        let mut far_end = joining.far_end;
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZGFAZXhhbXBsZS5jb20ifQ.sig";
+
+        let app = router(joining.transport.clone(), asserted_asked(jwt));
+        drop(post(app.clone(), initialize(1)).await);
+        let answered = post(app, tools_call_ask(2)).await;
+        assert!(
+            answered.get("result").is_some(),
+            "an exchange must answer as a tool result, not walk the error path: {answered}"
+        );
+        assert!(answered.get("error").is_none(), "an exchange must not refuse: {answered}");
+
+        let call = asked.try_recv().expect("the shipped broker performed an exchange over /mcp");
+        // The seam. A surface that derived the subject from process identity, a transport that
+        // dropped the caller's assertion, or an exchange that served a remembered token all fail
+        // here - on the bytes the exchange was actually offered.
+        assert_eq!(
+            call.subject_token, jwt,
+            "the document exchanged over the agent route is not the one the caller verified"
+        );
+        // The two halves of the DECLARATION, so what reached the exchange is what this deployment
+        // declared for the source rather than anything the request carried.
+        assert_eq!(call.audience, POOL, "the pool the exchange was asked for");
+        assert_eq!(call.scope, SCOPE, "the scope the exchange was asked for");
+        assert!(asked.try_recv().is_err(), "one call over one source is one exchange");
+
+        // The far end: the credential the exchange returned is what the leg would run under.
+        let bearer = far_end.try_recv().expect("the exchange returned a credential");
+        assert_eq!(
+            bearer,
+            format!("sts-token-for/{jwt}"),
+            "the leg did not run under what the exchange returned"
+        );
+    }
+
+    /// **Two callers over the agent route offer two different subject tokens.** Distinct JWTs
+    /// `J1 != J2` through one mounted transport must reach the exchange as two distinct
+    /// `subject_token`s, each the caller's own - never one served to both by a cross-subject cache.
+    /// The assertion is made AT the exchange, so a reused token cannot pass by being handed to the
+    /// far end twice.
+    #[tokio::test]
+    async fn two_callers_over_the_agent_route_offer_two_different_subject_tokens() {
+        let joining = exchanging();
+        let mut asked = joining.asked;
+        let transport = joining.transport;
+        let first = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZGFAZXhhbXBsZS5jb20ifQ.aaa";
+        let second = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJncmFjZUBleGFtcGxlLmNvbSJ9.bbb";
+        assert_ne!(first, second, "two callers' tokens differ");
+
+        let app_a = router(transport.clone(), asserted_asked(first));
+        drop(post(app_a.clone(), initialize(1)).await);
+        drop(post(app_a, tools_call_ask(2)).await);
+
+        let app_b = router(transport, asserted_asked(second));
+        drop(post(app_b.clone(), initialize(1)).await);
+        drop(post(app_b, tools_call_ask(3)).await);
+
+        let ada = asked
+            .try_recv()
+            .expect("the first caller's exchange was performed")
+            .subject_token;
+        let grace = asked
+            .try_recv()
+            .expect("the second caller's exchange was performed")
+            .subject_token;
+        assert_eq!(ada, first, "caller A's own document was offered for A");
+        assert_eq!(grace, second, "caller B's own document was offered for B");
+        // At the exchange, so a credential cache that served caller B from caller A's exchange - the
+        // defect ADR 0031's per-subject keying exists to prevent - cannot pass by presenting the
+        // same token twice.
+        assert_ne!(ada, grace, "two callers were offered one document");
     }
 }
