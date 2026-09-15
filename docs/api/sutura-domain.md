@@ -2035,6 +2035,16 @@ exactly the field a metric already had, so a closed-vocabulary metric's canonica
 its definition digest - does not move for gaining this type. An `authored_sql` metric is a new
 key, visible in the diff, which is the whole point.
 
+**No `deny_unknown_fields` here, and `ComputationInput` carries none either - both would be
+inert.** `try_from` replaces this type's whole `Deserialize` body with "deserialize a
+`ComputationInput`, then convert", so an attribute on this enum never runs. It would not help
+on `ComputationInput` either: a sibling key beside `measure` or `authored_sql` is already
+refused by serde's own externally-tagged-enum representation, which requires exactly one key
+regardless of `deny_unknown_fields` - and an unknown field INSIDE the tagged value is
+`Measure`'s or `AuthoredSql`'s own `deny_unknown_fields` to refuse, not this enum's. Measured
+by removing the attribute from `ComputationInput` and comparing the error text: unchanged,
+`an_unknown_sibling_key_is_refused_by_the_enum_shape_not_by_either_deny_unknown_fields`.
+
 #### Variants
 
 - `Measure` - The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and nothing about it is optional or degraded.
@@ -2064,10 +2074,13 @@ The authored SQL, if this metric uses the escape hatch.
 pub const fn kind(&self) -> &'static str
 ```
 
-The word a catalog writes, and the word an operator lists metrics by.
+The word a catalog writes for this variant (`authored_sql:`), as opposed to the shorter
+printed label `sutura-cli`'s `commands::computation_label` derives from it for a person.
 
-This is the mechanism behind "a reviewer and an operator must be able to see which metrics
-use the hatch": one accessor over the pinned definitions, rather than a grep over files.
+No production caller reads this today - every caller is this crate's or
+`sutura-catalog-local`'s own tests asserting which variant a document produced. "A reviewer
+can see which metrics use the hatch" still holds, but by a test assertion or a grep over
+files, not by an operator command that lists metrics through this accessor.
 
 ```rust
 pub const fn measure(&self) -> Option<&Measure>

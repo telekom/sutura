@@ -429,8 +429,18 @@ pub enum InvalidComputation {
 /// exactly the field a metric already had, so a closed-vocabulary metric's canonical form - and so
 /// its definition digest - does not move for gaining this type. An `authored_sql` metric is a new
 /// key, visible in the diff, which is the whole point.
+///
+/// **No `deny_unknown_fields` here, and [`ComputationInput`] carries none either - both would be
+/// inert.** `try_from` replaces this type's whole `Deserialize` body with "deserialize a
+/// `ComputationInput`, then convert", so an attribute on this enum never runs. It would not help
+/// on `ComputationInput` either: a sibling key beside `measure` or `authored_sql` is already
+/// refused by serde's own externally-tagged-enum representation, which requires exactly one key
+/// regardless of `deny_unknown_fields` - and an unknown field INSIDE the tagged value is
+/// `Measure`'s or `AuthoredSql`'s own `deny_unknown_fields` to refuse, not this enum's. Measured
+/// by removing the attribute from `ComputationInput` and comparing the error text: unchanged,
+/// `an_unknown_sibling_key_is_refused_by_the_enum_shape_not_by_either_deny_unknown_fields`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields, try_from = "ComputationInput")]
+#[serde(rename_all = "snake_case", try_from = "ComputationInput")]
 pub enum Computation {
     /// The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and
     /// nothing about it is optional or degraded.
@@ -443,8 +453,10 @@ pub enum Computation {
 
 /// The same externally tagged wire form, with construction delegated to `assemble`.
 /// The enum already excludes both/neither; routing keeps future constructor policy in one place.
+///
+/// No `deny_unknown_fields` - see [`Computation`]'s own doc for why it is inert here too.
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(rename_all = "snake_case")]
 enum ComputationInput {
     Measure(Measure),
     AuthoredSql(AuthoredSql),
@@ -490,10 +502,13 @@ impl Computation {
         }
     }
 
-    /// The word a catalog writes, and the word an operator lists metrics by.
+    /// The word a catalog writes for this variant (`authored_sql:`), as opposed to the shorter
+    /// printed label `sutura-cli`'s `commands::computation_label` derives from it for a person.
     ///
-    /// This is the mechanism behind "a reviewer and an operator must be able to see which metrics
-    /// use the hatch": one accessor over the pinned definitions, rather than a grep over files.
+    /// No production caller reads this today - every caller is this crate's or
+    /// `sutura-catalog-local`'s own tests asserting which variant a document produced. "A reviewer
+    /// can see which metrics use the hatch" still holds, but by a test assertion or a grep over
+    /// files, not by an operator command that lists metrics through this accessor.
     #[inline]
     pub const fn kind(&self) -> &'static str {
         match *self {
@@ -842,6 +857,34 @@ mod tests {
         );
         let back: Computation = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back, Computation::AuthoredSql(authored));
+    }
+
+    #[test]
+    fn an_unknown_sibling_key_is_refused_by_the_enum_shape_not_by_either_deny_unknown_fields() {
+        // Neither `Computation`'s nor `ComputationInput`'s `deny_unknown_fields` runs here.
+        // `Computation`'s never does: `serde(try_from = "ComputationInput")` replaces its whole
+        // `Deserialize` body with "deserialize a `ComputationInput`, then `TryFrom`". Measured
+        // directly for `ComputationInput`'s own copy: deleting its `deny_unknown_fields` and
+        // re-running this assertion produced the SAME error text below, unchanged - the refusal
+        // is serde's externally-tagged-enum representation, which requires exactly one key
+        // regardless of the attribute. An unknown field INSIDE the tagged value would still be
+        // `Measure`'s or `AuthoredSql`'s own `deny_unknown_fields` to catch, not this one - that
+        // case is not what this test names.
+        //
+        // Built from a real serialized `Value` rather than a hand-written literal, so this test
+        // does not also have to know `AuthoredSql`'s own wire shape - it only adds the one
+        // sibling key it exists to prove is refused, through the same `Map` a document parses.
+        let authored = authored(&[("portable", "SUM(mrr_eur)")]);
+        let mut value = serde_json::to_value(Computation::AuthoredSql(authored)).expect("serializes");
+        value
+            .as_object_mut()
+            .expect("a computation serializes as an object")
+            .insert("extra".to_owned(), serde_json::json!(1));
+        let err = serde_json::from_value::<Computation>(value.clone()).expect_err("an unknown sibling key is refused");
+        assert!(
+            err.to_string().contains("expected map with a single key"),
+            "input={value} err={err}"
+        );
     }
 
     #[test]
