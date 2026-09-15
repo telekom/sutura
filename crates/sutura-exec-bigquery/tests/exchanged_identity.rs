@@ -168,7 +168,7 @@ mod support;
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId, SubjectKey,
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
@@ -669,21 +669,21 @@ mod tests {
         // its own key. A production caller through the IdP has nothing this map could key on outside
         // this harness - see `docs/adr/`'s new record.
         //
-        // `CHAIN_A`/`CHAIN_B` (declared above, beside `CLOUD_PLATFORM`) are the two subject labels -
-        // checked below rather than merely declared distinct, since a collision here would silently
-        // drop one entry of the map two lines down.
+        // `CHAIN_A`/`CHAIN_B` (declared above, beside `CLOUD_PLATFORM`) are the two subject labels.
+        // The map keys on the FULL subject now (`SubjectKey`), so two distinct raw labels are two
+        // distinct entries by construction - the guard below still pins that they are in fact
+        // distinct raw strings, which is what the two declared map entries depend on.
         debug_assert_ne!(
-            SubjectId::parse(CHAIN_A).expect("a test subject id parses"),
-            SubjectId::parse(CHAIN_B).expect("a test subject id parses"),
-            "the two chain labels must not collide after masking, or the impersonate map below silently drops one entry"
+            CHAIN_A, CHAIN_B,
+            "the two chain labels must be distinct raw subjects, or the impersonate map below silently drops one entry"
         );
         let impersonate = std::collections::BTreeMap::from([
             (
-                SubjectId::parse(CHAIN_A).expect("a test subject id parses"),
+                SubjectKey::parse(CHAIN_A).expect("a test subject id parses"),
                 expected_a.clone(),
             ),
             (
-                SubjectId::parse(CHAIN_B).expect("a test subject id parses"),
+                SubjectKey::parse(CHAIN_B).expect("a test subject id parses"),
                 expected_b.clone(),
             ),
         ]);
@@ -704,6 +704,7 @@ mod tests {
             let chain = |id: &str| {
                 PrincipalChain::of(Subject::Verified {
                     id: SubjectId::parse(id).expect("a subject id parses"),
+                    key: sutura_domain::identity::SubjectKey::parse(id).expect("a subject id parses"),
                 })
             };
             let context = RequestContext::with_assertion(chain(subject), Secret::new(String::from(assertion)));

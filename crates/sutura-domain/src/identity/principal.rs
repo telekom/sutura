@@ -226,6 +226,55 @@ principal_newtype! {
     TaskId
 }
 
+/// The verified identity a caller may be exchanged FOR, retained in full for the one place a
+/// lossy projection is an authorization decision.
+///
+/// [`SubjectId`] masks on the way in and deliberately has no raw access, and for ordinary
+/// rendering that is the whole control: the stable masked form is all a record ever needs. But
+/// deciding which declared service account a caller may impersonate is not rendering - it is an
+/// access-control read of "who is asking", and a map keyed on [`SubjectId`] collides every
+/// UNDECLARED caller that shares a declared subject's mask with the declared subject (for an
+/// opaque numeric `sub` the mask keeps a single character, a handful of equivalence classes for a
+/// whole tenant). So the impersonation map keys on THIS type, which holds the full verified `sub`
+/// so that two distinct subjects are two distinct keys, while `Debug`/`Display` render only the
+/// masked form to keep the raw identifier out of every log surface.
+///
+/// **No `Deserialize`**, for the same reason [`SubjectId`] has none: a caller that states its own
+/// identity does not have one. The only door is [`Self::parse`], reached at exactly the two places
+/// a verified identity legitimately enters the process - the settings boundary (a declared map
+/// key) and the transport's verification of the token's `sub` claim.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SubjectKey(String);
+
+impl SubjectKey {
+    /// Parses a verified subject, validating it the way [`SubjectId`] does but retaining the FULL
+    /// value rather than the mask - equality is the whole point of this type.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPrincipalId> {
+        let validated = parse_principal_id(raw.as_ref())?;
+        Ok(Self(validated))
+    }
+
+    /// The stable masked form, for rendering. The `Debug`/`Display` impls are the only callers and
+    /// neither can leak the raw value once this owns the string that becomes the rendered text.
+    fn masked(&self) -> String {
+        let mut masked = String::with_capacity(self.0.len());
+        mask_principal_into(&self.0, &mut masked);
+        masked
+    }
+}
+
+impl fmt::Display for SubjectKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.masked())
+    }
+}
+
+impl fmt::Debug for SubjectKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.masked())
+    }
+}
+
 /// Who a question is attributed to, and what established it.
 ///
 /// **Two variants and not one string, because the difference is the one that must never be guessable
@@ -241,7 +290,12 @@ pub enum Subject {
     /// (`docs/adr/0014`) has landed, and this variant is what it filled in. The sentence that used
     /// to stand here said nothing constructed it, which had already stopped being true in one file
     /// and been carried to no other.
-    Verified { id: SubjectId },
+    ///
+    /// `id` is the masked [`SubjectId`] a record renders; `key` is the same verified `sub` retained
+    /// in full as a [`SubjectKey`], for the one read that must not collapse it - the
+    /// subject-to-account impersonation map (`docs/adr/0032`). The two come from the same parse at
+    /// construction and can never disagree about who was verified.
+    Verified { id: SubjectId, key: SubjectKey },
     /// No caller identity was established. The transport authenticated the deployment and not
     /// whoever asked, so the deployment is the only principal there is.
     ///
@@ -272,7 +326,18 @@ impl Subject {
     #[inline]
     pub const fn id(&self) -> Option<&SubjectId> {
         match *self {
-            Self::Verified { ref id } => Some(id),
+            Self::Verified { ref id, .. } => Some(id),
+            Self::TheDeploymentItself => None,
+        }
+    }
+
+    /// The full verified `sub`, for the one read that must not be a masked projection: looking a
+    /// caller up in an impersonating source's subject-to-account map. `None` for the deployment
+    /// itself, which has nothing to be exchanged for and is refused before it is ever looked up.
+    #[inline]
+    pub const fn key(&self) -> Option<&SubjectKey> {
+        match *self {
+            Self::Verified { ref key, .. } => Some(key),
             Self::TheDeploymentItself => None,
         }
     }
@@ -590,7 +655,10 @@ impl RequestContext {
 
 #[cfg(test)]
 mod tests {
-    use super::{Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId};
+    use super::{
+        Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey,
+        TaskId,
+    };
 
     fn actor(raw: &str) -> Actor {
         Actor::parse(raw).expect("a test actor is an actor")
@@ -599,6 +667,7 @@ mod tests {
     fn a_person() -> Subject {
         Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         }
     }
 
@@ -681,6 +750,7 @@ mod tests {
 
         let named_like_one = Subject::Verified {
             id: SubjectId::parse("deployment").expect("a test subject is a subject"),
+            key: SubjectKey::parse("deployment").expect("a test subject is a subject"),
         };
         assert_eq!(named_like_one.established(), "verified");
         assert_ne!(named_like_one, Subject::TheDeploymentItself);

@@ -24,12 +24,15 @@ same `WireAgent`, same pins, same outbound-anchor resolution, a different reques
 and a different failure vocabulary (`IamCredentialsError`, never `StsError`'s).
 
 **The map is declared, not derived.** `sutura_config::sources::workload_identity::WorkloadIdentityConfig`
-carries an `impersonate: BTreeMap<SubjectId, WorkloadIdentitySa>`, keyed on the stable claim leg 1
-already establishes rather than a raw, numeric, per-provider pool subject string. A subject absent
-from the map never reaches the hop and is never granted a fallback identity - the broker refuses
-before any network call, the same as today's "no assertion at all" refusal. An entry with an empty
-map is unchanged behaviour: a bare exchange, presented as the caller's own federated credential. This
-is what makes the change additive rather than a breaking change to every source that has not opted in.
+carries an `impersonate: BTreeMap<SubjectKey, WorkloadIdentitySa>`, keyed on the FULL verified `sub`
+(as a redacting domain newtype that renders only the mask) rather than on a masked, per-provider pool
+subject string - keying an authorization decision on the mask would hand every undeclared caller that
+shares a declared subject's mask that subject's declared service account. A subject absent from the
+map never reaches the hop and is never granted a fallback identity: the broker refuses it before any
+network call, naming the source, the same as today's "no assertion at all" refusal. An entry with an
+empty map is unchanged behaviour: a bare exchange, presented as the caller's own federated
+credential. This is what makes the change additive rather than a breaking change to every source
+that has not opted in.
 
 **The cache key gains the resolved target account.** `sts/cache.rs`'s `ExchangeKey` was
 `(PrincipalChain, audience, scope)`; a fourth field, `target_sa: Option<String>`, is now part of it -
@@ -49,6 +52,16 @@ a separately-scoped change, not a fourth field on an existing struct. Today the 
 visible in the broker's own state and in `sts/cache.rs`'s key; it is not yet the fact an incident asks
 `CallRecord` for. Recorded here rather than silently deferred, so the next person to reach for this
 does not have to re-derive why it is missing.
+
+**And the specific consequence of that deferral, stated plainly:** `CallRecord` cannot yet tell a
+hop'd leg (whose executing identity is a declared service account) from a bare one (a federated
+principal) on the same `impersonation-at-source` source - both record identically today, because
+`executed_as` is derived from the declared posture, not from the resolved account. This is accepted
+here, and only here, because the broker refuses an undeclared caller on a source that declares a map,
+so **every granted leg on a declared map is a hop'd leg and "who executed" is derivable at record time
+from the record's subject plus that source's own map** (with the map keyed on the full subject, that
+derivation is unambiguous). The follow-up that lands the distinction - threading the resolved account
+onto `CallRecord`/`Provenance` - is what this then leaves open, scoped above.
 
 ## Options considered
 
@@ -84,17 +97,16 @@ trusting a source's own row-level security rather than re-checking it here.
 **Does not touch Postgres, Oracle, or any source but BigQuery.** `BigQueryWarehouse` remains the only
 adapter carrying `PerSubjectCredential` at all.
 
-**The map key inherits `SubjectId`'s own masking, and that is a residual worth stating rather than
-discovering by collision.** `crates/sutura-domain/src/identity/principal.rs`'s mask keeps only the
-first character of each `.`/`@`-delimited segment, so two DIFFERENT raw subjects sharing a first
-character per segment and the same domain - `alice@corp.example` and `aaron@corp.example`, say -
-parse to the identical masked `SubjectId` and therefore the identical map key. A deployment declaring
-`impersonate` entries for two such subjects would have the second declaration silently replace the
-first in the map, with no parse error naming the collision - this crate's own test suite found the
-same collision by construction and had to change its own fixture subjects to avoid it. This is a
-property of `SubjectId` this record does not change; an operator choosing subjects for this map
-should pick issuer-qualified identifiers where the risk is lower, and a follow-up that makes a
-colliding pair a declared refusal rather than a silent overwrite is a fast-follow, not this change.
+**The map keys on the FULL verified subject, and a mask collision is now a refusal, not a silent
+overwrite.** The impersonation map is keyed on a redacting [`SubjectKey`] that holds the full `sub`
+for equality while rendering only the mask, so two distinct raw subjects - even ones, like
+`alice@corp.example` and `aaron@corp.example`, whose `SubjectId` masks are identical - are two
+distinct map entries. A caller whose FULL subject is absent from a declared map is refused before any
+network call, whatever its mask collides with; and `WorkloadIdentityConfig::parse` refuses two
+declared keys that compare equal after parsing (differing only by surrounding whitespace, which
+`parse_principal_id` trims) rather than silently keeping whichever came last. The collapse that
+`SubjectId`'s masking used to cause, and the escalation it enabled, are the property the reviewer's
+attack cell M1 pins (`an_undeclared_caller_with_a_masked_subject_colliding_with_a_declared_one_is_refused_not_handed_the_sa`).
 
 **Does not move `docs/where-identity-is-proven.md`'s row.** The mechanics are exercised by six
 fake-port cells in `sts.rs` and `sts/cache.rs`, never by a live call. A green `bigquery-exchanged-identity`
@@ -109,6 +121,8 @@ rather than folded into this change's own scope.
 - **Threading the resolved account onto `CallRecord`/`Provenance`**, once that widening is itself
   scoped and reviewed on its own - see the limit above.
 - **A parsed lifetime derived from the caller's own request budget** rather than the fixed
-  3600-second ceiling this hop always requests. The broker's own expiry floor already refuses a
-  credential that would age out mid-answer regardless of the lifetime requested, so this is a cache
-  hit-window optimisation rather than a correctness gap.
+  3600-second ceiling this hop always REQUESTS. The granted credential's expiry is now read from the
+  endpoint's own `expireTime` (bounded by that requested ceiling, refused if absent or longer than
+  requested - so the correctness gap this record's first round called out is closed); what remains an
+  optimisation rather than a correctness gap is picking the REQUESTED lifetime from the caller's
+  budget, which the broker's own expiry floor already refuses on the safe side regardless.

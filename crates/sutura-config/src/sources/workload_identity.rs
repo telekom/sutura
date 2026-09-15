@@ -32,7 +32,7 @@ pub struct WifScope(String);
 pub struct WorkloadIdentityConfig {
     audience: WifAudience,
     scope: WifScope,
-    impersonate: std::collections::BTreeMap<sutura_domain::identity::SubjectId, WorkloadIdentitySa>,
+    impersonate: std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>,
 }
 
 impl WorkloadIdentityConfig {
@@ -41,6 +41,14 @@ impl WorkloadIdentityConfig {
     /// `impersonate` is read as raw strings rather than already-parsed types, for the reason
     /// `RawSource` carries every field as one: the settings tree speaks in strings, and parsing
     /// happens once, here.
+    ///
+    /// The map keys on [`sutura_domain::identity::SubjectKey`], the FULL verified subject - never on
+    /// the masked [`SubjectId`](sutura_domain::identity::SubjectId) a record renders. Keying an
+    /// authorization decision on the mask would hand every undeclared caller sharing a declared
+    /// subject's mask that subject's declared service account; the full value is the only key on
+    /// which two distinct subjects stay distinct. Two declared keys are refused if they compare
+    /// equal, and a declared key that is empty or whitespace-only is refused as unusable - the same
+    /// parse that guards every principal identifier.
     pub fn parse(
         audience: impl AsRef<str>,
         scope: impl AsRef<str>,
@@ -48,10 +56,12 @@ impl WorkloadIdentityConfig {
     ) -> Result<Self, InvalidWorkloadIdentity> {
         let mut parsed = std::collections::BTreeMap::new();
         for (subject, target) in impersonate {
-            let subject = sutura_domain::identity::SubjectId::parse(subject)
+            let subject = sutura_domain::identity::SubjectKey::parse(subject)
                 .map_err(|cause| InvalidWorkloadIdentity::ImpersonationSubject { cause })?;
             let target = WorkloadIdentitySa::parse(target)?;
-            drop(parsed.insert(subject, target));
+            if parsed.insert(subject, target).is_some() {
+                return Err(InvalidWorkloadIdentity::DuplicateImpersonationSubject);
+            }
         }
         Ok(Self {
             audience: WifAudience::parse(audience.as_ref())?,
@@ -77,7 +87,7 @@ impl WorkloadIdentityConfig {
     /// The declared subject -> service-account map, for the composition root to hand the broker.
     #[inline]
     #[must_use]
-    pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectId, WorkloadIdentitySa> {
+    pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa> {
         &self.impersonate
     }
 }
@@ -241,6 +251,10 @@ pub enum InvalidWorkloadIdentity {
         #[source]
         cause: sutura_domain::identity::InvalidPrincipalId,
     },
+    /// Two declared `impersonate` keys compare equal - the same subject declared twice, with no way
+    /// to tell which service account was meant.
+    #[error("two declared `impersonate` subjects are the same subject")]
+    DuplicateImpersonationSubject,
 }
 
 #[cfg(test)]
@@ -276,7 +290,7 @@ mod tests {
             &declared,
         )
         .expect("a real-shaped impersonation map parses");
-        let subject = sutura_domain::identity::SubjectId::parse("principal-a@example.com").expect("a test subject is a subject");
+        let subject = sutura_domain::identity::SubjectKey::parse("principal-a@example.com").expect("a test subject is a subject");
         assert_eq!(
             id.impersonate().get(&subject).map(WorkloadIdentitySa::as_str),
             Some("principal-a@acme-analytics.iam.gserviceaccount.com")
@@ -302,5 +316,47 @@ mod tests {
             .expect_err("a character outside the accepted set is refused")
             .to_string();
         assert!(!err.contains("provider"), "{err}");
+    }
+
+    #[test]
+    fn two_declared_keys_that_compare_equal_after_parse_are_a_refusal_not_a_silent_overwrite() {
+        // The map keys on the FULL verified subject, and `parse` trims each declared key the way
+        // `parse_principal_id` does - so two RAW keys that differ only by surrounding whitespace
+        // ("principal-a@example.com" and " principal-a@example.com ") are distinct entries in the
+        // settings map yet compare equal once parsed. That collision is refused rather than silently
+        // keeping whichever came last. (Identical raw strings can never reach this code - the
+        // settings `BTreeMap` already collapses them.)
+        let mut declared = std::collections::BTreeMap::new();
+        drop(declared.insert(
+            String::from("principal-a@example.com"),
+            String::from("principal-a@acme-analytics.iam.gserviceaccount.com"),
+        ));
+        drop(declared.insert(
+            String::from(" principal-a@example.com "),
+            String::from("other-sa@acme-analytics.iam.gserviceaccount.com"),
+        ));
+        let err = WorkloadIdentityConfig::parse(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &declared,
+        )
+        .expect_err("two declared subjects that compare equal after parse are refused");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::DuplicateImpersonationSubject));
+    }
+
+    #[test]
+    fn a_whitespace_only_declared_key_is_refused() {
+        let mut declared = std::collections::BTreeMap::new();
+        drop(declared.insert(
+            String::from("   "),
+            String::from("principal-a@acme-analytics.iam.gserviceaccount.com"),
+        ));
+        let err = WorkloadIdentityConfig::parse(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &declared,
+        )
+        .expect_err("a whitespace-only declared subject is not an identifier");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::ImpersonationSubject { .. }));
     }
 }

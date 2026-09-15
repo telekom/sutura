@@ -269,6 +269,7 @@ mod tests {
         let outcome = an_answer_on_a_shared_source();
         let chain = PrincipalChain::of(Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         });
         let rendered = crate::testing::capture(|| {
             TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
@@ -350,6 +351,7 @@ mod tests {
         // refusal variant, so a refusal is attributable rather than merely counted.
         let chain = PrincipalChain::of(Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         });
         let rendered = written(&chain);
         assert!(rendered.contains("refused"), "{rendered}");
@@ -366,6 +368,7 @@ mod tests {
         // same line would still lose the distinction.
         let subject = || Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         };
         let alone = written(&PrincipalChain::of(subject()));
         let acted_for = written(

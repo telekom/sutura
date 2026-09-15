@@ -6,7 +6,7 @@
 
 use sutura_domain::identity::{
     Agreed, CredentialBroker as _, CredentialsDoNotFitTheRequest, Expiry, Minted, Presented, PrincipalChain, RequestContext,
-    Secret, SourceSet, Subject, SubjectId,
+    Secret, SourceSet, Subject, SubjectId, SubjectKey,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
@@ -107,8 +107,16 @@ fn declared() -> SharedIdentityDeclared {
 }
 
 fn caller(assertion: Option<&str>) -> RequestContext {
+    caller_with("someone@example.com", assertion)
+}
+
+/// A caller whose verified `sub` is `raw` - the general shape [`caller`] specialises. Used by the
+/// collision cells, which need a caller whose MASK collides with `someone@example.com`'s
+/// (`steve@example.com` masks identically to `s***@e***.c***`) while its FULL subject differs.
+fn caller_with(raw: &str, assertion: Option<&str>) -> RequestContext {
     let chain = PrincipalChain::of(Subject::Verified {
-        id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        id: SubjectId::parse(raw).expect("a test subject is a subject"),
+        key: SubjectKey::parse(raw).expect("a test subject is a subject"),
     });
     match assertion {
         Some(raw) => RequestContext::with_assertion(chain, Secret::new(raw)),
@@ -400,11 +408,14 @@ type HopCalls = std::cell::RefCell<Vec<(String, String)>>;
 
 /// A fake [`ImpersonateAsAccount`] port - the second hop's own `FakeExchange`. Grants a
 /// distinguishable token, or refuses, and always records what it was asked with: the federated
-/// bearer it received and the target SA it was asked to impersonate.
+/// bearer it received, the target SA it was asked to impersonate, and the lifetime it was asked to
+/// request - the last so a cell can hold the broker's requested lifetime to the bounded ceiling
+/// (`the_hop_requests_the_bounded_lifetime` kills the mutation that widens [`IMPERSONATED_LIFETIME`]).
 struct FakeImpersonation {
     grant: Option<String>,
     planted_reason: &'static str,
     calls: HopCalls,
+    lifetimes: std::cell::RefCell<Vec<Duration>>,
 }
 
 impl FakeImpersonation {
@@ -413,6 +424,7 @@ impl FakeImpersonation {
             grant: Some(String::from(token)),
             planted_reason: "",
             calls: std::cell::RefCell::default(),
+            lifetimes: std::cell::RefCell::default(),
         }
     }
 
@@ -421,7 +433,12 @@ impl FakeImpersonation {
             grant: None,
             planted_reason,
             calls: std::cell::RefCell::default(),
+            lifetimes: std::cell::RefCell::default(),
         }
+    }
+
+    fn the_one_lifetime_asked(&self) -> Duration {
+        self.lifetimes.borrow()[0]
     }
 }
 
@@ -437,11 +454,12 @@ impl ImpersonateAsAccount for FakeImpersonation {
         federated: &Secret,
         target_sa: &str,
         _scope: &str,
-        _lifetime: Duration,
+        lifetime: Duration,
     ) -> Result<StsCredential, Self::Error> {
         self.calls
             .borrow_mut()
             .push((String::from(federated.expose_secret()), String::from(target_sa)));
+        self.lifetimes.borrow_mut().push(lifetime);
         self.grant.as_ref().map_or_else(
             || {
                 Err(FakeImpersonationRefused {
@@ -462,8 +480,8 @@ impl ImpersonateAsAccount for FakeImpersonation {
 
 /// The one subject `caller()` ever builds, as the map key an impersonating source declares - so a
 /// test says "this source hops for THIS caller" without hand-writing the id twice.
-fn the_callers_subject() -> SubjectId {
-    SubjectId::parse("someone@example.com").expect("a test subject is a subject")
+fn the_callers_subject() -> SubjectKey {
+    SubjectKey::parse("someone@example.com").expect("a test subject is a subject")
 }
 
 /// One impersonating source declaring the hop for `the_callers_subject()`, with the fake exchange
@@ -560,10 +578,10 @@ fn the_resulting_bearer_is_the_sa_token_not_the_federated_one() {
 }
 
 #[test]
-fn a_subject_with_no_declared_impersonate_entry_keeps_todays_bare_exchange() {
-    // The map names a DIFFERENT subject - additive, per `WorkloadIdentity::target_for`'s own doc:
-    // a caller absent from the map is never granted a fallback identity, and never reaches the
-    // hop either.
+fn a_source_with_no_impersonate_map_keeps_todays_bare_exchange() {
+    // The additive case, `docs/adr/0032`: a source that declares NO map never refuses anybody and
+    // never reaches the hop - the bare RFC 8693 exchange is presented as the caller's own federated
+    // credential, exactly as before the second hop existed.
     let impersonation = FakeImpersonation::granting("sa-token-nobody-should-receive");
     let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
         .measured_against(Frozen(A_FIXED_NOW))
@@ -573,16 +591,7 @@ fn a_subject_with_no_declared_impersonate_entry_keeps_todays_bare_exchange() {
             WorkloadIdentity::of(
                 String::from("//iam.googleapis.com/.../providers/sso"),
                 String::from("https://www.googleapis.com/auth/bigquery.readonly"),
-            )
-            .with_impersonation(std::collections::BTreeMap::from([(
-                // A DIFFERENT masked form from `caller()`'s "someone@example.com" - not merely a
-                // different raw string. `SubjectId::parse` masks to first-character-plus-stars per
-                // segment, so two subjects sharing a first letter and a domain would mask identically
-                // and this fixture would prove nothing; "zeta" and "another" both diverge from
-                // "someone" in the segment `mask_principal_into` actually keeps.
-                SubjectId::parse("zeta@another.example").expect("a test subject is a subject"),
-                String::from("target-sa@acme-analytics.iam.gserviceaccount.com"),
-            )])),
+            ),
         );
     let minted = broker
         .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
@@ -600,7 +609,122 @@ fn a_subject_with_no_declared_impersonate_entry_keeps_todays_bare_exchange() {
     let WorkloadIdentityBroker { impersonation, .. } = &broker;
     assert!(
         impersonation.calls.borrow().is_empty(),
-        "a subject absent from the map must never reach the hop"
+        "a source with no map must never reach the hop"
+    );
+}
+
+#[test]
+fn a_declared_impersonate_map_refuses_an_undeclared_subject_before_the_exchange() {
+    // `docs/adr/0032`'s refusal, `telekom/sutura#376`: a source that DECLARES a non-empty map has
+    // said who may execute here, and a verified caller absent from it is refused at the door with a
+    // typed `Minted::Refused` naming the source - never handed a bare federated credential, and
+    // neither round trip (the STS exchange nor the hop) is spent. The reviewer's F2, held by
+    // observable refusal plus zero calls to both fakes.
+    let impersonation = FakeImpersonation::granting("sa-token-nobody-should-receive");
+    let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
+        .measured_against(Frozen(A_FIXED_NOW))
+        .impersonating_via(impersonation)
+        .impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(
+                String::from("//iam.googleapis.com/.../providers/sso"),
+                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+            )
+            .with_impersonation(std::collections::BTreeMap::from([(
+                the_callers_subject(),
+                String::from("target-sa@acme-analytics.iam.gserviceaccount.com"),
+            )])),
+        );
+    // A caller absent from the map entirely (its mask does not even collide with the declared key).
+    let minted = broker
+        .mint(
+            &caller_with("zeta@elsewhere.example", Some("zeta-token")),
+            &SourceSet::of(source("warehouse")),
+        )
+        .expect("a refusal is an Ok, not a failure");
+    assert!(
+        matches!(minted, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "the refusal names the source, never the subject: {minted:?}"
+    );
+    let WorkloadIdentityBroker {
+        impersonation, exchange, ..
+    } = &broker;
+    assert!(
+        impersonation.calls.borrow().is_empty(),
+        "an undeclared caller must never reach the hop"
+    );
+    assert!(
+        exchange.exchanged.borrow().is_empty(),
+        "an undeclared caller on a declared map is refused before the exchange, which sees zero calls"
+    );
+}
+
+#[test]
+fn an_undeclared_caller_with_a_masked_subject_colliding_with_a_declared_one_is_refused_not_handed_the_sa() {
+    // The reviewer's attack cell M1, made permanent. `someone@example.com` and `steve@example.com`
+    // both mask to `s***@e***.c***` - keying the hop on the MASK (the pre-fix behaviour, where the
+    // map keyed on `SubjectId`) would hand `steve` the service account declared for `someone`. The
+    // map keys on the FULL subject now, so the colliding caller resolves `None` and F2 refuses him
+    // before any round trip. Asserting refusal AND zero calls to both fakes is what proves he was
+    // not handed that SA.
+    let impersonation = FakeImpersonation::granting("sa-token-steve-should-never-receive");
+    let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
+        .measured_against(Frozen(A_FIXED_NOW))
+        .impersonating_via(impersonation)
+        .impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(
+                String::from("//iam.googleapis.com/.../providers/sso"),
+                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+            )
+            .with_impersonation(std::collections::BTreeMap::from([(
+                the_callers_subject(),
+                String::from("target-sa@acme-analytics.iam.gserviceaccount.com"),
+            )])),
+        );
+    let minted = broker
+        .mint(
+            &caller_with("steve@example.com", Some("steve-token")),
+            &SourceSet::of(source("warehouse")),
+        )
+        .expect("a refusal is an Ok, not a failure");
+    assert!(
+        matches!(minted, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "a mask-colliding undeclared caller is refused, not handed the declared account: {minted:?}"
+    );
+    let WorkloadIdentityBroker {
+        impersonation, exchange, ..
+    } = &broker;
+    assert!(
+        impersonation.calls.borrow().is_empty(),
+        "a mask-colliding undeclared caller must never reach the hop for another subject's declared account"
+    );
+    assert!(
+        exchange.exchanged.borrow().is_empty(),
+        "...and is refused before the exchange, which sees zero calls"
+    );
+}
+
+#[test]
+fn the_hop_requests_the_bounded_lifetime_not_an_operator_chosen_ceiling() {
+    // The lifetime the broker asks the hop for is Google's documented 3600-second ceiling, held
+    // against the granted credential's own expiry. This cell reads the lifetime the FAKE was asked
+    // with - it is what kills the reviewer's M7, which widened `IMPERSONATED_LIFETIME` to 86400 and
+    // nothing observed the change because no cell read the lifetime the fake received.
+    let broker = hopping_warehouse(
+        FakeExchange::minting_one_lasting(3_600),
+        FakeImpersonation::granting("sa-token"),
+        "target-sa@acme-analytics.iam.gserviceaccount.com",
+    );
+    let minted = broker
+        .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
+        .expect("the hop does not fail");
+    assert!(matches!(minted, Minted::Granted { .. }));
+    let WorkloadIdentityBroker { impersonation, .. } = &broker;
+    assert_eq!(
+        impersonation.the_one_lifetime_asked(),
+        super::IMPERSONATED_LIFETIME,
+        "the broker must request the bounded ceiling, whatever the mutation widened it to"
     );
 }
 

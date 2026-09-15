@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sutura_domain::identity::{
-    CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectId,
+    CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectKey,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
@@ -56,7 +56,14 @@ pub struct WorkloadIdentity {
     /// exchange - `docs/adr/0008` part 2's original shape, presented as the caller's own federated
     /// credential - which is what makes this addition additive rather than a breaking change to
     /// every source that never opts in.
-    impersonate: BTreeMap<SubjectId, String>,
+    ///
+    /// **Keyed on the FULL verified subject ([`SubjectKey`]), not the masked
+    /// [`SubjectId`](sutura_domain::identity::SubjectId).** The
+    /// hop is an authorization decision - which declared account a caller may become - and a mask
+    /// collides every undeclared caller that shares a declared subject's mask with the declared one.
+    /// [`SubjectKey`] holds the raw `sub` for equality while rendering only the mask, so two
+    /// distinct callers stay two distinct keys and an absent caller resolves `None`.
+    impersonate: BTreeMap<SubjectKey, String>,
 }
 
 impl WorkloadIdentity {
@@ -75,7 +82,7 @@ impl WorkloadIdentity {
     /// A separate builder rather than a third [`Self::of`] argument, so every existing call site -
     /// none of which impersonates a service account - reads unchanged.
     #[must_use]
-    pub fn with_impersonation(mut self, impersonate: BTreeMap<SubjectId, String>) -> Self {
+    pub fn with_impersonation(mut self, impersonate: BTreeMap<SubjectKey, String>) -> Self {
         self.impersonate = impersonate;
         self
     }
@@ -97,11 +104,13 @@ impl WorkloadIdentity {
     /// The service account `subject`'s exchanged credential is impersonated into, if this source
     /// declares one.
     ///
-    /// `None` is not a fallback - it is the answer for every subject a deployment did not name, and
-    /// [`WorkloadIdentityBroker::mint`] never turns it into anything but a bare exchange.
+    /// `None` is not a fallback - it is the answer for every subject a deployment did not name. A
+    /// source that declares a NON-empty map refuses a `None` caller in
+    /// [`WorkloadIdentityBroker::mint`] rather than answering with a bare exchange; an empty map
+    /// keeps today's bare exchange for everyone.
     #[inline]
     #[must_use]
-    pub fn target_for(&self, subject: &SubjectId) -> Option<&str> {
+    pub fn target_for(&self, subject: &SubjectKey) -> Option<&str> {
         self.impersonate.get(subject).map(String::as_str)
     }
 }
@@ -550,11 +559,25 @@ where
                 return Ok(Minted::Refused { source: source.clone() });
             };
             // The hop's target, if this source declares one for THIS subject - resolved before any
-            // round trip, because it is part of the cache key (`sts/cache.rs`'s own doc: the SA is
+            // round trip because it is part of the cache key (`sts/cache.rs`'s own doc: the SA is
             // itself part of "what was asked for") and part of the decision whether to call the
-            // second hop at all. `None` for a subject absent from the map is the bare-exchange path,
-            // unchanged from before this hop existed.
-            let target_sa = asked_by.id().and_then(|id| workload.target_for(id));
+            // second hop at all.
+            //
+            // Keyed on the FULL verified `sub` (`asked_by.key()`), never on the masked `SubjectId`
+            // (`asked_by.id()`): the hop is the authorization decision "which declared account may
+            // this caller become", and a masked lookup would hand a declared subject's account to
+            // every undeclared caller sharing its mask.
+            let target_sa = asked_by.key().and_then(|key| workload.target_for(key));
+
+            // **REFUSAL, `docs/adr/0032`'s "absent from the map is refused before any network call":**
+            // a source that DECLARES a non-empty map has said who may execute here, and a verified
+            // caller with no entry either becomes one of those declared accounts or is a bare
+            // federated principal the source never sanctioned. Refused at the door - before the
+            // cache, before either round trip - naming the SOURCE and never the subject. An EMPTY
+            // map is the additive case and keeps today's bare exchange for everyone.
+            if !workload.impersonate.is_empty() && target_sa.is_none() {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
 
             // A live entry, if the cache holds one for this exact chain, this exact (audience,
             // scope), AND this exact target SA - never for anything less, see `cache`'s own module

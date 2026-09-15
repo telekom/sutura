@@ -341,6 +341,7 @@ mod tests {
     fn subject(id: &str) -> Subject {
         Subject::Verified {
             id: SubjectId::parse(id).expect("a test subject id is a subject id"),
+            key: sutura_domain::identity::SubjectKey::parse(id).expect("a test subject id is a subject id"),
         }
     }
 

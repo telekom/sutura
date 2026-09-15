@@ -100,6 +100,7 @@ mod tests {
         // assertion for the deployment's own identity, which this fixture cannot be mistaken for.
         let subject = Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         };
         let context =
             RequestContext::with_assertion(PrincipalChain::of(subject), Secret::new("the-assertion-a-transport-verified"));

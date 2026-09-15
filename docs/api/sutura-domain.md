@@ -3060,6 +3060,26 @@ at the boundary that turns a wire value into this type, not at print time. There
 other way in: the field is private, there is no `Deserialize`, and `TryFrom<String>`
 delegates to the same constructor.
 
+### `use SubjectKey`
+
+The verified identity a caller may be exchanged FOR, retained in full for the one place a
+lossy projection is an authorization decision.
+
+`SubjectId` masks on the way in and deliberately has no raw access, and for ordinary
+rendering that is the whole control: the stable masked form is all a record ever needs. But
+deciding which declared service account a caller may impersonate is not rendering - it is an
+access-control read of "who is asking", and a map keyed on `SubjectId` collides every
+UNDECLARED caller that shares a declared subject's mask with the declared subject (for an
+opaque numeric `sub` the mask keeps a single character, a handful of equivalence classes for a
+whole tenant). So the impersonation map keys on THIS type, which holds the full verified `sub`
+so that two distinct subjects are two distinct keys, while `Debug`/`Display` render only the
+masked form to keep the raw identifier out of every log surface.
+
+**No `Deserialize`**, for the same reason `SubjectId` has none: a caller that states its own
+identity does not have one. The only door is `Self::parse`, reached at exactly the two places
+a verified identity legitimately enters the process - the settings boundary (a declared map
+key) and the transport's verification of the token's `sub` claim.
+
 ### `use TaskId`
 
 The identifier of the unit of work a question belongs to.

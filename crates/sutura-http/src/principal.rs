@@ -77,6 +77,7 @@ mod tests {
     fn a_person() -> Subject {
         Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         }
     }
 
