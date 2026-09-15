@@ -5243,7 +5243,7 @@ pub const fn audience(&self) -> &WifAudience
 The provider audience.
 
 ```rust
-pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectId, WorkloadIdentitySa>
+pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>
 ```
 
 The declared subject -> service-account map, for the composition root to hand the broker.
@@ -5257,6 +5257,14 @@ Parses a declared audience, scope and impersonation map together.
 `impersonate` is read as raw strings rather than already-parsed types, for the reason
 `RawSource` carries every field as one: the settings tree speaks in strings, and parsing
 happens once, here.
+
+The map keys on `sutura_domain::identity::SubjectKey`, the FULL verified subject - never on
+the masked `SubjectId` a record renders. Keying an
+authorization decision on the mask would hand every undeclared caller sharing a declared
+subject's mask that subject's declared service account; the full value is the only key on
+which two distinct subjects stay distinct. Two declared keys are refused if they compare
+equal, and a declared key that is empty or whitespace-only is refused as unusable - the same
+parse that guards every principal identifier.
 
 ```rust
 pub const fn scope(&self) -> &WifScope
@@ -5326,6 +5334,7 @@ not `Clone` either - nothing needs to clone a startup refusal.
 - `Character` - A character outside the accepted set.
 - `NotAnAccount` - An `impersonate` target has no `@`, or more than one - so it is not an account.
 - `ImpersonationSubject` - An `impersonate` key is not a usable principal identifier.
+- `DuplicateImpersonationSubject` - Two declared `impersonate` keys compare equal - the same subject declared twice, with no way to tell which service account was meant.
 
 ##### Implements
 

@@ -82,6 +82,7 @@ pub(crate) fn test_deadline() -> sutura_domain::warehouse::deadline::Deadline {
 pub(crate) fn asked_by_a_person() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
     }))
 }
 
@@ -671,6 +672,7 @@ fn a_grant_minted_for_another_subject_never_reaches_an_adapter() {
         asked,
         &Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         }
     );
     assert_eq!(granted, &Subject::TheDeploymentItself);

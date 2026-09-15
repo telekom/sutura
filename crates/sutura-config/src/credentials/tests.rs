@@ -89,6 +89,7 @@ fn registry(entries: &[RawSourceEntry<'_>]) -> SourceRegistry {
 fn asked_by_a_person() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        key: sutura_domain::identity::SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
     }))
 }
 

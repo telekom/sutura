@@ -387,7 +387,12 @@ impl TokenValidator {
         let claims = decoded.claims;
         self.within_the_lifetime_ceiling(&claims)?;
         let subject = SubjectId::parse(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
-        let mut chain = PrincipalChain::of(Subject::Verified { id: subject });
+        // The same verified `sub`, retained in full as the impersonation-map key - `SubjectId` masks
+        // on the way in and the access-control read (which declared account a caller may become) must
+        // not be a masked projection. Both come from the same parse of the same claim.
+        let key =
+            sutura_domain::identity::SubjectKey::parse(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
+        let mut chain = PrincipalChain::of(Subject::Verified { id: subject, key });
         if let Some(ref actor) = claims.act {
             chain = chain.acting(chain_from(actor)?);
         }

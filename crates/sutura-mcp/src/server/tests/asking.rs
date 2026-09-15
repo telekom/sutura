@@ -92,6 +92,7 @@ fn hand_built_context(id: i64, peer: Peer<RoleServer>, asked: Option<Asked>) -> 
 fn subject_asked(id: &str, permitted: Permitted) -> Asked {
     let subject = Subject::Verified {
         id: SubjectId::parse(id).expect("a test subject id is a subject id"),
+        key: sutura_domain::identity::SubjectKey::parse(id).expect("a test subject id is a subject id"),
     };
     Asked::established(PrincipalContext::of(PrincipalChain::of(subject)), permitted)
 }
@@ -191,6 +192,7 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
 
     let bob = Subject::Verified {
         id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
+        key: sutura_domain::identity::SubjectKey::parse("bob@example.com").expect("a test subject id is a subject id"),
     };
 
     // The control's second half, held at the PORT rather than at the channel: bob, granted the
@@ -245,6 +247,7 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
         recording.subjects(),
         [Subject::Verified {
             id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
+            key: sutura_domain::identity::SubjectKey::parse("bob@example.com").expect("a test subject id is a subject id"),
         }],
         "bob's run_sql must reach the port as Subject::Verified, never Subject::TheDeploymentItself"
     );

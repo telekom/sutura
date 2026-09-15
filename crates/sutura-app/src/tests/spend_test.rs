@@ -95,9 +95,11 @@ fn two_subjects_are_isolated_through_answer_not_only_in_the_ledger() {
     let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
     let subject_a = RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("one@example.com").expect("a test subject id parses"),
+        key: sutura_domain::identity::SubjectKey::parse("one@example.com").expect("a test subject id parses"),
     }));
     let subject_b = RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("two@example.com").expect("a test subject id parses"),
+        key: sutura_domain::identity::SubjectKey::parse("two@example.com").expect("a test subject id parses"),
     }));
     let ask = |context: &RequestContext| {
         crate::answer(
@@ -144,6 +146,7 @@ fn an_agent_acting_for_a_subject_spends_that_subjects_own_budget() {
     let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, std::time::Duration::from_secs(60))));
     let subject = Subject::Verified {
         id: SubjectId::parse("one@example.com").expect("a test subject id parses"),
+        key: sutura_domain::identity::SubjectKey::parse("one@example.com").expect("a test subject id parses"),
     };
     let acting_for_the_subject = RequestContext::of(
         PrincipalChain::of(subject.clone()).acting(ActorChain::of(Actor::parse("query_agent").expect("a test actor parses"))),

@@ -284,13 +284,14 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{AuditSink, CallRecord, RecordedOutcome};
-    use crate::identity::{Actor, ActorChain, Attribution, PrincipalChain, Subject, SubjectId};
+    use crate::identity::{Actor, ActorChain, Attribution, PrincipalChain, Subject, SubjectId, SubjectKey};
     use crate::model::{DimensionName, MetricName};
     use crate::query::{RefusalReason, ToolOutcome};
 
     fn a_person() -> Subject {
         Subject::Verified {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+            key: SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
         }
     }
 

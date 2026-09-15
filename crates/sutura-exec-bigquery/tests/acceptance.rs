@@ -840,14 +840,13 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("a clock that reads the present")
             .as_secs();
-        // One subject id per principal: the token is what Google's STS sees and exchanges, and the
-        // subject id is what this answer is recorded as, so they have to be told apart here. The
-        // subject is rebuilt for the agreement check rather than shared by reference - `request`
-        // consumes the chain, exactly as the broker's own suite builds it twice.
+        // One subject id per principal: the token is what STS exchanges, the subject is how this
+        // answer is recorded - built twice, once for each check.
         let rows_for = |token: &str, id: &str| -> Vec<(String, String)> {
             let chain = |id: &str| {
                 PrincipalChain::of(Subject::Verified {
                     id: SubjectId::parse(id).expect("a subject id parses"),
+                    key: sutura_domain::identity::SubjectKey::parse(id).expect("a subject id parses"),
                 })
             };
             let context = RequestContext::with_assertion(chain(id), Secret::new(String::from(token)));

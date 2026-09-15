@@ -10,10 +10,15 @@
 //! The request is `iamcredentials.generateAccessToken`: the federated access token the first hop
 //! produced, presented as this request's own bearer, asking for a short-lived access token scoped to
 //! the account [`crate::sts::WorkloadIdentity::target_for`] declares. The exchanged
-//! [`crate::sts::StsCredential`] carries that access token and the instant it stops being usable,
-//! computed from the lifetime THIS adapter requested - never parsed from the endpoint's own
-//! `expireTime`, since Google grants exactly what a request within its documented ceiling asks for
-//! or refuses the call outright; there is no partial grant to reconcile against a second clock read.
+//! [`crate::sts::StsCredential`] carries that access token and the instant it stops being usable.
+//!
+//! **The deadline comes from the endpoint's own `expireTime`, bounded by the lifetime this adapter
+//! requested - never asserted from the request alone.** An organization policy (a real Google
+//! control) can cap token lifetime below the requested ceiling, and a broker and cache that reason
+//! from a deadline LATER than the truth can serve a dead token. So the expiry is
+//! `min(now + requested seconds, <the response's expireTime>)`, and an `expireTime` that would
+//! GRANT MORE than was requested, or is absent, is refused rather than trusted - the same posture
+//! `wire::StsOverHttp` holds for a missing `expires_in`.
 
 use sutura_domain::identity::{Expiry, Secret};
 
@@ -30,12 +35,106 @@ struct Request<'a> {
     lifetime: String,
 }
 
-/// The answer, with the one field this adapter reads. `expireTime` is left undeserialized - see the
-/// module header for why this adapter does not read it.
+/// The answer, with the two fields this adapter reads.
+///
+/// `expireTime` is REQUIRED (no `#[serde(default)]`) so an answer without it deserializes to
+/// [`IamCredentialsError::NotADocument`] rather than being answered with an invented lifetime - the
+/// same refusal `wire::StsOverHttp` gives a missing `expires_in`. It is read as text and parsed by
+/// [`expire_time_unix`], since `serde` has no RFC 3339 type of its own.
 #[derive(serde::Deserialize)]
 struct Response {
     #[serde(rename = "accessToken")]
     access_token: String,
+    #[serde(rename = "expireTime")]
+    expire_time: String,
+}
+
+/// Parses Google's `expireTime` - RFC 3339 in UTC (`YYYY-MM-DDTHH:MM:SS[.sss]Z`) - to whole unix
+/// seconds, truncating any sub-second precision.
+///
+/// `None` for anything that is not that exact shape (an offset timezone, a date without a time), so
+/// an unexpected schema is refused as [`IamCredentialsError::NoLifetime`] rather than guessed at.
+///
+/// Reads the fixed-format fields through [`unsigned`] on the raw BYTES - never a `str` slice
+/// (`clippy::string_slice` is denied) and never a bare `bytes[i]` index (`clippy::indexing_slicing`
+/// is denied) - and converts the civil date with days-since-epoch arithmetic, so no truncating `as`
+/// cast exists here. The date half is validated by range checks on the parsed fields; a
+/// calendar-impossible combination (say, February 30) is a genuine Google response this adapter
+/// would rather refuse with `NoLifetime` than trust, which the range checks below already admit.
+fn expire_time_unix(raw: &str) -> Option<u64> {
+    let bytes = raw.as_bytes();
+    // "YYYY-MM-DDTHH:MM:SSZ" is 20 bytes; allow an optional ".sss" fraction before the Z.
+    if bytes.len() < 20 {
+        return None;
+    }
+    if bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+    {
+        return None;
+    }
+    let year = unsigned(bytes, 0, 4)?;
+    let month = unsigned(bytes, 5, 2)?;
+    let day = unsigned(bytes, 8, 2)?;
+    let hour = unsigned(bytes, 11, 2)?;
+    let minute = unsigned(bytes, 14, 2)?;
+    let second = unsigned(bytes, 17, 2)?;
+    if month > 12 || day > 31 || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    // A fraction, if present: ".ccc" between the seconds and the Z. Its VALUE is truncated away -
+    // whole unix seconds are all [`Expiry`] keeps - but it must be well-formed to be consumed.
+    let mut at = 19;
+    if bytes.get(at) == Some(&b'.') {
+        at += 1;
+        let mut saw_digit = false;
+        while let Some(&byte) = bytes.get(at) {
+            if byte.is_ascii_digit() {
+                saw_digit = true;
+                at += 1;
+            } else {
+                break;
+            }
+        }
+        if !saw_digit {
+            return None;
+        }
+    }
+    // The timestamp must end here, and it must be UTC ("Z"), never an offset.
+    if bytes.get(at) != Some(&b'Z') || at + 1 != bytes.len() {
+        return None;
+    }
+    // Reuse the domain's `Date`, which counts days since epoch by walking years rather than by
+    // integer division (banned in this workspace's lint table) - the same calendar a query's own
+    // dates validate against, so a month/day combination it rejects becomes `NoLifetime` here too.
+    // `Day`/`month`/`year` are already range-checked above, so the `TryFrom` casts are lossless.
+    let year = i16::try_from(year).ok()?;
+    let month = u8::try_from(month).ok()?;
+    let day = u8::try_from(day).ok()?;
+    let date = sutura_domain::calendar::Date::new(year, month, day).ok()?;
+    let seconds =
+        i64::from(date.days_since_epoch()) * 86_400 + i64::from(hour) * 3_600 + i64::from(minute) * 60 + i64::from(second);
+    u64::try_from(seconds).ok()
+}
+
+/// Reads `count` decimal digits of a fixed-position ASCII field (`bytes[at..at+count]`) as an
+/// integer, or `None` if any byte there is not a digit or the field runs off the slice.
+///
+/// The one safe way to read a positional ASCII byte under this workspace's `indexing_slicing` ban:
+/// `bytes.get(..)` returns `Option`, and every byte is bounds-checked whether it is a digit or not.
+fn unsigned(bytes: &[u8], at: usize, count: usize) -> Option<u32> {
+    let mut value: u32 = 0;
+    for offset in 0..count {
+        let byte = *bytes.get(at + offset)?;
+        let digit = byte.checked_sub(b'0')?;
+        if digit > 9 {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(u32::from(digit))?;
+    }
+    Some(value)
 }
 
 /// The account this hop names in a refusal - carried, and never rendered raw.
@@ -161,6 +260,15 @@ pub enum IamCredentialsError {
     /// No access token came back.
     #[error("the impersonation endpoint answered without an access token")]
     NoAccessToken,
+    /// The `expireTime` was absent (refused by deserialization) or not the RFC 3339 UTC shape this
+    /// adapter reads - never an invented deadline, the same posture `StsError::NoLifetime` holds.
+    #[error("the impersonation endpoint's answer carried no usable expiry (expireTime)")]
+    NoLifetime,
+    /// The `expireTime` grants MORE life than the lifetime this request asked for - a vendor
+    /// answering outside what was asked, refused rather than trusted with a longer-than-requested
+    /// credential.
+    #[error("the impersonation endpoint granted a longer lifetime than was requested")]
+    ExceedsRequestedLifetime,
 }
 
 /// An [`ImpersonateAsAccount`] that talks to Google's `iamcredentials` API over HTTP.
@@ -225,30 +333,55 @@ impl ImpersonateAsAccount for IamCredentialsOverHttp {
             .read_to_string()
             .map_err(|cause| IamCredentialsError::Unreadable { cause: Box::new(cause) })?;
         let status_u16: u16 = status.into();
-        if status_u16 == 403 {
-            return Err(IamCredentialsError::ImpersonationRefused {
-                target: RedactedSa::of(target_sa),
-            });
-        }
-        if !status.is_success() {
-            return Err(IamCredentialsError::Refused { status: status_u16 });
-        }
-        let response: Response = serde_json::from_str(&text).map_err(|cause| IamCredentialsError::NotADocument { cause })?;
-        if response.access_token.is_empty() {
-            return Err(IamCredentialsError::NoAccessToken);
-        }
-        Ok(StsCredential::of(
-            Secret::new(response.access_token),
-            Expiry::At {
-                unix_seconds: now.saturating_add(seconds),
-            },
-        ))
+        parse_answer(status_u16, &text, now, seconds, target_sa)
     }
+}
+
+/// Turns a raw `iamcredentials` HTTP answer (its status and body) into a granted credential or a
+/// typed refusal.
+///
+/// **Split out of [`IamCredentialsOverHttp::impersonate`] so the redaction and the expiry contract
+/// are held by CODE the adapter itself runs, not by a fake port's fixture.** The marketing claim -
+/// a `403` surfaces as a named [`IamCredentialsError::ImpersonationRefused`] whose target is a
+/// [`RedactedSa`], and the deadline comes from the endpoint's `expireTime` bounded by the requested
+/// lifetime - is exercised by feeding a real-shaped body through THIS function in the suite. The
+/// HTTP method's only job is to produce `(status, text)` and hand it over.
+fn parse_answer(
+    status: u16,
+    text: &str,
+    now: u64,
+    requested_seconds: u64,
+    target_sa: &str,
+) -> Result<StsCredential, IamCredentialsError> {
+    if status == 403 {
+        return Err(IamCredentialsError::ImpersonationRefused {
+            target: RedactedSa::of(target_sa),
+        });
+    }
+    if !(200..300).contains(&status) {
+        return Err(IamCredentialsError::Refused { status });
+    }
+    let response: Response = serde_json::from_str(text).map_err(|cause| IamCredentialsError::NotADocument { cause })?;
+    if response.access_token.is_empty() {
+        return Err(IamCredentialsError::NoAccessToken);
+    }
+    let requested_until = now.saturating_add(requested_seconds);
+    let expire_time = expire_time_unix(&response.expire_time).ok_or(IamCredentialsError::NoLifetime)?;
+    if expire_time > requested_until {
+        return Err(IamCredentialsError::ExceedsRequestedLifetime);
+    }
+    Ok(StsCredential::of(
+        Secret::new(response.access_token),
+        Expiry::At {
+            unix_seconds: expire_time,
+        },
+    ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ImpersonatedAccount, Request, UnusableAccount};
+    use super::{ImpersonatedAccount, Request, UnusableAccount, expire_time_unix, parse_answer};
+    use sutura_domain::identity::Expiry;
 
     #[test]
     fn the_request_body_is_the_scope_and_lifetime_shape() {
@@ -288,5 +421,117 @@ mod tests {
         let rendered = format!("{redacted:?}");
         assert!(!rendered.contains("principal-a"), "{rendered}");
         assert!(!rendered.contains("acme-analytics"), "{rendered}");
+    }
+
+    #[test]
+    fn a_real_shaped_403_body_surfaces_as_a_named_refusal_never_the_free_text() {
+        // The reviewer's F5: this feeds a REAL-shaped 403 document (the free text an operator would
+        // actually see, naming an account) through the ADAPTER's own response parser
+        // (`parse_answer` - what `IamCredentialsOverHttp::impersonate` runs on every answer), not
+        // through a fake port whose `Debug` a fixture redacted. The claim - a 403 is a named
+        // `IamCredentialsError::ImpersonationRefused` whose target is a `RedactedSa` - is held by
+        // the shipped code: the body is discarded on the 403 arm, so neither rendering can carry
+        // the free text or the target account name.
+        let body = r#"{"error":{"code":403,"message":"Permission 'iam.serviceAccounts.actAs' denied on resource ... for principal alice@corp.example","status":"PERMISSION_DENIED"}}"#;
+        let failure = parse_answer(
+            403,
+            body,
+            4_000_000_000,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect_err("a 403 is a refusal");
+        assert!(matches!(failure, super::IamCredentialsError::ImpersonationRefused { .. }));
+        for rendered in [format!("{failure}"), format!("{failure:?}")] {
+            assert!(!rendered.contains("PERMISSION_DENIED"), "{rendered}");
+            assert!(!rendered.contains("actAs"), "{rendered}");
+            assert!(!rendered.contains("alice"), "{rendered}");
+            assert!(!rendered.contains("acme-analytics"), "{rendered}");
+            assert!(!rendered.contains("target-sa"), "{rendered}");
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the granted token IS the assertion that the deadline came from expireTime, and that the access token itself was carried"
+    )]
+    fn a_granted_deadline_is_the_endpoints_expire_time_not_the_requested_lifetime() {
+        // The reviewer's F3: the impersonated credential's expiry READS the response's `expireTime`,
+        // never now + requested. A token marked to expire in 30 seconds is answered with that
+        // deadline even though 3600 seconds were requested - the cache and the broker floor then
+        // reason from the true (earlier) boundary, not a later one they invented.
+        let ts = "2096-10-01T00:00:30.000Z";
+        let parsed = expire_time_unix(ts).expect("a well-formed expireTime parses");
+        let now = parsed - 30; // requested_until = now + 3600, comfortably after parsed
+        let credential = parse_answer(
+            200,
+            &format!(r#"{{"accessToken":"the-sa-token","expireTime":"{ts}"}}"#),
+            now,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect("a 200 with a valid expireTime grants");
+        assert_eq!(credential.access_token().expose_secret(), "the-sa-token");
+        assert_eq!(credential.not_after(), Expiry::At { unix_seconds: parsed });
+        assert_ne!(
+            credential.not_after(),
+            Expiry::At {
+                unix_seconds: now + 3_600
+            },
+            "the deadline must be the endpoint's expireTime, not the requested lifetime"
+        );
+    }
+
+    #[test]
+    fn an_expire_time_wiser_than_requested_is_refused_not_trusted() {
+        // A vendor granting MORE life than was asked is refused outright - a longer-than-requested
+        // credential is the one shape this adapter must not answer with.
+        let ts = "2096-10-01T00:00:30.000Z";
+        let parsed = expire_time_unix(ts).expect("a well-formed expireTime parses");
+        let now = parsed - 100_000; // requested_until = now + 3600 sits before parsed
+        let failure = parse_answer(
+            200,
+            &format!(r#"{{"accessToken":"the-sa-token","expireTime":"{ts}"}}"#),
+            now,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect_err("an expireTime beyond the requested lifetime is refused");
+        assert!(matches!(failure, super::IamCredentialsError::ExceedsRequestedLifetime));
+    }
+
+    #[test]
+    fn an_answer_without_expire_time_is_not_a_document() {
+        // Absent `expireTime` deserializes as a missing required field -> `NotADocument`, never a
+        // guessed deadline.
+        let failure = parse_answer(
+            200,
+            r#"{"accessToken":"the-sa-token"}"#,
+            4_000_000_000,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect_err("no expireTime is refused");
+        assert!(matches!(failure, super::IamCredentialsError::NotADocument { .. }));
+    }
+
+    #[test]
+    fn a_malformed_expire_time_is_a_no_lifetime_refusal() {
+        let failure = parse_answer(
+            200,
+            r#"{"accessToken":"the-sa-token","expireTime":"not-a-timestamp"}"#,
+            4_000_000_000,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect_err("a malformed expireTime is refused");
+        assert!(matches!(failure, super::IamCredentialsError::NoLifetime));
+    }
+
+    #[test]
+    fn an_offset_expire_time_is_refused_only_utc_is_read() {
+        assert_eq!(expire_time_unix("2096-10-01T00:00:30+02:00"), None);
+        assert_eq!(expire_time_unix("2096-10-01T00:00:30.000Z"), Some(3_999_888_030));
     }
 }

@@ -37,6 +37,8 @@ mod tests {
     fn an_info_audit_event_masks_each_principal_and_still_names_the_event() {
         let chain = PrincipalChain::of(Subject::Verified {
             id: SubjectId::parse("firstname.lastname@company.com").expect("a test subject is a subject"),
+            key: sutura_domain::identity::SubjectKey::parse("firstname.lastname@company.com")
+                .expect("a test subject is a subject"),
         })
         .acting(
             ActorChain::of(Actor::parse("somename@company.com").expect("a test actor is an actor"))
