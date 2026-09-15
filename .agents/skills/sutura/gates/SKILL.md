@@ -1016,6 +1016,24 @@ recognise their own situation and never reaches for the substitute.** Two substi
 which is the one that yields a real `ok - red on base, green on head`, or **prove by mutation** as
 above.
 
+**AND A TEST THAT PINNS EXISTING BEHAVIOUR NEED NOT BE PROVEN BY HAND when it declares a claim
+cell.** A test the base tree already satisfies can never be red against base - there is nothing to
+revert - so the only honest proof is a mutation, and `causality::claim` is the mechanism that lets a
+PR carry it, on the `Cleanup-Split:` precedent: the trailer is a CLAIM the gate CHECKS rather than
+a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (every message in
+`base..HEAD`); the gate then requires the declared set to equal the diff's added tests exactly
+(declared-not-added and added-not-declared are both refusals), resolves each cell to a committed
+mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
+target, runs the named cell, and requires it to FAIL *naming that cell* - the mutation kills it. A
+patch that does not apply, touches a test file, or leaves the cell green refuses the whole arm. All
+cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
+never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
+cell dies under its compiled mutation (at +N isolated rebuilds per declaration - the same ~68 s each
+base/head run pays); it does NOT prove red-on-base (the behaviour pre-exists, which is the whole
+point) and it does not prove HEAD green (that stays `just test`). And the trailer never disables
+red-before-green for anything UNDECLARED: a claim cell without a trailer still reaches the
+green-against-base refusal unchanged.
+
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307
 made those arms print `0 of N`; that fixed the verdict and not the line above it - `prove` printed

@@ -170,7 +170,12 @@ that passes both ways proves nothing and is worse than no test, because it looks
 `just causality` checks that mechanically. Where the change is not separable - impl and test in one
 file, a rename with no behavioural difference, or every added test `#[ignore]`d so no run here
 reaches one - the gate says so and asks for evidence instead: the command you ran, the failure
-before the fix, the pass after. That goes in the pull request. **Do not skip it silently.**
+before the fix, the pass after. That goes in the pull request. **Do not skip it silently.** A test
+PINNING behaviour the base tree already provides is the one shape the base run can never redden, so
+its place is a declared claim cell: add a `Claim-Cell: <test-fn-name>` commit trailer AND a
+committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`, and the gate applies
+the mutation, requires the cell to fail, and accepts `ok - claim cells: N declared, N killed` - a
+declared cell with no killing mutation is refused.
 
 **Exit 3 means the gate measured nothing**, and it is neither a pass nor a violation: the base tree
 did not build, the base run named no failure, or every test in scope was one the base tree already
