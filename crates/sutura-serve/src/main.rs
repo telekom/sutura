@@ -438,7 +438,7 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
 ///
 /// The feature-off twin of [`agent::mount`] and of [`serve_as_configured`]'s no-`tls` body - the
 /// "configured for a build it does not have" refusal. Clearing this function (or its call in `run`)
-/// is exactly the regression `crate::tests::an_enabled_agent_surface_is_refused_by_a_build_without_the_feature`
+/// is exactly the regression `crate::tests::agent::an_enabled_agent_surface_is_refused_by_a_build_without_the_feature`
 /// exists to hold, and the cell that runs it is `check-default-feature-tests` (this body only
 /// compiles without the `agent` feature, so `just test`'s `--all-features` never sees it).
 #[cfg(not(feature = "agent"))]
