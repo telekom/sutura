@@ -158,7 +158,7 @@ mod tests {
     use sutura_app::prompt::CatalogProse;
     use sutura_app::{Asked, Capability, Permitted};
     use sutura_config::{Environment, RequestTimeout, Settings, Sources};
-    use sutura_domain::identity::{PrincipalChain, RequestContext, Subject, SubjectId};
+    use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_runtime::Admission;
     use tower::ServiceExt as _;
 
@@ -192,9 +192,7 @@ mod tests {
     /// `server/tests/asking.rs::subject_asked` uses for the in-process cells this module's tests
     /// extend over real HTTP bytes.
     fn subject_asked(id: &str, permitted: Permitted) -> Asked {
-        let subject = Subject::Verified {
-            id: SubjectId::parse(id).expect("a test subject id is a subject id"),
-        };
+        let subject = Subject::verified(id).expect("a test subject id is a subject id");
         Asked::established(RequestContext::of(PrincipalChain::of(subject)), permitted)
     }
 
