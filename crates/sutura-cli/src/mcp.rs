@@ -68,7 +68,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
             #[cfg(feature = "bigquery")]
             Opened::BigQuery(opened) => {
                 // **The pre-flight, and this line is where its ORDER is decided** - the same order
-                // `sutura-serve`'s root keeps, for the same reason. It runs after `open_engine`,
+                // `crate::serve`'s root keeps, for the same reason. It runs after `open_engine`,
                 // which read the credential for the declared source, so an operator whose credential
                 // file is wrong is told about the credential file and not about a table they would
                 // then go and not fix. And it runs before `serve`, which announces the surface and
@@ -84,7 +84,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // pre-flight reads that bundle, and `LocalService::start` inside `mcp_service` loads a
                 // second time. So a model added to the catalog directory between the two is caught on
                 // a `files` source and caught by nothing on a `bigquery` one - the same gap
-                // `sutura-serve`'s root states at its own call site, open here for the same reason.
+                // `crate::serve`'s root states at its own call site, open here for the same reason.
                 // Closing it is an architecture decision rather than a call-site move:
                 // `LocalService` exposes no accessor for the engines it was handed, so there is
                 // nothing to re-ask once the second load has happened.
@@ -94,7 +94,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
             #[cfg(feature = "postgres")]
             Opened::Postgres(opened) => {
                 // A `postgres` source attaches nothing and reports no table inventory, so
-                // `refuse_absent_tables` has nothing to add - the same reasoning `sutura-serve`'s own
+                // `refuse_absent_tables` has nothing to add - the same reasoning `crate::serve`'s own
                 // arm carries. A mistyped `table:` is caught on the first question against it.
                 serve(&catalog, opened, &settings)
             }
@@ -157,7 +157,7 @@ where
             reply,
         ))
         .map_err(|e| render(&e));
-    // Bound the teardown the way `sutura-serve`'s `stop` does: dropping a runtime with a
+    // Bound the teardown the way `crate::serve`'s `stop` does: dropping a runtime with a
     // question still answering would wait for it however long it takes, and nothing here can
     // cancel one. This gives the pool a moment to finish and then exits on our own terms.
     runtime.shutdown_timeout(std::time::Duration::from_secs(5));
@@ -321,7 +321,7 @@ mod tests {
     ///
     /// A plain `test` rather than `#[tokio::test]`, deliberately. `mcp_service` opens the engine and
     /// re-runs its anchors, and the engine drives its OWN runtime with `block_on` - which panics when
-    /// called from within a runtime, exactly as `sutura-serve`'s `run` documents. So the service is
+    /// called from within a runtime, exactly as `crate::serve`'s `run` documents. So the service is
     /// built before any runtime exists, and the runtime is entered only for the handshake.
     ///
     /// The service is kept in this scope, NOT created inside the async block, so the caller's own

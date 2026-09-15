@@ -20,25 +20,24 @@ lock file.** Why that distinction is worth the sentence is under
 
 ## What a release publishes
 
-**Two binaries, at four target triples each.** Which one you want is the first choice to make, and
-nothing about the file names decides it for you:
+**One binary, `sutura`, at four target triples.** It answers certified questions over HTTP too, as
+`sutura serve` - `github.com/telekom/sutura#111` shipped that surface as a second binary,
+`sutura-serve`, and `github.com/telekom/sutura#685` step 2 folded it back into this one:
 
-| Binary         | What it is                                                                           | Asset                          | Image tag                                                                          |
-| -------------- | ------------------------------------------------------------------------------------ | ------------------------------ | ---------------------------------------------------------------------------------- |
-| `sutura`       | the command-line tool: `doctor`, `catalog`, `describe`, `prompt`, `compile`, `query` | `sutura-<triple>.tar.gz`       | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl`                         |
-| `sutura-serve` | the service: answers certified questions over HTTP                                   | `sutura-serve-<triple>.tar.gz` | `:<version>-serve`, `:latest-serve`, `:<version>-serve-musl`, `:latest-serve-musl` |
+| Binary   | What it is                                                                                                                                                           | Asset                    | Image tag                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| `sutura` | the command-line tool (`doctor`, `catalog`, `describe`, `prompt`, `compile`, `query`) and, as `sutura serve`, the service that answers certified questions over HTTP | `sutura-<triple>.tar.gz` | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl` |
 
-**One registry repository**, `ghcr.io/telekom/sutura`, and the tag says which binary. The unsuffixed
-tags have always been the command-line tool and they still are: pointing `:latest` at the server
-because the server is the more deployable artefact would be a silent change of what an existing
-`docker pull` returns. Which one you get is something you have to type.
+**One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags have always resolved to
+this binary and still do - there is nothing else for them to resolve to now. Which libc you get is
+still something you have to type: `:latest-musl` for the static pair, `:latest` for glibc.
 
-**Both are built with cargo's default features**, which for `sutura-serve` means the published
-server carries the HTTP surface, the caller-token verification, the rate limiter and the generated
-interface description, and carries **neither in-process TLS nor the BigQuery adapter**. Both of those
-cost an outbound rustls closure on two statically linked triples, and both are a startup refusal
-naming the feature rather than a silent degradation - so a deployment that needs either builds from
-source and knows it. `nix/shipped.nix` is where that decision is written, and
+**Built with cargo's default features**, which means the published binary carries the HTTP surface,
+the caller-token verification, the rate limiter and the generated interface description, and carries
+**neither in-process TLS, the BigQuery adapter, the Postgres adapter nor the DataHub adapter**. Each
+of those costs an outbound rustls closure on two statically linked triples, and each is a startup
+refusal naming the feature rather than a silent degradation - so a deployment that needs one builds
+from source and knows it. `nix/shipped.nix` is where that decision is written, and
 `nix build .#checks.x86_64-linux.shipped-features` is what asserts it, out of the shipped binary's
 own embedded dependency list rather than out of a manifest.
 
@@ -49,21 +48,22 @@ the two documents answers is under [The licence statement](#the-licence-statemen
 
 | Artefact                         | Sigstore bundle                                  | SLSA provenance          | Registry signature               |
 | -------------------------------- | ------------------------------------------------ | ------------------------ | -------------------------------- |
-| the eight binary tarballs        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the four musl image tarballs     | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the sixteen SBOMs                | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the four binary tarballs         | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the two musl image tarballs      | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the eight SBOMs                  | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the two licence documents        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | `image-digests.txt`              | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
-| the eight leaf images            | n/a                                              | no                       | `cosign sign`, by digest         |
-| the four manifest lists          | n/a                                              | yes                      | `cosign sign`, by digest         |
+| the four leaf images             | n/a                                              | no                       | `cosign sign`, by digest         |
+| the two manifest lists           | n/a                                              | yes                      | `cosign sign`, by digest         |
 | each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
-| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles         | not recursively attested | n/a                              |
+| `sutura-provenance.intoto.jsonl` | three existing signed attestation bundles        | not recursively attested | n/a                              |
 
-Every count in that table is two binaries times four triples, or its consequence. A leaf and the SBOM
-beside it are named by the same key - `<triple>` for `sutura`, `serve-<triple>` for `sutura-serve` -
-which is also how `image-digests.txt` records them, so an entry there and an asset on the release page
-are matched by reading rather than by working anything out.
+Every count in that table is one binary times four triples, or its consequence. A leaf and the SBOM
+beside it are named by the same key - `<triple>` for `sutura` - which is also how `image-digests.txt`
+records them, so an entry there and an asset on the release page are matched by reading rather than
+by working anything out. A second shipped binary would be prefixed instead, the same rule
+`keyFor` in `nix/shipped.nix` uses, and every count in this section would double again.
 
 Three asymmetries in that table are deliberate rather than gaps, and each has a reason worth
 knowing before you conclude something is missing.
@@ -79,7 +79,8 @@ produced it.
 **Provenance covers the manifest lists and not the leaves.** A list is what an unqualified
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
 at, they are signed by `cosign` individually, and pinning one means asking for a single architecture
-on purpose. There are four lists rather than two now, because there are two binaries.
+on purpose. There are two lists, one per libc, because there is one binary; a second shipped binary
+would add two more rather than changing this one.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
 fetches provenance from GitHub. With `--bundle`, it reads the exported JSONL instead; retain that
@@ -190,7 +191,7 @@ For the manifest lists, GitHub's provenance works on the same digest:
 
 ```bash
 gh attestation verify oci://ghcr.io/telekom/sutura:0.1.0 --repo telekom/sutura
-gh attestation verify oci://ghcr.io/telekom/sutura:0.1.0-serve --repo telekom/sutura
+gh attestation verify oci://ghcr.io/telekom/sutura:0.1.0-musl --repo telekom/sutura
 ```
 
 ## What the SBOM covers
@@ -217,15 +218,18 @@ executable. That is worth a sentence, because the obvious way to produce this li
   can drift - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
   document says so.
 - It would also be the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the
-  linker *kept*: neither shipped binary carries the DuckDB adapter or the BigQuery wire, while
-  `libduckdb-sys` and that wire put `ureq`, rustls and `ring` into the resolve graph. A
-  workspace-wide document names all three and is wrong in the direction that matters, which is
-  overstating what ships. Measured on 2026-09-01, out of the artefacts themselves: 263 crates in
-  `sutura` and 326 in `sutura-serve` - the difference is the transport - and `ring`, `ureq` and
-  `rustls` in neither.
+  linker *kept*: the shipped binary carries neither the DuckDB adapter nor the BigQuery wire by
+  default, while `libduckdb-sys` and that wire put `ureq`, rustls and `ring` into the resolve
+  graph. A workspace-wide document names all three and is wrong in the direction that matters,
+  which is overstating what ships.
 
-- **The two binaries therefore have two different lists, and there is one SBOM per image rather than
-  one per release.** A single document would be true of neither.
+- **There is one SBOM per image rather than one per release, and that stays true regardless of how
+  many binaries a release ships.** `github.com/telekom/sutura#111` published a second binary,
+  `sutura-serve`, alongside this one - measured then, out of the artefacts themselves: 263 crates
+  in `sutura` and 326 in `sutura-serve`, the difference being the transport, and `ring`, `ureq` and
+  `rustls` in neither. `github.com/telekom/sutura#685` step 2 folded that binary back into this
+  one, so today there is exactly one crate list to read - but the reason it lives per-image rather
+  than per-release never depended on the count being two.
 
 So the list is put **inside the artefact at build time** and read back out of the bytes being
 scanned. It cannot drift from the binary, because it is the binary. The release job checks that the

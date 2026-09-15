@@ -106,8 +106,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 path: "crates/sutura-http/Cargo.toml",
                 holds: "",
             },
+            // `sutura-serve`'s own manifest before `github.com/telekom/sutura#685` step 2 folded
+            // that crate into this one's `serve` module - the HTTP surface's composition root is
+            // this file now, and its own existence is the same evidence the deleted manifest was.
             Evidence {
-                path: "crates/sutura-serve/Cargo.toml",
+                path: "crates/sutura-cli/src/serve.rs",
                 holds: "",
             },
             Evidence {
@@ -127,8 +130,8 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 holds: "mcp-e2e:",
             },
         ],
-        instead: "both surfaces ship. `sutura-http` and `sutura-serve` serve HTTP and \
-                  `sutura-mcp` serves the agent surface over the process's own pipes, `just \
+        instead: "both surfaces ship. `sutura-http` serves the transport `sutura serve` composes \
+                  and `sutura-mcp` serves the agent surface over the process's own pipes, `just \
                   mcp-e2e` drives that one end to end against committed schema snapshots, \
                   `docs/serving.md` is published, and `examples/single-player` has a captured \
                   session. The clause that is still load bearing is the identity: the HTTP bearer \
@@ -275,25 +278,26 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     },
     Contradicted {
         name: "a served DataHub deployment",
-        // The wording that would be FALSE today: no binary in this repository can open
-        // `catalog.kind: datahub` (the crate is a `sutura-app` dev-dependency and `sutura-serve`
-        // refuses the kind by name), so a README or record that presents the DataHub deployment
-        // shape as a SERVED deployment contradicts the tree. The entry is a RATCHET rather than a
-        // repair: it forbids the availability wording wherever it appears, and it deliberately does
-        // NOT forbid the shape wording, which is the honest way to describe a deployment nothing
-        // can open. `docs/adr/0016` and the *Built and not wired* register carry the limit itself.
+        // The wording that would be FALSE today: no build in this repository can open
+        // `catalog.kind: datahub` (the crate is a `sutura-app` dev-dependency and `sutura serve`
+        // refuses the kind by name without the `datahub` feature), so a README or record that
+        // presents the DataHub deployment shape as a SERVED deployment contradicts the tree. The
+        // entry is a RATCHET rather than a repair: it forbids the availability wording wherever it
+        // appears, and it deliberately does NOT forbid the shape wording, which is the honest way
+        // to describe a deployment nothing can open by default. `docs/adr/0016` and the *Built and
+        // not wired* register carry the limit itself.
         wordings: &[
             "a served deployment with per-caller identities",
             "a served deployment whose semantic catalog is DataHub",
         ],
         evidence: &[Evidence {
-            path: "crates/sutura-serve/src/catalog.rs",
+            path: "crates/sutura-cli/src/serve/catalog.rs",
             holds: "CatalogKind::Datahub =>",
         }],
         instead: "write the deployment SHAPE, whose runnable proof is test code over a recorded \
-                  fixture: no binary links the adapter and `sutura-serve` refuses the kind by name, \
-                  which the *Built and not wired* register in \
-                  `.agents/skills/sutura/query-surface/SKILL.md` records",
+                  fixture: no binary links the adapter by default, and `sutura serve` refuses the \
+                  kind by name without the `datahub` feature, which the *Built and not wired* \
+                  register in `.agents/skills/sutura/query-surface/SKILL.md` records",
         only: &[],
         except: &[],
     },
@@ -320,7 +324,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 holds: "SourceKind::Files",
             },
             Evidence {
-                path: "crates/sutura-serve/src/main.rs",
+                path: "crates/sutura-cli/src/serve.rs",
                 holds: "SourceKind::Files",
             },
         ],
@@ -516,9 +520,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // mints a per-leg credential is still unbuilt" - trusted from the same stale module doc
         // (`lib.rs:56-63`, last touched 2026-08-31 in #93, before #284). The broker IS built:
         // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
-        // exchange, and `crates/sutura-serve/src/broker.rs` composes it (`build_broker`, #284).
-        // The true limit is `.agents/skills/sutura/identity/SKILL.md`'s own row: wired in serve,
-        // not proven live - no exchanged token has ever run against a real STS
+        // exchange, and `crates/sutura-cli/src/serve/broker.rs` composes it (`build_broker`,
+        // #284; that path was `crates/sutura-serve/src/broker.rs` before `github.com/telekom/
+        // sutura#685` step 2 folded the crate in). The true limit is
+        // `.agents/skills/sutura/identity/SKILL.md`'s own row: wired in serve, not proven live -
+        // no exchanged token has ever run against a real STS
         // (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",
         wordings: &[
@@ -533,9 +539,9 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                   so a source declared `impersonation-at-source` can be opened here and the posture \
                   cross-check no longer refuses it by name. The broker is built too: \
                   `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
-                  exchange and `crates/sutura-serve/src/broker.rs` composes it. What is still true \
-                  is narrower - wired in serve, not proven live: no exchanged token has ever run \
-                  against a real STS (`docs/where-identity-is-proven.md`)",
+                  exchange and `crates/sutura-cli/src/serve/broker.rs` composes it. What is still \
+                  true is narrower - wired in serve, not proven live: no exchanged token has ever \
+                  run against a real STS (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what
@@ -635,14 +641,15 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     // go stale the way a registered wording can, at the cost of needing digits rather than a
     // spelled number in prose.
     Contradicted {
-        // github.com/telekom/sutura#159, raised in review of #667. `sutura-serve` links the
+        // github.com/telekom/sutura#159, raised in review of #667. `sutura serve` links the
         // adapter behind the default-off `bigquery` feature; a default build (feature off) still
         // links none of it and still refuses `kind: bigquery` by name, which is the half of the
-        // sentence that survives.
-        name: "sutura-serve links no BigQuery adapter",
+        // sentence that survives. `sutura-serve` folded into `sutura-cli`'s `serve` module at
+        // `github.com/telekom/sutura#685` step 2, so this is the same claim about the same code.
+        name: "sutura serve links no BigQuery adapter",
         wordings: &["links no `BigQuery` adapter"],
         evidence: &[Evidence {
-            path: "crates/sutura-serve/src/main.rs",
+            path: "crates/sutura-cli/src/serve.rs",
             holds: "type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse",
         }],
         instead: "it links the adapter behind the default-off `bigquery` feature - \
@@ -659,7 +666,9 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // heading said no artifact links either half, the `sutura-serve` row said it is built by
         // no release package at all, and the paragraph below the table said the crate has no edge
         // and stays out of `[workspace.dependencies]`. All three are false the same way: the
-        // `bigquery` feature is off by default, not absent from the manifests.
+        // `bigquery` feature is off by default, not absent from the manifests. `sutura-serve`
+        // folded into `sutura-cli`'s `serve` module at `github.com/telekom/sutura#685` step 2, so
+        // the row this claim is about is `nix/shipped.nix`'s one remaining `sutura` entry now.
         name: "no shipped artifact links either half of the BigQuery crate",
         wordings: &[
             "none of them link either half of this crate",
@@ -670,16 +679,16 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         evidence: &[
             Evidence {
                 path: "nix/shipped.nix",
-                holds: "bin = \"sutura-serve\"",
+                holds: "probeFeatures = [ \"bigquery\" \"postgres\" ]",
             },
             Evidence {
                 path: "crates/sutura-cli/Cargo.toml",
                 holds: "dep:sutura-exec-bigquery",
             },
         ],
-        instead: "`sutura-cli`'s manifest declares the `bigquery` feature and the edge \
-                  (`Cargo.toml:55`, `:87`), `nix/shipped.nix` packages `sutura-serve` as a release \
-                  artifact, and `.github/workflows/release.yml:435` uploads its tarball. The root \
+        instead: "`sutura-cli`'s manifest declares the `bigquery` feature and the edge, \
+                  `nix/shipped.nix` packages it as a release artifact with `bigquery` in its \
+                  `probeFeatures`, and the release workflow uploads its tarball. The root \
                   manifest's `[workspace.dependencies]` carries the crate too. What survives: no \
                   artifact links either half in its DEFAULT build, because the `bigquery` feature \
                   is off unless a build asks for it",

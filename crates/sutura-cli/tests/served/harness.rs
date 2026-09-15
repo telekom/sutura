@@ -47,7 +47,15 @@ mod postgres;
 pub(crate) mod keycloak;
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
+// The agent-surface settings builder and the `Served::mcp` request, split out for the same
+// `max-lines` reason as the three siblings above; `#[cfg(feature = "agent")]` on the declaration so
+// a build without the feature parses none of it.
+#[cfg(feature = "agent")]
+#[path = "harness/agent.rs"]
+pub(crate) mod agent;
 
+#[cfg(feature = "agent")]
+pub(crate) use agent::{AGENT_LOOPBACK, settings_with_agent_surface};
 pub(crate) use keycloak::settings as keycloak_settings;
 pub(crate) use keycloak::subject_of as keycloak_subject_of;
 #[cfg(feature = "postgres")]
@@ -156,26 +164,6 @@ pub(crate) fn settings_declaring_inbound(example: &Path, issuer: &MockIssuer, ke
         example,
         &format!(
             "  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
-             authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n",
-            issuer.audience(),
-            issuer.issuer(),
-            key_set.display(),
-        ),
-    )
-}
-
-/// The bind every AGENT-SURFACED served cell starts (loopback, kernel port, surface on); the `agent` feature must be compiled in for the mount to exist.
-#[cfg(feature = "agent")]
-pub(crate) const AGENT_LOOPBACK: &str = "  host: \"127.0.0.1\"\n  port: 0\n  agent_surface:\n    enabled: true\n";
-
-/// The leg-1 deployment WITH the agent surface turned on - the shape every agent-surface cell that expects `/mcp` to answer starts from.
-#[cfg(feature = "agent")]
-pub(crate) fn settings_with_agent_surface(example: &Path, issuer: &MockIssuer, key_set: &Path) -> String {
-    deployment(
-        example,
-        AGENT_LOOPBACK,
-        &format!(
-            "{SINGLE_USER}  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
              authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n",
             issuer.audience(),
             issuer.issuer(),
@@ -390,7 +378,11 @@ pub(crate) fn recurring_revenue_by_region() -> String {
 /// same function `sutura_config` parses back - so a case cannot name an environment the binary
 /// would reject.
 pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sutura-serve"));
+    // `sutura`, not `sutura-serve` - `github.com/telekom/sutura#685` step 2 folded the standalone
+    // binary this suite used to spawn into `sutura serve`, so the argument is what routes to it
+    // now; `CARGO_BIN_EXE_sutura` is cargo's own env var for this crate's `[[bin]] name`.
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sutura"));
+    command.arg("serve");
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("SUTURA") {
             command.env_remove(key);
@@ -475,7 +467,7 @@ where
 ///
 /// **Unbounded, and that is the limit worth stating rather than hiding.** A reader returns at
 /// end-of-file, and a pipe reaches it when every writer is closed - so this is bounded by the reaped
-/// child being the only one, which it is because `sutura-serve` spawns no subprocess. A deployment
+/// child being the only one, which it is because `sutura serve` spawns no subprocess. A deployment
 /// that did fork one would hang here instead of losing a line, and no budget on this path would say
 /// so. Losing the line is the failure that was actually happening; a hang is at least loud.
 pub(crate) fn joined(readers: Vec<JoinHandle<()>>) {
@@ -724,7 +716,7 @@ impl Served {
     /// **Hand-written rather than a client crate, deliberately.** The alternative is `ureq`,
     /// which arrives with rustls and `ring`; `crane.buildDepsOnly` is unscoped so the four cross
     /// dependency derivations - two of them musl - would compile that closure for a binary that
-    /// links none of it, which is the same cost `sutura-serve`'s `bigquery` feature is
+    /// links none of it, which is the same cost `sutura-cli`'s `bigquery` feature is
     /// default-off to avoid. What is needed here is one plaintext loopback request with a fixed
     /// shape, so this is thirty lines and no dependency.
     ///

@@ -1,4 +1,4 @@
-//! The service binary. The composition root, and nothing else.
+//! `sutura serve`: the HTTP surface's composition root, and nothing else.
 //!
 //! # The order, and why it is this order
 //!
@@ -15,19 +15,23 @@
 //!    re-executed against the data system; a bundle whose anchors do not hold starts nothing.
 //! 7. **The router**, the signal listener, and then serving.
 //!
-//! # Why this is a second binary rather than a subcommand of `sutura`
+//! # Why a subcommand rather than a second binary
 //!
-//! Because a shipped artifact holds one executable, and `sutura` is a command-line tool a person
-//! runs while this is a service a platform schedules. Folding the HTTP surface into that binary
-//! would put a multi-threaded runtime, an I/O driver, a web framework and a browser asset bundle
-//! into every invocation of `sutura compile`.
+//! It used to be a second binary, `sutura-serve`, on the argument that a shipped artifact holds
+//! one executable and folding the HTTP surface into `sutura` would put a multi-threaded runtime,
+//! an I/O driver, a web framework and a browser asset bundle into every invocation of
+//! `sutura compile`. `github.com/telekom/sutura#685` step 2 folded it in anyway: the owner
+//! ruling was that a deployment installing `sutura` should never need a second binary's name to
+//! serve one, and the cost that argument priced - every `sutura` invocation now links `axum` and
+//! the HTTP surface's runtime dependencies, whether or not `serve` is the command run - is paid
+//! once, in the closure a `cargo build` produces, not per invocation: `doctor`, `compile` and
+//! `query` still run one process each and start no listener.
 //!
-//! **This binary IS published now**, which is a change from what this comment used to say: it named
-//! the release derivations' `--package sutura-cli` and concluded that nothing shipped a server, which
-//! was true and was the defect `github.com/telekom/sutura#111` records. `nix/shipped.nix` lists both
-//! binaries; `checks.one-binary` and `checks.shipped-features` are what assert what each artefact
-//! holds - one executable of the expected name, and no `tls` or `bigquery`, both being default-off
-//! features that cost a rustls closure across two musl triples and refuse at startup by name.
+//! **This surface IS published**, which is unchanged by the fold: `nix/shipped.nix` lists one
+//! binary now rather than two; `checks.one-binary` and `checks.shipped-features` are what assert
+//! what the artefact holds - one executable of the expected name, and no `tls`, `bigquery`,
+//! `postgres` or `datahub`, all being default-off features that cost a rustls closure across two
+//! musl triples and refuse at startup by name.
 //!
 //! # `Result<_, String>` below the surface
 //!
@@ -36,24 +40,11 @@
 //! library crate is flattened with its whole `#[source]` chain on the way out, because the outermost
 //! message is the one that says least.
 
-// mimalloc as the global allocator, on Linux only - the same decision, for the same measurements, as
-// `crates/sutura-cli/src/main.rs`, whose comment is the long form and is not repeated here.
-//
-// IT IS HERE BECAUSE THIS BINARY IS NOW SHIPPED, and the argument is sharper for a server than for
-// the tool: two of the four release triples are musl, mallocng serialises the whole process on one
-// lock word, and a server's unit of work is a warehouse round trip fanned out over threads - the
-// shape that measured 20.7x slower on 48 cores. `#[global_allocator]` on a static is a safe
-// attribute, so this needs no `unsafe`.
-#[cfg(target_os = "linux")]
-#[global_allocator]
-static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use std::collections::BTreeSet;
-use std::process::ExitCode;
 use std::sync::Arc;
 
 use sutura_app::surface::Surface;
-use sutura_config::{Environment, Settings, Sources, StaticCredentialBroker, TlsMaterial};
+use sutura_config::{Settings, Sources, StaticCredentialBroker, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_exec_datafusion::DataFusionWarehouse;
@@ -102,19 +93,6 @@ mod agent;
 #[cfg(test)]
 const ENGINE_SOURCE: &str = "local";
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
-            // Standard error, and `eprintln` rather than `tracing`: this path includes every
-            // failure that happens before a subscriber exists, and a message emitted into a
-            // subscriber that was never installed goes nowhere.
-            eprintln!("sutura-serve: {message}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
 /// Startup, synchronously, and then one `block_on` for the server.
 ///
 /// **`#[tokio::main]` is deliberately NOT used here, and this was found by running it rather than
@@ -132,11 +110,17 @@ fn main() -> ExitCode {
 /// entered, and the runtime is built afterwards, for serving and nothing else. The request path has
 /// the same constraint and answers it differently - see the query handler, which moves the call
 /// onto the blocking pool.
-fn run() -> Result<(), String> {
-    if let Some(code) = handled_immediately() {
-        return code;
-    }
-
+///
+/// **`pub(crate)`, called from [`crate::COMMANDS`]'s `serve` entry.** Takes no arguments: this
+/// command reads its whole configuration from the settings tree, the same posture
+/// `handled_immediately`/`usage` used to enforce for the standalone binary's `--version`/`--help`,
+/// dropped at the fold because `crate::vet` and `crate::usage` already answer both uniformly for
+/// every command in the table, including this one. What that trades away is documented in
+/// `docs/serving.md` rather than repeated here: the settings tree's layering order, its
+/// environment variables and the identity caveat were all in `sutura-serve --help`'s own text and
+/// are in that page's, in more detail and kept in step with the settings crate rather than with
+/// this file's own copy.
+pub(crate) fn run() -> Result<(), String> {
     // 1. The environment.
     let environment = sutura_config::environment_from_process().map_err(flatten)?;
 
@@ -512,7 +496,7 @@ async fn serve_until_stopped(
 /// Serves plaintext, or terminates TLS here, according to what was configured.
 ///
 /// **Two bodies, chosen by the `tls` feature, and they are not equivalent.** The configuration
-/// cannot ask for something a build cannot do - `sutura-serve`'s `tls` feature turns on
+/// cannot ask for something a build cannot do - `sutura-cli`'s `tls` feature turns on
 /// `sutura-config`'s, so a binary without it refuses `security.tls_termination: in-process` at
 /// startup with `NotFitToServe::InProcessTlsNotCompiledIn`, naming the feature. That refusal is the
 /// gate; this is not a second copy of it.
@@ -554,66 +538,6 @@ async fn serve_as_configured(
         ));
     }
     sutura_http::serve(router, address, stopping).await.map_err(flatten)
-}
-
-/// `--version` and `--help`, answered without loading anything.
-///
-/// Returns `None` when there is real work to do. Deliberately tiny: this binary takes no options,
-/// because every knob it has is configuration, and a flag that shadowed a configuration key would be
-/// a second way to set it.
-fn handled_immediately() -> Option<Result<(), String>> {
-    let mut arguments = std::env::args().skip(1);
-    match arguments.next().as_deref() {
-        None => None,
-        Some("--version" | "-V") => {
-            println!("sutura-serve {}", env!("CARGO_PKG_VERSION"));
-            Some(Ok(()))
-        }
-        Some("--help" | "-h") => {
-            usage();
-            Some(Ok(()))
-        }
-        Some(unknown) => Some(Err(format!(
-            "unknown argument `{unknown}`. This binary takes no options; everything is \
-             configuration. Run with --help."
-        ))),
-    }
-}
-
-fn usage() {
-    println!("usage: sutura-serve");
-    println!();
-    println!("Serves the semantic surface over HTTP. It takes no options: everything is");
-    println!("configuration, layered in this order, later beating earlier.");
-    println!();
-    println!("  1. the defaults compiled into this binary");
-    println!(
-        "  2. <dir>/base.yaml, if {} names a directory holding one",
-        sutura_config::CONFIG_DIR_VARIABLE
-    );
-    println!("  3. <dir>/<environment>.yaml");
-    println!("  4. one variable per key, such as SUTURA__SERVER__PORT");
-    println!();
-    println!("  {:<22} one of: {}", sutura_config::ENVIRONMENT_VARIABLE, environments());
-    println!(
-        "  {:<22} a directory of YAML overrides, optional",
-        sutura_config::CONFIG_DIR_VARIABLE
-    );
-    println!(
-        "  {:<22} overrides telemetry.filter",
-        sutura_runtime::telemetry::FILTER_VARIABLE
-    );
-    println!();
-    println!("It binds loopback by default and refuses to start in production without an");
-    println!("access token or a `security.inbound` block naming who is asking, and without");
-    println!("rate limiting. A bare access token authenticates the DEPLOYMENT and not the");
-    println!("caller: with no inbound block, sutura has no per-caller identity, so every");
-    println!("question is answered with whatever access this process already had, whoever");
-    println!("asked it.");
-}
-
-fn environments() -> String {
-    Environment::NAMES.join(", ")
 }
 
 /// The open data systems, and the tables they actually hold.

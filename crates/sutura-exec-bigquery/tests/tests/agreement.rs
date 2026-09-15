@@ -2,7 +2,7 @@
 //! file's `max-lines` cap - the same reason `naming.rs`/`support.rs` are their own files.
 //!
 //! Declared at `corpus.rs`'s TOP LEVEL rather than nested inside `mod tests {}`, for the same
-//! reason `crates/sutura-serve/tests/served.rs` states at its own `mod harness`: a `#[path]`
+//! reason `crates/sutura-cli/tests/served.rs` states at its own `mod harness`: a `#[path]`
 //! inside an inline module resolves against THAT module's directory rather than this file's, and
 //! `xtask/src/causality`'s own resolver additionally assumes a top-level declaration, so a nested
 //! one read as pre-existing tests newly enabled and failed `xtask test-causality` outright. Being

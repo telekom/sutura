@@ -22,10 +22,11 @@ fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
         "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
          \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
     );
-    let error =
-        sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
-            .expect_err("a bigquery source with no credential file is not a source this deployment can open");
-    let rendered = crate::flatten(error);
+    let error = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect_err("a bigquery source with no credential file is not a source this deployment can open");
+    let rendered = super::super::flatten(error);
     assert!(
         rendered.contains("credential_file"),
         "the refusal must name the key: {rendered}"

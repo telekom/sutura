@@ -116,13 +116,19 @@ test:
 # port and a pipe need no network and no credential. Each exists to run its one target while working
 # on it, not as a second tier, and unlike `just bigquery-acceptance` nothing in them is `#[ignore]`d.
 
-# Run the end-to-end suite against the composed serve binary.
+# Run the end-to-end suite against the composed `sutura serve` command.
+#
+# `-p sutura-cli`, not a second package: `github.com/telekom/sutura#685` step 2 folded the
+# `sutura-serve` binary this used to name into `sutura-cli`'s `serve` module, so this target now
+# runs the same invocation `mcp-e2e` and `documented` do. That overlap is a cost of the fold worth
+# stating rather than hiding - each recipe still names the suite it exists to let a developer run
+# on its own while iterating, even though all three currently resolve to one package's tests.
 serve-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "serve-e2e: scope sutura-serve - the composed HTTP surface, over a loopback listener."
+    echo "serve-e2e: scope sutura-cli - the composed HTTP surface, over a loopback listener."
     echo "serve-e2e: run \`just test\` for the whole workspace's suite; this target is part of it."
-    cargo nextest run -p sutura-serve --all-features
+    cargo nextest run -p sutura-cli --all-features
 
 # The agent surface: `crates/sutura-cli/tests/mcp.rs` speaks MCP over the spawned process's pipes.
 
@@ -313,30 +319,25 @@ causality base="origin/main":
 
 # ---------------------------------------------------------------- artifacts ---
 
-# BOTH, because both are published: before #111 this built one binary and so did the release, which
-# is why nothing a release published could serve a question. `nix/shipped.nix` is the list.
-# The release binaries: the command-line tool and the server.
+# ONE, because one is published: before #111 this built one binary and so did the release, and
+# `github.com/telekom/sutura#685` step 2 folded the second binary #111 added back into it - the
+# HTTP surface is `sutura serve` now, not a second executable to build separately.
+# The release binary: the command-line tool, and the server as its `serve` subcommand.
 build:
     nix build .#sutura
-    nix build .#sutura-serve
 
-# The release images: one binary each, no shell, no package manager.
+# The release image: one binary, no shell, no package manager.
 image:
     nix build .#oci
-    nix build .#oci-serve
 
 # All four triples, not the two glibc ones: the musl targets are statically linked and swap in
 # mimalloc, so they are a genuinely different build with their own deps derivation and C compile.
-# Cross-build every shipped artifact: two binaries at four triples.
+# Cross-build every shipped artifact: one binary at four triples.
 build-all:
     nix build .#sutura-x86_64-unknown-linux-gnu
     nix build .#sutura-aarch64-unknown-linux-gnu
     nix build .#sutura-x86_64-unknown-linux-musl
     nix build .#sutura-aarch64-unknown-linux-musl
-    nix build .#sutura-serve-x86_64-unknown-linux-gnu
-    nix build .#sutura-serve-aarch64-unknown-linux-gnu
-    nix build .#sutura-serve-x86_64-unknown-linux-musl
-    nix build .#sutura-serve-aarch64-unknown-linux-musl
 
 # Two checks, different questions. `one-binary` reads each shipped package's `bin/` and its runtime
 # closure: one executable, named what the entrypoint expects, no toolchain baked in.
@@ -616,7 +617,7 @@ bigquery-exchanged-identity:
 # document here.
 # `#[ignore]`d, so `just test` never reaches it: `nix/keycloak-tier.nix`'s own header names the JVM
 # boot as a cost every `cargo nextest run` should not pay, and `sutura_dev::provisioned::here`'s
-# skip/fail flag is shared with the Postgres tier - see `crates/sutura-serve/tests/served/harness/
+# skip/fail flag is shared with the Postgres tier - see `crates/sutura-cli/tests/served/harness/
 # keycloak.rs`'s own header for why this cell bypasses it rather than reusing it. This is NOT a
 # gate: `just validate`'s nix checks have no network beyond loopback for THIS tier either, since the
 # tier is started here rather than already up.
@@ -628,7 +629,7 @@ bigquery-exchanged-identity:
 keycloak-served-test:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "keycloak-served-test: scope sutura-serve - the one composed-binary cell over a real Keycloak tier."
+    echo "keycloak-served-test: scope sutura-cli - the one composed-binary cell over a real Keycloak tier."
     echo "keycloak-served-test: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     # Tear down only a tier THIS recipe started. `status` answers 0 (up - not ours), 3 (a JVM runs
     # but is unclaimed - not ours either) or 1 (nothing running - our cold start owns the teardown).
@@ -638,7 +639,7 @@ keycloak-served-test:
     nix run .#keycloak-tier -- status >/dev/null 2>&1 || rc=$?
     nix run .#keycloak-tier -- start
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
-    cargo nextest run -p sutura-serve --run-ignored only \
+    cargo nextest run -p sutura-cli --run-ignored only \
       -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
 # Mints one Google-issued ID token from a service-account key file, for the exchanged-identity cell
 # above - telekom/sutura#376. `key` is a path to the key, never its content; `out` is the path the
@@ -693,14 +694,14 @@ e2e-datahub-bigquery *datahub:
         exit 1 ;;
       *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
     esac
-    echo "e2e-datahub-bigquery: scope sutura-serve - the wave-one E2E over DataHub (fake), a real issuer and a real BigQuery source."
+    echo "e2e-datahub-bigquery: scope sutura-cli - the wave-one E2E over DataHub (fake), a real issuer and a real BigQuery source."
     echo "e2e-datahub-bigquery: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "e2e-datahub-bigquery: leg 2 (executing AS the asking subject) stays behind #376 P2 - see docs/where-identity-is-proven.md."
     rc=0
     nix run .#keycloak-tier -- status >/dev/null 2>&1 || rc=$?
     nix run .#keycloak-tier -- start
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
-    cargo nextest run -p sutura-serve --all-features --run-ignored only \
+    cargo nextest run -p sutura-cli --all-features --run-ignored only \
       -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
 
 # ------------------------------------------------------------------ dev flow ---

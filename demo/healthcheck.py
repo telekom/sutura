@@ -2,7 +2,7 @@
 """The demo's readiness probe: registration, an answer, a refusal, and the tool surface they exist for.
 
 Compose runs this from `demo/Dockerfile`'s `HEALTHCHECK`. It is the demo's answer to the fact that
-the shipped `sutura-serve` image has no probe of its own: "the container is healthy" has to mean the
+the shipped `sutura` image has no probe of its own: "the container is healthy" has to mean the
 server answered, the chat client answered, the served document still exposes the two operations the
 demo is about, AND the demo can actually answer a real question and refuse one it cannot - not just
 that a document describing those operations is reachable. A client that is up while its server is

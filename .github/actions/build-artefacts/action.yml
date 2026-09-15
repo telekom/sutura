@@ -13,7 +13,7 @@ inputs:
       in step with `binaries` in `nix/shipped.nix`. `sutura` first: it is what an unqualified
       download and an unqualified `docker pull` mean here.
     required: false
-    default: sutura sutura-serve
+    default: sutura
 
 # A LOCAL COMPOSITE ACTION, for `attest-and-sign`'s reasons and one of its own.
 #
@@ -28,7 +28,9 @@ inputs:
 # the split under pressure". The next addition arrived - `github.com/telekom/sutura#111`, a SECOND
 # shipped binary - and the part that grew this time was the BUILD, because every step in it is now
 # a loop over the shipped set rather than one invocation. `release.yml` reached 1024 lines with it
-# inline, so this is that argument applied to the other half.
+# inline, so this is that argument applied to the other half. `github.com/telekom/sutura#685`
+# step 2 folded that second binary back into the first, so the loop below is over one entry today
+# and stays a loop anyway: a third binary is back to an entry, not a rewrite.
 #
 # WHAT DID NOT MOVE, deliberately: the runner setup, the cache and the checkout stay in the
 # workflow, because they are properties of the JOB rather than of building an artefact - and
@@ -50,10 +52,12 @@ runs:
     #
     # THE KEY. `sutura`'s assets keep the bare triple - `sutura-<triple>.tar.gz`,
     # `sutura-oci-<triple>.cdx.json`, the `<version>-<triple>` leaf tag - because that is what
-    # every release so far published and what a consumer's script reads. Every other binary is
-    # prefixed, so `sutura-serve-<triple>.tar.gz` sits beside `sutura-oci-serve-<triple>.cdx.json`
-    # and the leaf tag `<version>-serve-<triple>`. `keyFor` in `nix/shipped.nix` is the same rule
-    # in the same words, and `oci-${key}` is the nix attribute both of them name.
+    # every release so far published and what a consumer's script reads. A SECOND shipped binary
+    # would be prefixed instead - `<bin>-<triple>.tar.gz` beside `sutura-oci-<prefix>-<triple>.cdx.json`
+    # and the leaf tag `<version>-<prefix>-<triple>` - dormant since `github.com/telekom/sutura#685`
+    # step 2 folded the one binary that used to need it back into `sutura`. `keyFor` in
+    # `nix/shipped.nix` is the same rule in the same words, and `oci-${key}` is the nix attribute
+    # both of them name.
     - name: Binaries
       shell: bash
       env:
@@ -140,28 +144,21 @@ runs:
               # qemu-user-static registered on the runner, which this job deliberately does
               # not install: a build step should not also gain an emulator.
               #
-              # PER BINARY, because the two have different surfaces and a shared smoke test
-              # would have to be their intersection - which is `--version`, and proves the
-              # least interesting thing about either.
+              # TWO SURFACES IN ONE IMAGE since `github.com/telekom/sutura#685` step 2 folded
+              # `sutura-serve` into `sutura serve` - so this is no longer a `case` picking one
+              # smoke test per binary; it runs both against the same image.
               #
-              # For the server the test is `.github/serve-smoke.sh`, which starts the image and
-              # ASKS A QUESTION - #111's provable outcome is a user asking one through a
-              # published artefact, and a liveness probe does not reach the question path at
-              # all: the image could lose `POST /v1/query` and still answer `/health`. That
-              # script is one file rather than a copy here and another in `ci.yml`, and its
-              # header carries the three assertions and why the third is the one that makes the
-              # second mean anything.
-              case "$bin" in
-                sutura)
-                  docker run --rm sutura:latest --version
-                  docker run --rm sutura:latest doctor
-                  # Prove the non-root default actually works rather than assuming it.
-                  docker run --rm --user 65532:65532 sutura:latest --version
-                  ;;
-                sutura-serve)
-                  ./.github/serve-smoke.sh "${bin}:latest"
-                  ;;
-              esac
+              # `.github/serve-smoke.sh` starts the image AS `sutura serve` and ASKS A QUESTION -
+              # #111's provable outcome is a user asking one through a published artefact, and a
+              # liveness probe does not reach the question path at all: the image could lose
+              # `POST /v1/query` and still answer `/health`. That script is one file rather than
+              # a copy here and another in `ci.yml`, and its header carries the three assertions
+              # and why the third is the one that makes the second mean anything.
+              docker run --rm sutura:latest --version
+              docker run --rm sutura:latest doctor
+              # Prove the non-root default actually works rather than assuming it.
+              docker run --rm --user 65532:65532 sutura:latest --version
+              ./.github/serve-smoke.sh "${bin}:latest"
               ;;
           esac
         done
@@ -287,10 +284,10 @@ runs:
               exit 1
             fi
             # AND the engine by name. The floor above would still pass on a document listing a
-            # hundred of the wrong things; DataFusion is the one crate NEITHER shipped binary can
-            # ship without - `sutura-cli` links it to answer a question locally and
-            # `sutura-serve` to answer one over HTTP - so its absence means the section describes
-            # something other than this binary.
+            # hundred of the wrong things; DataFusion is the one crate the shipped binary cannot
+            # ship without - `sutura-cli` links it to answer a question locally and, as
+            # `sutura serve`, to answer one over HTTP - so its absence means the section
+            # describes something other than this binary.
             if ! grep -q '"datafusion"' "$sbom"; then
               echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
               exit 1

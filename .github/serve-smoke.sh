@@ -52,6 +52,12 @@ if [ ! -d "$examples" ]; then
   exit 1
 fi
 
+# `serve` OVERRIDES THE IMAGE'S DEFAULT COMMAND, and that override is new: before
+# `github.com/telekom/sutura#685` step 2, `sutura-serve`'s own image had no default command at
+# all, because that image held nothing else to run. The one shipped image now defaults to
+# `--version` (`nix/shipped.nix`'s `cmd` for the `sutura` entry) - harmless and provable for a
+# plain `docker run`, but not what this test asks: the entrypoint is `/bin/sutura`, so appending
+# `serve` here runs `sutura serve` instead.
 id="$(docker run -d --network host --user 65532:65532 \
   -w /examples \
   -v "${examples}:/examples:ro" \
@@ -61,7 +67,7 @@ id="$(docker run -d --network host --user 65532:65532 \
   -e SUTURA__SOURCES__LOCAL__KIND=files \
   -e SUTURA__SOURCES__LOCAL__DATA_DIR=/examples/data \
   -e SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
-  "$image")"
+  "$image" serve)"
 
 # The log and the container go either way: on success the log is the startup output a first-time
 # operator sees, and on failure it is the only thing that says why.

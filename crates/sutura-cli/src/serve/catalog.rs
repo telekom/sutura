@@ -13,7 +13,7 @@
 //! markdown catalog OR a datahub catalog": an enum wrapping both could not answer its own `KIND` or
 //! `capabilities()` without an instance to match on, which the trait's shape does not allow. What
 //! this module does instead is decide, from the declared catalogs' SHARED kind, which of two
-//! monomorphic vectors to open - [`crate::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
+//! monomorphic vectors to open - [`crate::serve::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
 //! rather than picking one silently.
 //!
 //! **State the limit next to the claim: a heterogeneous catalog set - one deployment serving BOTH a
@@ -136,7 +136,7 @@ fn open_datahub_catalogs(
 ) -> Result<OpenedCatalogs, String> {
     Err(String::from(
         "catalog.kind: datahub names a metadata adapter this binary was not built to link - build \
-         sutura-serve with --features datahub, or declare markdown catalogs",
+         sutura-cli with --features datahub, or declare markdown catalogs",
     ))
 }
 

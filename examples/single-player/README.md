@@ -250,7 +250,7 @@ posture nobody chose.
 
 Two places carry that, and neither of them is here. `docs/serving.md` is the reference - the
 configuration, the postures, every endpoint, what each refusal's status and `code` are, and what
-the process will not start with. `crates/sutura-serve/tests/served.rs` is the tested half, and it
+the process will not start with. `crates/sutura-cli/tests/served.rs` is the tested half, and it
 runs **against this directory**: it starts the binary on a kernel-chosen port, asks questions out
 of `questions/`, and asserts the missing-token refusal, a certified answer, a refusal arriving as
 its documented status, a caller's own token against every forgery, and a key set this deployment
@@ -353,7 +353,7 @@ is named at the top of this page. And not an invocation that sets an environment
 of the command, which it refuses rather than runs, because it strips every `SUTURA*` variable and so
 cannot be the deployment such a line describes.
 
-The served half of this catalog is pinned by `crates/sutura-serve/tests/served.rs` and by the
+The served half of this catalog is pinned by `crates/sutura-cli/tests/served.rs` and by the
 in-process harness in `crates/sutura-http/src/harness.rs`: a refusal carries the status its reason
 maps to, with one test per status checking the `code` and that `reason.status` agrees with the
 status line, a missing token is a `401` carrying `code: unauthorized`, a body holding `sql` is a

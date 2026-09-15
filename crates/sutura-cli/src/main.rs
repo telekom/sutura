@@ -1,7 +1,10 @@
 //! The sutura binary.
 //!
 //! The composition root, and nothing else. Every command lives in [`commands`] and every adapter is
-//! named in [`sources`]; this file holds the allocator, the command table and `doctor`.
+//! named in [`sources`]; this file holds the allocator, the command table and `doctor`. `serve` is
+//! the exception the command table already made room for: [`serve::run`] is a second composition
+//! root of its own, folded in from a standalone `sutura-serve` binary at
+//! `github.com/telekom/sutura#685` step 2.
 //!
 //! `Result<_, String>` is used freely below the surface here. The boundary gate exempts a binary
 //! on purpose: the audience for these errors is a person reading stderr, not code matching on a
@@ -67,6 +70,12 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 mod audit;
 mod commands;
 mod mcp;
+/// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
+/// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
+/// and nesting keeps `serve::bigquery`/`serve::postgres` distinct from `sources::bigquery`/
+/// `sources::postgres` - the two composition roots dispatch the same `SourceKind` vocabulary
+/// through separate exhaustive matches, and a flattened module would collide on the names.
+mod serve;
 mod sources;
 
 use std::process::ExitCode;
@@ -172,6 +181,17 @@ const COMMANDS: &[Cmd] = &[
         args: "<catalog-dir> [data-dir]",
         description: "serve the agent surface over stdin/stdout",
         run: mcp::mcp,
+    },
+    Cmd {
+        name: "serve",
+        args: "",
+        description: "serve the semantic surface over HTTP - see docs/serving.md",
+        // Takes no arguments: everything is configuration, so there is nothing for `vet` to
+        // check beyond the ceiling `args: ""` already gives it. `commands::report` supplies the
+        // "sutura: " prefix every other command's failure gets - `serve::run`'s own binary used
+        // to print "sutura-serve: " before the fold, and that second prefix is gone rather than
+        // preserved: one binary now has one error prefix, the same way it has one `--help`.
+        run: |_args| commands::report(serve::run()),
     },
 ];
 
@@ -410,6 +430,16 @@ mod tests {
                 argv: &["mcp", "cat"],
                 code: None,
                 says: "mcp cat",
+            },
+            // THE FOLD's own case: `serve` used to be a second binary's name, not a command this
+            // table listed at all - `requested(&["serve".into()])` was
+            // `Requested::Usage("sutura: unknown command \`serve\`...")`, exit 2, until
+            // `github.com/telekom/sutura#685` step 2 added the entry. `args: ""` in the table
+            // means the router's job on this argv is just to route it.
+            Case {
+                argv: &["serve"],
+                code: None,
+                says: "serve ",
             },
             // `--help` in a later position is a value, not a request. There is no position but the
             // first in which it is unambiguous, and a command that wanted a file called `--help`
