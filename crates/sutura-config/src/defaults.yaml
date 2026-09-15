@@ -97,7 +97,7 @@ security:
   #   security:
   #     inbound:
   #       mode: "direct"                # this deployment IS the resource server
-  #       resource: "https://sutura.example.com"          # what `aud` must equal, byte for byte
+  #       resource: "https://sutura.example.com/v1/query" # what `aud` must equal, byte for byte
   #       authorization_server: "https://issuer.example.com"  # the `iss` VALUE, exactly
   #       key_set_file: "/etc/sutura/keys/jwks.json"       # a JWK set. There is no URL source yet
   #       algorithms: ["RS256"]         # pinned. `none` and every `HS*` are refused at startup
