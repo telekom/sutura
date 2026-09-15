@@ -242,9 +242,15 @@ const fn unit(grain: Grain) -> &'static str {
 /// under a different period on `BigQuery` than on the data system that vouches for acceptance - a
 /// wrong number under a certified name, with nothing anywhere raising an error.
 ///
-/// `ISOWEEK` is `BigQuery`'s Monday-based part, which is what agrees. **No golden covers this**: the
-/// example corpus asks only `day` and `month`, so this arm is held by the test beside it and by this
-/// comment rather than by a snapshot - which is exactly why it is written down at the arm.
+/// `ISOWEEK` is `BigQuery`'s Monday-based part, which is what agrees. The example corpus has asked
+/// `week` since `examples/single-player/questions/data-per-subscription-by-week.yaml` landed, and a
+/// golden holds the rendered keyword:
+/// `crates/sutura-app/tests/snapshots/data-per-subscription-by-week__sql@bigquery.snap` pins
+/// `ISOWEEK` against its `duckdb` sibling's `DATE_TRUNC('week', …)` in the same directory - the
+/// comparison the limit below names. The question's other snapshots (`rows@`, `params@`,
+/// `plan@markdown`, and `sutura-cli`'s own rendered statement) exercise the `week` grain end to end
+/// without going through this arm's text at all, since every non-`BigQuery` dialect reaches
+/// `DATE_TRUNC` through `bucket_expression`'s other branch and never calls this function.
 ///
 /// The other four need no such care: `DAY`, `MONTH`, `QUARTER` and `YEAR` mean the same thing in every
 /// dialect this crate renders for.
