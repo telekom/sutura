@@ -65,7 +65,9 @@ mod tests {
 
     // requires WKC
     use crate::harness::keycloak::KeycloakFixture;
-    use crate::harness::{LOOPBACK, RECORD, VERSION, config_path, derived_beside, keycloak_settings, start_configured, v1};
+    use crate::harness::{
+        LOOPBACK, RECORD, VERSION, config_path, derived_beside, keycloak_settings, keycloak_subject_of, start_configured, v1,
+    };
 
     /// The `case` string this file's deployment owns - handed to [`keycloak_settings`] (which writes
     /// its fetched key set beside it) and to [`start_configured`] (which writes the settings file and
@@ -280,12 +282,32 @@ mod tests {
                 .any(|line| line.contains(r#""subject_established":"verified""#)),
             "ask A's record does not say a caller was verified:\n{lines_a:?}"
         );
+        // The audit record carries the MASKED subject (`mask_principal_into` in `sutura-domain`'s
+        // `principal` masks a `sub` to its first character plus `***`), so two UUIDs sharing a
+        // first hex character collide 1 in 16 - a bare `assert_ne!` on the records would pass on
+        // that prefix alone. The property rests instead on the full `sub` each token's OWN payload
+        // mints (the harness decoded it), and each record is tied to ITS OWN token's mask - the
+        // same pattern `served/keycloak_test.rs` proves green. Uniqueness is `sub_a != sub_b`;
+        // attribution to the record is the `assert_eq!` through the same one-hex mask.
+        let sub_a = keycloak_subject_of(&fixture.subject_a_token);
+        let sub_b = keycloak_subject_of(&fixture.subject_b_token);
+        assert_ne!(sub_a, sub_b, "two provisioned subjects minted the same `sub` claim");
+        let mask = |sub: &str| {
+            sutura_domain::identity::SubjectId::parse(sub)
+                .expect("a Keycloak UUID parses as a subject")
+                .to_string()
+        };
         let subject_a = lines_a
             .iter()
             .rev()
             .find(|line| line.contains(RECORD))
             .map(|line| subject_field(line))
             .expect("ask A produced an audit record carrying its subject");
+        assert_eq!(
+            subject_a,
+            mask(&sub_a),
+            "A's record does not carry the mask of A's own token's subject"
+        );
 
         // Ask 2a: NO credential - the bearer gate refuses before the question is ever looked at.
         let unauth = deployment.post(&v1(sutura_http::constants::base_paths::QUERY), None, QUESTION);
@@ -335,10 +357,15 @@ mod tests {
             .find(|line| line.contains(RECORD))
             .map(|line| subject_field(line))
             .expect("ask B produced an audit record carrying its subject");
-        assert_ne!(
-            subject_a, subject_b,
-            "two different provisioned subjects' tokens produced the same audit subject: {subject_a} = {subject_b}"
+        assert_eq!(
+            subject_b,
+            mask(&sub_b),
+            "B's record does not carry the mask of B's own token's subject"
         );
+        // Uniqueness is `sub_a != sub_b` above (full `sub`s, not their one-hex masks, which the
+        // audit's masking lets collide 1 in 16): each of the two distinct provisioned subjects'
+        // tokens produced a record carrying that subject's OWN mask, so no record was attributed
+        // to the wrong principal.
     }
 
     // The exchanged-identity half of the wave, as its own cell so its dependency is legible. **It
