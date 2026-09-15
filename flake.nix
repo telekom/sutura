@@ -841,6 +841,8 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo run --profile ci -p sutura-exec-bigquery --example mint_subject_assertion --features wire -- "$@"
+          '');
+        };
         # `nix run .#e2e-datahub-bigquery` - wave one of the identity-aware E2E, on `apps.keycloak-
         # served-test`'s pattern: an app rather than a check because `checks.*` run once per
         # `wholeTree` build and this leg's own JVM boot plus a real BigQuery dataset is a cost `just
