@@ -170,7 +170,7 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
         "a catalog reading an undeclared source must not get an engine",
     );
     assert!(
-        error.contains("production_warehouse") && error.contains("no `sources.production_warehouse` entry"),
+        error.contains("no `sources.production_warehouse` entry"),
         "the refusal must name the source with no entry: {error}"
     );
     // NOT a neighbouring arm, which is the half that stops this passing on the wrong branch.
