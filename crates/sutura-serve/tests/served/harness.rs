@@ -49,6 +49,7 @@ pub(crate) mod keycloak;
 pub(crate) mod reading;
 
 pub(crate) use keycloak::settings as keycloak_settings;
+pub(crate) use keycloak::subject_of as keycloak_subject_of;
 #[cfg(feature = "postgres")]
 pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
 #[cfg(feature = "postgres")]

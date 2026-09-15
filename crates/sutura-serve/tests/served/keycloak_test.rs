@@ -12,12 +12,13 @@
 // `RECORD`, `RESOURCE`, `keycloak_settings`, `recurring_revenue_june`, `start_configured` and `v1`
 // are the same `pub(crate)` items `mod tests` imports from `crate::harness` - this module reaches
 // them the same way, as a sibling rather than a descendant.
-use crate::harness::{RECORD, RESOURCE, keycloak_settings, recurring_revenue_june, start_configured, v1};
+use crate::harness::{RECORD, RESOURCE, keycloak_settings, keycloak_subject_of, recurring_revenue_june, start_configured, v1};
 
 // The `subject` field of one bunyan record line - `RECORD`'s own shape, read rather than
-// assumed: two real Keycloak subjects mint two different `sub` claims, and this is how the test
-// below tells whether the record carries the ASKER'S subject or a value nothing about the
-// request could have produced.
+// assumed. The audit record masks each `sub` to its first character plus `***`, so the field
+// alone cannot distinguish two subjects whose UUIDs share a first hex character (1 in 16); the
+// cell below ties each record to ITS OWN token's full `sub` claim instead - see the assertion
+// comment where that comparison is made.
 fn subject_field(line: &str) -> &str {
     let after = line
         .split_once(r#""subject":""#)
@@ -77,10 +78,31 @@ fn a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_a
         .rev()
         .find(|line| line.contains(RECORD))
         .expect("`awaiting` returns only once a line carries it");
-    assert_ne!(
+    // **Not a comparison of the two MASKED subjects.** The audit record masks each `sub` to its
+    // first character plus `***` (`mask_principal_into` in `sutura-domain`'s `principal`), and
+    // Keycloak subjects are UUIDs, so two distinct users' masked forms collide 1 in 16 - a run
+    // would pass on the shared hex prefix alone. The property rests instead on the full `sub` each
+    // token's OWN payload mints (the harness decoded it), and each record is tied to its own
+    // token's mask via `SubjectId::parse` - the same mask the deployment wrote. The `assert_eq!`
+    // ties below pass through that same one-hex-char mask, so they hold attribution to the record,
+    // never uniqueness - uniqueness is `sub_a != sub_b` above.
+    let sub_a = keycloak_subject_of(&fixture.subject_a_token);
+    let sub_b = keycloak_subject_of(&fixture.subject_b_token);
+    assert_ne!(sub_a, sub_b, "two provisioned subjects minted the same `sub` claim");
+    let mask = |sub: &str| {
+        sutura_domain::identity::SubjectId::parse(sub)
+            .expect("a Keycloak UUID parses as a subject")
+            .to_string()
+    };
+    assert_eq!(
         subject_field(record_a),
+        mask(&sub_a),
+        "the record does not carry the mask of ITS OWN token's subject:\n{record_a}"
+    );
+    assert_eq!(
         subject_field(record_b),
-        "two different provisioned subjects' tokens produced the same audit subject:\n{record_a}\n{record_b}"
+        mask(&sub_b),
+        "the record does not carry the mask of ITS OWN token's subject:\n{record_b}"
     );
 
     // The negative: the SAME valid, correctly-signed token against a deployment declaring a

@@ -200,6 +200,34 @@ fn fetch_key_set(agent: &ureq::Agent, jwks_url: &str) -> String {
     body
 }
 
+/// Decodes a compact JWT's payload segment to its claim set - the shared step both [`audience_of`]
+/// and [`subject_of`] build on, so the two read the same minted document the same way.
+fn payload_claims(token: &str) -> serde_json::Value {
+    let payload = token
+        .split('.')
+        .nth(1)
+        .unwrap_or_else(|| panic!("{token} is not shaped like a compact JWT"));
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .unwrap_or_else(|cause| panic!("the token's payload segment is not base64url: {cause}"));
+    serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the token's payload segment is not JSON: {cause}"))
+}
+
+/// The raw `sub` claim of one of this fixture's own minted tokens - decoded from the payload this
+/// fixture itself minted, the same source [`audience_of`] reads. The served cell asserts on this
+/// full value so its "two provisioned subjects" property does not rest on the first hex character
+/// of their UUIDs: the audit record masks each `sub` to its first character plus `***`, so two
+/// subjects' masked forms collide 1 in 16 even for two correct, distinct users.
+pub(crate) fn subject_of(token: &str) -> String {
+    let claims = payload_claims(token);
+    String::from(
+        claims
+            .get("sub")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("the token's payload carries no `sub`: {claims}")),
+    )
+}
+
 /// The `aud` a minted access token actually carries - a string if it is one, or the one ABSOLUTE
 /// `https://` entry if it is an array, and a panic if there is neither.
 ///
@@ -212,15 +240,7 @@ fn fetch_key_set(agent: &ureq::Agent, jwks_url: &str) -> String {
 /// order, which is Keycloak's own mapper-application order and not a contract this fixture may
 /// rely on; selecting the `https://`-shaped entry is what actually makes the choice non-accidental.
 fn audience_of(token: &str) -> String {
-    let payload = token
-        .split('.')
-        .nth(1)
-        .unwrap_or_else(|| panic!("{token} is not shaped like a compact JWT"));
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .unwrap_or_else(|cause| panic!("the token's payload segment is not base64url: {cause}"));
-    let claims: serde_json::Value =
-        serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the token's payload segment is not JSON: {cause}"));
+    let claims = payload_claims(token);
     match claims.get("aud") {
         Some(serde_json::Value::String(single)) => single.clone(),
         Some(serde_json::Value::Array(many)) => String::from(

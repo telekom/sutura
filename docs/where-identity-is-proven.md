@@ -382,14 +382,32 @@ before this venue ran a real IdP's RS256 signature over its published JWKS throu
 binary. What runs here is exactly that: the binary has no HTTP client, so the JWKS reaches it only
 as the `key_set_file` its settings name - a document the TEST HARNESS fetched over HTTPS, trusting
 only the tier's CA, and wrote to scratch - and no discovery document is read by the binary at all.
-`crates/sutura-serve/tests/served.rs`'s
+`crates/sutura-serve/tests/served/keycloak_test.rs`'s
 `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused` is
 the cell: a password-grant token for one provisioned subject is accepted with the right rows and a
 `verified` audit record, a token for the OTHER subject names a different subject in that record, and
 the same valid token is refused at a deployment declaring a different audience. So this row says
 **yes**, moved from `wired` on 2026-09-15 by the hosted run of PR #751, whose `keycloak-served-test`
 job concluded `success` (run
-https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042).
+https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042) on the old
+masked-comparison cell; the narrowed wording below was held by PR #755's own hosted run of the
+unmasked cell, `keycloak-served-test` `success` (run
+https://github.com/telekom/sutura/actions/runs/34928050323/job/104251967900).
+
+**What "a different subject" means, exactly.** The audit record masks every `sub` to its first
+character plus `***`, and Keycloak subjects are UUIDs, so two different `sub`s' masked forms
+collide whenever their UUIDs share a first hex character (1 in 16). The old masked-comparison cell
+therefore held uniqueness on that one hex char alone, and it flaked on the real tier: the hosted
+`keycloak-served-test` history failed **5 of 18** runs - far more often than one-in-16 per pair -
+and why is UNEXPLAINED. Fixed realm ids, the same record returned twice, and a mis-masked asker
+are all ruled out; what could NOT be ruled out is the tier minting one `sub` for two subjects. The
+unmasked cell is built to surface exactly that: `sub_a != sub_b` compares the two tokens' OWN `sub`
+claims (the harness decodes the tokens it created) and PRINTS BOTH on failure, so the next hosted
+failure names the cause instead of one masked character. If the hosted tier ever mints one `sub`
+for two users, this cell fails - the correct outcome. The two `assert_eq!` ties and `subject_field`
+pass through the same one-hex-char mask (each record's masked `subject` is matched to its OWN
+token's `sub` via the same `SubjectId` mask the deployment wrote), so they carry attribution to
+that record, not uniqueness - the uniqueness this venue relies on is `sub_a != sub_b`.
 
 ### What it cannot answer - read this before citing a green run, and this is the row that matters
 
