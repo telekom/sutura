@@ -261,7 +261,7 @@ from nixpkgs to a library, and `just validate` - which builds in the nix sandbox
 that counts as verified here - could not build it. Reasoned from the dependency situation, not
 attempted.
 
-Which is why `docs/architecture.md:104-105` already has the answer and this record adopts it:
+Which is why [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) already has the answer and this record adopts it:
 **Arrow Flight SQL, uniformly, rather than a linked native driver each.** Under that transport a
 leg's adapter is one crate parameterised by an endpoint and a `Dialect` rather than one crate per data
 system; the proprietary client lives in a gateway process outside our artifact; and the type mapping
@@ -493,7 +493,7 @@ that is unchanged: the combine is called by `sutura-app`, above every adapter.
 the combine.** The decision: **the port's currency stays `RowSet` for the first federated milestone,
 and the conversion to Arrow lives in exactly one function inside the combiner crate.**
 
-Why not move the port to Arrow first, which is the direction `docs/architecture.md:113-127` records:
+Why not move the port to Arrow first, which is the direction [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) records:
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
