@@ -696,4 +696,39 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // 0018 states all three old values and amends each one in place directly below it.
         except: &["docs/adr/0018-what-the-bigquery-wire-is-built-from.md"],
     },
+    Contradicted {
+        // #792: found spot-checking stale `file.rs:NNN` citations. `DefinitionDigest::of` gained
+        // a third parameter when #181 composed N metadata sources into one bundle; ADR-0007's
+        // digest correction still claimed the pre-#181 arity, which made a correct line number
+        // sit under a now-wrong sentence.
+        name: "DefinitionDigest::of takes only Definitions and Knowledge",
+        wordings: &["takes the `Definitions` and the `Knowledge` and nothing else"],
+        evidence: &[Evidence {
+            path: "crates/sutura-domain/src/definitions.rs",
+            holds: "manifest: &ContributionManifest,",
+        }],
+        instead: "`DefinitionDigest::of` takes the `Definitions`, the `Knowledge` and a \
+                  `ContributionManifest`, and nothing else. The paragraph's real point survives \
+                  unchanged: `QueryPlan` and `LegPlan` are in neither, so no plan-shape change \
+                  moves the digest",
+        only: &[],
+        except: &[],
+    },
+    Contradicted {
+        // #792: found the same way. `permitted_for` traded its `&Request` parameter for the
+        // `&Asked` `establish_asked` already derived, and gained `run_sql_enabled`, when #666
+        // added the off-by-default raw SQL tool - after ADR-0023 quoted the older signature.
+        name: "permitted_for takes a Request and returns Permitted alone",
+        wordings: &["pub fn permitted_for(request: &Request) -> Permitted"],
+        evidence: &[Evidence {
+            path: "crates/sutura-http/src/capability.rs",
+            holds: "pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted",
+        }],
+        instead: "`crates/sutura-http/src/capability.rs` declares \
+                  `pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted`: it \
+                  takes the `Asked` `establish_asked` already derived, not the raw request, and \
+                  narrows by a deployment-level switch afterward",
+        only: &[],
+        except: &[],
+    },
 ];
