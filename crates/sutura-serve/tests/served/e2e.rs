@@ -68,7 +68,11 @@
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use std::time::Duration;
+    use sutura_catalog_datahub::AspectReader as _;
+    use sutura_catalog_datahub::fixture::FixtureReader;
     use sutura_catalog_datahub::test_support::{DEPLOYMENT_PROPERTY, FakeServer, happy_path_answers};
+    use sutura_dev::provisioned;
     use sutura_domain::model::{SourceName, TableName};
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
@@ -296,17 +300,168 @@ mod tests {
         }
     }
 
-    /// The settings a wave-one deployment needs: the `datahub` catalog pointed at the fake (`#202`'s
-    /// recorded corpus, served), a REAL `bigquery` source under the catalog's own name (`kind:
-    /// bigquery`, `posture: shared-service-user` - one credential for whoever asks, never a claim
-    /// about executing AS them), and the Keycloak issuer's own `inbound` (`mode: direct`, so the
-    /// caller's token IS the identity - no `security.access_token`, because a deployment declaring
-    /// both is refused as `DeploymentTokenSharesTheHeader`).
+    /// The REAL docker `DataHub` tier, in `--datahub tier` mode: the live GMS the composed binary's
+    /// HTTP `AspectReader` will read from. `DataDir::prepared` has already written the catalog's
+    /// `token_file` placeholder; this replaces it with a PAT minted at run time (never committed)
+    /// and provisions the certified metric under the deployment's structured property - the same
+    /// two writes `crates/sutura-catalog-datahub/tests/provisioned.rs` makes, so the recorded
+    /// corpus and this live document cannot drift.
     ///
-    /// `dir`/`data_dir` on the catalog are the two path fields `CatalogSettings` requires non-empty
-    /// for EVERY kind including `datahub`, unread by the datahub opener - the same obviously-unused
-    /// placeholders `served/datahub.rs` declares.
-    fn settings(fixture: &KeycloakFixture, server: &FakeServer, data: &DataDir, bq: &BigQueryFixture) -> String {
+    /// **Fail-not-skip, twice over.** The CI job (and `just e2e-datahub-bigquery --datahub tier`)
+    /// brings the tier up with `xtask dev-up --with datahub`; if the discovery file names no
+    /// `datahub` service this `expect`s by name instead of returning - a tier somebody asked for
+    /// and did not get is the exact overstated control this wave exists to refuse. And both writes
+    /// assert `200` from the platform, so a tier that rejects the document never reports green.
+    struct DatahubTier {
+        endpoint: String,
+        agent: ureq::Agent,
+    }
+
+    impl DatahubTier {
+        /// The published loopback endpoint, or a panic naming the missing tier. `provisioned::here`
+        /// has already panicked in the required direction inside the CI job; on a developer machine
+        /// it returns `None`, and this turns that into the same fail-not-skip shape rather than a
+        /// silent fallback to the fake.
+        fn required() -> Self {
+            let inside = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let endpoint = provisioned::here(inside, "datahub")
+                .endpoint()
+                .expect("`--datahub tier` was asked but no datahub service is in the discovery file - run `just e2e-datahub-bigquery --datahub tier` (it calls `xtask dev-up --with datahub`) or `just dev-up-datahub` first")
+                .to_string();
+            Self {
+                endpoint,
+                agent: ureq::Agent::new_with_config(
+                    ureq::Agent::config_builder()
+                        .http_status_as_error(false)
+                        .max_redirects(0)
+                        .timeout_global(Some(Duration::from_secs(30)))
+                        .proxy(ureq::Proxy::try_from_env())
+                        .build(),
+                ),
+            }
+        }
+
+        fn send(&self, path: &str, bearer: Option<&str>, body: Option<&serde_json::Value>) -> (u16, String) {
+            let url = format!("http://{}/{path}", self.endpoint);
+            let request = bearer.map_or_else(
+                || self.agent.post(&url),
+                |bearer| self.agent.post(&url).header("Authorization", format!("Bearer {bearer}")),
+            );
+            let mut response = match body {
+                Some(json) => request
+                    .header("Content-Type", "application/json")
+                    .send(serde_json::to_string(json).expect("a probe body serializes")),
+                None => request.send(String::new()),
+            }
+            .expect("the live DataHub answered, whatever it answered");
+            let status = response.status().as_u16();
+            let text = response.body_mut().read_to_string().expect("the answer is text");
+            (status, text)
+        }
+
+        /// A metric entity's urn, the same shape `provisioned.rs` writes raw (`(`, `)`, `,`, `:` are
+        /// legal in a path and the surface answers `200` to both spellings).
+        fn metric_urn(id: &str) -> String {
+            format!("urn:li:metric:(urn:li:dataPlatform:bigquery,orders,{id})")
+        }
+
+        /// Mint a personal-access token through the tier's token surface and write it to the token
+        /// file the settings name (the one `DataDir::prepared` left as a placeholder). The seed
+        /// admin credential the compose profile seeds is read from the environment the tier ran
+        /// under; nothing is committed, and an absent PAT read is a named failure downstream.
+        fn mint_pat(&self, data: &DataDir, admin_user: &str, admin_password: &str) -> String {
+            let session = serde_json::json!({
+                "username": admin_user, "password": admin_password,
+            });
+            let (status, body) = self.send("auth/authenticate", None, Some(&session));
+            assert_eq!(status, 200, "the live DataHub refused the seeded admin credential: {body}");
+            let session =
+                serde_json::from_str::<serde_json::Value>(&body).expect("the authentication answer is JSON")["accessToken"]
+                    .as_str()
+                    .expect("the authentication answer carries an access token")
+                    .to_owned();
+            let mint = serde_json::json!({
+                "actorUrn": format!("urn:li:corpuser:{admin_user}"),
+                "type": "PERSONAL",
+                "durationInMinutes": 60,
+                "name": "wave-one-e2e",
+            });
+            let (status, body) = self.send("auth/accessTokens", Some(&session), Some(&mint));
+            assert_eq!(status, 200, "the live DataHub refused to mint a PAT: {body}");
+            let minted = serde_json::from_str::<serde_json::Value>(&body).expect("the minting answer is JSON");
+            let pat = minted["accessToken"]
+                .as_str()
+                .expect("the minting answer carries an access token");
+            std::fs::write(data.token_file(), pat).expect("the minted PAT is writable into the token_file");
+            println!(
+                "e2e-datahub-bigquery: minted a PAT into {token_file}",
+                token_file = data.token_file().display()
+            );
+            pat.to_owned()
+        }
+
+        /// Provision the recorded corpus's OWN certified metric under the deployment's structured
+        /// property - the property definition plus the metric entity, the same two writes
+        /// `provisioned.rs`'s `a_document_served_by_a_real_datahub_decodes_into_a_certified_metric`
+        /// makes. The platform's validator accepts the corpus document as the scalar; a `200` is
+        /// asserted for both writes so a rejecting tier never reports green.
+        fn provision(&self, admin_user: &str, admin_password: &str, data: &DataDir) {
+            // Auth first: the writes below carry the minted PAT as their bearer.
+            let pat = self.mint_pat(data, admin_user, admin_password);
+            let property_urn = format!("urn:li:structuredProperty:{DEPLOYMENT_PROPERTY}");
+            let definition = serde_json::json!([{
+                "urn": property_urn,
+                "propertyDefinition": { "value": {
+                    "qualifiedName": DEPLOYMENT_PROPERTY,
+                    "displayName": DEPLOYMENT_PROPERTY,
+                    "valueType": "urn:li:dataType:datahub.string",
+                    "cardinality": "SINGLE",
+                    "entityTypes": ["urn:li:entityType:datahub.metric"],
+                    "description": "The closed-vocabulary metric document a deployment defines.",
+                } },
+            }]);
+            let (status, body) = self.send(
+                "openapi/v3/entity/structuredproperty?async=false",
+                Some(&pat),
+                Some(&definition),
+            );
+            assert_eq!(status, 200, "the live DataHub rejects the property definition: {body}");
+
+            let recorded = FixtureReader
+                .read()
+                .expect("the recorded corpus reads - it is the same fixture the fake serves");
+            let certified = recorded
+                .metrics()
+                .iter()
+                .find(|metric| metric.sutura().is_some())
+                .expect("the corpus carries one certified metric");
+            let property = certified
+                .sutura()
+                .expect("the metric just found is the one carrying the property");
+            let id = certified.name();
+            let scalar = serde_json::json!([{ "string": property.string_value() }]);
+            let entity = serde_json::json!([{
+                "urn": Self::metric_urn(id),
+                "metricKey": { "value": { "platform": "urn:li:dataPlatform:bigquery", "path": "orders", "id": id } },
+                "metricInfo": { "value": {
+                    "name": id,
+                    "expression": { "dialects": [{ "dialect": certified.dialect(), "expression": certified.expression() }] },
+                } },
+                "structuredProperties": { "value": { "properties": [{ "propertyUrn": property_urn, "values": scalar }] } },
+            }]);
+            let (status, body) = self.send(
+                "openapi/v3/entity/metric?async=false&createIfNotExists=false",
+                Some(&pat),
+                Some(&entity),
+            );
+            assert_eq!(status, 200, "the live DataHub rejects the certified metric document: {body}");
+            println!(
+                "e2e-datahub-bigquery: provisioned the certified metric `{id}` under {DEPLOYMENT_PROPERTY} on {}",
+                self.endpoint
+            );
+        }
+    }
+    fn settings(fixture: &KeycloakFixture, endpoint: &str, token_file: &Path, bq: &BigQueryFixture) -> String {
         let key_set = derived_beside(&config_path(CASE)).join("keycloak-jwks.json");
         format!(
             "server:\n\
@@ -334,8 +489,8 @@ mod tests {
                  max_bytes_billed: 1073741824\n    \
                  posture: \"shared-service-user\"\n",
             inbound = inbound_block(fixture, &key_set),
-            endpoint = server.endpoint(),
-            token_file = data.token_file().display(),
+            endpoint = endpoint,
+            token_file = token_file.display(),
             billing_project = bq.billing_project,
             dataset = bq.dataset,
             credential_file = bq.credential_file.display(),
@@ -419,10 +574,39 @@ mod tests {
         // once every ask below is done - on the happy path AND on a panic partway through.
         let bq = BigQueryFixture::required();
         let _loaded = LoadedFixture::loaded(&bq.warehouse, &data);
-        let mut answers = happy_path_answers();
-        answers.extend(happy_path_answers());
-        let server = FakeServer::start(answers);
-        let deployment = start_configured(CASE, &settings(&fixture, &server, &data, &bq));
+        // Which DataHub the served binary reads from: the loopback fake (the recorded corpus served
+        // over HTTP, `--datahub fake`, the default locally - no docker) or the REAL docker tier
+        // (`--datahub tier`, the hosted job's, which provisions the certified metric and mints a
+        // PAT). One flag, one settings builder, no second test; both go through the binary's own
+        // HTTP AspectReader over an endpoint the settings name. `SUTURA_E2E_DATAHUB_MODE` is set by
+        // the `just` task / nix app from the `--datahub` parameter; anything else refuses loudly.
+        let (endpoint, token_file, fake) = match std::env::var("SUTURA_E2E_DATAHUB_MODE").as_deref() {
+            Ok("fake") | Err(_) => {
+                let mut answers = happy_path_answers();
+                answers.extend(happy_path_answers());
+                let server = FakeServer::start(answers);
+                let endpoint = server.endpoint();
+                (endpoint, data.token_file(), Some(server))
+            }
+            Ok("tier") => {
+                // Admin credential the composed datahub profile seeds (see `compose.services.yaml`);
+                // read from the environment the tier ran under, never committed here.
+                let admin_user = std::env::var("SUTURA_DATAHUB_ADMIN_USER").unwrap_or_else(|_| "datahub".into());
+                let admin_password = std::env::var("SUTURA_DATAHUB_ADMIN_PASSWORD").unwrap_or_else(|_| {
+                    panic!(
+                        "`--datahub tier` needs SUTURA_DATAHUB_ADMIN_PASSWORD - the seed credential the compose profile expects"
+                    )
+                });
+                let tier = DatahubTier::required();
+                let endpoint = tier.endpoint.clone();
+                tier.provision(&admin_user, &admin_password, &data);
+                (endpoint, data.token_file(), None)
+            }
+            other => {
+                panic!("unknown SUTURA_E2E_DATAHUB_MODE {other:?} - set it from the `--datahub fake|tier` switch, never by hand")
+            }
+        };
+        let deployment = start_configured(CASE, &settings(&fixture, &endpoint, &token_file, &bq));
 
         // Ask 1: principal A's Keycloak-minted token asks the certified DataHub-harvested metric,
         // answered from the REAL BigQuery table this test just loaded.
@@ -441,26 +625,31 @@ mod tests {
             "{}",
             reply.body
         );
-        // The token file actually reached the wire - the same assertion `served/datahub.rs` makes:
-        // a composition root that ignored the declared token file would still answer the question.
+        // The token file actually reached the wire (fake mode) or the tier accepted the minted PAT
+        // (tier mode). Only the FAKE can capture the outbound authorizations - the served binary
+        // cannot read the live tier's log - so in tier mode the PAT's acceptance is proven by the
+        // tier answering the read at all and by `mint_pat`'s own `200`s above.
         // `finish` joins the fake thread; the audit record is written by the deployment's own
         // blocking pool, so this reads it after the fake is reaped with a bounded sweep of the
         // deployment's log rather than the fixed `awaiting` deadline.
-        let authorizations = server.finish();
-        assert!(
-            !authorizations.is_empty(),
-            "the served binary sent no DataHub page request at all"
-        );
-        assert!(
-            authorizations
-                .iter()
-                .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
-            "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
-        );
+        if let Some(server) = fake {
+            let authorizations = server.finish();
+            assert!(
+                !authorizations.is_empty(),
+                "the served binary sent no DataHub page request at all"
+            );
+            assert!(
+                authorizations
+                    .iter()
+                    .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
+                "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
+            );
+        }
         // The audit record arrives with the answer, read straight from the deployment's log - the
         // sweep and the `awaiting` deadline both fight the channel's behavior after the fake is
-        // reaped, so this reads once, after `finish` has joined the fake's thread. (`log()` drains
-        // the channel, so this read is what asks 2a/2b/3's later reads must not repeat.)
+        // reaped (fake mode), so this reads once, after `finish` has joined the fake's thread.
+        // Tier mode has no fake to reap - the served binary reads the REAL tier, and the audit
+        // record is read straight off the deployment's log.
         let lines_a = deployment.log();
         assert!(
             lines_a

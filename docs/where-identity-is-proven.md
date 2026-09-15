@@ -130,8 +130,8 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A fake at the port** | in process, every run | nothing | `just test`, `just validate` |
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` |
-| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` |
-| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance` |
+| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test`, `just e2e-datahub-bigquery` |
+| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance`, `just e2e-datahub-bigquery` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
 | **A real token exchange, and two grants** | a GitHub environment, on demand | a hop to a service account that nothing implements yet - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` |
 
@@ -394,7 +394,11 @@ about the vocabulary rather than to this row.
 `nix/keycloak-tier.nix` stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at `start` and written nowhere else - and
 `just keycloak-served-test` starts it, runs the one cell that needs it, and stops it whatever the
-cell does. Its own job in `.github/workflows/ci.yml`, gated on the `identity` category
+cell does. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job, PR 2) verifies the
+SAME realm over HTTP on its own composed deployment - a second, wider `Reached by` for the same
+venue, not a second row: its three asks all ride Keycloak-minted tokens.
+
+Its own job in `.github/workflows/ci.yml`, gated on the `identity` category
 (`xtask/src/affected.rs`'s `IDENTITY_PATHS`, which now names `crates/sutura-serve/` and
 `nix/keycloak-tier` beside the inbound transport), rather than `just test`: the JVM boot is a cost
 that suite should not pay on every push, the same tradeoff `nix/keycloak-tier.nix`'s own header
@@ -458,7 +462,11 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 `just bigquery-acceptance`, against a GitHub environment's own dataset. `docs/adr/0017` and
 `docs/adr/0019` are the records, and the sentence that matters here is short: **a service-account key is
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
-identity* - and nothing whatever about per-subject execution.
+identity* - and nothing whatever about per-subject execution. `just e2e-datahub-bigquery --datahub tier`
+(the wave-one hosted job, PR 2) reads the SAME `bq-test` environment's dataset for its BigQuery leg -
+same venue, no second row - and adds nothing to this claim's cell: it still executes under one shared
+credential (`shared-service-user`), so the per-subject half stays exactly where the exchange row below
+keeps it.
 
 Not merely written - the run was observed: `the_endpoint_accepts_one_statement_this_repository_generated`
 (`crates/sutura-exec-bigquery/tests/acceptance.rs`) passed in the `bigquery-acceptance` job on
@@ -494,7 +502,11 @@ credential the transport itself holds, without which an exchange that did nothin
 `.github/workflows/bigquery-exchanged-identity.yml` now reaches this cell (`workflow_dispatch` only,
 never an ordinary push), and no run has been observed. It may not be cited for anything - `wired` is
 not a softer `unrun`, it is the honest state of the commit that adds the invocation, before anybody
-has dispatched it.
+has dispatched it. The wave-one hosted job (`just e2e-datahub-bigquery --datahub tier`, PR 2) runs
+in the SAME `bq-test` environment and is therefore the same venue, not a second row - but its
+BigQuery-identity leg stays `#[ignore]`d behind #376 P2, so it does not reach this cell yet and adds
+nothing to this row's verdict: this row remains `wired` until the maintainer's binding lands AND a
+hosted green run is observed.
 
 **One leg HAS run, and it is not that one.** On 2026-09-06,
 `the_deployments_own_identity_is_neither_principal` passed against the acceptance project from a

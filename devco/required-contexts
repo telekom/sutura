@@ -165,6 +165,16 @@ ci.yml:bigquery-acceptance
 # permanently-pending merge this file's header warns about.
 ci.yml:keycloak-served-test
 
+# The wave-one E2E over the real docker DataHub tier, advisory for BOTH of the two reasons the
+# records above are. Like `bigquery-acceptance` it reaches the `bq-test` environment's key, which
+# a fork's pull request cannot see - requiring it would leave every fork permanently pending. And
+# it is category-gated on the `data_source_bigquery || identity || catalog_datahub` union, so like
+# `keycloak-served-test` it reports nothing at all on a pull request touching none of those paths,
+# and a required context that does not report on most runs is the permanently-pending merge this
+# file's header warns about. Its own `ci-aggregate` accounting is what keeps a category-selected
+# skip red, so the coverage stays advisory without going silent.
+ci.yml:e2e-datahub-bigquery
+
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
 # `check-docs` inside `ci` is what holds the nav and the pages.
