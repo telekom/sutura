@@ -961,8 +961,9 @@ That is a choice rather than a wall: the pinned `config` records the origin of e
 Reads the deployment environment from the process.
 
 Absent means `Environment::Development`: a developer running the binary with no environment
-set is on a laptop. A *present and unrecognised* one is an error and never falls back, because
-falling back would select the permissive branch of five decisions.
+set is on a laptop, and the permissive default is safe there precisely because the other
+defaults are loopback-only. An environment that is *present and unrecognised* is an error and
+never falls back, because falling back would select the permissive branch of five decisions.
 
 ## `use BillingProject`
 
