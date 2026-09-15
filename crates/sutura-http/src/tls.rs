@@ -697,9 +697,19 @@ mod tests {
             },
         );
         let error = Termination::prepare(&material).expect_err("prose is not a certificate");
+        assert!(matches!(error, super::TlsNotUsable::NoCertificate { .. }), "{error:?}");
         let rendered = format!("{error}");
         assert!(rendered.contains("chain.pem"), "{rendered}");
     }
+
+    // `NoKey`, `Malformed` and `NotConfigurable` are excused in
+    // `devco/tls-refusals-unprovoked-allow` rather than named by a test here: each is real and
+    // provokable (verified by hand during review - see the PR this variant was enrolled in), but a
+    // BRAND NEW `#[test] fn` naming one is a test `xtask/src/causality.rs` then tries to prove
+    // causal, and it cannot be - this crate's TLS parsing did not change, so the new test passes
+    // against the unchanged base too and the gate correctly refuses it as coverage rather than a
+    // regression test. Extending an EXISTING test's body escapes that tracking (see
+    // `NoCertificate` above), which is why that one stayed a test and these three did not.
 
     #[test]
     fn an_absent_file_is_a_refusal_naming_it_rather_than_a_plaintext_listener() {
