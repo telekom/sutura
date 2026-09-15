@@ -21,18 +21,42 @@ pub struct WifAudience(String);
 pub struct WifScope(String);
 
 /// The token-exchange setup a `impersonation-at-source` source needs.
+///
+/// **`impersonate` is the second hop, telekom/sutura#376's iamcredentials step, and it is additive.**
+/// An entry with an empty map keeps today's behaviour exactly: a bare RFC 8693 exchange, presented as
+/// the caller's own federated credential. A subject present as a key is the ONLY way a source ever
+/// asks Google's `iamcredentials.generateAccessToken` for anything - there is no fallback to the
+/// deployment's own identity for a caller absent from the map, because the broker that reads this
+/// refuses such a caller before any network call rather than answering as the process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadIdentityConfig {
     audience: WifAudience,
     scope: WifScope,
+    impersonate: std::collections::BTreeMap<sutura_domain::identity::SubjectId, WorkloadIdentitySa>,
 }
 
 impl WorkloadIdentityConfig {
-    /// Parses a declared audience and scope together, since neither is usable alone.
-    pub fn parse(audience: impl AsRef<str>, scope: impl AsRef<str>) -> Result<Self, InvalidWorkloadIdentity> {
+    /// Parses a declared audience, scope and impersonation map together.
+    ///
+    /// `impersonate` is read as raw strings rather than already-parsed types, for the reason
+    /// `RawSource` carries every field as one: the settings tree speaks in strings, and parsing
+    /// happens once, here.
+    pub fn parse(
+        audience: impl AsRef<str>,
+        scope: impl AsRef<str>,
+        impersonate: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, InvalidWorkloadIdentity> {
+        let mut parsed = std::collections::BTreeMap::new();
+        for (subject, target) in impersonate {
+            let subject = sutura_domain::identity::SubjectId::parse(subject)
+                .map_err(|cause| InvalidWorkloadIdentity::ImpersonationSubject { cause })?;
+            let target = WorkloadIdentitySa::parse(target)?;
+            drop(parsed.insert(subject, target));
+        }
         Ok(Self {
             audience: WifAudience::parse(audience.as_ref())?,
             scope: WifScope::parse(scope.as_ref())?,
+            impersonate: parsed,
         })
     }
 
@@ -48,6 +72,68 @@ impl WorkloadIdentityConfig {
     #[must_use]
     pub const fn scope(&self) -> &WifScope {
         &self.scope
+    }
+
+    /// The declared subject -> service-account map, for the composition root to hand the broker.
+    #[inline]
+    #[must_use]
+    pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectId, WorkloadIdentitySa> {
+        &self.impersonate
+    }
+}
+
+/// The service account a declared subject's exchanged credential is impersonated into.
+///
+/// **Checked here, and checked again where it is sent.** The same reason [`WifAudience`] gives:
+/// `crates/sutura-exec-bigquery/src/wire/iamcredentials.rs` interpolates this value into a request
+/// path and may not depend on this crate, so the format is validated once at declaration and once at
+/// the adapter that sends it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WorkloadIdentitySa(String);
+
+impl WorkloadIdentitySa {
+    /// A service-account email is bounded by RFC 5321's mailbox length.
+    const MOST: usize = 254;
+
+    /// Parses a declared impersonation target.
+    ///
+    /// The accepted set is the printable ASCII a service-account email is built from - letters,
+    /// digits and `. - _ @`, exactly one `@` - so a value that would escape a request path cannot
+    /// exist here.
+    pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(InvalidWorkloadIdentity::Empty {
+                what: "impersonation target",
+            });
+        }
+        if trimmed.chars().count() > Self::MOST {
+            return Err(InvalidWorkloadIdentity::TooLong {
+                what: "impersonation target",
+                found: trimmed.chars().count(),
+                most: Self::MOST,
+            });
+        }
+        if trimmed.matches('@').count() != 1 {
+            return Err(InvalidWorkloadIdentity::NotAnAccount);
+        }
+        if let Some(at) = trimmed
+            .char_indices()
+            .find_map(|(at, c)| (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@')).then_some(at))
+        {
+            return Err(InvalidWorkloadIdentity::Character {
+                what: "impersonation target",
+                at,
+            });
+        }
+        Ok(Self(String::from(trimmed)))
+    }
+
+    /// The account, for building a request.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -131,7 +217,11 @@ impl WifScope {
 /// **The position is carried and the value is not**, for the reason every refusal about
 /// operator-written text carries it: an audience and a scope are foreign strings heading for a
 /// request, and neither belongs in a log.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// **No `Clone`**, for the reason `InvalidSourceRegistry` (`crate::sources`) already gives: its own
+/// `ImpersonationSubject` variant's cause is `sutura_domain::identity::InvalidPrincipalId`, which is
+/// not `Clone` either - nothing needs to clone a startup refusal.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidWorkloadIdentity {
     /// Nothing was written, or only whitespace was.
     #[error("the {what} is empty")]
@@ -142,21 +232,68 @@ pub enum InvalidWorkloadIdentity {
     /// A character outside the accepted set.
     #[error("the character at position {at} in the {what} is not allowed")]
     Character { what: &'static str, at: usize },
+    /// An `impersonate` target has no `@`, or more than one - so it is not an account.
+    #[error("an `impersonate` target is not a service-account email")]
+    NotAnAccount,
+    /// An `impersonate` key is not a usable principal identifier.
+    #[error("a declared `impersonate` subject is not a usable identifier")]
+    ImpersonationSubject {
+        #[source]
+        cause: sutura_domain::identity::InvalidPrincipalId,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{WifAudience, WorkloadIdentityConfig};
+    use super::{WifAudience, WorkloadIdentityConfig, WorkloadIdentitySa};
 
     #[test]
     fn a_declared_workload_identity_parses_both_halves() {
         let id = WorkloadIdentityConfig::parse(
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
             "https://www.googleapis.com/auth/bigquery.readonly",
+            &std::collections::BTreeMap::new(),
         )
         .expect("a real-shaped declaration parses");
         assert!(id.audience().as_str().starts_with("//iam.googleapis.com/"));
         assert_eq!(id.scope().as_str(), "https://www.googleapis.com/auth/bigquery.readonly");
+        assert!(
+            id.impersonate().is_empty(),
+            "an entry with no `impersonate` map keeps a bare exchange"
+        );
+    }
+
+    #[test]
+    fn a_declared_impersonation_map_parses_subject_and_target() {
+        let mut declared = std::collections::BTreeMap::new();
+        drop(declared.insert(
+            String::from("principal-a@example.com"),
+            String::from("principal-a@acme-analytics.iam.gserviceaccount.com"),
+        ));
+        let id = WorkloadIdentityConfig::parse(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &declared,
+        )
+        .expect("a real-shaped impersonation map parses");
+        let subject = sutura_domain::identity::SubjectId::parse("principal-a@example.com").expect("a test subject is a subject");
+        assert_eq!(
+            id.impersonate().get(&subject).map(WorkloadIdentitySa::as_str),
+            Some("principal-a@acme-analytics.iam.gserviceaccount.com")
+        );
+    }
+
+    #[test]
+    fn an_impersonation_target_with_no_at_sign_is_refused() {
+        let mut declared = std::collections::BTreeMap::new();
+        drop(declared.insert(String::from("principal-a@example.com"), String::from("not-an-account")));
+        let err = WorkloadIdentityConfig::parse(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &declared,
+        )
+        .expect_err("a target with no `@` is not an account");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::NotAnAccount));
     }
 
     #[test]

@@ -125,7 +125,10 @@ mod importer;
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
 mod sts;
-pub use sts::{StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
+pub use sts::{
+    ImpersonateAsAccount, NoImpersonation, StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity,
+    WorkloadIdentityBroker,
+};
 
 use crate::transport::{DatasetId, JobDeadline, JobRequest, JobRows, JobTransport, ProjectId};
 

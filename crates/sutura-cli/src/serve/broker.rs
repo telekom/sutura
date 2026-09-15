@@ -28,15 +28,27 @@
 /// `security.credential_cache.enabled` is `true`.** It shares the same floor: a cached leg is
 /// served only if it would still clear the identical bound a fresh mint is held to, never a looser
 /// one - `sutura_exec_bigquery::WorkloadIdentityBroker::with_cache`'s own doc has the fold.
+/// The broker type [`build_broker`] returns: both hops, wired to their real HTTP implementors.
+///
+/// Named for `clippy::type_complexity`'s own threshold, the same reason `sutura_exec_bigquery::wire`'s
+/// `Wired`/`Grid` aliases are: a three-argument generic nested inside a `Result` is over it, and this
+/// is the one function in the crate whose signature would otherwise carry the whole thing inline.
+pub(crate) type ExchangingBroker = sutura_exec_bigquery::WorkloadIdentityBroker<
+    sutura_exec_bigquery::wire::StsOverHttp,
+    sutura_exec_bigquery::wire::IamCredentialsOverHttp,
+>;
+
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
     credential_cache: sutura_config::CredentialCacheSettings,
     outbound: Option<&sutura_tls::LoadedAnchors>,
-) -> Result<sutura_exec_bigquery::WorkloadIdentityBroker<sutura_exec_bigquery::wire::StsOverHttp>, String> {
+) -> Result<ExchangingBroker, String> {
     use sutura_config::SourcePlacement;
     use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
-    use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline, StsOverHttp, WireAgent};
+    use sutura_exec_bigquery::wire::{
+        BytesBilledCeiling, IamCredentialsOverHttp, JobBounds, QueryDeadline, StsOverHttp, WireAgent,
+    };
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
     // The ONE deadline is the deployment-wide query budget, and it is the only thing `StsOverHttp`
@@ -80,12 +92,22 @@ pub(crate) fn build_broker(
             shared.push((alias.clone(), declared.clone()));
         }
         if let Some(workload) = source.workload_identity() {
+            // The declared subject -> service-account map, telekom/sutura#376's second hop -
+            // converted once here into the exec-bigquery crate's own map shape, the same reason
+            // every other value on this line is re-expressed rather than passed through: an adapter
+            // may not depend on the settings tree.
+            let impersonate = workload
+                .impersonate()
+                .iter()
+                .map(|(subject, target)| (subject.clone(), String::from(target.as_str())))
+                .collect();
             impersonating.push((
                 alias.clone(),
                 WorkloadIdentity::of(
                     String::from(workload.audience().as_str()),
                     String::from(workload.scope().as_str()),
-                ),
+                )
+                .with_impersonation(impersonate),
             ));
         }
     }
@@ -97,10 +119,16 @@ pub(crate) fn build_broker(
     .map_err(|cause| format!("a declared `max_bytes_billed` is not a usable token-exchange bound: {cause}"))?;
     // `outbound` is `None` for the ordinary deployment, which is `WireAgent::secured`'s exact
     // `pinned` behaviour - `github.com/telekom/sutura#125`. The same declaration the job's own agent
-    // reads: one boot-time read, shared by every `WireAgent` this composition root builds.
-    let exchange = StsOverHttp::new(WireAgent::secured(JobBounds::of(deadline, ceiling), outbound.cloned()));
+    // reads: one boot-time read, shared by every `WireAgent` this composition root builds - the
+    // second hop's own agent included, since `iamcredentials` and `sts` are reached with the same
+    // pins and the same bounds.
+    let agent = WireAgent::secured(JobBounds::of(deadline, ceiling), outbound.cloned());
+    let exchange = StsOverHttp::new(agent.clone());
+    let impersonation = IamCredentialsOverHttp::new(agent);
 
-    let mut broker = WorkloadIdentityBroker::empty(exchange).with_floor(request_timeout.seconds());
+    let mut broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating_via(impersonation)
+        .with_floor(request_timeout.seconds());
     for (alias, declared) in shared {
         broker = broker.shared(alias, declared);
     }
