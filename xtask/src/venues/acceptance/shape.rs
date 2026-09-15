@@ -1,7 +1,7 @@
 //! What a line of that workflow IS, apart from what the job must hold.
 //!
 //! Every reader here answers one question about one line - is this a step key, does this print,
-//! does this turn tracing on, is this path under `$RUNNER_TEMP` - and [`super::problems`] composes
+//! does this turn tracing on, is this path under `$RUNNER_TEMP` - and `problems` composes
 //! them into the properties. The split is where the review value is: **ten of these predicates
 //! were green for the wrong reason across two rounds of review**, each because it read a line as
 //! text where the thing it was deciding is a shape, and each is now stated once with the escape it
@@ -126,7 +126,7 @@ pub(super) fn redirects_to_file(line: &str) -> bool {
 /// Is this body line a shell comment, and therefore a CLAIM rather than a command?
 ///
 /// One predicate for a distinction three readers had made separately or not at all, and it is read
-/// ONCE - where [`super::problems`] separates the commands from every line of the shell - because
+/// ONCE - where `problems` separates the commands from every line of the shell - because
 /// four readers each remembering to skip a comment is the shape this whole module is about.
 /// [`shell`] keeps comments deliberately, since a `${{ }}` written in one is still an expression in
 /// the file and the interpolation check is its reader; every other reader decides what the job

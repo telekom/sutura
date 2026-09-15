@@ -95,7 +95,7 @@
 //!   print its size. See [`shape::emits_file`];
 //! * **both tracing keys are legal one scope up.** A workflow-level `defaults:` with
 //!   `shell: bash -x {0}`, or an `env:` with `SHELLOPTS: xtrace`, turns tracing on for this job
-//!   from outside the lines [`job`] returns - so a property claimed *for the whole job* was
+//!   from outside the lines `job` returns - so a property claimed *for the whole job* was
 //!   defeated by writing the same key two lines higher. [`properties::WORKFLOW_SCOPE`] is read beside the
 //!   block; and a command no longer has to BEGIN its segment, because `then set -x` and `(set -x)`
 //!   are commands too. See [`shape::traces`];
@@ -104,7 +104,7 @@
 //!   the job DOES read them too. `# written as > "$RUNNER_TEMP/<file>" by the step above` satisfied
 //!   *the credential is written* with no write in the job, while `# never echo "$SUTURA_BQ_KEY"`
 //!   was reported as the key on a printing line and failed a CORRECT job. [`shape::is_comment`] is
-//!   read ONCE, where [`problems`] separates the commands from the shell's every line - four
+//!   read ONCE, where `problems` separates the commands from the shell's every line - four
 //!   readers each remembering to skip a comment is the shape this list is about.
 //!
 //! # And one more, which is a QUANTIFIER rather than a shape
@@ -126,7 +126,7 @@
 //! | --- | --- |
 //! | A multi-line `if: \|` condition | The condition is read off the `if:` key's own line, so a rule on a continuation line reads as absent - and this workflow writes that YAML style elsewhere |
 //! | A disjunct beside the rule that is correct but unreadable | [`shape::cannot_be_a_fork`] is an allowlist of one shape, so `github.event_name != 'schedule'` beside the rule is REPORTED though it is right. Under-permissive by choice: the answer decides whether the key is in scope |
-//! | A workflow-level `permissions:` | [`job`] returns the job's own lines, so a grant made once for the whole file is invisible here |
+//! | A workflow-level `permissions:` | `job` returns the job's own lines, so a grant made once for the whole file is invisible here |
 //! | `>> "$GITHUB_OUTPUT"`, `\| tee`, `base64`, `jq` over the key file | [`shape::redirects_to_file`] judges the target's SHAPE, not whether it is published, and [`shape::PRINTS`] is a vocabulary. A `cat` of the credential file IS now caught, by [`shape::emits_file`]; a `base64` of it is not |
 //! | The key one hop from its name | `K="$SUTURA_BQ_KEY"` and then `echo "$K"` needs data flow, and nothing here has any. Both the name check and [`shape::emits_file`] read one line |
 //! | A copy of a key whose write does not spell the secret | [`properties::credential_placement`] calls a redirect into `$RUNNER_TEMP` a second copy when the LINE names a secret, so a `cp` of the key file or a `base64 -d` of it places a copy this does not know about. Reading every write instead would fail a job that puts a log there, which is the direction that gets a gate deleted |
