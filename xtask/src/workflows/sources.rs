@@ -58,12 +58,20 @@ fn in_scope_text(path: &Path) -> Result<Option<String>, String> {
 
 /// List a directory, distinguishing an absent one from one that cannot be listed.
 ///
-/// The same distinction one level up. `read_dir(..).into_iter().flatten().flatten()` used to make
-/// a directory that EXISTS and cannot be read indistinguishable from one that is not there, and
-/// the module header's own argument says the second is legitimate - not the first.
+/// The same distinction one level up, and the iterator's own `Err` is propagated rather than
+/// `.flatten()`ed away for the same reason: a `DirEntry` that errors mid-walk is a file dropped
+/// in silence. `read_dir(..).into_iter().flatten().flatten()` used to make a directory that
+/// EXISTS and cannot be read indistinguishable from one that is not there, and the module
+/// header's own argument says the second is legitimate - not the first.
 fn in_scope_dir(path: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     match std::fs::read_dir(path) {
-        Ok(entries) => Ok(entries.flatten().map(|entry| entry.path()).collect()),
+        Ok(entries) => entries
+            .map(|entry| {
+                entry
+                    .map(|entry| entry.path())
+                    .map_err(|why| format!("{}: {why}", path.display()))
+            })
+            .collect(),
         Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(why) => Err(format!("{}: {why}", path.display())),
     }
@@ -97,7 +105,8 @@ fn collect(root: &Path) -> Result<Vec<Source>, String> {
             "no .github/workflows directory - the scan is broken, not the workflows",
         ));
     };
-    for path in entries.flatten().map(|entry| entry.path()) {
+    for entry in entries {
+        let path = entry.map_err(|why| format!("{}: {why}", workflows.display()))?.path();
         let yaml = path
             .extension()
             .and_then(|e| e.to_str())

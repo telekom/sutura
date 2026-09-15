@@ -1,0 +1,143 @@
+# Report a merged pull request whose ADDED files never reached `main`, nightly and on request.
+#
+# THE INCIDENT THIS EXISTS FOR (#726 group C, I1): #240 merged and its own file,
+# `dev/tests/keycloak.rs`, is absent from `main` today - `dev/tests/` holds only `provisioned.rs`.
+# Nothing here checks that; `release.yml`'s `--is-ancestor` answers a question about a TAG, and
+# `ci.yml`'s validated-commit marker is about which commits a `ci` run classified, not about
+# whether a merged PR's content survived onto the branch.
+#
+# WHY NO OTHER SHAPE HOLDS THIS, stated once rather than argued at every reviewer:
+#
+#   * It needs the merged-PR list, i.e. the forge API - and `checks.hygiene`'s nix sandbox has no
+#     network, so this cannot be a `just validate` leg.
+#   * The repository SQUASH-MERGES, so `git merge-base --is-ancestor <branch> main` reads false
+#     after every SUCCESSFUL merge - it cannot tell delivered from dropped.
+#   * A pre-commit or pre-push hook cannot see a merge that has not happened yet.
+#   * `--is-ancestor <mergeCommitOid> main` is a TAUTOLOGY under squash: the squash commit is on
+#     `main` by construction, so it answers yes for a PR whose content was dropped from the squash.
+#
+# So the only available shape is a scheduled REPORTING workflow, and it never gates a merge - it
+# reports what a human should look at, and nothing here should ever turn a check red for it.
+#
+# WHY THE ADDED-FILE ORACLE, AND NOT `git patch-id`: the merge queue rebases, so a squash commit's
+# parent on `main` is not `pr.baseRefOid`, and `patch-id --stable` is context-sensitive enough that
+# a benign rebase reddens it. A file the PR's diff calls `added` that HEAD does not carry is a much
+# narrower claim, with near-zero false positives, and it is the exact shape of #240's incident.
+#
+# WHAT THIS DOES NOT CATCH: a file that was added and is still present, but whose content was
+# reverted or truncated in the squash. That needs the patch-id approach or something narrower
+# still; ship this first, and only add that if the added-file oracle proves it earns it.
+name: delivery-audit
+
+on:
+  schedule:
+    # Off the hour, same reason `cache-prune.yml` picks 04:23: a scheduled job on the hour queues
+    # behind everyone else's.
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days of merged pull requests to audit"
+        required: false
+        default: "7"
+
+permissions: {}
+
+concurrency:
+  group: delivery-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Report merged pull requests whose added files are missing from HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # `inputs` is empty on a schedule, so the scheduled run carries this default too.
+          DAYS: ${{ inputs.days || '7' }}
+        run: |
+          set -euo pipefail
+
+          case "$DAYS" in ''|*[!0-9]*) echo "::error::days must be a number, got '$DAYS'"; exit 1 ;; esac
+
+          # THE ORACLE, SELF-TESTED WITH NO FRAMEWORK - the same shape as `cache-prune.yml`'s
+          # `pr_number_for_ref` check: two known cases are the whole contract, asserted inline
+          # rather than trusted. A path this repository always carries, and one it never will.
+          path_present() { git cat-file -e "HEAD:$1" 2>/dev/null; }
+          if ! path_present AGENTS.md; then
+            echo "::error::self-test failed: AGENTS.md must be present at HEAD - the checkout or the oracle is broken, refusing to report anything this run"
+            exit 0
+          fi
+          if path_present "delivery-audit/this-path-does-not-exist-in-the-tree"; then
+            echo "::error::self-test failed: a nonsense path must not be present at HEAD - refusing to report anything this run"
+            exit 0
+          fi
+
+          since="$(date -u -d "-${DAYS} days" +%Y-%m-%d)"
+
+          # THE LISTING ABORTS IF IT FAILS - copied from `cache-prune.yml`'s own comment verbatim
+          # in spirit: an empty result caused by a failed API call must not read as "nothing
+          # merged", or every pull request in the window goes unaudited and silently.
+          if ! gh api --paginate "search/issues" \
+                 -X GET -f "q=repo:${REPO} is:pr is:merged merged:>=${since}" \
+                 --jq '.items[].number' > merged.txt 2>err.txt; then
+            echo "::error::could not list merged pull requests; refusing to guess there is nothing to audit"
+            cat err.txt >&2
+            exit 0
+          fi
+          merged_count=$(wc -l < merged.txt)
+          echo "merged pull requests since ${since}: ${merged_count}"
+
+          : > findings.txt
+          while read -r number; do
+            [ -n "$number" ] || continue
+            # A single pull request's files failing to list is a spot failure, not grounds to
+            # abort the whole night's audit - warn and move on, the asymmetry `cache-prune.yml`
+            # takes with a single failed delete versus a failed listing.
+            if ! gh api --paginate "repos/${REPO}/pulls/${number}/files" \
+                   --jq '.[] | select(.status == "added") | .filename' > added.txt 2>err.txt; then
+              echo "::warning::could not list files for pull request #${number}; skipping it this run"
+              continue
+            fi
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              path_present "$path" || printf '%s\t%s\n' "$number" "$path" >> findings.txt
+            done < added.txt
+          done < merged.txt
+
+          finding_count=$(wc -l < findings.txt)
+          {
+            echo "### delivery-audit"
+            echo
+            echo "Merged pull requests since ${since}: ${merged_count}."
+            echo
+            if [ "$finding_count" -eq 0 ]; then
+              echo "Every added file from every merged pull request in the window is present at HEAD."
+            else
+              echo "| pull request | added file missing from HEAD |"
+              echo "| --- | --- |"
+              while IFS=$'\t' read -r number path; do
+                echo "| #${number} | \`${path}\` |"
+              done < findings.txt
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$finding_count" -gt 0 ]; then
+            while IFS=$'\t' read -r number path; do
+              echo "::warning::pull request #${number} added \`${path}\`, which is not present at HEAD - its content may not have reached main"
+            done < findings.txt
+          fi
+
+          echo "findings: ${finding_count}"
+          exit 0

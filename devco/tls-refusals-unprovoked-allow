@@ -1,0 +1,15 @@
+# TlsNotUsable variants without test-name or snapshot-word evidence.
+# Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
+# Dates are shape-checked; stale and unknown entries fail. No exceptions currently.
+# Name coverage is not proof of provocation or execution in a venue.
+#
+# All three below ARE provoked by a working test written during #654's review - see that PR's
+# history. They are excused here rather than committed as new `#[test] fn`s because each is a
+# brand new named test over PRODUCTION CODE THIS DIFF DID NOT CHANGE, which
+# `xtask/src/causality.rs` correctly refuses: the test passes against the unchanged base too, so
+# it is coverage rather than a regression test and the gate says so. Ends when a mechanism exists
+# for declaring an added test deliberately non-causal, or when one of these variants' behaviour
+# changes for an unrelated reason and that change gets its own regression test.
+NoKey 2026-09-15 provoked by a key file holding prose with no PEM markers; the test is a new named function over unchanged PEM-parsing code, which the causality gate refuses as non-causal coverage
+Malformed 2026-09-15 provoked by an unterminated PEM block; the test is a new named function over unchanged PEM-parsing code, which the causality gate refuses as non-causal coverage
+NotConfigurable 2026-09-15 provoked directly against rustls with a provider carrying no cipher suite, since Termination::prepare hardcodes a working provider and no material this crate builds reaches this branch through it; also a new named function over code this diff did not change

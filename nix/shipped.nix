@@ -152,6 +152,12 @@ let
       # what it adds, `ring` behind them, so the musl link is the same question `bigquery` already
       # answers and had gone unasked for this feature.
       probeFeatures = [ "bigquery" "postgres" ];
+      # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
+      # sutura#685` step 1's fat-LTO probe, one build with EVERY feature on rather than one build
+      # per feature. Happens to equal `probeFeatures` today because this binary has no feature
+      # `probeFeatures` leaves out; kept as its own field rather than reused so a future feature
+      # added to one list without the other is a diff a reviewer sees, not a silent gap.
+      allFeatures = [ "bigquery" "postgres" ];
       # This binary legitimately links `polyglot-sql`, for `compile` - `sutura-sql` is a normal
       # dependency of `sutura-cli` and the generator is what renders the statement that
       # subcommand prints. Nothing extra to forbid here beyond the shared list below.
@@ -175,6 +181,16 @@ let
       # (`tokio-postgres-rustls`, `rustls`, `ring`) through the CLI on both PR triples, so what
       # this list says is that adding serve's OWN combination is an entry rather than a design.
       probeFeatures = [ ];
+      # THE COMPLETE optional feature list, for `allFeaturesProbes` below - unlike `probeFeatures`
+      # above, NOT empty. `tls` and `datahub` are already compiled and tested on every run -
+      # `just lint` and `just test` both pass `--all-features`, and so do `checks.clippy` and
+      # `checks.nextest` - so this is not the first time either compiles. What none of that covers
+      # is a MUSL CROSS-COMPILE or a build under `release`/`release-performance`'s LTO, which is
+      # what this probe is for: `datahub` carries the same outbound-`ureq`-and-`ring` risk
+      # `bigquery` and `postgres` already do (`sutura-catalog-datahub`'s `http = ["dep:ureq"]`), and
+      # `github.com/telekom/sutura#685` step 1 ships one binary with every feature on, so proving
+      # only the CLI's two features is not proving the shipped artefact.
+      allFeatures = [ "tls" "bigquery" "postgres" "datahub" ];
       # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds the PLACEMENT - no catalog adapter and
       # no compiler crate may reach `sutura-sql` - but a normal dependency added straight to
       # `sutura-app` (the crate both `sutura-serve` and `sutura-http` sit on) is outside every one
@@ -422,6 +438,40 @@ let
       + "collide with a shipped package. `//` is right-biased in flake.nix, so the probe would "
       + "shadow the artefact. Rename the feature, or the probe naming rule.");
 
+  # `github.com/telekom/sutura#685` step 1: whether ALL of a binary's optional features link
+  # together at `release-performance` (fat LTO, `codegen-units = 1`, `panic = "abort"`) on the
+  # MUSL triples, where `ring`'s C and assembly is the risk `probes` above never takes - that list
+  # builds one feature at a time, at the `ci` profile, and never at LTO. Reads `allFeatures`, a
+  # field of its own rather than a reuse of `probeFeatures`: the two lists agree for `sutura` today
+  # but must not have to - `sutura-serve`'s `probeFeatures` is `[ ]` (its own comment explains why,
+  # for the one-feature-at-a-time `ci` probe) while its `allFeatures` carries all four of `tls`,
+  # `bigquery`, `postgres` and `datahub`, because #685 ships one binary with every feature on and
+  # proving only the CLI's features is not proving that artefact. A binary with an empty
+  # `allFeatures` yields no probe rather than an empty-features build indistinguishable from
+  # `release-performance` itself - not reachable today, since both binaries declare a non-empty
+  # list, but the guard costs nothing to keep.
+  #
+  # MUSL ONLY. The gnu triples are the easy case #685 defers to a later step.
+  #
+  # A SEPARATE attrset, same reason `featurePackages` is: `checks.one-binary`, `ociImages` and the
+  # release workflow read `crossPackages` and `binaries`, none of which this touches, so a probe
+  # here cannot reach an image or a published asset even by mistake. The name carries
+  # `-performance-probe`, which no `crossPackages` or `featurePackages` key ends in, so the
+  # `featurePackages` collision throw above has nothing to guard against here.
+  allFeaturesProbes = builtins.listToAttrs (builtins.concatMap
+    (b: builtins.concatMap
+      (t: pkgs.lib.optional (b.allFeatures != [ ]) {
+        name = "${b.bin}-all-features-${t}-performance-probe";
+        value = crossFor {
+          binary = b;
+          target = t;
+          profile = "release-performance";
+          features = b.allFeatures;
+        };
+      })
+      (builtins.filter (t: pkgs.lib.hasSuffix "-linux-musl" t) crossTargets))
+    binaries);
+
   # WHAT TO BUILD FOR ONE TRIPLE, as a file at a FIXED attribute name: `feature-probes-<triple>`
   # holds one row per probe - the package to build, the executable it installs, and the feature it
   # was built with - and `.github/workflows/cross-link.yml` reads the three fields rather than
@@ -655,6 +705,7 @@ let
 in
 {
   inherit
+    allFeaturesProbes
     artifactChecks
     binaries
     crossPackages
