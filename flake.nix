@@ -841,6 +841,37 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo run --profile ci -p sutura-exec-bigquery --example mint_subject_assertion --features wire -- "$@"
+        # `nix run .#e2e-datahub-bigquery` - wave one of the identity-aware E2E, on `apps.keycloak-
+        # served-test`'s pattern: an app rather than a check because `checks.*` run once per
+        # `wholeTree` build and this leg's own JVM boot plus a real BigQuery dataset is a cost `just
+        # validate` should not add to every one of them. Starts the SAME Keycloak tier
+        # `apps.keycloak-tier` runs by hand, pins the toolchain and nextest for `apps.deny`'s
+        # reason, and NOT `exec`'d so the `trap` that stops the tier survives a failing cell.
+        #
+        # Fake DataHub only in PR 1: the composed binary's catalog points at an IN-PROCESS
+        # `FakeServer` (`sutura_catalog_datahub::test_support::FakeServer`), so nothing here needs
+        # docker. The `--datahub tier` mode (the hosted job's) and the `SESSION_USER()` cell are
+        # PR 2 and the maintainer's binding respectively - neither is invoked by this app and both
+        # say so where they live.
+        apps.e2e-datahub-bigquery = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-e2e-datahub-bigquery" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            sutura-keycloak-tier start
+            trap 'sutura-keycloak-tier stop' EXIT
+            # `exec` inside a SUBSHELL, not the outer script, for the same reason `apps.keycloak-
+            # served-test` documents it: `check-warm-start` requires a live `exec cargo ` line, but
+            # exec'ing the outer shell would replace it before the `trap` above fires, leaving the
+            # JVM running. The parens make this `exec` replace only the subshell; the outer shell and
+            # its trap survive to run `sutura-keycloak-tier stop` once the subshell exits.
+            (
+              exec cargo nextest run --cargo-profile ci -p sutura-serve --all-features \
+                --run-ignored only -E 'test(the_wave_one_path_answers_as_the_asking_subject)' "$@"
+            )
           '');
         };
         # `nix run .#bigquery-cross-dataset` / `.#bigquery-cross-project` - issue #118's two cross-resource venues: writable

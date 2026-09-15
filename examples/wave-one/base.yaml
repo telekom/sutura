@@ -1,0 +1,53 @@
+# The settings template for wave one - a `datahub` catalog, an impersonating `bigquery` source, a
+# real issuer. Copy this to your own `base.yaml`, replace every `<...>` placeholder, and serve it.
+# The `datahub` catalog keys and the served `catalog.kind: datahub` come from issue #202's served
+# PR; the `impersonation-at-source` source executes BigQuery AS the asking subject once the
+# workload-identity hop exists (the exchanged-identity half `docs/where-identity-is-proven.md`
+# keeps `unrun`). This file is the template `served/e2e.rs`'s settings builder produces verbatim.
+
+server:
+  host: "127.0.0.1"
+  port: 0
+
+security:
+  # The caller's identity arrives per request - the asker's own token, never the deployment's.
+  identity: "multi-user"
+  # One fresh exchange per ask. OFF on purpose: caching an exchanged credential would let a stale
+  # one mask a broken leg. See docs/adr/0031.
+  credential_cache:
+    enabled: false
+  inbound:
+    mode: "direct"
+    # The audience this deployment validates - copies of the issuer's own discovery document.
+    resource: "<https://your-issuer.example.com/resource>"
+    authorization_server: "https://your-issuer.example.com"
+    key_set_file: "/etc/sutura/issuer-jwks.json"
+    algorithms: ["RS256"]
+
+telemetry:
+  format: "bunyan"
+
+catalogs:
+  - name: "metrics"
+    kind: "datahub"
+    # Two required but unread path fields (a stated limit of the settings surface) - the datahub
+    # reader opens the endpoint, not a directory.
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "<your-build-or-commit>"
+    # Your own DataHub instance, serving the structured-property document ADR 0016 requires.
+    endpoint: "http://127.0.0.1:<datahub-port>"
+    token_file: "/etc/sutura/datahub-pat"
+    # The structured-property name your deployment chose for the certified metric document.
+    metric_property: "<your-metric-property>"
+
+sources:
+  warehouse:
+    kind: "bigquery"
+    billing_project: "<your-billing-project>"
+    dataset: "<your-dataset>"
+    credential_file: "/etc/sutura/bigquery.json"
+    posture: "impersonation-at-source"
+    workload_identity:
+      audience: "<your-workload-identity-provider>"
+      scope: "https://www.googleapis.com/auth/cloud-platform"

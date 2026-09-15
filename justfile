@@ -649,6 +649,47 @@ keycloak-served-test:
 bigquery-mint-subject-assertion key target_audience out:
     nix run .#bigquery-mint-subject-assertion -- \
       "{{key}}" "{{target_audience}}" "{{out}}"
+# Wave one of the identity-aware E2E: a `datahub` catalog carries the certified metric, the
+# deployment is driven by REAL Keycloak password-grant tokens (not the mock), and the whole thing
+# runs on the composed binary over HTTP `/v1/query`. The fake DataHub lives IN the test
+# (`FakeServer` from `sutura_catalog_datahub::test_support`, `github.com/telekom/sutura#202`) and
+# the Keycloak tier is brought up here the way `just keycloak-served-test` brings it up.
+#
+# **The one runnable cell answers over the served `datahub` arm's own `files` source** (named, like
+# `served/datahub.rs`, after the catalog, so the fixed `bigquery`→name mapping reaches it) - which is
+# why nothing here needs a real BigQuery project and why the task runs green from code plus the
+# Keycloak tier alone. **The exchanged-identity half - executing BigQuery AS the asking subject,
+# read back as `SESSION_USER()` - stays a separate `#[ignore]`d cell behind the maintainer's binding
+# (issue #376 P2), and this task does not invoke it; `docs/where-identity-is-proven.md` keeps that
+# half `unrun` and says so.**
+#
+# **The one cell this runs is `#[ignore]`d, for the same two reasons the keycloak cell is:** the JVM
+# boot is a cost `just test` should not pay, and the tier flag `sutura_dev::provisioned` reads is
+# shared with Postgres.
+# Run the wave-one E2E: DataHub metadata -> a real issuer's token -> three asks over HTTP.
+# `--datahub fake` (the default) answers the recorded corpus through an in-process `FakeServer` and
+# needs no docker for DataHub. `--datahub tier` is PR 2's hosted job and REFUSES here with the
+# named reason: the docker DataHub tier and the `SESSION_USER()` exchanged-identity leg both land in
+# PR 2 / the maintainer's binding (#376 P2), neither of which this PR builds.
+e2e-datahub-bigquery *datahub:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="${1:---datahub fake}"
+    case "$mode" in
+      "--datahub fake") ;;
+      "--datahub tier")
+        echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier"
+        echo "e2e-datahub-bigquery: and the exchanged-identity BigQuery leg. Neither exists in PR 1 - refusing."
+        exit 1 ;;
+      *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+    esac
+    echo "e2e-datahub-bigquery: scope sutura-serve - the wave-one E2E over DataHub (fake), a real issuer and the served datahub source."
+    echo "e2e-datahub-bigquery: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "e2e-datahub-bigquery: the exchanged-identity BigQuery leg stays behind #376 P2 - see docs/where-identity-is-proven.md."
+    nix run .#keycloak-tier -- start
+    trap 'nix run .#keycloak-tier -- stop' EXIT
+    cargo nextest run -p sutura-serve --all-features --run-ignored only \
+      -E 'test(the_wave_one_path_answers_as_the_asking_subject)'
 
 # ------------------------------------------------------------------ dev flow ---
 
