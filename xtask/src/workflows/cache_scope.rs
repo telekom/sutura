@@ -312,6 +312,19 @@ impl Step<'_> {
             .any(|line| key_of(line).is_some_and(|k| k.strip_prefix(key).is_some()))
     }
 
+    /// Whether any non-comment line of this step contains `needle` verbatim.
+    ///
+    /// Comment lines are excluded through [`key_of`], which is what keeps this from matching prose
+    /// ABOUT a command - `ci.yml`'s own header text names `` `nix run .#xtask` `` inside a comment
+    /// several times - while still matching both a single-line `run: nix run .#xtask -- …` and a
+    /// block-scalar `run: |` body line, since neither shape needs its own extractor here.
+    pub(super) fn contains_verbatim(&self, needle: &str) -> bool {
+        self.lines
+            .iter()
+            .filter_map(|line| key_of(line))
+            .any(|line| line.contains(needle))
+    }
+
     /// The `restore-prefixes-first-match` tiers, narrowest first, empty when the key is absent.
     ///
     /// A block scalar and not a mapping value, so the tiers are the more-indented lines that FOLLOW

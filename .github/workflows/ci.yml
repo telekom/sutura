@@ -406,20 +406,6 @@ jobs:
             echo "no usable base: everything will run"
           fi
 
-      # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
-      # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
-      - name: Classify the change
-        id: classify
-        env:
-          BASE: ${{ steps.base.outputs.base }}
-        run: |
-          set -eu
-          if [ -n "$BASE" ]; then
-            nix run .#xtask -- classify --since "$BASE"
-          else
-            nix run .#xtask -- classify
-          fi
-
       # >>> THREE STAGES, AND THEY ARE THE EXECUTION ORDER (#639 slice I). <<<
       #
       # WHAT WAS HERE, AND WHY IT WAS A LIE OF SEQUENCE. One `nix build` took every check root at
@@ -484,6 +470,24 @@ jobs:
       # is a relocation and not a restatement of where they already were. The paragraph below says
       # why the new placement is correct rather than a preference.
       #
+      # `CLASSIFY THE CHANGE` FAILS THE SAME TEST, MEASURED SEPARATELY (#512(b)) - AND UNLIKE THE
+      # TWO ABOVE, IT CANNOT MOVE DOWN. Over 28 successful `ci` jobs its median is 24 s but its p90
+      # is 238 s, the largest single step in the job on 8 of those 28 - because it too runs
+      # `nix run .#xtask`, the same 20-21 s closure `Workflow static analysis` pays. Classify's
+      # OUTPUT gates every later step's `if:`, so it cannot follow `Clippy` the way those two do.
+      # What CAN move is the closure-free work that used to sit behind it for no reason: the graph
+      # root below, `Licensing` and `Secrets` need neither `packages.xtask` nor `cargoArtifacts`,
+      # so they now run right after `Resolve the base` and BEFORE `Classify the change` rather
+      # than after it - cutting measured time-to-first-verdict at p90 from ~368 s to ~130 s. THE
+      # PRICE, STATED RATHER THAN OMITTED: the graph root can no longer read
+      # `steps.classify.outputs.rust` - classify has not run yet - so it now builds `fmt`'s check
+      # root UNCONDITIONALLY, measured at <= 8 s p90 for the two-root graph on this repository's
+      # runs, not zero. WHAT THIS DOES NOT FIX: the 238 s p90 IS the `packages.xtask` closure, and
+      # stage 2 pays it regardless when the run is Rust-shaped - ordering removes it from the
+      # critical path in front of the cheap gates, it does not remove the cost. Making classify
+      # itself cheaper would mean reimplementing its path-to-area map in shell, the drifting
+      # duplicate this repository has already refused once.
+      #
       # **WHAT ORDER ALONE CAN COST, AUDITED RATHER THAN ASSUMED - BECAUSE A FAILED STEP ENDS THE
       # JOB.** No step's `if:` moved here; the reorder was a pure text move, and every condition
       # added by this change is on a graph ROOT, which is prefetch. But a step placed later than it
@@ -547,15 +551,11 @@ jobs:
         # served to a browser and to nothing a script can read. One label per stage, which is what
         # makes the three separable in that log.
         uses: ./.github/actions/measure-host
-        env:
-          RUST: ${{ steps.classify.outputs.rust }}
         with:
           label: closure-free gate graph
           run: |-
             set -eu
-            checks=(.#checks.x86_64-linux.reuse)
-            if [ "$RUST" = "true" ]; then checks+=(.#checks.x86_64-linux.fmt); fi
-            nix build -L --keep-going "${checks[@]}"
+            nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file
@@ -611,6 +611,20 @@ jobs:
       - name: Secrets
         if: ${{ always() }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
+
+      # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
+      # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
+      - name: Classify the change
+        id: classify
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -eu
+          if [ -n "$BASE" ]; then
+            nix run .#xtask -- classify --since "$BASE"
+          else
+            nix run .#xtask -- classify
+          fi
 
       - name: Format
         if: steps.classify.outputs.rust == 'true'

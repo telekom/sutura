@@ -1,4 +1,4 @@
-//! The `ci.yml` steps whose obligation must not be skippable, and the line that holds each.
+//! The `ci.yml` steps whose obligation must not be skippable OR slow, and the line that holds each.
 //!
 //! **The finding this exists for.** `Secrets` calls itself the authoritative secret scan and
 //! carried no condition at all, while the step above it was gated on the `rust` classification. A
@@ -40,13 +40,25 @@
 //!   guarantee. Cancel should mean cancel here.
 //!
 //! **The limit, next to the claim.** This rule holds the condition on the steps named in
-//! [`REQUIRED`] and nothing wider. It cannot see position, so it does not know whether a step
-//! moved, and it does not require any OTHER step to stay reachable - adding one is an edit here.
-//! Nor does it verify that `always()` behaves as measured; that is GitHub's semantics, observed
-//! over the runs above and not reproduced by this repository. Nor does it see the `ci` job's own
-//! `if:`, which skips the whole job - `Secrets` included - on a `chore(release):` commit; that
-//! exemption is accepted deliberately at the job level and this rule has no view of it either
-//! way.
+//! [`REQUIRED`] and nothing wider. It does not require any OTHER step to stay reachable - adding
+//! one is an edit here. Nor does it verify that `always()` behaves as measured; that is GitHub's
+//! semantics, observed over the runs above and not reproduced by this repository. Nor does it see
+//! the `ci` job's own `if:`, which skips the whole job - `Secrets` included - on a
+//! `chore(release):` commit; that exemption is accepted deliberately at the job level and this
+//! rule has no view of it either way.
+//!
+//! # The second thing this holds: LATENCY, not just skippability (#512(b))
+//!
+//! A condition on a step proves it can still report after a red above it - it says nothing about
+//! how long it waits to report. `Classify the change` measured a 238 s p90 over 20-21 s of it
+//! being the `nix run .#xtask` closure, and every step named in [`REQUIRED`] used to sit BEHIND
+//! it despite needing neither `xtask` nor `cargoArtifacts` - so a cheap gate that could report in
+//! seconds instead waited on a closure it never touches. [`order_problems`] is the mechanism for
+//! that half: every required step's position must be strictly before the first step in the file
+//! whose body runs [`XTASK_INVOCATION`]. **This is a POSITION rule and the one place in this
+//! module that is** - `check-workflows` reads the file text, not a schedule, so it cannot see
+//! how long any step actually took; the 238 s figure above is measured once, from the jobs API,
+//! and not reproduced here.
 
 use std::path::Path;
 
@@ -76,6 +88,42 @@ const REQUIRED: &[Obligation] = &[
 /// How many obligations this rule holds, for the success line.
 pub(super) const fn held() -> usize {
     REQUIRED.len()
+}
+
+/// The text that marks a step as paying for the `xtask` closure - see the header's second
+/// section. Matched as a plain substring, never parsed, so it catches both a single-line
+/// `run: nix run .#xtask -- …` step and a block-scalar one the same way.
+const XTASK_INVOCATION: &str = "nix run .#xtask";
+
+/// Every [`REQUIRED`] step found sitting behind the first step that runs [`XTASK_INVOCATION`].
+///
+/// A step already missing by name is not re-reported here - [`check`]'s own loop already refused
+/// it, and comparing an absent step's position would either panic or say nothing new.
+fn order_problems(steps: &[super::cache_scope::Step<'_>]) -> Vec<String> {
+    let Some((xtask_at, xtask_step)) = steps
+        .iter()
+        .enumerate()
+        .find(|(_, step)| step.contains_verbatim(XTASK_INVOCATION))
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for want in REQUIRED {
+        let Some((mine, step)) = steps
+            .iter()
+            .enumerate()
+            .find(|(_, step)| step.input("name:") == Some(want.step))
+        else {
+            continue;
+        };
+        if mine > xtask_at {
+            out.push(format!(
+                "ci.yml:{} `{}` sits behind ci.yml:{} which runs `{XTASK_INVOCATION}` - a closure-free obligation must report before that closure is realised, or its `if:` only buys it a slow reachable report instead of a fast one",
+                step.line, want.step, xtask_step.line
+            ));
+        }
+    }
+    out
 }
 
 /// Every step obligation this rule finds broken, empty when all of them hold.
@@ -115,6 +163,7 @@ fn check(text: &str) -> Vec<String> {
             Some(_) => {}
         }
     }
+    out.extend(order_problems(&steps));
     out
 }
 
@@ -187,5 +236,35 @@ mod tests {
             found.iter().all(|problem| problem.contains("declares no step named")),
             "{found:?}"
         );
+    }
+
+    /// A step naming `nix run .#xtask` as its own `run:` body, block-scalar or single-line.
+    fn xtask_step(name: &str, block_scalar: bool) -> String {
+        if block_scalar {
+            format!("      - name: {name}\n        run: |\n          nix run .#xtask -- classify\n")
+        } else {
+            format!("      - name: {name}\n        run: nix run .#xtask -- check-attribution\n")
+        }
+    }
+
+    /// The order half, real finding: a required step placed BEHIND the xtask closure it never
+    /// touches waits for it anyway, because a failed step ends the job either way.
+    #[test]
+    fn a_required_step_behind_an_xtask_invocation_is_refused() {
+        let gates: Vec<Option<&str>> = REQUIRED.iter().map(|want| Some(want.condition)).collect();
+        let mut text = xtask_step("Classify the change", true);
+        text.push_str(&tree(&gates));
+        let found = check(&text);
+        assert_eq!(found.len(), REQUIRED.len(), "{found:?}");
+        assert!(found.iter().all(|problem| problem.contains("sits behind")), "{found:?}");
+    }
+
+    /// Inverted: every required step ahead of the xtask closure is not this rule's problem.
+    #[test]
+    fn a_required_step_ahead_of_every_xtask_invocation_passes() {
+        let gates: Vec<Option<&str>> = REQUIRED.iter().map(|want| Some(want.condition)).collect();
+        let mut text = tree(&gates);
+        text.push_str(&xtask_step("The attribution document generates completely", false));
+        assert_eq!(check(&text), Vec::<String>::new());
     }
 }
