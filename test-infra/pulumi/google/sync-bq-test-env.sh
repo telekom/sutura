@@ -3,9 +3,10 @@
 # fresh `just infra-up` (e.g. after an `infra-down`) leaves CI pointed at current credentials
 # without hand-editing. Idempotent: safe to run again.
 #
-# Reads the LOCAL file-backend state - `pulumi stack output` reads the `.pulumi/` state, so NO
-# GCP credential is needed. Pushes each output with the `gh` CLI, which must be installed and
-# authenticated with write access to the repo's chosen environment.
+# Reads state through whichever backend PULUMI_BACKEND_URL names (the project-local `file://`
+# backend, or a Pulumi Cloud stack) - `pulumi stack output` reads it, so NO GCP credential is
+# needed. Pushes each output with the `gh` CLI, which must be installed and authenticated with
+# write access to the repo's chosen environment.
 #
 # No SECRET value is ever printed: each is written into a file under a mode-0600 temp dir that a
 # trap removes, and `gh secret set` reads it from stdin rather than from an argv. A var's value IS
@@ -14,13 +15,20 @@
 # Usage (from this directory):
 #   STACK=sutura-test BQ_TEST_ENV=bq-test \
 #     PULUMI_BACKEND_URL=file://... PULUMI_CONFIG_PASSPHRASE=... bash sync-bq-test-env.sh
+#   # or, against a Pulumi Cloud stack (no passphrase - the CLI's own `pulumi login` supplies it):
+#   STACK=<org>/sutura-test BQ_TEST_ENV=bq-test \
+#     PULUMI_BACKEND_URL=https://api.pulumi.com bash sync-bq-test-env.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
 : "${STACK:?set STACK = the pulumi stack whose outputs to export (e.g. sutura-test)}"
 : "${BQ_TEST_ENV:=bq-test}"
-: "${PULUMI_BACKEND_URL:?set PULUMI_BACKEND_URL (file://.../test-infra/pulumi/google)}"
-: "${PULUMI_CONFIG_PASSPHRASE:?set PULUMI_CONFIG_PASSPHRASE}"
+: "${PULUMI_BACKEND_URL:?set PULUMI_BACKEND_URL (file://.../test-infra/pulumi/google, or a Pulumi Cloud URL)}"
+# The passphrase only guards the file backend's local secrets encryption; a Pulumi Cloud backend
+# manages stack secrets itself under the CLI's own `pulumi login` credential.
+case "$PULUMI_BACKEND_URL" in
+  file://*) : "${PULUMI_CONFIG_PASSPHRASE:?set PULUMI_CONFIG_PASSPHRASE}" ;;
+esac
 command -v gh >/dev/null || { echo "sync: gh CLI not on PATH" >&2; exit 1; }
 
 umask 077

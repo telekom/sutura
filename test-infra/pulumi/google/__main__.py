@@ -430,11 +430,11 @@ audience = pulumi.Output.concat(
 # `google.subject <- assertion.sub`) resolves to - so each principal may impersonate only itself.
 # The member uses the project NUMBER, the form Google requires for a workload identity pool
 # principal (the project id is not accepted), resolved here from the configured project id.
-project_number = gcp.organizations.get_project(project=project).number
+project_number = gcp.organizations.get_project(project_id=project).number
 for tag, sa in (("a", sa_a), ("b", sa_b)):
     gcp.serviceaccount.IAMMember(
         f"principal-{tag}-workload-identity-user",
-        service_account_id=sa.email,
+        service_account_id=sa.name,
         role="roles/iam.workloadIdentityUser",
         member=pulumi.Output.concat(
             "principal://iam.googleapis.com/projects/",

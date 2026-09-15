@@ -16,13 +16,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# The state backend is the `file://` URL in `PULUMI_BACKEND_URL` (set by the justfile or the
-# workflow), never pulumi cloud, and `PULUMI_CONFIG_PASSPHRASE` supplies the stack secrets
-# passphrase - so neither a cloud account nor a committed secret is involved. `.pulumi/`
-# holds the state and is gitignored. Both are required: pulumi refuses a file backend without
-# a passphrase, and this script refusing loudly beats a half-configured stack.
-test -n "${PULUMI_BACKEND_URL:-}" || { echo "config-from-env: set PULUMI_BACKEND_URL (file://</path/to/.pulumi>)" >&2; exit 1; }
-test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || { echo "config-from-env: set PULUMI_CONFIG_PASSPHRASE" >&2; exit 1; }
+# The state backend is `PULUMI_BACKEND_URL` (set by the justfile or the workflow): either the
+# project's `file://` URL, whose stack secrets `PULUMI_CONFIG_PASSPHRASE` encrypts (`.pulumi/`
+# holds that state and is gitignored), or a Pulumi Cloud URL, whose stack secrets Pulumi itself
+# manages under the CLI's own `pulumi login` credential - no passphrase involved. The passphrase
+# guard below applies only to the file backend; a half-configured file stack still fails loudly.
+test -n "${PULUMI_BACKEND_URL:-}" || { echo "config-from-env: set PULUMI_BACKEND_URL (file://</path/to/.pulumi>, or a Pulumi Cloud URL)" >&2; exit 1; }
+case "$PULUMI_BACKEND_URL" in
+  file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || { echo "config-from-env: set PULUMI_CONFIG_PASSPHRASE" >&2; exit 1; } ;;
+esac
 
 ROOT="$(git rev-parse --show-toplevel)"
 

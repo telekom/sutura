@@ -523,38 +523,40 @@ infra-gl:
     pixi run --frozen -e gcloud gl
 
 # The pixi task carries its own `cwd`, so no `cd` is needed and it is correct from any directory.
-# The state backend is a PROJECT-LOCAL file and the passphrase comes from PULUMI_CONFIG_PASSPHRASE.
+# The backend honours an already-set PULUMI_BACKEND_URL (a Pulumi Cloud org/stack, set by the
+# machine env) and falls back to the PROJECT-LOCAL file backend otherwise. The passphrase guard
+# below applies to the file backend only - a cloud stack manages its own secrets and needs none.
 # The stack is configured FROM THE ENVIRONMENT FIRST (config-from-env.sh, refusing on anything
 # missing) and the SAME stack name is passed to pulumi - no reliance on an "active" selection.
 # `pulumi preview` over the `test-infra/pulumi/google` stack, through the `infra` pixi env.
 infra-preview *flags:
-    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    case "${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" in file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1) ;; esac
     # The developer's gcloud ADC (their own elevated account), NOT the limited BigQuery SA key the
     # acceptance legs use. just runs each line in a fresh shell, so the identity is set per command.
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
+    PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
-    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    case "${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" in file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1) ;; esac
     # See infra-preview: run as the developer's gcloud ADC, not the limited BigQuery SA key.
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
+    PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
 
-# Same local-file backend and developer-ADC identity as infra-up, but NO config-from-env.sh:
+# Same backend selection and developer-ADC identity as infra-up, but NO config-from-env.sh:
 # destroying reads the existing state. GCP APIs stay ENABLED deliberately (disable_on_destroy=False)
 # - GCP refuses to disable some that still hold resources, and re-enabling is slower.
 # `pulumi destroy` - tear down the Google test infra this stack created.
 infra-down:
-    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra destroy --stack "{{stack}}" --yes
+    case "${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" in file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1) ;; esac
+    PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra destroy --stack "{{stack}}" --yes
 
 # Run after an `infra-up` (especially one following `infra-down`, which rotates every key). Reads
-# the local `.pulumi/` state and pushes via `gh`, which must be authenticated.
+# the selected backend's state and pushes via `gh`, which must be authenticated.
 # Re-export the fresh `up` outputs into the {{bq_test_env}} GitHub environment.
 infra-set:
-    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
+    case "${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" in file://*) test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1) ;; esac
+    STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
 # Live BigQuery acceptance is outside `just validate`: nix checks have no network. CI runs it in
 # `bq-test` for pushes and same-repository PRs, not forks without secrets. The dataset is shared
