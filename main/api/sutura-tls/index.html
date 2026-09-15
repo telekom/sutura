@@ -2743,8 +2743,14 @@ by construction), so this type carries no partial state either.</p>
 store of nothing verifies nothing, and <code>LoadedAnchors::parse</code> is the only constructor, refusing
 an empty list with the caller's own refusal (<code>AnchorsEmpty</code> for a bundle, <code>SystemStoreEmpty</code> for
 the host store) rather than letting each source repeat the check.</p>
+<p><strong><code>Clone</code>, unlike <code>LoadedIdentity</code>.</strong> <code>CertificateDer</code> is public material by construction (a
+certificate, never a key), and a deployment-wide declaration is read ONCE and then handed to every
+fixed-host client that needs it - <code>github.com/telekom/sutura#125</code>'s <code>security.outbound</code> covers the
+<code>BigQuery</code> wire and the STS exchange from a single boot-time read, so a composition root needs one
+loaded value it can give to more than one <code>crate</code>-external constructor without re-reading the
+bundle or the host store per call site.</p>
 <h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
-<p><code>Debug</code>, <code>IntoIterator</code></p>
+<p><code>Clone</code>, <code>Debug</code>, <code>IntoIterator</code></p>
 <h2 id="struct-loadedidentity"><code>struct LoadedIdentity</code><a class="headerlink" href="#struct-loadedidentity" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LoadedIdentity</span>
 </span></code></pre></div>

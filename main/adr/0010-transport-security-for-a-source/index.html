@@ -2967,7 +2967,7 @@ authenticated.</p>
   <code>bigquery</code> entry a deployment writes, so a per-entry anchor would be exactly the "a declaration that
   does nothing" failure this issue opened against - <code>transport_*</code> STAYS refused on <code>bigquery</code> and
   <code>files</code> entries; it is not lifted. What covers a fixed-host client instead is a deployment-wide
-  <code>security.outbound.transport_anchors</code> - staged, not yet landed; see below.</p>
+  <code>security.outbound.transport_anchors</code> - landed with PR 2 below.</p>
 <p><strong>PR 1 lands the shared read and one refusal, with one consumer.</strong> The bundle-or-system-store read
   and the client-identity read moved out of <code>sutura-exec-postgres::tls</code> into <code>sutura-tls</code>, a new leaf
   crate with no dependency on a crypto provider, a network client, or <code>sutura-config</code>. It returns raw
@@ -2980,20 +2980,20 @@ authenticated.</p>
   crate's own claim that a refusal still comes back as <code>PostgresError</code>. <strong>This is deliberate, not
   incidental</strong>: landing a crate with no consumer would itself be an unread declaration -
   <code>cargo xtask unused-deps</code> and a dead-code lint would both say so - so the migration is the same PR as
-  the extraction rather than a promise for later. <code>sutura-tls</code> has exactly one consumer until PR 2.
-  The <code>InvalidSourceRegistry::TlsOverUnixSocket</code> parse-time refusal for a <code>verified</code>/<code>mutual</code> transport
+  the extraction rather than a promise for later. <code>sutura-tls</code> had exactly one consumer (Postgres)
+  until PR 2 added the BigQuery wire. The <code>InvalidSourceRegistry::TlsOverUnixSocket</code> parse-time refusal for a <code>verified</code>/<code>mutual</code> transport
   declared over a <code>unix_socket</code> dial lands in this PR too - unrelated to the shared crate, but the same
   "a declaration that does nothing" argument in the other direction: today it fails only at
   <code>PostgresWarehouse::connect_secured</code>'s own connect-time error, which names neither key.</p>
-<p><strong>PR 2 lands the second declaration together with its only reader</strong>, for the identical reason PR 1's
-  migration is not deferred: <code>security.outbound.transport_anchors</code> (<code>sutura_config::security::
+<p><strong>PR 2 landed the second declaration together with its only reader</strong>, for the identical reason PR 1's
+  migration was not deferred: <code>security.outbound.transport_anchors</code> (<code>sutura_config::security::
   OutboundAnchors</code>) - a PEM bundle path or <code>system</code>, deployment-wide, anchors only, no client identity,
-  because every endpoint it covers takes a bearer token and not a certificate - lands WITH the
+  because every endpoint it covers takes a bearer token and not a certificate - landed WITH the
   BigQuery wire's <code>WireAgent::secured</code> reader, the composition-root wiring (<code>sutura-serve</code>,
-  <code>sutura-cli</code>), and the hermetic fake-TLS cells, so nothing merges that a deployment could write and
+  <code>sutura-cli</code>), and the hermetic fake-TLS cells, so nothing merged that a deployment could write and
   have silently do nothing. A <code>ureq</code>-based adapter turns <code>sutura-tls</code>'s loaded certificates into
   <code>ureq::tls::Certificate</code> for <code>RootCerts::Specific</code> - checked against the workspace's own pinned
-  <code>ureq</code>: <code>TlsConfig</code>/<code>RootCerts</code>/<code>ClientCert</code> already exist, so this needs no new HTTP client and no
+  <code>ureq</code>: <code>TlsConfig</code>/<code>RootCerts</code>/<code>ClientCert</code> already exist, so this needed no new HTTP client and no
   <code>deny.toml</code> change. Absent <code>security.outbound</code> is not a refusal (these clients always speak TLS
   regardless, and absence means "verify against the compiled-in roots", unchanged from every prior
   release); a PRESENT block naming no anchors is, the same argument <code>security.inbound</code> with no <code>mode</code>

@@ -762,17 +762,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#a-bigquery-source-and-the-build-it-needs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A bigquery source, and the build it needs
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#a-postgres-source-least-authority-and-its-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3140,17 +3129,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#a-bigquery-source-and-the-build-it-needs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A bigquery source, and the build it needs
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#a-postgres-source-least-authority-and-its-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4215,6 +4193,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td>The operator's own ceiling on how long an entry is served, on top of the credential's own remaining life and the broker's own expiry floor - whichever of the three is soonest wins. Zero is refused</td>
 </tr>
 <tr>
+<td><code>security.outbound.transport_anchors</code></td>
+<td>absent</td>
+<td>A PEM bundle path, or <code>system</code>. Trust anchors for a FIXED-HOST outbound client - the BigQuery wire and the STS token exchange - distinct from a per-source <code>transport_anchors</code>, which only means something when the source's own entry names the host it dials. Absent verifies against the compiled-in roots, unchanged from every prior release; a present <code>security.outbound</code> naming no anchors does not start. See <code>docs/adr/0010</code>'s amendment</td>
+</tr>
+<tr>
 <td><code>server.tls_certificate</code></td>
 <td>absent</td>
 <td>A PEM chain. Only with <code>tls_termination: in-process</code></td>
@@ -4309,162 +4292,47 @@ selects which file is layered, so a file that could change it would be self-refe
 <td><code>unversioned</code></td>
 <td>A commit id or a build number. What identifies the snapshot</td>
 </tr>
+</tbody>
+</table>
+<h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
+<p><strong>The service reads its data systems from <code>sources:</code>, one entry per data system, keyed by the alias a
+model's <code>source:</code> names.</strong></p>
+<table>
+<thead>
 <tr>
-<td><code>sources.&lt;alias&gt;.kind</code></td>
-<td>absent</td>
-<td><code>files</code>, or <code>bigquery</code>/<code>postgres</code> when that default-off feature was built in. Required, with no default</td>
+<th>Key</th>
+<th>Default</th>
+<th>Notes</th>
 </tr>
+</thead>
+<tbody>
 <tr>
-<td><code>sources.&lt;alias&gt;.data_dir</code></td>
-<td>absent</td>
-<td>Where that source's files are. Required, and absolute</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.host</code></td>
-<td>absent</td>
-<td>Postgres only. A DNS name or IP address. Exactly one of <code>host</code> and <code>unix_socket</code></td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.unix_socket</code></td>
-<td>absent</td>
-<td>Postgres only. An absolute socket directory. Exactly one of <code>unix_socket</code> and <code>host</code></td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.port</code></td>
-<td>absent</td>
-<td>Postgres only. Required; no guessed <code>5432</code></td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.database</code></td>
-<td>absent</td>
-<td>Postgres only. Required</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.user</code></td>
-<td>absent</td>
-<td>Postgres only. The one role every caller reaches this source as</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.password_file</code></td>
-<td>absent</td>
-<td>Postgres only. Absolute, read at startup; secret text is refused in the settings tree</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.transport_mode</code></td>
-<td>absent</td>
-<td>Postgres only. <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; required, with no default</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.transport_anchors</code></td>
-<td>absent</td>
-<td>Postgres TLS only. <code>system</code> as an explicit choice, or an absolute PEM bundle path</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.client_certificate</code></td>
-<td>absent</td>
-<td>Postgres mutual TLS only. Absolute PEM chain; both client identity halves or neither</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.client_key</code></td>
-<td>absent</td>
-<td>Postgres mutual TLS only. Absolute PEM private key; both client identity halves or neither</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.posture</code></td>
-<td>absent</td>
-<td><code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.acknowledged_because</code></td>
-<td>absent</td>
-<td>The operator's reason. Required for a shared source in <code>multi-user</code> mode</td>
-</tr>
-<tr>
-<td><code>sources.&lt;alias&gt;.verification_identity</code></td>
-<td>absent</td>
-<td>The identity that re-runs that source's anchors. Only on an impersonating source</td>
-</tr>
-<tr>
-<td><code>tools.run_sql.enabled</code></td>
-<td><code>false</code></td>
-<td><code>docs/adr/0013</code>'s raw SQL tool. Refused at boot with a shared source in <code>multi-user</code> mode - see <a href="#the-raw-sql-tool-over-the-postgres-source-above">The raw SQL tool</a></td>
-</tr>
-<tr>
-<td><code>runtime.max_concurrent_queries</code></td>
-<td><code>8</code></td>
-<td>How many questions execute at once. See <a href="#capacity">Capacity</a></td>
-</tr>
-<tr>
-<td><code>runtime.admission_timeout_seconds</code></td>
-<td><code>5</code></td>
-<td>How long one waits for a slot before it is shed <code>503</code></td>
-</tr>
-<tr>
-<td><code>runtime.engine_worker_threads</code></td>
-<td>the machine's</td>
-<td>How wide the in-process engine runs. Set it under a CPU quota</td>
-</tr>
-<tr>
-<td><code>runtime.shutdown_grace_seconds</code></td>
-<td><code>15</code></td>
-<td>The budget for the whole of stopping. See <a href="#stopping">Stopping</a></td>
+<td></td>
+<td></td>
+<td></td>
 </tr>
 </tbody>
 </table>
-<p>A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
-value nobody chose is worse than a value somebody has to argue with.</p>
-<p><strong>Not built: a gate cross-checking this table's <code>catalogs[]</code> rows against <code>RawCatalog</code>'s own
-fields.</strong> Every <code>Raw*</code> shape already refuses an unknown key via <code>deny_unknown_fields</code>, which makes
-such a check mechanisable in principle - it is not built because the two sides are shaped
-differently (a markdown table cell, a Rust field name) and closing that gap needs a parser reading
-this file, not a lint reading the crate. Nothing here has justified writing one yet; a stale row
-still passes every other gate.</p>
-<h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
-<p><strong>The service reads its data systems from <code>sources:</code>, one entry per data system, keyed by the alias a
-model's <code>source:</code> names.</strong> <code>catalogs[].data_dir</code> is no longer where a served source's files are found:
-it is the <code>sutura</code> command's own data directory and stays that. A deployment that declares no source
-does not serve, because the catalog names a source with no entry and the process refuses before a
-listener is bound.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="c1"># single-user or multi-user. No default: see the refusal table above.</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"single-user"</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">single_user_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">operator,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">files,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">credentials"</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span><span class="nt">local</span><span class="p">:</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="c1"># `files`, `bigquery` or `postgres`. Required, with no default - and which of them a given BINARY can</span>
-</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="c1"># actually open is a second question, answered below.</span>
-</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"files"</span>
-</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">    </span><span class="c1"># Absolute. A relative path resolves against whatever working directory the supervisor chose.</span>
-</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/srv/sutura/data"</span>
-</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">    </span><span class="c1"># shared-service-user, or impersonation-at-source. Required, with no default.</span>
-</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span></code></pre></div>
-<h3 id="a-bigquery-source-and-the-build-it-needs">A <code>bigquery</code> source, and the build it needs<a class="headerlink" href="#a-bigquery-source-and-the-build-it-needs" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"bigquery"</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="c1"># The project the query job is billed to, and its quota project. Declared, never inferred:</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="c1"># it is a path segment of the request that submits a job, and a federated identity has no</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="c1"># project of its own.</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">billing_project</span><span class="p">:</span><span class="w"> </span><span class="s">"your-project"</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="c1"># Where an unqualified table name resolves, inside that project.</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="nt">dataset</span><span class="p">:</span><span class="w"> </span><span class="s">"your_dataset"</span>
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="c1"># The service-account key, or the file an application-default login writes. Absolute, and</span>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="c1"># REQUIRED: a service resolving a credential from whichever of three Google variables</span>
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="c1"># happened to be exported is running as an identity nobody declared. Read at startup, so an</span>
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">    </span><span class="c1"># unreadable file stops the process rather than failing every question.</span>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="nt">credential_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/bigquery.json"</span>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="c1"># The most one query job may be billed for scanning. Required, with no default, because it</span>
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="c1"># is the only number here that spends money: a small default refuses ordinary questions on a</span>
-</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="c1"># large table and a large one is indistinguishable from no bound. Enforced at the service,</span>
-</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">    </span><span class="c1"># so a job that would exceed it fails and is not charged. 1 GiB here.</span>
-</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
-</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">    </span><span class="c1"># `shared-service-user` is the only posture this adapter can deliver - see the cross-check</span>
-</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">    </span><span class="c1"># below. One service account reaching the dataset for everybody who asks.</span>
-</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">service</span><span class="nv"> </span><span class="s">account</span><span class="nv"> </span><span class="s">reaching</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">dataset</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
-</span></code></pre></div>
+<p>| <code>sources.&lt;alias&gt;.kind</code> | absent | <code>files</code>, or <code>bigquery</code>/<code>postgres</code> when that default-off feature was built in. Required, with no default |
+| <code>sources.&lt;alias&gt;.data_dir</code> | absent | Where that source's files are. Required, and absolute |
+| <code>sources.&lt;alias&gt;.host</code> | absent | Postgres only. A DNS name or IP address. Exactly one of <code>host</code> and <code>unix_socket</code> |
+| <code>sources.&lt;alias&gt;.unix_socket</code> | absent | Postgres only. An absolute socket directory. Exactly one of <code>unix_socket</code> and <code>host</code> |
+| <code>sources.&lt;alias&gt;.port</code> | absent | Postgres only. Required; no guessed <code>5432</code> |
+| <code>sources.&lt;alias&gt;.database</code> | absent | Postgres only. Required |
+| <code>sources.&lt;alias&gt;.user</code> | absent | Postgres only. The one role every caller reaches this source as |
+| <code>sources.&lt;alias&gt;.password_file</code> | absent | Postgres only. Absolute, read at startup; secret text is refused in the settings tree |
+| <code>sources.&lt;alias&gt;.transport_mode</code> | absent | Postgres only. <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; required, with no default |
+| <code>sources.&lt;alias&gt;.transport_anchors</code> | absent | Postgres TLS only. <code>system</code> as an explicit choice, or an absolute PEM bundle path |
+| <code>sources.&lt;alias&gt;.client_certificate</code> | absent | Postgres mutual TLS only. Absolute PEM chain; both client identity halves or neither |
+| <code>sources.&lt;alias&gt;.client_key</code> | absent | Postgres mutual TLS only. Absolute PEM private key; both client identity halves or neither |
+| <code>sources.&lt;alias&gt;.posture</code> | absent | <code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default |
+| <code>sources.&lt;alias&gt;.acknowledged_because</code> | absent | The operator's reason. Required for a shared source in <code>multi-user</code> mode |
+| <code>sources.&lt;alias&gt;.verification_identity</code> | absent | The identity that re-runs that source's anchors. Only on an impersonating source |
+| <code>tools.run_sql.enabled</code> | <code>false</code> | <code>docs/adr/0013</code>'s raw SQL tool. Refused at boot with a shared source in <code>multi-user</code> mode - see <a href="#the-raw-sql-tool-over-the-postgres-source-above">The raw SQL tool</a> |
+| <code>runtime.max_concurrent_queries</code> | <code>8</code> | How many questions execute at once. See <a href="#capacity">Capacity</a> |
+| <code>runtime.admission_timeout_seconds</code> | <code>5</code> | How long one waits for a slot before it is shed <code>503</code> |
+| <code>runtime.engine_worker_threads</code> | the machine's | How wide the in-process engine runs. Set it under a CPU quota |
+| <code>runtime.shutdown_grace_seconds</code> | <code>15</code> | The budget for the whole of stopping. See <a href="#stopping">Stopping</a> |</p>
 <p>The job's DEADLINE is not a key here: it is filled from <code>server.request_timeout_seconds</code>, because a
 job that outlives the request it is answering is billed for a result nobody is waiting for.</p>
 <p><strong>Three things about which builds can serve this</strong>, and the first is the one to check before writing
@@ -4502,22 +4370,22 @@ off. A source build enables it explicitly with <code>--features postgres</code>,
 <code>--features bigquery</code> above; no <code>just</code> task and no nix package builds it, and release packaging
 chooses the default set.</p>
 <p>One remote, server-verified source is declared like this:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"multi-user"</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"postgres"</span>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="s">"analytics"</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura_reader"</span>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/postgres-password"</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">    </span><span class="c1"># An explicit choice, never a default. Use `system` to read the host store instead.</span>
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/database-ca.pem"</span>
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"the</span><span class="nv"> </span><span class="s">reporting</span><span class="nv"> </span><span class="s">role</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">intentionally</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">same</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"multi-user"</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"postgres"</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="s">"analytics"</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura_reader"</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/postgres-password"</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">    </span><span class="c1"># An explicit choice, never a default. Use `system` to read the host store instead.</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/database-ca.pem"</span>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"the</span><span class="nv"> </span><span class="s">reporting</span><span class="nv"> </span><span class="s">role</span><span class="nv"> </span><span class="s">is</span><span class="nv"> </span><span class="s">intentionally</span><span class="nv"> </span><span class="s">the</span><span class="nv"> </span><span class="s">same</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
 <p>The password file contains only the password and should be readable by the service account alone.
 The process reads and trims it at startup; an unreadable or empty file stops the process. The source
@@ -4716,7 +4584,7 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 <h3 id="terminating-it-in-this-process">Terminating it in this process<a class="headerlink" href="#terminating-it-in-this-process" title="Permanent link">&para;</a></h3>
 <p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
 which neither the default build nor the published binary is:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
 </span></code></pre></div>
 <p>The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
 artifact that will never present a certificate is cost with no return - a cost paid four times over
@@ -4725,11 +4593,11 @@ absent from the build rather than merely unused, and asking for <code>in-process
 refusal that names the feature - so the two cannot disagree, and a published binary handed this
 configuration stops rather than serving cleartext.</p>
 <p>Then:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nt">server</span><span class="p">:</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
 </span></code></pre></div>
 <p>Both halves or neither. A certificate with no key is refused rather than half-configured, and a path
 set to the empty string is an error naming the key rather than TLS quietly switching itself off -
@@ -4836,27 +4704,27 @@ ones are statically linked and need no libc at all - and verify it before you ru
 put it beside you, and the reason it is not an asset. This fence assumes you ran those, so the
 corpus is at <code>sutura-corpus/</code> in the directory you are standing in; a clone puts it at
 <code>examples/single-player</code> instead, and the <code>cd</code> is the only line that differs.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-serve-x86_64-unknown-linux-musl.tar.gz
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nv">BINARY</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/sutura-serve"</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nb">cd</span><span class="w"> </span>sutura-corpus/examples/single-player
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$BINARY</span><span class="s2">"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>tar<span class="w"> </span>-xzf<span class="w"> </span>sutura-serve-x86_64-unknown-linux-musl.tar.gz
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">BINARY</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/sutura-serve"</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">cd</span><span class="w"> </span>sutura-corpus/examples/single-player
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$BINARY</span><span class="s2">"</span>
 </span></code></pre></div>
 <p><strong>Or the image.</strong> The <code>-serve</code> tags are this binary; the unsuffixed ones are the command-line tool.
 The entrypoint is the server and it takes no arguments, so <code>docker run</code> with none starts it.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--workdir<span class="w"> </span>/examples<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player:/examples:ro"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span>/examples/data<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">  </span>ghcr.io/telekom/sutura:latest-serve
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>--workdir<span class="w"> </span>/examples<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/examples/single-player:/examples:ro"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span>/examples/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span>ghcr.io/telekom/sutura:latest-serve
 </span></code></pre></div>
 <p><strong><code>--network host</code> rather than <code>-p 8080:8080</code>, and the difference is a startup refusal rather than a
 preference.</strong> The default bind is loopback, and inside a container loopback is the container - so a
@@ -4873,14 +4741,14 @@ checks the certified January figure is in the answer, and checks that a question
 comes back <code>403</code>. The arm64 pair is built and not run, because executing it would need an emulator
 registered on the runner.</p>
 <p><strong>Or from source</strong>, which is what a change to this repository is tested with:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nv">ROOT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">"</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nb">cd</span><span class="w"> </span>examples/single-player
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>--manifest-path<span class="w"> </span><span class="s2">"</span><span class="nv">$ROOT</span><span class="s2">/Cargo.toml"</span><span class="w"> </span>-p<span class="w"> </span>sutura-serve
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">ROOT</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">"</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">cd</span><span class="w"> </span>examples/single-player
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nv">SUTURA__SECURITY__IDENTITY</span><span class="o">=</span>single-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nv">SUTURA__SECURITY__SINGLE_USER_BECAUSE</span><span class="o">=</span><span class="s2">"one operator reading their own files"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nv">SUTURA__SOURCES__LOCAL__KIND</span><span class="o">=</span>files<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="nv">SUTURA__SOURCES__LOCAL__DATA_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/data"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="nv">SUTURA__SOURCES__LOCAL__POSTURE</span><span class="o">=</span>shared-service-user<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>--manifest-path<span class="w"> </span><span class="s2">"</span><span class="nv">$ROOT</span><span class="s2">/Cargo.toml"</span><span class="w"> </span>-p<span class="w"> </span>sutura-serve
 </span></code></pre></div>
 <p>It binds <code>127.0.0.1:8080</code>, needs no token there, and serves the browser interface at <code>/docs</code>. Startup
 loads the catalog through its port and re-executes <strong>every declared anchor</strong> against the data system;
