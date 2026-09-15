@@ -83,8 +83,9 @@ fn a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_a
     // Keycloak subjects are UUIDs, so two distinct users' masked forms collide 1 in 16 - a run
     // would pass on the shared hex prefix alone. The property rests instead on the full `sub` each
     // token's OWN payload mints (the harness decoded it), and each record is tied to its own
-    // token's mask via `SubjectId::parse` - the same mask the deployment wrote - so the assertion
-    // would fail if the harness minted the same user twice, whatever the prefix.
+    // token's mask via `SubjectId::parse` - the same mask the deployment wrote. The `assert_eq!`
+    // ties below pass through that same one-hex-char mask, so they hold attribution to the record,
+    // never uniqueness - uniqueness is `sub_a != sub_b` above.
     let sub_a = keycloak_subject_of(&fixture.subject_a_token);
     let sub_b = keycloak_subject_of(&fixture.subject_b_token);
     assert_ne!(sub_a, sub_b, "two provisioned subjects minted the same `sub` claim");
