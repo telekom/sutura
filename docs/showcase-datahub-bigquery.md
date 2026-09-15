@@ -49,7 +49,6 @@ whole reason:
 Everything is a `just` task, and the BigQuery leg needs **your own open project**:
 
 ```text
-just dev-up                    # the data systems this worktree's compose profile serves
 just keycloak-tier start       # the real issuer: a realm, a client and two provisioned subjects
 just e2e-datahub-bigquery      # boots the composed binary, loads the fixture into BigQuery, asks both subjects over HTTP
 ```

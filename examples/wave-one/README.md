@@ -79,7 +79,6 @@ Everything is a `just` task, in the order the path needs it:
 
 ```text
 just keycloak-tier start          # the real issuer: a realm, a client and two provisioned subjects
-just dev-up                       # the data systems this worktree's compose profile serves
 just e2e-datahub-bigquery         # the wave-one E2E: loads the fixture into BigQuery and asks both subjects
 ```
 

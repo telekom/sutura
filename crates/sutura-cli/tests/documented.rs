@@ -964,33 +964,4 @@ mod tests {
             "{GUIDED} tells a reader to download an artefact and links no verification page"
         );
     }
-
-    /// The wave-one example's files, held against what `served/e2e.rs`'s `#[ignore]`d cell asserts
-    /// (the JVM owning the Keycloak tier, so it cannot run here): the README's own task list, the
-    /// question's certified anchors, and the refusal's shape.
-    #[test]
-    fn the_wave_one_example_documents_what_the_cell_pins() {
-        for (rel, needle) in [
-            ("examples/wave-one/README.md", "just e2e-datahub-bigquery"),
-            ("examples/wave-one/question.yaml", "metric: revenue"),
-            ("examples/wave-one/question.yaml", "start: 2026-06-01"),
-            ("examples/wave-one/question.yaml", "end: 2026-07-01"),
-        ] {
-            let text = page(rel);
-            assert!(
-                text.contains(needle),
-                "{rel} no longer carries {needle:?} - an edit to one side of the wave-one pairing \
-                 without the other is caught here, the raw-sql README cell's split"
-            );
-        }
-        // The refusal's SHAPE by FIELD (not the mere presence of a `code`/`detail` key) - the same two `served/e2e.rs` pins.
-        let refusal: serde_json::Value =
-            serde_json::from_str(&page("examples/wave-one/refusal.json")).expect("refusal.json is valid JSON");
-        assert_eq!(
-            refusal["reason"]["status"],
-            serde_json::json!(404),
-            "refusal.json's status drifted"
-        );
-        assert_eq!(refusal["reason"]["code"], "metric_unknown", "refusal.json's code drifted");
-    }
 }

@@ -21,6 +21,8 @@ security:
     authorization_server: "https://your-issuer.example.com"
     key_set_file: "/etc/sutura/issuer-jwks.json"
     algorithms: ["RS256"]
+    # Keycloak mints `typ: JWT`, not the `at+jwt` the default `token_type` refuses.
+    token_type: "any"
 
 telemetry:
   format: "bunyan"
