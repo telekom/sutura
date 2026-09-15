@@ -133,9 +133,10 @@ export ENABLE_SIGNUP="false"
 # loopback URL, `path: openapi.json`, a bearer `auth_type`, and `config.enable`. `config.enable`
 # makes the connection LOAD the document and become LISTABLE as `server:sutura`; it does NOT select
 # anything for a chat. Selection is per chat and client-side (`tool_ids`), so the walkthrough's
-# Integrations -> Tools -> `sutura` step is the one that puts the tools in front of the model, and
-# `demo/healthcheck.py` proves only the registration half. The document it reads describes exactly
-# the two governed operations.
+# Integrations -> Tools -> `sutura` step is the one that puts the tools in front of the model.
+# `demo/healthcheck.py` proves the server answers a real question and refuses one it cannot, by
+# calling it directly - it does NOT prove the chat client selected the tool and asked either one;
+# that half stays a human clicking through the walkthrough.
 export TOOL_SERVER_CONNECTIONS="[{\"type\": \"openapi\", \"url\": \"http://127.0.0.1:${sutura_port}\", \"spec_type\": \"url\", \"spec\": \"\", \"path\": \"openapi.json\", \"auth_type\": \"bearer\", \"key\": \"${token}\", \"config\": {\"enable\": true}, \"info\": {\"id\": \"sutura\", \"name\": \"sutura\", \"description\": \"Certified metric questions\"}}]"
 
 printf 'sutura-demo: starting the server on 127.0.0.1:%s and the chat client on 127.0.0.1:%s\n' \
@@ -158,8 +159,14 @@ terminate() {
 }
 trap 'terminate; exit 143' TERM INT
 
-wait -n "$sutura_pid" "$webui_pid"
-status=$?
+# `status=$?` right after a bare `wait -n` never runs when that child exited non-zero: `set -e`
+# aborts on `wait -n`'s own exit status before the next line, which skips `terminate` below and
+# leaves the sibling child running as an orphan - measured by `demo/test_behavior.py`'s
+# `test_either_child_exiting_terminates_the_other_and_carries_its_own_code`. `|| status=$?` folds
+# the capture into the same statement `set -e` is already looking at, so a non-zero exit is
+# "handled" rather than propagated.
+status=0
+wait -n "$sutura_pid" "$webui_pid" || status=$?
 printf 'sutura-demo: a supervised process exited (status %s); terminating the demo\n' "$status" >&2
 terminate
 
