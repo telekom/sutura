@@ -3192,8 +3192,8 @@ sits ahead of <code>declared_keys::hold</code> and <code>verify_anchors</code> i
 ahead of <code>declared_keys::hold</code> is held INCIDENTALLY, by the <code>examples/authored-sql</code> cell: that
 catalog declares a relationship and attaches no data to it, so a block moved below <code>hold</code>
 fails there first, on <code>declared_keys::hold</code>'s own refusal, rather than on this one. Nothing
-separates the placement from <code>verify_anchors</code> alone, and no fixture's fake counts an anchor
-or a declared key that was never touched.</p>
+separates the placement from <code>verify_anchors</code> alone, so no fixture's anchor or declared key is
+ever touched to prove that half of the ordering.</p>
 <h2 id="use-spendbudget"><code>use SpendBudget</code><a class="headerlink" href="#use-spendbudget" title="Permanent link">&para;</a></h2>
 <p>A byte ceiling and the window it resets on, already validated.</p>
 <p>A plain pair rather than a re-export of <code>sutura_config::SpendBudget</code>: this crate depends on

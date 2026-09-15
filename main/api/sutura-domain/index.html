@@ -4118,6 +4118,16 @@ existing catalog byte-identical.</strong> <code>Computation::Measure</code> seri
 exactly the field a metric already had, so a closed-vocabulary metric's canonical form - and so
 its definition digest - does not move for gaining this type. An <code>authored_sql</code> metric is a new
 key, visible in the diff, which is the whole point.</p>
+<p><strong>No <code>deny_unknown_fields</code> here, and <code>ComputationInput</code> carries none either - both would be
+inert.</strong> <code>try_from</code> replaces this type's whole <code>Deserialize</code> body with "deserialize a
+<code>ComputationInput</code>, then convert", so an attribute on this enum never runs. It would not help
+on <code>ComputationInput</code> either: a sibling key beside <code>measure</code> or <code>authored_sql</code> is already
+refused by serde's own externally-tagged-enum representation, which requires exactly one key
+regardless of <code>deny_unknown_fields</code> - and an unknown field INSIDE the tagged value is
+<code>Measure</code>'s or <code>AuthoredSql</code>'s own <code>deny_unknown_fields</code> to refuse, not this enum's. Measured on
+<code>ComputationInput</code> by removing the attribute and comparing error text across a sibling key, a
+zero-key map and a single unrelated key: unchanged in all three. No test carries this - no
+input distinguishes the two trees, so there is nothing for a regression test to assert.</p>
 <h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Measure</code> - The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and nothing about it is optional or degraded.</li>
@@ -4137,9 +4147,12 @@ whether writing both is an error.</p>
 <p>The authored SQL, if this metric uses the escape hatch.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-121-1"><a id="__codelineno-121-1" name="__codelineno-121-1" href="#__codelineno-121-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<p>The word a catalog writes, and the word an operator lists metrics by.</p>
-<p>This is the mechanism behind "a reviewer and an operator must be able to see which metrics
-use the hatch": one accessor over the pinned definitions, rather than a grep over files.</p>
+<p>The word a catalog writes for this variant (<code>authored_sql:</code>), as opposed to the shorter
+printed label <code>sutura-cli</code>'s <code>commands::computation_label</code> derives from it for a person.</p>
+<p>No production caller reads this today - every caller is this crate's or
+<code>sutura-catalog-local</code>'s own tests asserting which variant a document produced. "A reviewer
+can see which metrics use the hatch" still holds, but by a test assertion or a grep over
+files, not by an operator command that lists metrics through this accessor.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-122-1"><a id="__codelineno-122-1" name="__codelineno-122-1" href="#__codelineno-122-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">measure</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Measure</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The closed measure, if this metric uses the closed vocabulary.</p>
