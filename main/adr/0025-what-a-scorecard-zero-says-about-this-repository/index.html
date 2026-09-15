@@ -3606,13 +3606,15 @@ inert one in a tree that should have no findings. Shapes, all against <code>prep
 <p>The last row is the one that matters, because it is the shape this repository compiles SQL in.</p>
 <p><strong>The earlier diagnosis was right in consequence and wrong in mechanism, and the correction is the
 part worth keeping.</strong> It recorded that a buildless database "extracts the crate's own dependencies
-but not <code>alloc</code>/<code>std</code>". The sysroot is in fact extracted: <strong>3016 sysroot files and 98903 functions
-from them are in the database</strong>. Only <strong>2497</strong> of those functions carry a canonical path, and <strong>no
-<code>alloc::</code>, <code>core::</code> or <code>std::</code> canonical path exists at all</strong> - against 25257 of 148253 functions
-overall. The extractor says why, over those files: <code>semantic analyzer unavailable (failed to
-determine rust edition)</code>. So the standard library is not absent, it is <strong>unresolved</strong>, and a taint
-summary naming <code>alloc::fmt::format</code> still has nothing to bind to. Turning dependency-as-source
-extraction on does not reach it, because the failure is not about which files are read.</p>
+but not <code>alloc</code>/<code>std</code>". The sysroot is in fact extracted: this run (2026-09-09, CodeQL CLI
+<code>2.27.0</code>, bundle <code>codeql-bundle-v2.27.0</code>) counted <strong>3016 sysroot files and 98903 functions from
+them</strong> in the database - a one-off figure nothing in this tree re-takes, so a later run may count
+differently. Only <strong>2497</strong> of those functions carry a canonical path, and <strong>no <code>alloc::</code>, <code>core::</code>
+or <code>std::</code> canonical path exists at all</strong> - against 25257 of 148253 functions overall. The
+extractor says why, over those files: <code>semantic analyzer unavailable (failed to determine rust
+edition)</code>. So the standard library is not absent, it is <strong>unresolved</strong>, and a taint summary naming
+<code>alloc::fmt::format</code> still has nothing to bind to. Turning dependency-as-source extraction on does
+not reach it, because the failure is not about which files are read.</p>
 <p><strong>A third instance of the same cause, found by accident and worth the warning.</strong> A sink whose
 receiver sits behind <code>Arc</code> is not recognised as a sink at all - method resolution needs the same
 missing <code>core::</code>/<code>alloc::</code> callables. Three fixture cases were invalidated this way and were
