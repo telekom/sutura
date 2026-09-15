@@ -595,12 +595,14 @@ fn parse_entry(
         Some(_) if !matches!(entry.posture.trim(), "impersonation-at-source") => {
             return Err(InvalidSourceRegistry::WorkloadIdentityNotImpersonating { alias: alias.clone() });
         }
-        Some(raw) => Some(WorkloadIdentityConfig::parse(&raw.audience, &raw.scope).map_err(|cause| {
-            InvalidSourceRegistry::WorkloadIdentity {
-                alias: alias.clone(),
-                cause,
-            }
-        })?),
+        Some(raw) => Some(
+            WorkloadIdentityConfig::parse(&raw.audience, &raw.scope, &raw.impersonate).map_err(|cause| {
+                InvalidSourceRegistry::WorkloadIdentity {
+                    alias: alias.clone(),
+                    cause,
+                }
+            })?,
+        ),
     };
     Ok(ConfiguredSource {
         placement,

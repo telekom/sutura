@@ -143,10 +143,12 @@ pub mod bounds;
 mod budget;
 pub mod credential;
 mod document;
+mod iamcredentials;
 mod sts;
 mod tables;
 mod tls;
 pub use bounds::{BytesBilledCeiling, CallDeadline, JobBounds, QueryDeadline, UnusableBound};
+pub use iamcredentials::IamCredentialsOverHttp;
 pub use sts::StsOverHttp;
 
 #[cfg(test)]

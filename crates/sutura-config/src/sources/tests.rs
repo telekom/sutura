@@ -30,6 +30,7 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
         ),
         scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+        impersonate: std::collections::BTreeMap::new(),
     }
 }
 

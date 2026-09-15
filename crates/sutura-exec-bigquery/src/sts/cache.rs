@@ -72,8 +72,15 @@ use sutura_domain::identity::{Expiry, PrincipalChain, Secret};
 
 use super::WorkloadIdentity;
 
-/// `(PrincipalChain, audience, scope)` - see the module header for why the whole chain is here and
-/// why nothing else is.
+/// `(PrincipalChain, audience, scope, target_sa)` - see the module header for why the whole chain is
+/// here and why nothing else is.
+///
+/// **`target_sa` joined telekom/sutura#376's second hop, and it is part of the key for the reason
+/// `(audience, scope)` already is one: it is part of what was asked for.** A subject permitted to
+/// impersonate more than one service account depending on requested scope must not have one
+/// account's cached credential served for another - `the_cache_key_includes_the_target_sa` is the
+/// regression this closes. `None` is its own value: a source with no `impersonate` entry for this
+/// subject never collides with one that does, because `None != Some(_)` for any SA string.
 ///
 /// No public constructor outside this module: [`Self::of`] is the only door, and it takes a
 /// [`PrincipalChain`] and a [`WorkloadIdentity`] the caller already holds - never a value assembled
@@ -86,16 +93,19 @@ struct ExchangeKey {
     chain: PrincipalChain,
     audience: String,
     scope: String,
+    target_sa: Option<String>,
 }
 
 impl ExchangeKey {
-    /// Builds the key for one source's exchange, from the whole chain the request is attributed to
-    /// and that source's declared audience and scope.
-    fn of(chain: &PrincipalChain, workload: &WorkloadIdentity) -> Self {
+    /// Builds the key for one source's exchange, from the whole chain the request is attributed to,
+    /// that source's declared audience and scope, and the target SA this call resolved (`None` for a
+    /// bare exchange).
+    fn of(chain: &PrincipalChain, workload: &WorkloadIdentity, target_sa: Option<&str>) -> Self {
         Self {
             chain: chain.clone(),
             audience: workload.audience().to_owned(),
             scope: workload.scope().to_owned(),
+            target_sa: target_sa.map(str::to_owned),
         }
     }
 }
@@ -232,8 +242,14 @@ impl CredentialCache {
     ///
     /// A stale entry found here is removed rather than left for the next lookup to skip past again
     /// - the same argument `KeySetCache` makes for not accumulating dead state under its own lock.
-    pub(super) fn get(&self, chain: &PrincipalChain, workload: &WorkloadIdentity, now_unix_seconds: u64) -> Option<CacheHit> {
-        let key = ExchangeKey::of(chain, workload);
+    pub(super) fn get(
+        &self,
+        chain: &PrincipalChain,
+        workload: &WorkloadIdentity,
+        target_sa: Option<&str>,
+        now_unix_seconds: u64,
+    ) -> Option<CacheHit> {
+        let key = ExchangeKey::of(chain, workload, target_sa);
         let mut entries = self.entries.lock();
         match entries.get(&key) {
             Some(entry) if entry.valid_until_unix > now_unix_seconds => Some(CacheHit {
@@ -258,6 +274,7 @@ impl CredentialCache {
         &self,
         chain: &PrincipalChain,
         workload: &WorkloadIdentity,
+        target_sa: Option<&str>,
         material: Secret,
         not_after: Expiry,
         floor: Option<NonZeroU64>,
@@ -266,7 +283,7 @@ impl CredentialCache {
         let Some(valid_until_unix) = Entry::stored_until(not_after, now_unix_seconds, self.window, floor) else {
             return;
         };
-        let key = ExchangeKey::of(chain, workload);
+        let key = ExchangeKey::of(chain, workload, target_sa);
         let mut entries = self.entries.lock();
         // Expiry-first: drop everything already past its OWN bound before capacity is even asked
         // about, so a cache under steady load evicts the thing that earned it rather than whatever
@@ -306,7 +323,7 @@ mod tests {
     };
     use sutura_domain::model::SourceName;
 
-    use super::super::{StsCredential, StsExchange, UnixClock, WorkloadIdentityBroker};
+    use super::super::{NoImpersonation, StsCredential, StsExchange, UnixClock, WorkloadIdentityBroker};
     use super::WorkloadIdentity;
 
     /// A fixed instant every test in this module measures against, well clear of the Unix epoch so
@@ -422,7 +439,7 @@ mod tests {
         exchange: CountingExchange,
         capacity: usize,
         window_seconds: u64,
-    ) -> WorkloadIdentityBroker<CountingExchange, FixedClock> {
+    ) -> WorkloadIdentityBroker<CountingExchange, NoImpersonation, FixedClock> {
         WorkloadIdentityBroker::empty(exchange)
             .measured_against(FixedClock)
             .impersonating(source(), workload())
@@ -618,6 +635,7 @@ mod tests {
         cache.put(
             &chain,
             &workload(),
+            None,
             Secret::new("exchanged"),
             Expiry::At {
                 unix_seconds: NOW.saturating_add(3600),
@@ -627,9 +645,62 @@ mod tests {
         );
         // The window (60s) is the binding bound here, so `valid_until` is `NOW + 60`.
         assert!(
-            cache.get(&chain, &workload(), NOW.saturating_add(60)).is_none(),
+            cache.get(&chain, &workload(), None, NOW.saturating_add(60)).is_none(),
             "an entry must not be served AT its own valid_until, let alone past it"
         );
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the cached material IS the assertion: that account a's entry, and only account a's, comes back"
+    )]
+    fn the_cache_key_includes_the_target_sa() {
+        // **telekom/sutura#376's second hop, keyed the same way `(audience, scope)` already is: it
+        // is part of what was asked for.** Direct against `CredentialCache`, mirroring
+        // `an_entry_is_never_served_at_or_past_its_own_valid_until` above - the same chain and
+        // workload, two different declared targets, and neither may ever answer the other's entry.
+        let cache = super::CredentialCache::new(
+            NonZeroUsize::new(8).expect("a test capacity is non-zero"),
+            Duration::from_secs(300),
+        );
+        let chain = PrincipalChain::of(subject("alice"));
+        let lasts_an_hour = Expiry::At {
+            unix_seconds: NOW.saturating_add(3600),
+        };
+        cache.put(
+            &chain,
+            &workload(),
+            Some("service-account-a@example.iam.gserviceaccount.com"),
+            Secret::new("token-for-account-a"),
+            lasts_an_hour,
+            None,
+            NOW,
+        );
+        assert!(
+            cache
+                .get(
+                    &chain,
+                    &workload(),
+                    Some("service-account-b@example.iam.gserviceaccount.com"),
+                    NOW
+                )
+                .is_none(),
+            "the same chain and workload impersonating a DIFFERENT account must not hit account a's entry"
+        );
+        assert!(
+            cache.get(&chain, &workload(), None, NOW).is_none(),
+            "a bare-exchange lookup (no target) must not hit an entry that was cached FOR a target"
+        );
+        let hit = cache
+            .get(
+                &chain,
+                &workload(),
+                Some("service-account-a@example.iam.gserviceaccount.com"),
+                NOW,
+            )
+            .expect("the original target still hits its own entry");
+        assert_eq!(hit.material.expose_secret(), "token-for-account-a");
     }
 
     #[test]
