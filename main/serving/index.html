@@ -644,6 +644,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-agent-surface-over-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The agent surface over HTTP
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3011,6 +3022,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-agent-surface-over-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The agent surface over HTTP
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3635,22 +3657,40 @@ it will answer at once, and how long a peer waits for one of them: a pipe has no
 arrive in, which is the limit stated beside the mode rather than left as a default, and the two
 numbers are <a href="#capacity"><code>runtime.max_concurrent_queries</code></a> and <code>server.request_timeout_seconds</code>, which
 bound that surface exactly as they bound this one.</p>
+<h3 id="the-agent-surface-over-http">The agent surface over HTTP<a class="headerlink" href="#the-agent-surface-over-http" title="Permanent link">&para;</a></h3>
 <p>A second, default-off transport for the same agent surface exists behind <code>sutura-mcp</code>'s own <code>http</code>
-feature: the streamable-HTTP transport <code>docs/adr/0023</code> decided on, exposed as a plain
-<code>tower_service::Service</code> a composition root nests behind its own router. <strong>Nothing this binary
-serves links it yet</strong> - <code>telekom/sutura#378</code> PR4 is the composition-root change that mounts it
-behind this surface's leg 1 and <code>establish_asked</code>; until then the feature compiles and is tested in
-isolation and changes nothing a deployment can reach. Its one fixed decision, carried here ahead of
-the mount so it does not arrive as an unstated default: <code>legacy_session_mode: false</code>, which makes
-every request self-contained - a <code>Mcp-Session-Id</code> header is never looked up, by any message type -
-so a caller can never be answered under an earlier request's identity because no session exists for
-one to leak into. That guarantee is held by one config flag: the transport still constructs the
-SDK's session manager, and <code>legacy_session_mode: false</code> is what keeps it idle - and even where a
-session exists, <code>rmcp</code>'s <code>create_session</code> takes no identity argument, so a session is never bound to
-a caller; the caller is re-resolved per request from each request's <code>Asked</code>. This costs nothing a
-current MCP client needs: the pinned SDK still serves
-<code>initialize</code>, <code>tools/list</code> and every other call one-shot under this configuration, protocol version
-<code>2025-11-25</code> (its own advertised latest) included.</p>
+feature: the streamable-HTTP transport <code>docs/adr/0023</code> decided on. Since <code>telekom/sutura#378</code> PR4
+the <code>sutura-serve</code> binary mounts it at <code>/mcp</code>, behind this surface's leg 1 and <code>establish_asked</code> -
+which is why it only ever serves where a caller can be verified. It is OFF by default at both gates:</p>
+<ul>
+<li><strong>Build time (<code>sutura-serve</code>'s <code>agent</code> feature).</strong> A build without the feature cannot reference
+  <code>sutura_mcp::http</code> at all, so the route is compiled out of the artefact; setting
+  <code>server.agent_surface.enabled</code> against such a build is a startup refusal naming the feature.</li>
+<li><strong>Deployment time (<code>server.agent_surface.enabled</code>, default <code>false</code>).</strong> Even a build with the
+  feature linked stays off until an operator sets the key, and setting it without also declaring
+  <code>security.inbound</code> is a startup refusal (<code>AgentSurfaceWithoutInboundIdentity</code>) - <code>/mcp</code> is never
+  served to "everyone".</li>
+</ul>
+<p>Its one fixed decision, carried here so it does not arrive as an unstated default:
+<code>legacy_session_mode: false</code>, which makes every request self-contained - a <code>Mcp-Session-Id</code> header
+is never looked up, by any message type - so a caller can never be answered under an earlier
+request's identity because no session exists for one to leak into. That guarantee is held by one
+config flag: the transport still constructs the SDK's session manager, and <code>legacy_session_mode:
+false</code> is what keeps it idle - and even where a session exists, <code>rmcp</code>'s <code>create_session</code> takes no
+identity argument, so a session is never bound to a caller; the caller is re-resolved per request
+from each request's <code>Asked</code>. This costs nothing a current MCP client needs: the pinned SDK still
+serves <code>initialize</code>, <code>tools/list</code> and every other call one-shot under this configuration, protocol
+version <code>2025-11-25</code> (its own advertised latest) included. Two further transport decisions land
+with the mount and are <code>sutura-http</code>'s to state: the mount is on the ONE listener (Decision 2 of
+<code>docs/adr/0015</code>, the same choice <code>/metrics</code> makes), and it is outside the version prefix because
+MCP versions its own tool set by the protocol's <code>protocolVersion</code> negotiation, not by a route
+prefix.</p>
+<p><strong>What a verified caller reaches is narrowed per caller.</strong> <code>establish_asked</code> derives each request's
+<code>Asked</code> from the caller leg 1 verified, and <code>AgentSurface::permitted</code> answers <code>tools/list</code> with only
+the tools that caller's <code>scope</code> grants - so two verified callers with different scopes see two
+different tool lists, and an unverified caller is refused with leg 1's <code>401</code> before the transport
+is reached. Leg 2 - a source executing AS the asking subject - still does not exist; every tool
+answers under the deployment's own credential (<code>#376</code>).</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3682,6 +3722,11 @@ current MCP client needs: the pinned SDK still serves
 <td>One certified question. <code>200</code> only when it was answered; a refusal carries its own status - see <a href="#a-refusal-carries-a-status">A refusal carries a status</a>. <code>503 at_capacity</code> when no execution slot is free - see <a href="#capacity">Capacity</a></td>
 </tr>
 <tr>
+<td><code>POST /mcp</code></td>
+<td>the caller's own bearer, leg 1 (<code>security.inbound</code>, <code>direct</code>) - <strong>only when <code>server.agent_surface.enabled</code> is set</strong></td>
+<td>The agent surface: MCP JSON-RPC over the streamable-HTTP transport (<code>docs/adr/0023</code>). <code>tools/list</code> answers with the tools the caller's own scope grants, narrowing per caller; no verified bearer gets the same leg-1 <code>401</code> every forgery does, before the transport. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
+</tr>
+<tr>
 <td><code>GET /metrics</code></td>
 <td>its own token, never <code>security.access_token</code></td>
 <td>This process's counters, in the Prometheus text exposition format. <code>401</code> without the metrics credential. Outside the version prefix and outside the capacity bound - see <a href="#the-metrics-endpoint">the metrics endpoint</a></td>
@@ -3702,6 +3747,14 @@ current MCP client needs: the pinned SDK still serves
 without an orchestrator being reconfigured. It carries no version, no build identifier, no
 dependency list, no configuration and no catalog content, because an unauthenticated caller can
 always reach it - so every field it might have is a field handed to anybody who can route a packet.</p>
+<p><strong>A limit on the allowlist, not on the two routes above.</strong> <code>/health</code> and <code>/metrics</code> are the existing
+shape of a plain, non-wildcard <code>.route(</code> merged at the top level of <code>assemble</code> outside the version
+prefix and outside <code>Ungoverned::mount</code> - and nothing new here holds that shape. A future route
+merged the same way is not caught by the <code>Ungoverned</code> type (it never touches the mount), by
+<code>check-boundaries</code>' text scan (only <code>.nest</code>/<code>.nest_service</code>/<code>.route_service</code>/<code>.fallback_service</code> and
+a wildcard <code>.route</code> are needles - a named <code>.route(</code> is deliberately not one, for the reason stated
+at <code>xtask/src/boundaries/ungoverned.rs</code>), by <code>ungoverned_routes()</code>'s allowlist record (nothing is
+recorded for it to check), or by a behaviour cell (none dials it). It is held by review alone.</p>
 <p>The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.</p>
 <h3 id="the-metrics-endpoint">The metrics endpoint<a class="headerlink" href="#the-metrics-endpoint" title="Permanent link">&para;</a></h3>
@@ -4112,6 +4165,11 @@ selects which file is layered, so a file that could change it would be self-refe
 <td><code>server.max_body_bytes</code></td>
 <td><code>65536</code></td>
 <td>At most one mebibyte. A question is a few hundred bytes</td>
+</tr>
+<tr>
+<td><code>server.agent_surface.enabled</code></td>
+<td><code>false</code></td>
+<td>Mounts the agent surface at <code>/mcp</code>. Off by default even in a build with the <code>agent</code> feature linked. <code>true</code> with no <code>security.inbound</code> block refuses to start (the agent surface is only served where a caller can be verified), and <code>true</code> on a build without the <code>agent</code> feature refuses naming the feature. See <a href="#the-agent-surface-over-http">the agent surface over HTTP</a></td>
 </tr>
 <tr>
 <td><code>security.access_token</code></td>
@@ -4831,13 +4889,17 @@ transcript nobody runs goes stale silently, and a suite cannot.</p>
 <h2 id="what-is-not-built">What is not built<a class="headerlink" href="#what-is-not-built" title="Permanent link">&para;</a></h2>
 <p>Named rather than implied, because an absence that reads as an oversight gets assumed away.</p>
 <ul>
-<li><strong>No caller identity on the agent surface.</strong> This bullet said the agent transport did not exist,
-  and that had stopped being true: <code>sutura-mcp</code> sits on the same small port this one talks to and
-  serves the tool surface over a process's own standard input and output, which <code>just mcp-e2e</code>
-  drives end to end. What does not exist there is anyone to be: a pipe has no header a token could
-  arrive in, so that surface offers every capability and answers as the deployment, and a
-  network-reachable one needs the identity leg
-  <a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a> designs.</li>
+<li><strong>No caller identity on the agent surface.</strong> This bullet used to say the agent transport did not
+  exist; then that a pipe (which <code>sutura mcp</code> serves over standard input and output) has no header a
+  token could arrive in. Both remain true for the stdio surface: a locally launched, single-player
+  process, offering every capability to whoever can launch it, and saying so at startup. What IS new
+  is the network-reachable surface: <code>serve</code> now mounts <code>/mcp</code> behind its own leg 1, so a verified
+  caller's scope narrows the tool list and an unverified one gets the same <code>401</code> every forgery gets.
+  It is off by default and refused unless <code>security.inbound</code> is declared. What still does not exist
+  there is leg 2 - a source executing AS the asking subject (<code>#376</code>) - so even a verified caller is
+  answered under the deployment's own credential. See
+  <a href="#the-agent-surface-over-http">the agent surface over HTTP</a> and
+  <a href="../adr/0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a>.</li>
 <li><strong>No record STORE.</strong> This bullet said "no audit sink" and that had already stopped being true: there
   is an <code>AuditSink</code> port, <code>sutura-app</code> writes one record per outcome through it before the outcome
   returns, and the writer a deployment gets for free puts that record on the log below. What does not

@@ -3560,6 +3560,26 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 </tr>
 <tr>
+<td>An unverified caller on the agent surface (<code>/mcp</code>) is refused with the same <code>401</code> every forgery gets</td>
+<td>-</td>
+<td><strong>unrun</strong> - the standing test is <code>sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets</code>, run under <code>just test</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Two verified callers see two different tool lists on the agent surface</td>
+<td>-</td>
+<td><strong>unrun</strong> - the standing test is <code>served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists</code>, run under <code>just test</code></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
 <td><strong>A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question</strong></td>
 <td>-</td>
 <td>no - it cannot generate an RSA key, so it is not a real provider for this claim either</td>
@@ -3746,6 +3766,17 @@ is not a signature check - that is the router's job above - but the <strong>comp
   deployment that <strong>does not start</strong>, rather than one that starts, logs that it establishes a caller
   identity and answers <code>401</code> to everybody.</li>
 </ul>
+<p><strong>PR4 adds two agent-surface rows to the matrix, still <code>unrun</code>.</strong> The standing tests are written and
+compile - <code>the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets</code>
+(<code>sutura_http::inbound::tests::router</code>) proves leg 1 stands in front of <code>/mcp</code> exactly as it stands in
+front of the versioned surface, and <code>two_verified_callers_over_the_composed_binary_see_two_different_tool_lists</code>
+(<code>crates/sutura-serve/tests/served.rs</code>) proves <code>establish_asked</code> derives each request's <code>Asked</code> from the
+caller leg 1 verified and <code>AgentSurface::permitted</code> narrows the tool list per caller on the real
+composed binary - but no green run of either has been observed, so <code>yes</code> is not earned. <code>wired</code> is not
+theirs either: it means <em>CI reaches this and no run has been observed</em>, and the mock-issuer venue's
+<code>Reached by</code> cell names <code>just test</code>/<code>just validate</code>, which no CI job invokes under its own name - so a
+venue no job reaches is <code>unrun</code>. Both cells are <code>#[cfg(feature = "agent")]</code>; a green run under
+<code>just test</code> (<code>--all-features</code>) earns them a <code>yes</code>.</p>
 <p><strong>The boot refusal is asserted on the refusal's own sentence, because nothing else separates the two
 ways this deployment can fail to start:</strong> a root that read the key set fine and then forgot to attach
 the gate also exits non-zero, also never logs <code>leg 1 is armed</code> and also never listens. The startup
