@@ -167,9 +167,8 @@ fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> Result<BTreeSet<String>
         .map_err(|why| why.describe())?;
     let mut identifiers = BTreeSet::new();
     for rel in &files {
-        if let Ok(text) = std::fs::read_to_string(root.join(rel)) {
-            identifiers.extend(tokenize(&text));
-        }
+        let text = std::fs::read_to_string(root.join(rel)).map_err(|why| format!("{rel}: {why}"))?;
+        identifiers.extend(tokenize(&text));
     }
     Ok(identifiers)
 }
@@ -193,7 +192,31 @@ fn tokenize(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{tokenize, workspace_dependency_keys};
+    use super::{rust_identifiers_in, tokenize, workspace_dependency_keys};
+
+    /// `github.com/telekom/sutura#414` item 3b: a source this gate could not READ used to be
+    /// skipped in silence, and the direction is a wrong RED rather than a fail-open - a dependency
+    /// named only in the skipped file then reads as unused.
+    ///
+    /// **Invalid UTF-8 rather than `chmod 000`**, and that choice is the reason this cell exists at
+    /// all: a mode-000 fixture is exempt for `root` and would pass for the wrong reason wherever
+    /// the suite runs as one, while a byte sequence that is not UTF-8 refuses the read on every
+    /// venue and for every uid. The walk this path uses is `repo::walk` over the filesystem, NOT
+    /// `repo::all_files`'s `git ls-files`, so an untracked fixture is offered here.
+    #[test]
+    fn a_source_that_cannot_be_read_refuses_rather_than_reporting_a_short_set() {
+        let tree = crate::scratch_tree::Tree::of(
+            "unused-deps-unreadable",
+            &[("crates/probe/src/lib.rs", b"\xff\xfe not utf-8")],
+        );
+        let root = tree.root();
+        let why = rust_identifiers_in(root, &root.join("crates/probe"))
+            .expect_err("a source that cannot be read must refuse, not shorten the set");
+        assert!(
+            why.contains("lib.rs"),
+            "the refusal has to name the file it could not read: {why}"
+        );
+    }
 
     /// Fixture crate names are deliberately fictional. A fixture naming a real dependency
     /// would put that name into this crate's own token set and mask a genuine finding -
