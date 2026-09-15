@@ -391,6 +391,15 @@ the same valid token is refused at a deployment declaring a different audience. 
 job concluded `success` (run
 https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042).
 
+**What "a different subject" means, exactly.** The audit record masks every `sub` to its first
+character plus `***`, and Keycloak subjects are UUIDs, so comparing two MASKED subjects held the
+two-subject property on the first hex character alone (1-in-16 collision) even on a correct run.
+The cell therefore asserts the property on the unmasked `sub` each provisioned token's own payload
+mints (the harness decodes the tokens it created) - the two `sub`s differ - and ties each record's
+masked `subject` to ITS OWN token's `sub` through the same `SubjectId` mask the deployment wrote.
+That is the current reading of this venue's claim; the pre-fix run held the same words on the masked
+prefix.
+
 ### What it cannot answer - read this before citing a green run, and this is the row that matters
 
 1. **Issue #105's own question.** #105 asks whether an enterprise IdP will mint an ID token whose
