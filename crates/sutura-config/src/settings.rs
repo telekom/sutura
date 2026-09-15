@@ -17,11 +17,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use sutura_domain::model::{InvalidIdentifier, SourceName};
-use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
+use sutura_domain::model::InvalidIdentifier;
+use sutura_domain::pinned::InvalidVersion;
 
 use crate::api::ApiSettings;
-use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
+use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::governance::SpendBudget;
 use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
@@ -433,7 +433,7 @@ impl Settings {
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
-            catalogs: parse_catalogs(raw)?,
+            catalogs: catalogs::parse_catalogs(raw)?,
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
             tools: parse_tools(raw),
@@ -879,38 +879,6 @@ fn parse_telemetry(raw: &RawSettings, environment: Environment) -> Result<Teleme
     Ok(TelemetrySettings::new(name, filter, format, raw.telemetry.format.is_some()))
 }
 
-fn parse_catalogs(raw: &RawSettings) -> Result<Catalogs, SettingsError> {
-    let mut entries = Vec::with_capacity(raw.catalogs.len());
-    for raw_catalog in &raw.catalogs {
-        // `name` and `kind` are required here for the same reason a source's alias is: the
-        // contribution manifest keys on the name and the composition root dispatches the kind, so
-        // an entry that omits either is a declaration that cannot be opened. `kind` is parsed as a
-        // closed set; an absent one was already defaulted by the raw shape.
-        let name = SourceName::parse(&raw_catalog.name).map_err(|cause| SettingsError::CatalogName {
-            written: raw_catalog.name.clone(),
-            cause,
-        })?;
-        let kind = CatalogKind::parse(&raw_catalog.kind).map_err(|cause| SettingsError::CatalogKind {
-            catalog: raw_catalog.name.clone(),
-            cause,
-        })?;
-        let version = DefinitionVersion::parse(&raw_catalog.version).map_err(|cause| SettingsError::Version {
-            catalog: raw_catalog.name.clone(),
-            cause,
-        })?;
-        let settings = CatalogSettings::parse(
-            name,
-            kind,
-            PathBuf::from(&raw_catalog.dir),
-            PathBuf::from(&raw_catalog.data_dir),
-            version,
-        )
-        .map_err(|cause| SettingsError::Catalog { cause })?;
-        entries.push(settings);
-    }
-    Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })
-}
-
 /// The concurrency bounds and the two deadlines that are not per-request.
 ///
 /// Every one of these is a `parse` on a newtype rather than a raw number reaching the runtime,
@@ -979,6 +947,7 @@ fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
 /// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
 
+mod catalogs;
 /// Reading the outbound trust declaration. Carved out for the same reason.
 mod outbound;
 

@@ -45,12 +45,14 @@ behind this crate's default-off `http` feature, with a personal access token as 
 module header states what is measured against a live `DataHub` and what is not - only the
 `metric` entity's wire shape is, today. The recorded fixture source in `fixture` and the two
 test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
-this crate reads against. **And nothing serves the new reader yet:** no composition root links
-this crate (its only dependant is `sutura-app`, as a dev-dependency), and `sutura-serve` refuses
-`catalog.kind: datahub` by name - that half is a separate, stacked change. Everything here is
-decided and tested; what is not is a served composition - the *Built and not wired* register in
-`.agents/skills/sutura/query-surface/SKILL.md` records it, and that register is the one place it
-may be read from - it is not an invariant.
+this crate reads against. **A composition root now serves it, behind `sutura-serve`'s default-off
+`datahub` feature:** that feature links this crate (with `http`) and opens `catalog.kind: datahub`,
+reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
+is still not is a live-`DataHub` read path in CI and the rest of the wire mapping - the fixed
+`bigquery` platform alias and the last page unmeasured against a live instance, both stated in
+`http`'s own module header. The *Built and not wired* register in
+`.agents/skills/sutura/query-surface/SKILL.md` keeps those limits; it no longer records "no
+composition root".
 
 **What that register no longer says is that the cost is unmeasured.** `docs/adr/0016`'s
 *Revision, 2026-09-04* has the numbers, off a provisioned instance: a bundle's metric half is ONE
@@ -386,8 +388,8 @@ pub fn dialect(&self) -> &str
 
 The dialect the raw expression string is written in.
 
-Part of the promotion candidate's other half; see `Self::expression` for why nothing reads
-it yet.
+Part of the promotion candidate's other half; read by the same `test_support` page builder
+`expression` is, and nowhere on the read path.
 
 ```rust
 pub fn expression(&self) -> &str
@@ -396,10 +398,12 @@ pub fn expression(&self) -> &str
 The promotion candidate's other half - the raw expression string in a dialect nothing here
 renders.
 
-No consumer today, and `docs/adr/0016` says so rather than pretending otherwise: the aspect
-is decoded and a metric without the `sutura` property is set aside, never converted, and its
-expression is not re-read. These accessors and `Self::dialect` are the readable shape a
-future reporter would use.
+One consumer today, outside the read path: `crate::test_support`'s `metric_page` builder
+reads it (and `Self::dialect`) to make its fake serve the recorded fixture's OWN content,
+so the wire page cannot drift from the corpus it certifies against. `docs/adr/0016` still
+says the read path never converts it: the aspect is decoded and a metric without the
+`sutura` property is set aside. These accessors are the readable shape a future reporter
+would use.
 
 ```rust
 pub fn name(&self) -> &str
@@ -995,3 +999,144 @@ One quarter of `sutura_exec_bigquery::wire::MAX_ANSWER_BYTES`: a metadata page i
 column names and one metric document, not query rows, and what this defends against is the same
 case that constant does - something that is not the endpoint answering - rather than a
 realistic upper bound on a legitimate page.
+
+## Module `test_support`
+
+A real local HTTP server - "ports get fakes, not mocked HTTP" - and the happy-path DataHub wire
+pages this crate's own tests need, made `pub` so a DIFFERENT crate's integration test can build
+the same fake rather than a second one.
+
+**Moved out of `tests/http_reader.rs` by issue #202's second PR, not written fresh.** That file's
+own `FakeServer`/`Scripted`/page builders were `mod tests`-private, which is exactly right for a
+`#[cfg(test)]`-only fake used by one crate - until a SECOND crate needed one too:
+`sutura-serve`'s own served-binary suite (`crates/sutura-serve/tests/served/datahub.rs`) wants a
+real loopback DataHub server to boot a composed `catalog.kind: datahub` deployment against, and
+an integration test binary cannot see another crate's `tests/` directory at all - Rust does not
+expose one. The only way to share this fake is through the LIBRARY, which is what this module is.
+
+**`#[cfg(feature = "http")]`, not `#[cfg(test)]`.** A downstream crate's OWN test compilation is
+what needs to see this, and `#[cfg(test)]` on an item is private to the crate that sets it - it
+never crosses the dependency edge the way a feature does. That means this module compiles into
+any NON-test build with `--features http` too (`sutura-serve --features datahub`, in particular)
+- dead code there, never called by production composition, but real object code in a shipped
+binary. **Stated rather than hidden:** `.agents/skills/sutura/crate-map/SKILL.md`'s "why a
+networked adapter hides behind a default-off feature" argument is about the DEPENDENCY EDGE the
+four cross builds' `crane.buildDepsOnly` derivation carries - `std::net::TcpListener` adds none,
+so this module does not reopen that measurement. A dedicated `test-support`-only feature is the
+natural follow-up if the object-code cost itself becomes the concern instead of the edge.
+
+### `struct Scripted`
+
+```rust
+pub struct Scripted
+```
+
+One scripted answer: a status, a body, and how long to wait before sending it.
+
+#### Methods
+
+```rust
+pub fn delayed(body: &serde_json::Value, delay: Duration) -> Self
+```
+
+```rust
+pub fn ok(body: &serde_json::Value) -> Self
+```
+
+```rust
+pub const fn raw(status: u16, body: Vec<u8>) -> Self
+```
+
+A response whose body is opaque bytes, as a size-cap test needs: a body that must be too
+big to be legal JSON (the length check runs before decode), so it is not served through
+the JSON-typed constructors above.
+
+```rust
+pub fn status(status: u16, body: &str) -> Self
+```
+
+### `struct FakeServer`
+
+```rust
+pub struct FakeServer
+```
+
+A real local HTTP/1.1 server answering one `Scripted` response per connection, in order, then
+closing. Captures each request's `authorization` header so a test can assert the bearer was sent.
+
+#### Methods
+
+```rust
+pub const fn addr(&self) -> SocketAddr
+```
+
+The bound loopback address, for a case that builds its own (malformed) endpoint string
+around it rather than using `Self::endpoint` as-is.
+
+```rust
+pub fn endpoint(&self) -> String
+```
+
+```rust
+pub fn finish(self) -> CapturedAuthorizations
+```
+
+Joins the server thread and returns every request's `authorization` header, in order.
+
+Only called by a test that knows exactly how many connections it will make - a test that
+deliberately stops short drops the server instead, and the abandoned thread exits with the
+process.
+
+```rust
+pub fn start(answers: Vec<Scripted>) -> Self
+```
+
+### `fn dataset_page`
+
+```rust
+pub fn dataset_page() -> serde_json::Value
+```
+
+One `dataset` page, over the two models the certified fixture metric needs: `orders` (carrying
+every column the metric's measure, time column and required filter name) and `customers`
+(carrying the dimension's column). Model name and table are the same string, because
+`HttpAspectReader::read_datasets`'s own doc names that as a real limit rather than hiding it.
+
+### `fn relationship_page`
+
+```rust
+pub fn relationship_page() -> serde_json::Value
+```
+
+One `semanticModel` page, over the one relationship the certified fixture metric's dimension
+reaches `customers` through.
+
+### `fn metric_page`
+
+```rust
+pub fn metric_page() -> serde_json::Value
+```
+
+One `metric` page carrying the recorded fixture's OWN certified metric, read through the crate's
+public port rather than restated here - the recorded corpus and this page cannot drift.
+
+### `fn happy_path_answers`
+
+```rust
+pub fn happy_path_answers() -> Vec<Scripted>
+```
+
+The three pages a `read()` call makes, in order, all answering `200` - what a real `DataHub`
+carrying exactly the recorded fixture's content would serve.
+
+### `type_alias CapturedAuthorizations`
+
+Every request this fake server has answered, in order: `authorization` header or `None`.
+
+### `constant DEPLOYMENT_PROPERTY`
+
+The structured property name the happy-path pages below register the certified metric's content
+under - a fixed test constant, deliberately independent of the deployment's OWN choice, the same
+way `tests/provisioned.rs`'s `DEPLOYMENT_PROPERTY` is: a fake registering the adapter's own field
+name would pass equally whether the name were the deployment's choice or a constant this crate
+requires.

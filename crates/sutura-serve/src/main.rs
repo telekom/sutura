@@ -53,7 +53,6 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use sutura_app::surface::Surface;
-use sutura_catalog_local::LocalCatalog;
 use sutura_config::{Environment, Settings, Sources, StaticCredentialBroker, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::PinnedDefinitions;
@@ -162,9 +161,9 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalogs = catalog::open_catalog(settings.catalogs())?;
     let pinned = catalog::load(&catalogs)?;
-    // The `sources:` tree rather than `catalogs[].data_dir`: a deployment declares each data system, its
+    // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
     // location and which identity a query reaches it as, and the engine is opened per declaration.
-    // `catalogs[].data_dir` stays what it always was - the catalog's own directory - and is no longer
+    // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
     // where a source's files are found.
     let opened = open_engine(
         &pinned,
@@ -641,8 +640,14 @@ type Serving = Arc<dyn Surface>;
 /// `Arc<dyn Surface>` is what lets the shared lines after each arm stop caring which of those it
 /// was - the transport takes a trait object, so the monomorphisation ends here rather than through
 /// the router.
+///
+/// **Also generic over which of the two monomorphic catalog vectors `catalog::OpenedCatalogs`
+/// carries**, matched once here rather than at each of this function's call sites: every arm below
+/// builds the exact same `LocalService<W, TracingAuditSink, B>`, because `start_composed`'s catalog
+/// type parameter is consumed while loading and never stored - see `catalog.rs`'s module header for
+/// why `OpenedCatalogs` is an enum of two vectors rather than one vector of a shared type.
 fn started<W, B>(
-    catalogs: &[LocalCatalog],
+    catalogs: &catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
     working_set_bytes: u64,
@@ -654,9 +659,19 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-        .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
-        .map_err(flatten)
+    match catalogs {
+        catalog::OpenedCatalogs::Markdown(catalogs) => {
+            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
+                .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
+                .map_err(flatten)
+        }
+        #[cfg(feature = "datahub")]
+        catalog::OpenedCatalogs::Datahub(catalogs) => {
+            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
+                .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
+                .map_err(flatten)
+        }
+    }
 }
 
 /// The spend ledger this replica answers under: unbounded if `governance.per_replica_spend_ceiling`

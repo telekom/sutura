@@ -134,7 +134,7 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   that executes it. **The engine executing a leg does not narrow this**, and the reason is the same
   fact read the other way: that path builds a logical plan and renders nothing, so there is still no
   statement for an authored expression to be part of.
-- **The DataHub catalog adapter decides a whole metric, and nothing reads or serves it.**
+- **The DataHub catalog adapter decides a whole metric, and now serves it behind a feature.**
   `sutura-catalog-datahub` provides `Structure`, `Descriptions` and `Relationships` unconditionally
   and declares the metric kinds as **declared-and-empty may-provide** kinds
   (`DefinitionCapabilities::of_may_provide`) - so a DataHub that defines no metric content still
@@ -149,13 +149,15 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   default-off `http` feature - three paged `OpenAPI` v3 reads into one `Snapshot`, only the `metric`
   mapping measured against a live instance, the `dataset`/`semanticModel` mappings read from this
   record's own schema table and refusing an unexpected shape by name rather than guessing (the
-  reader's own module header carries that limit). **What still does not exist is a composition
-  root:** `sutura-serve` refuses `catalog.kind: datahub` by name and the crate's only dependant is
-  `sutura-app`, as a dev-dependency - the reader is reachable from no binary. **Do not read the
-  reader's existence as availability, and do not read the declaration as availability either:** what
-  is proved is that the adapter decides correctly against a fake reader, and that the new reader maps
-  the wire correctly against a real local server over the fixture's own corpus - not that any
-  deployment can point at a `DataHub` instance today.
+  reader's own module header carries that limit). **A composition root now serves it**, behind
+  `sutura-serve`'s default-off `datahub` feature: the crate is linked with `http`, `catalog.kind:
+  datahub` is opened, and the entry's token file is read once at boot and carried as the bearer on
+  every request. The crate's only OTHER dependant is `sutura-app`, as a dev-dependency. **Do not
+  read the reader's existence as availability, and do not read the declaration as availability
+  either:** what is proved is that the adapter decides correctly against a fake reader, that the new
+  reader maps the wire correctly against a real local server over the fixture's own corpus, and that
+  `sutura-serve --features datahub` serves the loopback fake end to end - not that any deployment
+  can point at a `DataHub` instance today.
 - **The provisioned DataHub tier proves the VENUE and the PLATFORM's half, and not a read path.**
   `just dev-up-datahub` stands up DataHub 1.7.0 behind a compose profile - upstream's own
   `quickstart-backend` selection minus its actions container - and `just datahub-acceptance` gets a

@@ -255,6 +255,26 @@ fn an_invalid_value_fails_at_startup_rather_than_falling_back_to_a_default() {
 }
 
 #[test]
+fn a_declared_datahub_deadline_and_max_response_bytes_reach_the_reader() {
+    // Finding 2 of the PR-750 review: the two optional bounds had cells only at the builder layer
+    // (`catalog.rs`), so a settings file that swapped the two keys at parse (M5b) stayed green. A
+    // deployment writing `deadline_seconds: 30, max_response_bytes: 1048576` must read back exactly
+    // those numbers - a 30-byte cap would refuse every read. This is one settings-file cell at the
+    // YAML layer the operator actually writes to.
+    let sources = Sources::defaults(Environment::Development).with_overlay(
+        "catalogs:\n  - name: catalog\n    kind: datahub\n    dir: catalog\n    data_dir: data\n    version: test-1\n    endpoint: https://datahub.example\n    token_file: /nowhere/token\n    metric_property: deployment_metric_document\n    deadline_seconds: 30\n    max_response_bytes: 1048576\n",
+    );
+    let settings = Settings::load(&sources).expect("a complete datahub catalog loads across feature sets");
+    let catalog = settings
+        .catalogs()
+        .each()
+        .next()
+        .expect("the declared datahub catalog is present");
+    assert_eq!(catalog.deadline_seconds(), Some(30));
+    assert_eq!(catalog.max_response_bytes(), Some(1 << 20));
+}
+
+#[test]
 fn a_bound_at_its_ceiling_loads_and_one_past_it_does_not() {
     let at = format!(
         "server:\n  request_timeout_seconds: {}\n  max_body_bytes: {}\n",

@@ -34,6 +34,15 @@ Rules that are not visible from a manifest:
 - **`sutura-app` owns the driving port**, because `Surface`'s operations *are* the tool set and the
   two transports cannot see each other. Its `Warehouses` registry is generic in one adapter type, so
   a heterogeneous set - or a catalog naming two KINDS of source - is an architecture decision.
+  **Since issue #202's `datahub` composition, this is measured rather than only argued: a
+  heterogeneous CATALOG set - one deployment serving both a markdown and a datahub catalog at once -
+  is an architecture decision NOT taken there.** `Surface::start_composed` takes one
+  `C: SemanticCatalog` per call and `SemanticCatalog::KIND`/`capabilities()` are per-TYPE associated
+  items with no instance to dispatch on, which is why no enum can wrap both the way `OpenedSources`
+  wraps two `Warehouse` adapters (reached through the SAME trait's *instance* methods instead).
+  `sutura-serve`'s `catalog::OpenedCatalogs` is wave one's answer: one catalog kind per deployment,
+  a mixed declaration refused by name. `docs/adr/0016`'s same-day addendum carries the identical
+  sentence.
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
   system; a composition root does both. `sutura-mcp` carries no NORMAL dependency on `sutura-http` -
   a dev-dependency exists, for one differential test, and is exempt from that rule the same way
@@ -104,6 +113,18 @@ resolves even that. The rule for the reader is the same - a default-off `http` f
 crate is registered here, not just in the manifest - and `docs/adr/0023` and the `#378` decision carry
 the decision. It is not in `nix/shipped.nix`'s probes, because no published binary's feature list
 names it; the `--all-features` gates compile, lint and test it on every run.
+**A fake for a networked adapter's own tests lives in `src/`, `pub`, behind the SAME feature as the
+reader it fakes - not in `tests/`.** `sutura-catalog-datahub::test_support` (PR2 of #202) is the
+precedent: `sutura-serve`'s served-binary suite needed the identical loopback `DataHub` fake
+`tests/http_reader.rs` already built, and an integration test binary cannot see another crate's
+`tests/` directory at all - Rust does not expose one, only the library does. `#[cfg(feature =
+"http")]` rather than `#[cfg(test)]`, because a downstream crate's OWN test compilation is what has
+to see it, and `#[cfg(test)]` never crosses a dependency edge. **The cost is stated, not hidden:**
+this ships the fake's object code (never called) inside any NON-test `--features http` build too,
+including a shipped `sutura-serve --features datahub` binary - `std::net::TcpListener` adds no new
+DEPENDENCY edge, so this does not reopen the paragraph above; it trades a few kilobytes of dead code
+against a second hand-maintained fake. A dedicated `test-support`-only feature is the follow-up if
+that trade stops being worth it.
 
 **The general rule:** an adapter with a native or outbound-TLS dependency arrives behind a
 default-off feature on whichever composition root wants it, and the four `cross` CI jobs are the

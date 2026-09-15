@@ -85,6 +85,20 @@ pub struct CatalogSettings {
     dir: PathBuf,
     data_dir: PathBuf,
     version: DefinitionVersion,
+    /// `catalog.kind: datahub` only - see [`Self::with_datahub_reader`]. `None` for every other
+    /// kind, and for a `datahub` entry before that step runs.
+    endpoint: Option<String>,
+    /// `catalog.kind: datahub` only - the settings-declared file a composition root reads the
+    /// personal access token from at boot. Never the token itself.
+    token_file: Option<PathBuf>,
+    /// `catalog.kind: datahub` only - the deployment-chosen structured property name.
+    metric_property: Option<String>,
+    /// `catalog.kind: datahub` only - the read deadline in seconds, shared across the (up to)
+    /// three requests one `read()` makes. `None` means the reader's own recommended default.
+    deadline_seconds: Option<u64>,
+    /// `catalog.kind: datahub` only - the response-size cap in bytes. `None` means the reader's
+    /// own recommended default.
+    max_response_bytes: Option<u64>,
 }
 
 /// Why a catalog configuration is not usable.
@@ -100,6 +114,9 @@ pub enum InvalidCatalogSettings {
     /// Two catalogs share one declared name, so the contribution manifest could not tell them apart.
     #[error("{name} declares more than one catalog")]
     DuplicateName { name: SourceName },
+    /// A `catalog.kind: datahub` entry did not declare a field only that kind needs.
+    #[error("catalog.{field} is required when catalog.kind is datahub, and is empty or absent")]
+    MissingForDatahub { field: &'static str },
 }
 
 impl CatalogSettings {
@@ -131,7 +148,57 @@ impl CatalogSettings {
             dir,
             data_dir,
             version,
+            endpoint: None,
+            token_file: None,
+            metric_property: None,
+            deadline_seconds: None,
+            max_response_bytes: None,
         })
+    }
+
+    /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
+    ///
+    /// A separate step rather than three more parameters on [`Self::parse`], so every existing
+    /// caller - every markdown entry, every test that builds one - is unaffected by a kind no
+    /// binary in this repository could open until issue #202's reader arrived. `parse_catalogs`
+    /// calls this only when `kind` parsed as [`CatalogKind::Datahub`].
+    pub fn with_datahub_reader(
+        mut self,
+        endpoint: String,
+        token_file: PathBuf,
+        metric_property: String,
+    ) -> Result<Self, InvalidCatalogSettings> {
+        if endpoint.trim().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForDatahub { field: "endpoint" });
+        }
+        if token_file.as_os_str().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForDatahub { field: "token_file" });
+        }
+        if metric_property.trim().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForDatahub {
+                field: "metric_property",
+            });
+        }
+        self.endpoint = Some(endpoint);
+        self.token_file = Some(token_file);
+        self.metric_property = Some(metric_property);
+        Ok(self)
+    }
+
+    /// Adds the two `catalog.kind: datahub`-only bounds, when the deployment declared either.
+    ///
+    /// **Infallible, unlike [`Self::with_datahub_reader`], because `None` is a valid value here
+    /// rather than a missing required one** - it selects the reader's own recommended default
+    /// (`sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`),
+    /// which this crate does not depend on that adapter crate to name. The composition root is
+    /// where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::parse` is the
+    /// single owner of that range, the same split `BytesBilledCeiling::parse` holds for `BigQuery`'s
+    /// ceiling.
+    #[must_use]
+    pub const fn with_datahub_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
+        self.deadline_seconds = deadline_seconds;
+        self.max_response_bytes = max_response_bytes;
+        self
     }
 
     /// The declared name, which the contribution manifest keys on.
@@ -159,6 +226,38 @@ impl CatalogSettings {
     #[inline]
     pub const fn version(&self) -> &DefinitionVersion {
         &self.version
+    }
+
+    /// The declared `DataHub` endpoint, once [`Self::with_datahub_reader`] has run.
+    #[inline]
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// The declared personal-access-token file, once [`Self::with_datahub_reader`] has run.
+    #[inline]
+    pub fn token_file(&self) -> Option<&Path> {
+        self.token_file.as_deref()
+    }
+
+    /// The deployment-chosen structured property name, once [`Self::with_datahub_reader`] has run.
+    #[inline]
+    pub fn metric_property(&self) -> Option<&str> {
+        self.metric_property.as_deref()
+    }
+
+    /// The declared read deadline in seconds, or `None` to use the reader's own recommended
+    /// default.
+    #[inline]
+    pub const fn deadline_seconds(&self) -> Option<u64> {
+        self.deadline_seconds
+    }
+
+    /// The declared response-size cap in bytes, or `None` to use the reader's own recommended
+    /// default.
+    #[inline]
+    pub const fn max_response_bytes(&self) -> Option<u64> {
+        self.max_response_bytes
     }
 }
 
@@ -205,7 +304,7 @@ impl Catalogs {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use sutura_domain::model::SourceName;
     use sutura_domain::pinned::DefinitionVersion;
@@ -309,5 +408,78 @@ mod tests {
         let catalogs = Catalogs::parse(vec![settings("structure"), settings("metrics")])
             .expect("two distinct names are two distinct contributors");
         assert_eq!(catalogs.count(), 2);
+    }
+
+    #[test]
+    fn a_datahub_entrys_three_required_fields_and_two_optional_bounds_round_trip() {
+        let base = settings("metrics");
+        assert_eq!(base.endpoint(), None);
+        assert_eq!(base.token_file(), None);
+        assert_eq!(base.metric_property(), None);
+        assert_eq!(base.deadline_seconds(), None);
+        assert_eq!(base.max_response_bytes(), None);
+
+        let complete = base
+            .clone()
+            .with_datahub_reader(
+                String::from("https://datahub.example"),
+                PathBuf::from("/nowhere/token"),
+                String::from("deployment_metric_document"),
+            )
+            .expect("all three required fields are non-empty")
+            .with_datahub_bounds(Some(45), Some(1 << 20));
+        assert_eq!(complete.endpoint(), Some("https://datahub.example"));
+        assert_eq!(complete.token_file(), Some(Path::new("/nowhere/token")));
+        assert_eq!(complete.metric_property(), Some("deployment_metric_document"));
+        assert_eq!(complete.deadline_seconds(), Some(45));
+        assert_eq!(complete.max_response_bytes(), Some(1 << 20));
+
+        // Declaring neither bound is not a refusal - `None` is what selects the reader's own
+        // recommended default, resolved by the composition root rather than by this type.
+        let defaulted = base
+            .with_datahub_reader(
+                String::from("https://datahub.example"),
+                PathBuf::from("/nowhere/token"),
+                String::from("deployment_metric_document"),
+            )
+            .expect("all three required fields are non-empty");
+        assert_eq!(defaulted.deadline_seconds(), None);
+        assert_eq!(defaulted.max_response_bytes(), None);
+    }
+
+    #[test]
+    fn a_datahub_entry_missing_any_of_the_three_required_fields_is_refused_naming_it() {
+        let base = settings("metrics");
+        let missing_endpoint = base
+            .clone()
+            .with_datahub_reader(String::new(), PathBuf::from("/nowhere/token"), String::from("p"))
+            .expect_err("an empty endpoint is refused");
+        assert_eq!(
+            missing_endpoint,
+            InvalidCatalogSettings::MissingForDatahub { field: "endpoint" }
+        );
+
+        let missing_token_file = base
+            .clone()
+            .with_datahub_reader(String::from("https://datahub.example"), PathBuf::new(), String::from("p"))
+            .expect_err("an empty token_file is refused");
+        assert_eq!(
+            missing_token_file,
+            InvalidCatalogSettings::MissingForDatahub { field: "token_file" }
+        );
+
+        let missing_property = base
+            .with_datahub_reader(
+                String::from("https://datahub.example"),
+                PathBuf::from("/nowhere/token"),
+                String::new(),
+            )
+            .expect_err("an empty metric_property is refused");
+        assert_eq!(
+            missing_property,
+            InvalidCatalogSettings::MissingForDatahub {
+                field: "metric_property"
+            }
+        );
     }
 }

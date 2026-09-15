@@ -267,10 +267,12 @@ impl MetricAspect {
     /// The promotion candidate's other half - the raw expression string in a dialect nothing here
     /// renders.
     ///
-    /// No consumer today, and `docs/adr/0016` says so rather than pretending otherwise: the aspect
-    /// is decoded and a metric without the `sutura` property is set aside, never converted, and its
-    /// expression is not re-read. These accessors and [`Self::dialect`] are the readable shape a
-    /// future reporter would use.
+    /// One consumer today, outside the read path: `crate::test_support`'s `metric_page` builder
+    /// reads it (and [`Self::dialect`]) to make its fake serve the recorded fixture's OWN content,
+    /// so the wire page cannot drift from the corpus it certifies against. `docs/adr/0016` still
+    /// says the read path never converts it: the aspect is decoded and a metric without the
+    /// `sutura` property is set aside. These accessors are the readable shape a future reporter
+    /// would use.
     #[inline]
     pub fn expression(&self) -> &str {
         &self.expression
@@ -278,8 +280,8 @@ impl MetricAspect {
 
     /// The dialect the raw expression string is written in.
     ///
-    /// Part of the promotion candidate's other half; see [`Self::expression`] for why nothing reads
-    /// it yet.
+    /// Part of the promotion candidate's other half; read by the same `test_support` page builder
+    /// `expression` is, and nowhere on the read path.
     #[inline]
     pub fn dialect(&self) -> &str {
         &self.dialect
