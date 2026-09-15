@@ -55,8 +55,7 @@ const LIVES_FOR: u64 = 600;
 ///
 /// Split out of [`id_token_assertion`] so the claim set and replay window can be pinned offline:
 /// the fixture cannot reach the signing half, which needs a real 2048-bit key, but the claims
-/// document is the decision and it needs none of them
-/// ([`tests::id_token_claims_are_exactly_the_minted_set_with_no_scope`]).
+/// document is the decision and it needs none of them.
 fn id_token_claims(client_email: &str, target_audience: &str, now_unix_seconds: u64) -> serde_json::Value {
     serde_json::json!({
         "iss": client_email,
@@ -189,8 +188,7 @@ where
 ///
 /// Split out of [`exchange_id_token`] so a non-2xx refusal can be pinned offline - the wire half
 /// still lives where it lives, but the decision "a non-2xx status is a typed [`TokenUnavailable::Refused`],
-/// a 2xx body is the `id_token` document or nothing" needs no network and no key
-/// ([`tests::a_non_2xx_token_endpoint_answer_is_a_typed_refusal`]).
+/// a 2xx body is the `id_token` document or nothing" needs no network and no key.
 fn decide_id_token_answer(status_code: u16, body: &str) -> Result<Secret, TokenUnavailable> {
     if !(200..300).contains(&status_code) {
         // A refusal document is best-effort: what is guaranteed is the status, and the code is
