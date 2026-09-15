@@ -808,12 +808,12 @@ fn the_pinned_client_is_the_only_kind_either_half_of_this_module_accepts() {
     // redirects on, plaintext allowed and no timeout, while every test passed because the tests all
     // called the right builder.
     //
-    // What holds it now is the type: `WireAgent` has a private field and `pinned` is its only
-    // constructor, so there is no `ureq::Agent` a caller could substitute. That is not assertable at
-    // run time - it is a compile error, and the `compile_fail` doctest on
-    // `credential::ApplicationDefault::read`, with its compiling twin, is where that is pinned. What
-    // IS assertable here is that the bounds travel with the agent, so the
-    // socket timeout and the request body cannot disagree.
+    // What holds it now is the type: `WireAgent` has a private field, and its two constructors -
+    // `pinned` and `secured`, which `pinned` is now written in terms of - are the only ways to build
+    // one, so there is no `ureq::Agent` a caller could substitute. That is not assertable at run time
+    // - it is a compile error, and the `compile_fail` doctest on `credential::ApplicationDefault::read`,
+    // with its compiling twin, is where that is pinned. What IS assertable here is that the bounds
+    // travel with the agent, so the socket timeout and the request body cannot disagree.
     let agent = pinned();
     assert_eq!(agent.bounds(), bounds());
     assert_eq!(agent.bounds().deadline().socket().as_secs(), 35);
@@ -948,6 +948,13 @@ fn a_budget_is_spent_by_elapsed_time_and_a_spent_one_is_no_timeout_rather_than_z
 // `deadline.rs`, split out when this section took this file past the 1000-line ceiling
 // `cargo xtask max-lines` enforces.
 mod deadline;
+
+// `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`): a hermetic fake-TLS
+// server, because `HOST` is a compile-time constant this crate's own tests cannot redirect - see
+// this file's own module header. Split out for the same reason `deadline` is: this file is close to
+// the 1000-line ceiling `cargo xtask max-lines` holds.
+#[cfg(test)]
+mod tls;
 
 #[test]
 fn the_cells_helper_names_the_row_as_well_as_the_column() {

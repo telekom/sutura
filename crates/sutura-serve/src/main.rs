@@ -153,6 +153,12 @@ fn run() -> Result<(), String> {
     // 5. What was resolved, and what this service does not do.
     banner::announce(&settings);
 
+    // `security.outbound.transport_anchors`, before any adapter is opened - the same order leg 1's
+    // key set is read in, for the same reason: an unreadable declaration stops the process rather
+    // than becoming a deployment that answers every question while its startup log says it verifies
+    // a trust set nobody can name.
+    let outbound = outbound_anchors(&settings)?;
+
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalogs = catalog::open_catalog(settings.catalogs())?;
     let pinned = catalog::load(&catalogs)?;
@@ -165,6 +171,7 @@ fn run() -> Result<(), String> {
         settings.sources(),
         settings.runtime(),
         settings.server().request_timeout(),
+        outbound.as_ref(),
     )?;
     // `LocalService::start_composed` loads the declared catalogs a SECOND time - and composes them -
     // rather than being handed the bundle above, and that is deliberate: the bundle it validates has
@@ -240,6 +247,7 @@ fn run() -> Result<(), String> {
                 settings.sources(),
                 settings.server().request_timeout(),
                 settings.security().credential_cache(),
+                outbound.as_ref(),
             )?;
             (
                 started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
@@ -341,6 +349,40 @@ fn run() -> Result<(), String> {
     let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
     stop(runtime, &stopping);
     served
+}
+
+/// `security.outbound.transport_anchors`, resolved ONCE - `github.com/telekom/sutura#125`.
+///
+/// **`None` is not a gap.** A deployment with no `security.outbound` block is every deployment before
+/// this change: the `BigQuery` wire and the STS exchange verify against `ureq`'s own compiled-in
+/// roots, exactly as they always have - see `sutura_config::security::OutboundAnchors`'s own doc.
+/// `Some` is loaded here, through `sutura_tls::load_anchors`, before the listener opens - the same
+/// argument [`inbound_gate`] makes for leg 1's key set: an unreadable or empty declaration has to
+/// stop the process, not become a deployment that dials `bigquery.googleapis.com` under a trust set
+/// nobody can name.
+///
+/// Read and logged unconditionally, on every build - a `files`-only or `postgres`-only binary has no
+/// reader for the loaded value (see [`bigquery::open_bigquery`]'s refusal for the parallel case: a
+/// declared `kind: bigquery` with no linked adapter), which is a stated limit rather than a second
+/// refusal this settings crate cannot see the feature set to make.
+fn outbound_anchors(settings: &Settings) -> Result<Option<sutura_tls::LoadedAnchors>, String> {
+    let Some(declared) = settings.security().outbound() else {
+        return Ok(None);
+    };
+    let anchors = match declared {
+        sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
+        sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
+    };
+    let loaded = sutura_tls::load_anchors(&anchors)
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    tracing::info!(
+        anchors = match declared {
+            sutura_config::OutboundAnchors::System => "system",
+            sutura_config::OutboundAnchors::Bundle(_) => "bundle",
+        },
+        "security.outbound: declared trust anchors were read for the BigQuery wire and the STS exchange"
+    );
+    Ok(Some(loaded))
 }
 
 /// Leg 1, for a deployment that declared one.
@@ -648,6 +690,7 @@ fn open_engine(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<OpenedSources, String> {
     let declared = sutura_app::sources(pinned);
     if declared.is_empty() {
@@ -665,7 +708,7 @@ fn open_engine(
     // per source read the same whichever function held it, and a dispatch does not.
     match one_kind(&declared, registry)? {
         sutura_config::SourceKind::Files => open_files(pinned, &declared, registry, runtime).map(OpenedSources::Files),
-        sutura_config::SourceKind::BigQuery => bigquery::open_bigquery(&declared, registry, request_timeout),
+        sutura_config::SourceKind::BigQuery => bigquery::open_bigquery(&declared, registry, request_timeout, outbound),
         sutura_config::SourceKind::Postgres => postgres::open_postgres(&declared, registry),
     }
 }

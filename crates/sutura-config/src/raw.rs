@@ -306,6 +306,23 @@ pub(crate) struct RawSecurity {
     /// treated as absent, like `access_token`.
     #[serde(default)]
     pub(crate) metrics_token: Option<String>,
+    /// The deployment-wide outbound trust declaration, for a fixed-host client no source names.
+    /// Absent means every such client verifies against its own compiled-in roots - see
+    /// `crate::security::OutboundAnchors`.
+    #[serde(default)]
+    pub(crate) outbound: Option<RawOutbound>,
+}
+
+/// `security.outbound` as read - one field today, and a block of its own rather than a flat key on
+/// [`RawSecurity`] because it is a DECLARATION (present-but-empty is a refusal) and not a plain
+/// setting, the same shape [`RawInbound`] already uses for that reason.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawOutbound {
+    /// A PEM bundle path, or the word `system`. **Required within the block** - see
+    /// `crate::security::InvalidOutbound::NoAnchors`.
+    #[serde(default)]
+    pub(crate) transport_anchors: Option<String>,
 }
 
 /// `security.credential_cache` - `docs/adr/0031`. Every field optional and defaulted in

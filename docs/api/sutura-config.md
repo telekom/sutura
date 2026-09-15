@@ -671,6 +671,33 @@ Why a string is not usable as an access token.
 
 Why a deployment mode declaration is not usable.
 
+## `use InvalidOutbound`
+
+Why a `security.outbound` declaration was not usable.
+
+## `use OutboundAnchors`
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+**Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
+and deliberately a second, smaller type rather than the same one reused: a per-source declaration
+is refused when the source's own kind has no dial target the anchor could attach to
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
+settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
+There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
+on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
+declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+
+**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
+not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+
+Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
+anchors: these clients always speak TLS regardless of configuration, and an absent block means
+"verify against `ureq`'s own compiled-in roots", which is today's (and every prior release's)
+behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
+`InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
+argument `security.inbound` with no `mode` already makes.
+
 ## `use SecuritySettings`
 
 The access posture, and the declaration that goes with a non-loopback bind.
@@ -3424,144 +3451,6 @@ The configured value did not name a place TLS is terminated.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
-### `enum DeploymentIdentity`
-
-```rust
-pub enum DeploymentIdentity
-```
-
-Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
-from.
-
-**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
-
-*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
-There is no per-request identity to establish, so a shared source is correct for **everything** -
-the one user reads all, by design, and the configured credential is that user's own.
-`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
-
-*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
-and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
-
-# It is declared and never derived, and the derivation that was on offer is unsound
-
-The tempting derivation is "every source shared means single-user, any source impersonating means
-multi-user". It fails in exactly the configuration that most needs the check: a genuinely
-multi-tenant deployment whose sources are *all* shared derives to single-user, and the
-acknowledgement is required in multi-user mode only - so the derivation would exempt from the
-acknowledgement the one deployment where every caller reads every source as somebody else's
-identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
-a field out.
-
-So there is **no `Default`**, no derivation, and a deployment that configures a source without
-declaring the mode does not boot -
-`NotFitToServe::DeploymentIdentityUndeclared`.
-The refusal is keyed on a source being configured rather than raised unconditionally, and that is
-not a softening: a deployment with no source configured cannot answer anything, and the composition
-root refuses it on the catalog naming a source with no declaration - so every deployment that can
-serve a question has to declare the mode.
-
-# What flipping the mode does
-
-It re-evaluates every source. A single-user deployment legitimately holds every source under one
-static credential; the same file in multi-user mode serves every one of those sources to every
-caller as one identity. The mode is an input to the whole check rather than to an incremental view
-of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
-
-# The variant names are not the configured words, and that is deliberate
-
-A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
-spellings, and they are the vocabulary
-[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-5a names. The variants are named for the *property each mode decides* instead, because
-`SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
-that survived that say more: what changes between the two is whether credentials are static
-configuration or a subject arrives per request.
-
-#### Variants
-
-- `StaticCredentials` - Static credentials, one user, one host - the `single-user` mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.
-- `SubjectPerRequest` - A subject per request, established by the transport - the `multi-user` mode.
-
-  **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
-  is currently a statement of intent whose only mechanical effect is that every shared source has
-  to be acknowledged on its own entry. That is the honest description and it is worth having: the
-  acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
-
-#### Methods
-
-```rust
-pub const fn as_str(&self) -> &'static str
-```
-
-The spelling, for the startup log.
-
-```rust
-pub const fn needs_per_source_acknowledgement(&self) -> bool
-```
-
-Does a shared source need an acknowledgement on its own entry under this mode?
-
-```rust
-pub fn parse(word: &str, reason: Option<&str>) -> Result<Self, InvalidDeploymentIdentity>
-```
-
-Reads the declared mode and, for single-user, the operator's reason.
-
-The reason is **required** for single-user and **refused** for multi-user, which is the same
-rule `server.tls_certificate` gets: a value nothing reads is a control that appears to be in
-place. Both halves are returned as one typed error rather than checked later, because the mode
-and its witness are one declaration.
-
-```rust
-pub const fn shared_witness(&self) -> Option<&AcknowledgementReason>
-```
-
-The reason a shared source may borrow as its acknowledgement, if this mode supplies one.
-
-`Some` for single-user only, and an exhaustive match rather than an `is_single_user()` boolean:
-what the mode contributes is the *witness*, so returning the value is what a caller needs and a
-boolean would leave every caller to work out where the witness comes from.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct UnknownDeploymentIdentity`
-
-```rust
-pub struct UnknownDeploymentIdentity
-```
-
-The configured value did not name a deployment mode.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `enum InvalidDeploymentIdentity`
-
-```rust
-pub enum InvalidDeploymentIdentity
-```
-
-Why a deployment mode declaration is not usable.
-
-#### Variants
-
-- `Unknown`
-- `SingleUserWithoutAReason` - Single-user mode with no reason written.
-
-  The reason is what makes the mode a declaration rather than a word: a single-user deployment
-  serves every source under one identity, and the operator's own sentence for why is what a
-  reviewer reads and what a shared source borrows as its acknowledgement.
-- `ReasonWithoutSingleUser` - A single-user reason on a multi-user deployment, where nothing would read it.
-- `Reason`
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
 ### `struct SecuritySettings`
 
 ```rust
@@ -3669,7 +3558,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -3682,6 +3571,20 @@ because the shape here cannot hold "a mode nobody named".
 
 The metrics token is an `Option` the same way: a deployment that chooses not to gate
 `/metrics` is making a posture, not leaving a gap.
+
+`outbound` is `None` for the ordinary deployment - see `OutboundAnchors`'s own doc for why
+that is not a gap either.
+
+```rust
+pub const fn outbound(&self) -> Option<&OutboundAnchors>
+```
+
+The deployment-wide trust anchors a fixed-host outbound client verifies against, if declared.
+
+`None` means every such client verifies against its own compiled-in roots - see
+`OutboundAnchors`. A composition root reads this once at boot and hands the resolved
+material to `WireAgent::secured` (or its equivalent) rather than each call site reading
+settings for itself.
 
 ```rust
 pub const fn tls_termination(&self) -> TlsTermination
@@ -3701,6 +3604,299 @@ somebody changing the field type later.
 #### Implements
 
 `Clone`, `Debug`, `Default`
+
+### `use DeploymentIdentity`
+
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+`NotFitToServe::DeploymentIdentityUndeclared`.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
+# The variant names are not the configured words, and that is deliberate
+
+A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
+spellings, and they are the vocabulary
+[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
+5a names. The variants are named for the *property each mode decides* instead, because
+`SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
+that survived that say more: what changes between the two is whether credentials are static
+configuration or a subject arrives per request.
+
+### `use InvalidDeploymentIdentity`
+
+Why a deployment mode declaration is not usable.
+
+### `use UnknownDeploymentIdentity`
+
+The configured value did not name a deployment mode.
+
+### `use InvalidOutbound`
+
+Why a `security.outbound` declaration was not usable.
+
+### `use OutboundAnchors`
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+**Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
+and deliberately a second, smaller type rather than the same one reused: a per-source declaration
+is refused when the source's own kind has no dial target the anchor could attach to
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
+settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
+There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
+on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
+declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+
+**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
+not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+
+Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
+anchors: these clients always speak TLS regardless of configuration, and an absent block means
+"verify against `ureq`'s own compiled-in roots", which is today's (and every prior release's)
+behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
+`InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
+argument `security.inbound` with no `mode` already makes.
+
+### Module `deployment`
+
+The deployment identity declaration - who a query runs as when one is declared.
+
+A file of its own for the same mechanical reason its neighbours are: `security.rs` is at
+the 1000-line cap `cargo xtask max-lines` enforces, and the deployment-identity group is a
+self-contained declaration re-exported from `crate::security`.
+
+#### `enum DeploymentIdentity`
+
+```rust
+pub enum DeploymentIdentity
+```
+
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+`NotFitToServe::DeploymentIdentityUndeclared`.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
+# The variant names are not the configured words, and that is deliberate
+
+A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
+spellings, and they are the vocabulary
+[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
+5a names. The variants are named for the *property each mode decides* instead, because
+`SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
+that survived that say more: what changes between the two is whether credentials are static
+configuration or a subject arrives per request.
+
+##### Variants
+
+- `StaticCredentials` - Static credentials, one user, one host - the `single-user` mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.
+- `SubjectPerRequest` - A subject per request, established by the transport - the `multi-user` mode.
+
+  **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
+  is currently a statement of intent whose only mechanical effect is that every shared source has
+  to be acknowledged on its own entry. That is the honest description and it is worth having: the
+  acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+
+##### Methods
+
+```rust
+pub const fn as_str(&self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub const fn needs_per_source_acknowledgement(&self) -> bool
+```
+
+Does a shared source need an acknowledgement on its own entry under this mode?
+
+```rust
+pub fn parse(word: &str, reason: Option<&str>) -> Result<Self, InvalidDeploymentIdentity>
+```
+
+Reads the declared mode and, for single-user, the operator's reason.
+
+The reason is **required** for single-user and **refused** for multi-user, which is the same
+rule `server.tls_certificate` gets: a value nothing reads is a control that appears to be in
+place. Both halves are returned as one typed error rather than checked later, because the mode
+and its witness are one declaration.
+
+```rust
+pub const fn shared_witness(&self) -> Option<&AcknowledgementReason>
+```
+
+The reason a shared source may borrow as its acknowledgement, if this mode supplies one.
+
+`Some` for single-user only, and an exhaustive match rather than an `is_single_user()` boolean:
+what the mode contributes is the *witness*, so returning the value is what a caller needs and a
+boolean would leave every caller to work out where the witness comes from.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct UnknownDeploymentIdentity`
+
+```rust
+pub struct UnknownDeploymentIdentity
+```
+
+The configured value did not name a deployment mode.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum InvalidDeploymentIdentity`
+
+```rust
+pub enum InvalidDeploymentIdentity
+```
+
+Why a deployment mode declaration is not usable.
+
+##### Variants
+
+- `Unknown`
+- `SingleUserWithoutAReason` - Single-user mode with no reason written.
+
+  The reason is what makes the mode a declaration rather than a word: a single-user deployment
+  serves every source under one identity, and the operator's own sentence for why is what a
+  reviewer reads and what a shared source borrows as its acknowledgement.
+- `ReasonWithoutSingleUser` - A single-user reason on a multi-user deployment, where nothing would read it.
+- `Reason`
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `outbound`
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+A file of its own for the same mechanical reason `settings/outbound.rs` is: `security.rs`
+is at the 1000-line cap `cargo xtask max-lines` enforces. The declaration types live here
+and are re-exported from `crate::security` so every existing `crate::security::*` path
+keeps resolving.
+
+#### `enum OutboundAnchors`
+
+```rust
+pub enum OutboundAnchors
+```
+
+The deployment-wide outbound trust declaration - `security.outbound`.
+
+**Distinct from a per-source `transport_anchors`** (`crate::sources::transport::TrustAnchors`),
+and deliberately a second, smaller type rather than the same one reused: a per-source declaration
+is refused when the source's own kind has no dial target the anchor could attach to
+(`crate::sources::refuse_foreign_keys` on `files`/`bigquery`), and the outbound clients this
+settles - the `BigQuery` wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
+There is no source entry a per-entry `transport_anchors` on a `bigquery` kind could mean anything
+on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
+declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
+
+**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
+not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+
+Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
+anchors: these clients always speak TLS regardless of configuration, and an absent block means
+"verify against `ureq`'s own compiled-in roots", which is today's (and every prior release's)
+behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
+`InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
+argument `security.inbound` with no `mode` already makes.
+
+##### Variants
+
+- `Bundle` - A PEM bundle at this absolute path.
+- `System` - The host's own trust store, chosen by name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidOutbound`
+
+```rust
+pub enum InvalidOutbound
+```
+
+Why a `security.outbound` declaration was not usable.
+
+##### Variants
+
+- `NoAnchors` - `security.outbound` was written with no `transport_anchors`.
+- `RelativePath` - A `security.outbound.transport_anchors` path that is relative.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `server`
 

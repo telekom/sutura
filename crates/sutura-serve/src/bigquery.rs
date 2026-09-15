@@ -22,11 +22,12 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<super::OpenedSources, String> {
     let mut engines: Option<sutura_app::Warehouses<super::BigQuerySource>> = None;
     for source in declared {
         let configured = super::configured_source(source, registry)?;
-        let engine = build_bigquery(source, configured, request_timeout)?;
+        let engine = build_bigquery(source, configured, request_timeout, outbound)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -55,6 +56,7 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
+    _outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<super::OpenedSources, String> {
     let named = declared
         .iter()
@@ -84,6 +86,7 @@ fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
     request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<super::BigQuerySource, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
@@ -153,7 +156,9 @@ fn build_bigquery(
     // is for: the token exchange and the job then share one connection pool and one set of pins by
     // construction rather than because two call sites happened to pass the same bounds. `WireAgent` is
     // `Clone` and a `ureq::Agent`'s clone shares its pool, so the clone is the cheap half of that.
-    let agent = WireAgent::pinned(bounds);
+    // `outbound` is `None` for the ordinary deployment, which is `WireAgent::secured`'s exact
+    // `pinned` behaviour - `github.com/telekom/sutura#125`.
+    let agent = WireAgent::secured(bounds, outbound.cloned());
     let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone()).map_err(|cause| {
         format!(
             "`sources.{source}.credential_file` could not be read: {}",

@@ -25,7 +25,6 @@
 
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
-use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 
 use crate::identity_cache::CredentialCacheSettings;
 use crate::inbound::InboundIdentity;
@@ -311,180 +310,12 @@ impl core::fmt::Display for TlsTermination {
     }
 }
 
-/// Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
-/// from.
-///
-/// **Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
-///
-/// *Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
-/// There is no per-request identity to establish, so a shared source is correct for **everything** -
-/// the one user reads all, by design, and the configured credential is that user's own.
-/// `examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
-///
-/// *Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
-/// and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
-///
-/// # It is declared and never derived, and the derivation that was on offer is unsound
-///
-/// The tempting derivation is "every source shared means single-user, any source impersonating means
-/// multi-user". It fails in exactly the configuration that most needs the check: a genuinely
-/// multi-tenant deployment whose sources are *all* shared derives to single-user, and the
-/// acknowledgement is required in multi-user mode only - so the derivation would exempt from the
-/// acknowledgement the one deployment where every caller reads every source as somebody else's
-/// identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
-/// a field out.
-///
-/// So there is **no `Default`**, no derivation, and a deployment that configures a source without
-/// declaring the mode does not boot -
-/// [`NotFitToServe::DeploymentIdentityUndeclared`](crate::NotFitToServe::DeploymentIdentityUndeclared).
-/// The refusal is keyed on a source being configured rather than raised unconditionally, and that is
-/// not a softening: a deployment with no source configured cannot answer anything, and the composition
-/// root refuses it on the catalog naming a source with no declaration - so every deployment that can
-/// serve a question has to declare the mode.
-///
-/// # What flipping the mode does
-///
-/// It re-evaluates every source. A single-user deployment legitimately holds every source under one
-/// static credential; the same file in multi-user mode serves every one of those sources to every
-/// caller as one identity. The mode is an input to the whole check rather than to an incremental view
-/// of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
-///
-/// # The variant names are not the configured words, and that is deliberate
-///
-/// A deployment writes `single-user` or `multi-user` - [`Self::as_str`] and [`Self::NAMES`] own those
-/// spellings, and they are the vocabulary
-/// [a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
-/// 5a names. The variants are named for the *property each mode decides* instead, because
-/// `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
-/// that survived that say more: what changes between the two is whether credentials are static
-/// configuration or a subject arrives per request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeploymentIdentity {
-    /// Static credentials, one user, one host - the `single-user` mode. Carries the operator's own
-    /// reason, so the mode is unreachable by leaving a key out.
-    StaticCredentials { declared: AcknowledgementReason },
-    /// A subject per request, established by the transport - the `multi-user` mode.
-    ///
-    /// **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
-    /// is currently a statement of intent whose only mechanical effect is that every shared source has
-    /// to be acknowledged on its own entry. That is the honest description and it is worth having: the
-    /// acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
-    SubjectPerRequest,
-}
+pub mod deployment;
+pub mod outbound;
 
-/// The configured value did not name a deployment mode.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("`{found}` does not name a deployment mode - one of: {}", DeploymentIdentity::NAMES.join(", "))]
-pub struct UnknownDeploymentIdentity {
-    found: String,
-}
-
-impl DeploymentIdentity {
-    /// The key the mode is written under.
-    pub const KEY: &'static str = "security.identity";
-    /// The key the single-user reason is written under.
-    pub const REASON_KEY: &'static str = "security.single_user_because";
-    /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["single-user", "multi-user"];
-
-    /// Reads the declared mode and, for single-user, the operator's reason.
-    ///
-    /// The reason is **required** for single-user and **refused** for multi-user, which is the same
-    /// rule `server.tls_certificate` gets: a value nothing reads is a control that appears to be in
-    /// place. Both halves are returned as one typed error rather than checked later, because the mode
-    /// and its witness are one declaration.
-    pub fn parse(word: &str, reason: Option<&str>) -> Result<Self, InvalidDeploymentIdentity> {
-        let reason = reason.map(str::trim).filter(|value| !value.is_empty());
-        match word.trim() {
-            "single-user" => {
-                let Some(text) = reason else {
-                    return Err(InvalidDeploymentIdentity::SingleUserWithoutAReason);
-                };
-                let declared = AcknowledgementReason::written_under(Self::REASON_KEY, text)
-                    .map_err(|cause| InvalidDeploymentIdentity::Reason { cause })?;
-                Ok(Self::StaticCredentials { declared })
-            }
-            "multi-user" => {
-                if reason.is_some() {
-                    return Err(InvalidDeploymentIdentity::ReasonWithoutSingleUser);
-                }
-                Ok(Self::SubjectPerRequest)
-            }
-            other => Err(InvalidDeploymentIdentity::Unknown {
-                cause: UnknownDeploymentIdentity {
-                    found: String::from(other),
-                },
-            }),
-        }
-    }
-
-    /// The spelling, for the startup log.
-    #[inline]
-    #[must_use]
-    pub const fn as_str(&self) -> &'static str {
-        match *self {
-            Self::StaticCredentials { .. } => "single-user",
-            Self::SubjectPerRequest => "multi-user",
-        }
-    }
-
-    /// The reason a shared source may borrow as its acknowledgement, if this mode supplies one.
-    ///
-    /// `Some` for single-user only, and an exhaustive match rather than an `is_single_user()` boolean:
-    /// what the mode contributes is the *witness*, so returning the value is what a caller needs and a
-    /// boolean would leave every caller to work out where the witness comes from.
-    #[inline]
-    #[must_use]
-    pub const fn shared_witness(&self) -> Option<&AcknowledgementReason> {
-        match *self {
-            Self::StaticCredentials { ref declared } => Some(declared),
-            Self::SubjectPerRequest => None,
-        }
-    }
-
-    /// Does a shared source need an acknowledgement on its own entry under this mode?
-    #[inline]
-    #[must_use]
-    pub const fn needs_per_source_acknowledgement(&self) -> bool {
-        matches!(*self, Self::SubjectPerRequest)
-    }
-}
-
-/// Why a deployment mode declaration is not usable.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidDeploymentIdentity {
-    #[error("`{}` does not name a deployment mode", DeploymentIdentity::KEY)]
-    Unknown {
-        #[source]
-        cause: UnknownDeploymentIdentity,
-    },
-    /// Single-user mode with no reason written.
-    ///
-    /// The reason is what makes the mode a declaration rather than a word: a single-user deployment
-    /// serves every source under one identity, and the operator's own sentence for why is what a
-    /// reviewer reads and what a shared source borrows as its acknowledgement.
-    #[error(
-        "`{}` is `single-user` and `{}` is not set. Single-user means every source is read under one \
-         static credential, which is correct when that credential is the one user's own - write why, \
-         because it is the sentence a reviewer needs and the one a shared source borrows",
-        DeploymentIdentity::KEY,
-        DeploymentIdentity::REASON_KEY
-    )]
-    SingleUserWithoutAReason,
-    /// A single-user reason on a multi-user deployment, where nothing would read it.
-    #[error(
-        "`{}` is set and `{}` is `multi-user`, so nothing would read it - a shared source in \
-         multi-user mode is acknowledged on its own entry. Remove it, or declare `single-user`",
-        DeploymentIdentity::REASON_KEY,
-        DeploymentIdentity::KEY
-    )]
-    ReasonWithoutSingleUser,
-    #[error("`{}` is not usable as a reason", DeploymentIdentity::REASON_KEY)]
-    Reason {
-        #[source]
-        cause: InvalidOperatorText,
-    },
-}
+pub use crate::security::deployment::{DeploymentIdentity, InvalidDeploymentIdentity, UnknownDeploymentIdentity};
+pub(crate) use crate::security::outbound::parse_outbound;
+pub use crate::security::outbound::{InvalidOutbound, OutboundAnchors};
 
 /// The access posture, and the declaration that goes with a non-loopback bind.
 ///
@@ -527,6 +358,7 @@ pub struct SecuritySettings {
     /// once parsed and off is a value of it, the same shape `ToolsSettings` uses for a capability
     /// nobody turned on.
     credential_cache: CredentialCacheSettings,
+    outbound: Option<OutboundAnchors>,
 }
 
 impl SecuritySettings {
@@ -540,6 +372,9 @@ impl SecuritySettings {
     ///
     /// The metrics token is an `Option` the same way: a deployment that chooses not to gate
     /// `/metrics` is making a posture, not leaving a gap.
+    ///
+    /// `outbound` is `None` for the ordinary deployment - see [`OutboundAnchors`]'s own doc for why
+    /// that is not a gap either.
     #[inline]
     pub const fn new(
         access_token: Option<AccessToken>,
@@ -548,6 +383,7 @@ impl SecuritySettings {
         identity: Option<DeploymentIdentity>,
         metrics_token: Option<AccessToken>,
         credential_cache: CredentialCacheSettings,
+        outbound: Option<OutboundAnchors>,
     ) -> Self {
         Self {
             access_token,
@@ -556,6 +392,7 @@ impl SecuritySettings {
             identity,
             metrics_token,
             credential_cache,
+            outbound,
         }
     }
 
@@ -564,6 +401,18 @@ impl SecuritySettings {
     #[must_use]
     pub const fn credential_cache(&self) -> CredentialCacheSettings {
         self.credential_cache
+    }
+
+    /// The deployment-wide trust anchors a fixed-host outbound client verifies against, if declared.
+    ///
+    /// `None` means every such client verifies against its own compiled-in roots - see
+    /// [`OutboundAnchors`]. A composition root reads this once at boot and hands the resolved
+    /// material to `WireAgent::secured` (or its equivalent) rather than each call site reading
+    /// settings for itself.
+    #[inline]
+    #[must_use]
+    pub const fn outbound(&self) -> Option<&OutboundAnchors> {
+        self.outbound.as_ref()
     }
 
     /// The token that gates `/metrics`, when one is configured.
@@ -653,8 +502,8 @@ mod tests {
     use crate::inbound::{IssuerUrl, KeySetFile, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
 
     use super::{
-        AccessToken, DeploymentIdentity, InboundIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings,
-        TlsTermination,
+        AccessToken, DeploymentIdentity, InboundIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound,
+        OutboundAnchors, SecuritySettings, TlsTermination, parse_outbound,
     };
 
     /// Thirty-two characters, which is the floor.
@@ -733,6 +582,7 @@ mod tests {
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
             CredentialCacheSettings::default(),
+            None,
         );
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
@@ -803,6 +653,7 @@ mod tests {
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
             CredentialCacheSettings::default(),
+            None,
         );
         let without = SecuritySettings::default();
         assert!(!with_token.describes_identity(), "a shared token is not an identity");
@@ -821,6 +672,7 @@ mod tests {
             None,
             None,
             CredentialCacheSettings::default(),
+            None,
         );
         assert!(verifying.describes_identity());
         assert_eq!(verifying.inbound_mode(), "direct");
@@ -978,5 +830,50 @@ mod tests {
         assert!(TlsTermination::InProcess.cleartext_hop().contains("no cleartext hop"));
         assert!(TlsTermination::Ingress.cleartext_hop().contains("pod network"));
         TlsTermination::parse("tls").unwrap_err();
+    }
+
+    #[test]
+    fn outbound_system_and_a_bundle_path_both_parse() {
+        assert_eq!(parse_outbound(Some("system")).unwrap(), OutboundAnchors::System);
+        assert_eq!(
+            parse_outbound(Some("/etc/sutura/outbound-ca.pem")).unwrap(),
+            OutboundAnchors::Bundle(std::path::PathBuf::from("/etc/sutura/outbound-ca.pem"))
+        );
+    }
+
+    #[test]
+    fn a_present_outbound_block_with_no_anchors_is_refused() {
+        // The argument `security.inbound` with no `mode` already makes: a present block that names
+        // nothing declares nothing, so absence inside a written block is a refusal and not the same
+        // `None` an ABSENT block reads as (`SecuritySettings::outbound` returning `None`).
+        assert_eq!(parse_outbound(None), Err(InvalidOutbound::NoAnchors));
+        assert_eq!(parse_outbound(Some("")), Err(InvalidOutbound::NoAnchors));
+        assert_eq!(parse_outbound(Some("   ")), Err(InvalidOutbound::NoAnchors));
+    }
+
+    #[test]
+    fn a_relative_outbound_bundle_path_is_refused() {
+        assert_eq!(
+            parse_outbound(Some("outbound-ca.pem")),
+            Err(InvalidOutbound::RelativePath {
+                path: std::path::PathBuf::from("outbound-ca.pem")
+            })
+        );
+    }
+
+    #[test]
+    fn security_settings_outbound_accessor_round_trips() {
+        let none = SecuritySettings::default();
+        assert!(none.outbound().is_none());
+        let declared = SecuritySettings::new(
+            None,
+            TlsTermination::None,
+            None,
+            None,
+            None,
+            CredentialCacheSettings::default(),
+            Some(OutboundAnchors::System),
+        );
+        assert_eq!(declared.outbound(), Some(&OutboundAnchors::System));
     }
 }

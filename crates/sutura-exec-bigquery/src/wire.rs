@@ -85,10 +85,20 @@
 //!   change is the path: `ureq`'s default config is `Proxy::try_from_env()`, so `HTTPS_PROXY` routes
 //!   these requests through an egress proxy. That is left ON deliberately - an egress proxy is a real
 //!   deployment shape here, `docs/enterprise-mirrors.md` is the generic form of it - and it is safe
-//!   because the tunnel is still TLS to `HOST` verified against a compiled-in root set, so a proxy
-//!   sees a hostname and no bytes. It is written out in [`WireAgent::pinned`] rather than inherited,
-//!   so it is a
-//!   decision a reviewer can disagree with.
+//!   because the tunnel is still TLS to `HOST`, so a proxy sees a hostname and no bytes. It is
+//!   written out in [`WireAgent::pinned`] rather than inherited, so it is a decision a reviewer can
+//!   disagree with.
+//! - **Which roots verify `HOST` is `ureq`'s compiled-in set by default, and a deployment MAY declare
+//!   its own instead - `github.com/telekom/sutura#125`.** [`WireAgent::pinned`] is unchanged: it
+//!   verifies against `ureq`'s own `RootCerts::WebPki`, exactly as before this change.
+//!   [`WireAgent::secured`] is the second constructor `security.outbound.transport_anchors` reaches: a
+//!   composition root resolves the declaration through `sutura_tls::load_anchors` once at boot and
+//!   hands the loaded certificates here, which replaces `RootCerts::WebPki` with `RootCerts::Specific`
+//!   built from exactly that bundle or host store - never both. `crate::wire::tls` is the one place
+//!   either constructor turns `sutura_tls`'s `CertificateDer` output into `ureq`'s own certificate
+//!   type, so the conversion is written once rather than at every call site. **No client identity
+//!   travels this way**: `security.outbound` is anchors only - Google's endpoints take a bearer
+//!   token, not mTLS, so there is no `ClientCert` this module ever builds.
 //! - **Failure is derived from the RESULT SHAPE and never from `errors` being non-empty.** The
 //!   endpoint documents that array as *"the first errors or warnings encountered"* and says entries
 //!   *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
@@ -120,7 +130,7 @@
 //!   ever seen is a dependency decision this change does not take. Stated because a dropped warning
 //!   is exactly the kind of absence that reads as "there were none".
 //!
-use crate::transport::{Cell, DatasetAddress, HeldTables, JobDeadline, JobRequest, JobRows, JobTransport};
+use crate::transport::{Cell, DatasetAddress, HeldTables, JobRequest, JobRows, JobTransport};
 use crate::wire::credential::{AccessTokens, QuotaProject};
 
 // The bounds are re-exported flat, so `wire::JobBounds` stays the path every call site reads:
@@ -130,10 +140,12 @@ use crate::wire::credential::{AccessTokens, QuotaProject};
 // none, so a `pub use` out of a private module reaches the generated page as an undocumented
 // `use None` stub. Measured on `pub use sts::StsOverHttp`, which is on that page as exactly that.
 pub mod bounds;
+mod budget;
 pub mod credential;
 mod document;
 mod sts;
 mod tables;
+mod tls;
 pub use bounds::{BytesBilledCeiling, CallDeadline, JobBounds, QueryDeadline, UnusableBound};
 pub use sts::StsOverHttp;
 
@@ -142,9 +154,10 @@ mod tests;
 
 // The document half, re-exported into this module so `wire.rs` stays the one path callers and tests
 // read - the split is a file boundary rather than an API one.
+use crate::wire::budget::{call_body, configured_budget_seconds, remaining_of_the_ports_deadline};
 #[cfg(feature = "fixtures")]
 use crate::wire::document::applied;
-use crate::wire::document::{QueryAnswer, QueryBody, body, complete, estimated_bytes, refusal, url};
+use crate::wire::document::{QueryAnswer, QueryBody, complete, estimated_bytes, refusal, url};
 
 /// The API this module speaks to. A compile-time constant: there is no configuration key for it, so
 /// no deployment can choose which service receives the credential. What a deployment CAN choose is
@@ -196,7 +209,17 @@ pub struct WireAgent {
 }
 
 impl WireAgent {
-    /// The one constructor, and every non-default setting below is a decision:
+    /// The compiled-in-roots constructor: [`Self::secured`] with no declared anchors.
+    ///
+    /// This is every deployment's behaviour before `github.com/telekom/sutura#125` and stays the
+    /// default for one with no `security.outbound.transport_anchors` block - see [`Self::secured`]
+    /// for the one setting that differs when a deployment declares one.
+    #[must_use]
+    pub fn pinned(bounds: JobBounds) -> Self {
+        Self::secured(bounds, None)
+    }
+
+    /// The one place every non-default setting is decided, and every one of them is a decision:
     ///
     /// - `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
     ///   discards the body - and the body is where the endpoint says *which* refusal this is. Status is
@@ -211,11 +234,15 @@ impl WireAgent {
     /// - `max_response_header_size`, because headers are read before the body's own limit applies.
     /// - `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
     ///   inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
-    ///   `HOST` against a compiled-in root set, so what the environment chooses is the route and not
-    ///   the destination. The module header states that distinction, because a previous version of it
-    ///   claimed the stronger thing.
+    ///   `HOST`, so what the environment chooses is the route and not the destination. The module
+    ///   header states that distinction, because a previous version of it claimed the stronger thing.
+    /// - `tls_config`, over [`crate::wire::tls::config`] - `RootCerts::WebPki` (`ureq`'s own default)
+    ///   for `anchors: None`, which is every call [`Self::pinned`] makes and every deployment before
+    ///   `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
+    ///   `security.outbound.transport_anchors` resolves to. No client identity: `security.outbound`
+    ///   is anchors only, so there is no `ClientCert` in either arm.
     #[must_use]
-    pub fn pinned(bounds: JobBounds) -> Self {
+    pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self {
         Self {
             agent: ureq::Agent::new_with_config(
                 ureq::Agent::config_builder()
@@ -225,6 +252,7 @@ impl WireAgent {
                     .timeout_global(Some(bounds.deadline().socket()))
                     .max_response_header_size(MAX_HEADER_BYTES)
                     .proxy(ureq::Proxy::try_from_env())
+                    .tls_config(tls::config(anchors))
                     .build(),
             ),
             bounds,
@@ -655,64 +683,6 @@ pub(crate) fn bounded(named: Option<String>) -> String {
 pub struct BigQueryWire<C> {
     agent: WireAgent,
     credentials: C,
-}
-
-/// What one call may spend, read at `now`: the port's own `Deadline` where the request carries one,
-/// or this transport's configured [`JobBounds`] at the boot path. `None` only for the first case,
-/// when the port's own budget is already spent - the boot path always opens a fresh window, so it
-/// has nothing to be spent yet.
-///
-/// **A free function of neither `self` nor the credential source, taking `now` as a parameter rather
-/// than reading a clock**, so a test can ask what the `Boot` arm answers far in the future without
-/// sleeping through a real one - `wire::tests::deadline` proves the boot window stays the configured
-/// bound regardless of elapsed time. `now` arrives here for the same reason `Deadline::remaining_at`
-/// takes one rather than reading a clock itself.
-fn remaining_of_the_ports_deadline(
-    clock: JobDeadline,
-    bounds: JobBounds,
-    now: std::time::Instant,
-) -> Option<core::time::Duration> {
-    match clock {
-        JobDeadline::Port(deadline) => deadline.remaining_at(now),
-        JobDeadline::Boot => Some(bounds.deadline().budget()),
-    }
-}
-
-/// What a [`WireError::DeadlineSpent`] this call produces names: the port's own configured budget
-/// where the request carries a `Deadline`, and this transport's own configured [`JobBounds`] at the
-/// boot path, which has no caller's budget to name.
-const fn configured_budget_seconds(clock: JobDeadline, bounds: JobBounds) -> u64 {
-    match clock {
-        JobDeadline::Port(deadline) => deadline.budget().seconds(),
-        JobDeadline::Boot => bounds.deadline().budget().as_secs(),
-    }
-}
-
-/// The request body for one call, built from what is LEFT of `call`'s own budget - never the whole
-/// of it. See [`CallBody`] for why the remainder travels back with it.
-///
-/// **A pure function, split out of `submit` so a test can pin `call` at a chosen instant and read the
-/// two timeout fields directly, with no socket.** `call` is opened already; this reads only
-/// `call.remaining()`, never `Instant::now()` itself, so a past `CallDeadline::opened_at` is a
-/// fixture rather than a race - the recorded `timeoutMs`/`jobTimeoutMs` is PROVABLY the remainder,
-/// not the configured ceiling `body` would carry if handed the whole budget instead.
-///
-/// `budget_seconds`, for the refusal, still asks `request.deadline()` rather than `call` alone: a
-/// `CallDeadline` does not say which of the port's own budget or this transport's configured one it
-/// was opened from - `configured_budget_seconds` does.
-fn call_body<'job, C>(
-    request: &'job JobRequest<'job>,
-    dry_run: DryRun,
-    bounds: JobBounds,
-    call: CallDeadline,
-) -> Wired<CallBody<'job>, C>
-where
-    C: core::error::Error + 'static,
-{
-    let left = call.remaining().ok_or(WireError::DeadlineSpent {
-        budget_seconds: configured_budget_seconds(request.deadline(), bounds),
-    })?;
-    Ok((body(request, dry_run, bounds, left), left))
 }
 
 impl<C> BigQueryWire<C>

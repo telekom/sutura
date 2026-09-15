@@ -68,6 +68,7 @@ pub(super) fn open(
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<Opened, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
@@ -147,8 +148,9 @@ pub(super) fn open(
     let bounds = JobBounds::of(deadline, ceiling);
     // ONE agent, cloned, which is what `Credential::read` taking an agent is for: the token exchange
     // and the job share one connection pool and one set of pins by construction rather than because
-    // two call sites happened to pass the same bounds.
-    let agent = WireAgent::pinned(bounds);
+    // two call sites happened to pass the same bounds. `outbound` is `None` for the ordinary
+    // deployment, which is `WireAgent::secured`'s exact `pinned` behaviour - `github.com/telekom/sutura#125`.
+    let agent = WireAgent::secured(bounds, outbound.cloned());
     let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
         .map_err(|cause| format!("`sources.{source}.credential_file` could not be read: {}", render(&cause)))?;
     // Parsed a SECOND time here, and that is not a redundant check: the settings tree's
@@ -189,6 +191,7 @@ pub(super) fn open(
     _configured: &sutura_config::ConfiguredSource,
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
+    _outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<Opened, String> {
     Err(format!(
         "`sources.{source}` is `kind: bigquery`, and this binary was built without the `bigquery` \
@@ -403,6 +406,7 @@ mod tests {
             runtime(),
             timeout(),
             None,
+            None,
         )
         .map(|_| ())
         .expect_err("a kind this binary linked no adapter for must not open");
@@ -431,6 +435,7 @@ mod tests {
             &declaring_bigquery("shared-service-user", ""),
             runtime(),
             timeout(),
+            None,
             None,
         )
         .map(|_| ())
@@ -474,6 +479,7 @@ mod tests {
             ),
             runtime(),
             timeout(),
+            None,
             None,
         )
         .map(|_| ())

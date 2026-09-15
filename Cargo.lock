@@ -3852,6 +3852,7 @@ dependencies = [
  "sutura-runtime",
  "sutura-semantic",
  "sutura-sql",
+ "sutura-tls",
  "tokio",
  "tracing",
 ]
@@ -3909,7 +3910,9 @@ version = "0.5.1"
 dependencies = [
  "base64 0.23.1",
  "parking_lot",
+ "rcgen",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "serde_norway",
@@ -3919,6 +3922,7 @@ dependencies = [
  "sutura-exec-datafusion",
  "sutura-semantic",
  "sutura-sql",
+ "sutura-tls",
  "thiserror 2.0.20",
  "ureq",
 ]
@@ -4056,6 +4060,7 @@ dependencies = [
  "sutura-exec-postgres",
  "sutura-http",
  "sutura-runtime",
+ "sutura-tls",
  "tokio",
  "tokio-postgres",
  "tracing",

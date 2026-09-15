@@ -32,6 +32,7 @@ pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
     credential_cache: sutura_config::CredentialCacheSettings,
+    outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<sutura_exec_bigquery::WorkloadIdentityBroker<sutura_exec_bigquery::wire::StsOverHttp>, String> {
     use sutura_config::SourcePlacement;
     use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
@@ -94,7 +95,10 @@ pub(crate) fn build_broker(
         )
     })?)
     .map_err(|cause| format!("a declared `max_bytes_billed` is not a usable token-exchange bound: {cause}"))?;
-    let exchange = StsOverHttp::new(WireAgent::pinned(JobBounds::of(deadline, ceiling)));
+    // `outbound` is `None` for the ordinary deployment, which is `WireAgent::secured`'s exact
+    // `pinned` behaviour - `github.com/telekom/sutura#125`. The same declaration the job's own agent
+    // reads: one boot-time read, shared by every `WireAgent` this composition root builds.
+    let exchange = StsOverHttp::new(WireAgent::secured(JobBounds::of(deadline, ceiling), outbound.cloned()));
 
     let mut broker = WorkloadIdentityBroker::empty(exchange).with_floor(request_timeout.seconds());
     for (alias, declared) in shared {

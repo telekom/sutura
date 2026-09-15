@@ -1209,10 +1209,20 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   change is the path: `ureq`'s default config is `Proxy::try_from_env()`, so `HTTPS_PROXY` routes
   these requests through an egress proxy. That is left ON deliberately - an egress proxy is a real
   deployment shape here, `docs/enterprise-mirrors.md` is the generic form of it - and it is safe
-  because the tunnel is still TLS to `HOST` verified against a compiled-in root set, so a proxy
-  sees a hostname and no bytes. It is written out in `WireAgent::pinned` rather than inherited,
-  so it is a
-  decision a reviewer can disagree with.
+  because the tunnel is still TLS to `HOST`, so a proxy sees a hostname and no bytes. It is
+  written out in `WireAgent::pinned` rather than inherited, so it is a decision a reviewer can
+  disagree with.
+- **Which roots verify `HOST` is `ureq`'s compiled-in set by default, and a deployment MAY declare
+  its own instead - `github.com/telekom/sutura#125`.** `WireAgent::pinned` is unchanged: it
+  verifies against `ureq`'s own `RootCerts::WebPki`, exactly as before this change.
+  `WireAgent::secured` is the second constructor `security.outbound.transport_anchors` reaches: a
+  composition root resolves the declaration through `sutura_tls::load_anchors` once at boot and
+  hands the loaded certificates here, which replaces `RootCerts::WebPki` with `RootCerts::Specific`
+  built from exactly that bundle or host store - never both. `crate::wire::tls` is the one place
+  either constructor turns `sutura_tls`'s `CertificateDer` output into `ureq`'s own certificate
+  type, so the conversion is written once rather than at every call site. **No client identity
+  travels this way**: `security.outbound` is anchors only - Google's endpoints take a bearer
+  token, not mTLS, so there is no `ClientCert` this module ever builds.
 - **Failure is derived from the RESULT SHAPE and never from `errors` being non-empty.** The
   endpoint documents that array as *"the first errors or warnings encountered"* and says entries
   *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
@@ -1276,7 +1286,17 @@ What every job through this client is bounded by.
 pub fn pinned(bounds: JobBounds) -> Self
 ```
 
-The one constructor, and every non-default setting below is a decision:
+The compiled-in-roots constructor: `Self::secured` with no declared anchors.
+
+This is every deployment's behaviour before `github.com/telekom/sutura#125` and stays the
+default for one with no `security.outbound.transport_anchors` block - see `Self::secured`
+for the one setting that differs when a deployment declares one.
+
+```rust
+pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
+```
+
+The one place every non-default setting is decided, and every one of them is a decision:
 
 - `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
   discards the body - and the body is where the endpoint says *which* refusal this is. Status is
@@ -1291,9 +1311,13 @@ The one constructor, and every non-default setting below is a decision:
 - `max_response_header_size`, because headers are read before the body's own limit applies.
 - `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
   inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
-  `HOST` against a compiled-in root set, so what the environment chooses is the route and not
-  the destination. The module header states that distinction, because a previous version of it
-  claimed the stronger thing.
+  `HOST`, so what the environment chooses is the route and not the destination. The module
+  header states that distinction, because a previous version of it claimed the stronger thing.
+- `tls_config`, over `crate::wire::tls::config` - `RootCerts::WebPki` (`ureq`'s own default)
+  for `anchors: None`, which is every call `Self::pinned` makes and every deployment before
+  `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
+  `security.outbound.transport_anchors` resolves to. No client identity: `security.outbound`
+  is anchors only, so there is no `ClientCert` in either arm.
 
 #### Implements
 

@@ -205,7 +205,7 @@ authenticated.
   `bigquery` entry a deployment writes, so a per-entry anchor would be exactly the "a declaration that
   does nothing" failure this issue opened against - `transport_*` STAYS refused on `bigquery` and
   `files` entries; it is not lifted. What covers a fixed-host client instead is a deployment-wide
-  `security.outbound.transport_anchors` - staged, not yet landed; see below.
+  `security.outbound.transport_anchors` - landed with PR 2 below.
 
   **PR 1 lands the shared read and one refusal, with one consumer.** The bundle-or-system-store read
   and the client-identity read moved out of `sutura-exec-postgres::tls` into `sutura-tls`, a new leaf
@@ -219,21 +219,21 @@ authenticated.
   crate's own claim that a refusal still comes back as `PostgresError`. **This is deliberate, not
   incidental**: landing a crate with no consumer would itself be an unread declaration -
   `cargo xtask unused-deps` and a dead-code lint would both say so - so the migration is the same PR as
-  the extraction rather than a promise for later. `sutura-tls` has exactly one consumer until PR 2.
-  The `InvalidSourceRegistry::TlsOverUnixSocket` parse-time refusal for a `verified`/`mutual` transport
+  the extraction rather than a promise for later. `sutura-tls` had exactly one consumer (Postgres)
+  until PR 2 added the BigQuery wire. The `InvalidSourceRegistry::TlsOverUnixSocket` parse-time refusal for a `verified`/`mutual` transport
   declared over a `unix_socket` dial lands in this PR too - unrelated to the shared crate, but the same
   "a declaration that does nothing" argument in the other direction: today it fails only at
   `PostgresWarehouse::connect_secured`'s own connect-time error, which names neither key.
 
-  **PR 2 lands the second declaration together with its only reader**, for the identical reason PR 1's
-  migration is not deferred: `security.outbound.transport_anchors` (`sutura_config::security::
+  **PR 2 landed the second declaration together with its only reader**, for the identical reason PR 1's
+  migration was not deferred: `security.outbound.transport_anchors` (`sutura_config::security::
   OutboundAnchors`) - a PEM bundle path or `system`, deployment-wide, anchors only, no client identity,
-  because every endpoint it covers takes a bearer token and not a certificate - lands WITH the
+  because every endpoint it covers takes a bearer token and not a certificate - landed WITH the
   BigQuery wire's `WireAgent::secured` reader, the composition-root wiring (`sutura-serve`,
-  `sutura-cli`), and the hermetic fake-TLS cells, so nothing merges that a deployment could write and
+  `sutura-cli`), and the hermetic fake-TLS cells, so nothing merged that a deployment could write and
   have silently do nothing. A `ureq`-based adapter turns `sutura-tls`'s loaded certificates into
   `ureq::tls::Certificate` for `RootCerts::Specific` - checked against the workspace's own pinned
-  `ureq`: `TlsConfig`/`RootCerts`/`ClientCert` already exist, so this needs no new HTTP client and no
+  `ureq`: `TlsConfig`/`RootCerts`/`ClientCert` already exist, so this needed no new HTTP client and no
   `deny.toml` change. Absent `security.outbound` is not a refusal (these clients always speak TLS
   regardless, and absence means "verify against the compiled-in roots", unchanged from every prior
   release); a PRESENT block naming no anchors is, the same argument `security.inbound` with no `mode`

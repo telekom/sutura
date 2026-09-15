@@ -51,6 +51,9 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
         let catalog = catalog_reader(Path::new(&root))?;
         let pinned = catalog.load().map_err(|e| render(&e))?;
         let settings = configured()?;
+        // Read ONCE - `security.outbound`, `github.com/telekom/sutura#125` - and shared with every
+        // `WireAgent` this surface's `bigquery` arm builds.
+        let outbound = crate::sources::resolve_outbound_anchors(&settings)?;
         // The exhaustive match is here for the reason `crate::commands::query`'s is: the service is
         // monomorphised per adapter, so a third linked adapter is a compile error at this line.
         match open_engine(
@@ -59,6 +62,7 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
             settings.runtime(),
             settings.server().request_timeout(),
             data.as_deref(),
+            outbound.as_ref(),
         )? {
             Opened::Files(opened) => serve(&catalog, opened, &settings),
             #[cfg(feature = "bigquery")]
@@ -297,6 +301,7 @@ mod tests {
             settings.runtime(),
             settings.server().request_timeout(),
             Some(&example().join("data")),
+            None,
         )
         .expect("the example catalog opens with nothing declared")
         {
