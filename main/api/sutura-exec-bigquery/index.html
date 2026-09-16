@@ -2761,8 +2761,9 @@ the statement under whoever that token is. The <code>wire</code>'s own credentia
 shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
 the composition root that links this adapter: <code>crates/sutura-cli/src/serve/broker.rs</code> composes
-<code>sts::WorkloadIdentityBroker</code> today - wired in serve, not proven live, the same limit
-<code>docs/adr/0018</code> states for it.</p>
+<code>sts::WorkloadIdentityBroker</code> today - built, though the run that proved the exchange drove no
+served binary, so a served source has not executed as a caller yet
+(<code>docs/where-identity-is-proven.md</code>).</p>
 <p><strong>ONE of the two subject shapes, and the other is refused rather than degraded.</strong> A
 <code>Presented::SubjectPrincipal</code> is a principal the data system switches to on a connection the
 DEPLOYMENT authenticated, and <code>BigQuery</code> has no such mechanism; it is the same POSTURE as a

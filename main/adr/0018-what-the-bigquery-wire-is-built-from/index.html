@@ -3394,7 +3394,13 @@ second narrow port for the credential.</strong></p>
    the subject or tell two concurrent subjects apart, which is a property of <code>AccessTokens::bearer</code>'s
    signature rather than of the constant. What carries the leg's subject through per-leg execution is
    <code>crates/sutura-exec-bigquery/src/sts.rs</code>'s <code>WorkloadIdentityBroker</code>, composed in <code>sutura-serve</code>
-   (#284) - wired in serve, not proven live.</p>
+   (#284). <strong>Superseded 2026-09-16:</strong> a hosted run of <code>bigquery-exchanged-identity</code> exchanged each
+   principal's own assertion against a real STS and resolved it to that principal, so leg 2 is
+   proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads: <em>"Leg 1
+   (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
+   through a declared per-source map, by a hosted run whose job holds both principals' keys by
+   construction - so the exchange mechanics resolve per subject; no served binary has executed as a
+   caller yet."</em></p>
 <h3 id="which-shipped-artifact-links-what-per-target">Which shipped artifact links what, per target<a class="headerlink" href="#which-shipped-artifact-links-what-per-target" title="Permanent link">&para;</a></h3>
 <p><strong>The answer today is: none of them link either half of this crate</strong>, and that is checkable rather
 than asserted.</p>
@@ -3648,8 +3654,13 @@ give it. <strong>What this section's premise still gets right:</strong> the corp
 service-account credential, so a green run says nothing about the per-subject path. What that path
 needs is built, not unbuilt: <code>crates/sutura-exec-bigquery/src/sts.rs</code>'s <code>WorkloadIdentityBroker</code>
 mints the per-leg credential and <code>sutura-serve</code>'s <code>bigquery</code> composition attaches it (#284). The
-limit is narrower - wired in serve, not proven live: no exchanged token has ever run against a real
-STS (<code>.agents/skills/sutura/identity/SKILL.md</code>, <code>docs/where-identity-is-proven.md</code>).</p>
+limit is narrower - <strong>superseded 2026-09-16:</strong> a hosted run of <code>bigquery-exchanged-identity</code>
+exchanged each principal's own assertion against a real STS and resolved it to that principal, so
+leg 2 is proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads:
+<em>"Leg 1 (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
+through a declared per-source map, by a hosted run whose job holds both principals' keys by
+construction - so the exchange mechanics resolve per subject; no served binary has executed as a
+caller yet."</em> (<code>docs/where-identity-is-proven.md</code>).</p>
 <h3 id="the-service-account-flow-and-what-it-cost">The service-account flow, and what it cost<a class="headerlink" href="#the-service-account-flow-and-what-it-cost" title="Permanent link">&para;</a></h3>
 <p><code>0017</code>'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
 module reads <strong>both</strong> kinds, as a closed two-variant shape rather than a struct of <code>Option</code>s: a document
@@ -4098,7 +4109,13 @@ errors, so no ordinary rendering of a shape-derived diagnostic can carry provide
 after every site below was written. Three, in the base body rather than in an earlier amendment:</p>
 <ul>
 <li><em>The decision</em> named <code>WorkloadIdentityBroker</code> as "composed in <code>sutura-serve</code> (#284)". It is composed
-  in <code>sutura-cli</code>'s <code>serve</code> module now; "wired in serve, not proven live" is unaffected.</li>
+  in <code>sutura-cli</code>'s <code>serve</code> module now. <strong>Superseded 2026-09-16:</strong> a hosted run of
+  <code>bigquery-exchanged-identity</code> exchanged each principal's own assertion against a real STS and
+  resolved it to that principal, so leg 2 is proven for BigQuery through the declared per-source
+  map; AGENTS.md's sentence now reads: <em>"Leg 1 (knowing who is asking) is built. Leg 2 (a source
+  executing AS them) is proven for BigQuery through a declared per-source map, by a hosted run
+  whose job holds both principals' keys by construction - so the exchange mechanics resolve per
+  subject; no served binary has executed as a caller yet."</em></li>
 <li><em>Which shipped artifact links what, per target</em>'s table carried a whole row for <code>sutura-serve</code> as
   its own release artifact, and a <code>Corrected:</code> note beneath it saying <code>nix/shipped.nix:161-164</code> names
   it as a shipped binary. Both are spent: <code>nix/shipped.nix</code>'s <code>binaries</code> list has one entry now
