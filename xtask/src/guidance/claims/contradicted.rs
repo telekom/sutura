@@ -701,8 +701,17 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // a third parameter when #181 composed N metadata sources into one bundle; ADR-0007's
         // digest correction still claimed the pre-#181 arity, which made a correct line number
         // sit under a now-wrong sentence.
+        //
+        // #794 registered the wording above from ADR-0006/0007. ADR-0009 carried the same false
+        // arity in a third phrasing - `&Definitions` and `&Knowledge`, no definite articles - which
+        // the exact-substring ratchet missed. A SECOND literal entry, not a shortened shared one:
+        // "and nothing else" alone appears in over a hundred unrelated legitimate lines across
+        // `docs/`, so widening to that substring would forbid sentences nobody meant to forbid.
         name: "DefinitionDigest::of takes only Definitions and Knowledge",
-        wordings: &["takes the `Definitions` and the `Knowledge` and nothing else"],
+        wordings: &[
+            "takes the `Definitions` and the `Knowledge` and nothing else",
+            "takes `&Definitions` and `&Knowledge` and nothing else",
+        ],
         evidence: &[Evidence {
             path: "crates/sutura-domain/src/definitions.rs",
             holds: "manifest: &ContributionManifest,",
