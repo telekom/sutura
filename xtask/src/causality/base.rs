@@ -235,7 +235,12 @@ pub(crate) fn names_no_tests(text: &str) -> bool {
 /// nextest's wording first, then `cargo test`'s, so the classifier survives a runner swap - and
 /// only one of the two, because nextest prints the inner `cargo test` line as well when it shows
 /// a failure's captured output, and reading both would report one failure twice.
-fn failures(text: &str) -> Vec<String> {
+///
+/// `pub(super)` for `super::claim`: the mutation classifier must name a failed cell with the SAME
+/// key the base run uses ([`AddedTest::claims`]), or a mutation that reddened a different test
+/// would read as killing this gate's cell. This function and [`is_scoped`] are the two halves of
+/// that key, and the mutation arm reuses both rather than spelling a second one.
+pub(super) fn failures(text: &str) -> Vec<String> {
     let reported = collect(text, nextest_failure);
     if reported.is_empty() {
         return collect(text, cargo_test_failure);
@@ -327,7 +332,9 @@ fn cargo_test_failure(trimmed: &str) -> Option<String> {
 /// last two words are the key's two halves and a one-word failure supplies only the second.
 /// [`AddedTest::claims`] holds the comparison itself, next to the filter it mirrors - one place
 /// for the key, because two spellings of it is how the filter and the check came to disagree.
-fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
+///
+/// `pub(super)` for `super::claim`, which names a mutated run's failure with the same key.
+pub(super) fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
     let mut words = failure.split_whitespace().rev();
     let Some(path) = words.next() else {
         return false;
