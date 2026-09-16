@@ -4919,6 +4919,31 @@ beside it later. Each binary in <code>binaries</code> now carries its own <code>
 before; the artefact <code>#685</code> step 5 adds will state <code>permit = [ "ring" "ureq" ]</code> on its own entry, by
 name, rather than by loosening the check for everyone. The mechanism is ready; the artefact that
 needs it is not built.</p>
+<h2 id="sixteenth-amendment-2026-09-16-the-artefact-the-fifteenth-amendment-priced-is-now-built">Sixteenth amendment, 2026-09-16: the artefact the Fifteenth amendment priced is now built<a class="headerlink" href="#sixteenth-amendment-2026-09-16-the-artefact-the-fifteenth-amendment-priced-is-now-built" title="Permanent link">&para;</a></h2>
+<p><code>#685</code> step 5, in the same change. <code>nix/shipped.nix</code>'s <code>sutura</code> entry now carries <code>features =
+allFeatures</code> and <code>permit = [ "ring" "ureq" ]</code>; <code>nativeFor</code>/<code>crossFor</code> read that field for every
+release and release-performance build, native and cross, so every published binary and every
+image over it links <code>bigquery</code>, <code>postgres</code>, <code>tls</code>, <code>datahub</code> and <code>agent</code> together. The Fifteenth
+amendment's own limit - <em>"this amendment records the decision; it does not implement it"</em> - no
+longer holds, and every sentence built on it needs saying so too: <code>nix/shipped.nix</code>'s and this
+record's own "the shipped binary carries neither <code>tls</code>, <code>bigquery</code>, <code>postgres</code> nor <code>datahub</code>" is
+retired alongside <code>docs/getting-started.md</code>'s "build from source for the feature you need"
+instruction and <code>docs/verifying-a-release.md</code>'s "built with cargo's default features" table, both
+corrected in the same commit as this amendment.</p>
+<p><strong>Confirmed rather than assumed.</strong> <code>rust-audit-info</code> against the built native <code>sutura</code> binary reads
+<code>ring</code> and <code>ureq</code> back out of the embedded dependency list - the same check <code>checks.shipped-
+features</code> runs, read by hand first so a passing <code>permit</code> is not exempting a crate that was never
+there. <code>checks.one-binary</code> and <code>checks.shipped-features</code> themselves now build every release and
+release-performance target at this feature set, which is the fat-LTO-adjacent cost <code>#685</code>'s issue
+comments priced at "tens of minutes" per musl triple and the owner accepted; the <code>-ci</code> link-check
+variant deliberately does not read <code>features</code>, staying a cheap "does this triple still compile and
+link" probe rather than a second all-features build.</p>
+<p><strong>What is still NOT covered, stated rather than left to be found.</strong> <code>allFeaturesProbes</code> (step 1's
+own fat-LTO probe) is now largely redundant with the shipped <code>release-performance</code> build sharing
+the same inputs - kept rather than removed, since a probe outside <code>checks</code> costs nothing unbuilt
+and removing it is a separate, smaller cleanup this amendment does not do. And the union's binary
+size - priced as unmeasured in <code>#685</code>'s own comments - is still unmeasured here; nothing in this
+change takes that measurement.</p>
 
 
 

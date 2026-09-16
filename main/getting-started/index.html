@@ -2999,12 +2999,12 @@ its root.</p>
 source build. The unsuffixed image tags at <code>ghcr.io/telekom/sutura</code> are this command-line tool -
 <a href="../verifying-a-release/">verifying a release</a> is the tag table, and <a href="../serving/">serving over HTTP</a> is the shape for the server, whose tags are the <code>-serve</code> ones.
 <a href="#building-from-source">Building from source</a> is at the bottom of this page.</p>
-<p><strong>Both published binaries carry cargo's default features</strong>, which for this one means it links no
-data-system adapter at all - <code>sutura doctor</code>'s <code>data systems</code> line reads
-<code>none - this build reads files, and pushes down to nothing</code>. That is not a hole in this tutorial.
-Reading files is the whole of what this build does and it is enough for every command below, up to
-and including a certified answer with its anchors re-executed. <code>just shipped</code> is what asserts it,
-out of the shipped binary's own embedded dependency list rather than out of a manifest.</p>
+<p><strong>The published binary carries every optional adapter</strong>, since <code>github.com/telekom/sutura#685</code>
+step 5 - <code>sutura doctor</code>'s <code>data systems</code> line reads <code>bigquery, over the wire</code>, and reaching a
+Postgres or DataHub source needs no separate build either. Nothing below relies on that, though:
+reading local files is enough for every command in this tutorial, up to and including a certified
+answer with its anchors re-executed. <code>just shipped</code> is what asserts what a release carries, out of
+the shipped binary's own embedded dependency list rather than out of a manifest.</p>
 <h2 id="install-it">Install it<a class="headerlink" href="#install-it" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>gh<span class="w"> </span>release<span class="w"> </span>download<span class="w"> </span>--repo<span class="w"> </span>telekom/sutura<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--pattern<span class="w"> </span><span class="s1">'sutura-x86_64-unknown-linux-musl.tar.gz'</span><span class="w"> </span><span class="se">\</span>
@@ -3248,12 +3248,11 @@ have nothing to do with the question:</p>
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.</li>
 </ul>
-<p><code>kind: bigquery</code> and <code>kind: postgres</code> are the two network kinds, and each needs a build carrying its
-default-off feature - the published binaries deliberately link neither, which
-<code>checks.shipped-features</code> reads out of each released binary rather than out of a manifest. (That is
-an artifact decision, not a build-time saving.) <a href="#building-from-source">Building from source</a> is how
-to get one. The BigQuery block below is the cloud variant; the Postgres declaration, verified and
-mutual TLS modes, and least-authority role grants are in <a href="../serving/#a-postgres-source-least-authority-and-its-channel">Serving</a>.</p>
+<p><code>kind: bigquery</code> and <code>kind: postgres</code> are the two network kinds, and the published binary carries
+both, which <code>checks.shipped-features</code> reads out of each released binary's embedded dependency list
+rather than out of a manifest. Nothing to build for either. The BigQuery block below is the cloud
+variant; the Postgres declaration, verified and mutual TLS modes, and least-authority role grants
+are in <a href="../serving/#a-postgres-source-least-authority-and-its-channel">Serving</a>.</p>
 <p><strong>The <code>security:</code> block above is still required</strong> - the snippet below replaces the <code>sources:</code> block
 and nothing else. Any non-empty <code>sources:</code> with no <code>security.identity</code> is refused at startup, naming
 that key; it is the same refusal a deployment gets, which is the point of there being one settings
@@ -3380,8 +3379,8 @@ the answer cannot drift from the files.</p>
 <h2 id="building-from-source">Building from source<a class="headerlink" href="#building-from-source" title="Permanent link">&para;</a></h2>
 <p><strong>This is the contributor's route, and it is the second half of this page rather than the first for
 a reason.</strong> Everything above runs on a published artefact, which is what a reader who wants an
-answer should be holding. You want a source build for one of two things: a change to this
-repository, or a feature no published binary carries.</p>
+answer should be holding. A source build is for a change to this repository - the published binary
+already carries every optional adapter, so wanting one of them is no longer a reason to build.</p>
 <p>A clone and the toolchain the repository pins are what this needs -
 <a href="../contributing/">Contributing</a> is the setup, and <code>just</code> with no argument lists every task. Every
 command above then has a second spelling, which is the one this repository's own suites run:</p>
@@ -3393,15 +3392,13 @@ command above then has a second spelling, which is the one this repository's own
 <p>No feature flag and nothing to install for that: the engine is compiled into the binary and reads
 the CSVs itself, so <code>query</code> works in a plain <code>cargo run</code>. A data system's driver is a development
 dependency here - present to prove the SQL we render actually runs, not to answer your questions.</p>
-<p>A build that can open a BigQuery dataset is the one thing above that a published binary cannot do,
-and it is a feature away:</p>
+<p>A source build can also carry FEWER adapters than the published binary, over <code>--features</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
 </span></code></pre></div>
-<p><code>sutura doctor</code> on the result says <code>bigquery, over the wire</code> where a published artefact says <code>none</code>,
-which is how somebody holding a binary finds out which of the two they have.</p>
-<p>A Postgres database is the same shape, over <code>--features postgres</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>postgres
-</span></code></pre></div>
+<p>builds a binary that can open BigQuery and nothing else network-shaped; plain <code>cargo build --release
+-p sutura-cli</code> builds one that opens no data system at all, same as this repository's own <code>cargo run</code>
+above. <code>sutura doctor</code> says which adapters a given binary was built with, which is how you tell one
+build from another - published or not.</p>
 
 
 

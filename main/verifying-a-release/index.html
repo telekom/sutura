@@ -3043,14 +3043,15 @@ lock file.</strong> Why that distinction is worth the sentence is under
 <p><strong>One registry repository</strong>, <code>ghcr.io/telekom/sutura</code>. The unsuffixed tags have always resolved to
 this binary and still do - there is nothing else for them to resolve to now. Which libc you get is
 still something you have to type: <code>:latest-musl</code> for the static pair, <code>:latest</code> for glibc.</p>
-<p><strong>Built with cargo's default features</strong>, which means the published binary carries the HTTP surface,
-the caller-token verification, the rate limiter and the generated interface description, and carries
-<strong>neither in-process TLS, the BigQuery adapter, the Postgres adapter nor the DataHub adapter</strong>. Each
-of those costs an outbound rustls closure on two statically linked triples, and each is a startup
-refusal naming the feature rather than a silent degradation - so a deployment that needs one builds
-from source and knows it. <code>nix/shipped.nix</code> is where that decision is written, and
-<code>nix build .#checks.x86_64-linux.shipped-features</code> is what asserts it, out of the shipped binary's
-own embedded dependency list rather than out of a manifest.</p>
+<p><strong>Built with every optional feature on</strong>, since <code>github.com/telekom/sutura#685</code> step 5 - the
+published binary carries the HTTP surface, the caller-token verification, the rate limiter, the
+generated interface description, in-process TLS, and the BigQuery, Postgres and DataHub adapters,
+all at once. Configuring a deployment to use one is a settings-tree entry, not a build: which
+adapters a deployment uses is configuration, and a binary with fewer of them is a source build a
+contributor chooses, not what a release ships. <code>nix/shipped.nix</code> is where that decision is written,
+and <code>nix build .#checks.x86_64-linux.shipped-features</code> is what asserts it, out of the shipped
+binary's own embedded dependency list rather than out of a manifest - including that <code>ring</code> and
+<code>ureq</code>, the crates the earlier default-off decision existed to keep out, are now genuinely present.</p>
 <p><strong>A release also carries a licence statement, and it is a different list on purpose.</strong> What each of
 the two documents answers is under <a href="#the-licence-statement">The licence statement</a>.</p>
 <h2 id="what-is-signed">What is signed<a class="headerlink" href="#what-is-signed" title="Permanent link">&para;</a></h2>
@@ -3248,10 +3249,10 @@ executable. That is worth a sentence, because the obvious way to produce this li
   document says so.</li>
 <li>
 <p>It would also be the <strong>wrong list</strong>. <code>Cargo.lock</code> records what cargo <em>resolved</em>, not what the
-  linker <em>kept</em>: the shipped binary carries neither the DuckDB adapter nor the BigQuery wire by
-  default, while <code>libduckdb-sys</code> and that wire put <code>ureq</code>, rustls and <code>ring</code> into the resolve
-  graph. A workspace-wide document names all three and is wrong in the direction that matters,
-  which is overstating what ships.</p>
+  linker <em>kept</em>: <code>sutura-exec-duckdb</code> proves the SQL a test suite renders and is never wired into
+  a shipped feature, so the DuckDB adapter is in the resolve graph and never in the binary. A
+  workspace-wide document names it anyway and is wrong in the direction that matters, which is
+  overstating what ships.</p>
 </li>
 <li>
 <p><strong>There is one SBOM per image rather than one per release, and that stays true regardless of how
