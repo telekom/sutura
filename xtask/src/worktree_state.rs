@@ -779,7 +779,8 @@ mod tests {
         let scope = sutura_dev::scope::Scope::from_root(&root).expect("the repository root resolves");
         let expected = scope.scratch("pg");
         let shared = expected.parent().expect("a scratch path sits under a shared root");
-        let text = std::fs::read_to_string(root.join("nix/postgres-tier.nix")).expect("the tier is readable");
+        let text = std::fs::read_to_string(root.join("nix/postgres-tier-provision.sh"))
+            .expect("the tier's provisioner script is readable");
         let lines: Vec<&str> = text.lines().map(str::trim).collect();
         let derived: Vec<&str> = lines.iter().copied().filter(|line| line.starts_with("key=")).collect();
         let built: Vec<&str> = lines
@@ -789,13 +790,15 @@ mod tests {
             .collect();
         assert_eq!(derived.len(), 1, "the tier derives its key on one line: {derived:?}");
         assert_eq!(built.len(), 1, "the tier builds its scratch path on one line: {built:?}");
-        // `''${` is how a nix indented string spells a shell `${`, and `$root` is the only input
-        // those two lines have. `TMPDIR` is handed the parent `Scope::scratch` chose, so both sides
-        // read one shared root and what is compared is the key and the name under it.
+        // The provisioner is a plain shell script now (`nix/postgres-tier-provision.sh`, moved out
+        // of `nix/postgres-tier.nix`'s `text = ''...''` to keep that file under the line cap), so
+        // there is no nix `''${` escaping left to undo. `$root` is the only input those two lines
+        // have; `TMPDIR` is handed the parent `Scope::scratch` chose, so both sides read one shared
+        // root and what is compared is the key and the name under it.
         let key = derived[0];
         let path = built[0];
         let canonical = scope.root().display();
-        let script = format!("set -eu\nroot='{canonical}'\n{key}\n{path}\nprintf '%s' \"$pg\"").replace("''${", "${");
+        let script = format!("set -eu\nroot='{canonical}'\n{key}\n{path}\nprintf '%s' \"$pg\"");
         let ran = std::process::Command::new("bash")
             .arg("-c")
             .arg(&script)
