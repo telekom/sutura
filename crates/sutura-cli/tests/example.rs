@@ -33,6 +33,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_catalog_local::LocalCatalog;
+    use sutura_domain::pinned::view::ScopedView;
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::query::Query;
     use sutura_semantic::{Compiled, compile};
@@ -330,7 +331,8 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let compiled = compile(&question, &pinned).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+            let compiled =
+                compile(&question, &ScopedView::everything(&pinned)).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match compiled {
                 Compiled::Refused { ref reason } => {

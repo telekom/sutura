@@ -1210,6 +1210,12 @@ pub const fn anchor(&self) -> Option<&Anchor>
 ```
 
 ```rust
+pub const fn audience(&self) -> &Audience
+```
+
+Who may see this metric - `docs/adr/0028`.
+
+```rust
 pub const fn computation(&self) -> &Computation
 ```
 
@@ -1244,7 +1250,7 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(name: MetricName, model: ModelName, computation: impl Into<Computation>, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description) -> Result<Self, InconsistentDefinitions>
+pub fn new(name: MetricName, model: ModelName, computation: impl Into<Computation>, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: Vec<Dimension>, anchor: Option<Anchor>, description: Description, audience: Audience) -> Result<Self, InconsistentDefinitions>
 ```
 
 A certified metric, or a refusal if two of its dimensions answer to one label.
@@ -1320,6 +1326,25 @@ pub const fn time_column(&self) -> &ColumnName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `use Audience`
+
+Who may see one metric, under the definition digest. Two cases and no third: open to every
+verified caller, or restricted to a non-empty `AudienceGrant`.
+
+### `use AudienceGrant`
+
+Parsed rather than a bare `BTreeSet<AudienceId>`, so `InvalidAudienceGrant::Empty` is
+refused once, at assembly.
+
+### `use GrantedAudiences`
+
+What a deployment mapped a verified caller's group claim onto, for one request. Owned, not
+borrowed: unlike a pinned bundle this set is small, built per request.
+
+### `use InvalidAudienceGrant`
+
+Why a restricted audience is not one.
 
 ### `use AnchorValue`
 
@@ -4426,6 +4451,35 @@ Parses a name, rejecting anything that is not one.
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
 
+### `struct AudienceId`
+
+```rust
+pub struct AudienceId
+```
+
+`docs/adr/0028`. Not a scope: catalog metadata, not the deployed authorization-server
+ contract.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
 ### `enum Aggregate`
 
 ```rust
@@ -5530,6 +5584,77 @@ no entries and has no second name to collide with.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### Module `view`
+
+A caller-scoped read of one pinned bundle - `docs/adr/0028-who-may-see-a-metric.md`.
+
+`crate::pinned::SemanticCatalog::load` takes no request context, so a per-caller filter
+cannot live there. `ScopedView` borrows the bundle instead. Mapping a claim to a
+`GrantedAudiences` is deployment policy, done above this crate.
+
+#### `struct ScopedView`
+
+```rust
+pub struct ScopedView<'a>
+```
+
+A read of a `PinnedDefinitions` narrowed to what one caller may see.
+
+Both fields are private; no struct literal outside this module compiles:
+
+```compile_fail
+use sutura_domain::pinned::{PinnedDefinitions, view::ScopedView};
+
+fn _by_hand(pinned: &PinnedDefinitions) -> ScopedView<'_> {
+    ScopedView { pinned, scope: sutura_domain::pinned::view::Scope::Everything }
+}
+```
+
+The compiling twin:
+
+```
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::pinned::view::ScopedView;
+
+fn _read(pinned: &PinnedDefinitions) -> usize {
+    ScopedView::everything(pinned).metrics().count()
+}
+```
+
+##### Methods
+
+```rust
+pub const fn everything(pinned: &'a PinnedDefinitions) -> Self
+```
+
+For the surfaces `docs/adr/0028` names as retaining the whole bundle. Public, so not
+sealed against misuse; what it buys is that nothing downstream renders a catalog from a
+bare `&PinnedDefinitions`.
+
+```rust
+pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences) -> Self
+```
+
+```rust
+pub fn metric(&self, name: &MetricName) -> Option<&'a Metric>
+```
+
+Absent, not undescribed, when this caller may not see it.
+
+```rust
+pub fn metrics(&self) -> impl Iterator<Item> + '_
+```
+
+```rust
+pub const fn pinned(&self) -> &'a PinnedDefinitions
+```
+
+For provenance, which is always the whole bundle's digest.
+
+##### Implements
+
+`Debug`
 
 ## Module `plan`
 

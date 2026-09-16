@@ -359,6 +359,9 @@ pub struct SecuritySettings {
     /// nobody turned on.
     credential_cache: CredentialCacheSettings,
     outbound: Option<OutboundAnchors>,
+    /// `docs/adr/0028` - never an `Option`: absence is the empty mapping, which grants nothing and
+    /// is the safe direction here. See `crate::audience::AudienceMapping`.
+    audience_mapping: crate::audience::AudienceMapping,
 }
 
 impl SecuritySettings {
@@ -384,6 +387,7 @@ impl SecuritySettings {
         metrics_token: Option<AccessToken>,
         credential_cache: CredentialCacheSettings,
         outbound: Option<OutboundAnchors>,
+        audience_mapping: crate::audience::AudienceMapping,
     ) -> Self {
         Self {
             access_token,
@@ -393,7 +397,15 @@ impl SecuritySettings {
             metrics_token,
             credential_cache,
             outbound,
+            audience_mapping,
         }
+    }
+
+    /// `docs/adr/0028`'s deployment mapping: which audiences a verified caller's group claim grants.
+    #[inline]
+    #[must_use]
+    pub const fn audience_mapping(&self) -> &crate::audience::AudienceMapping {
+        &self.audience_mapping
     }
 
     /// The exchanged-credential cache's own settings - `docs/adr/0031`.
@@ -583,6 +595,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             None,
+            crate::audience::AudienceMapping::default(),
         );
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
@@ -654,6 +667,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             None,
+            crate::audience::AudienceMapping::default(),
         );
         let without = SecuritySettings::default();
         assert!(!with_token.describes_identity(), "a shared token is not an identity");
@@ -673,6 +687,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             None,
+            crate::audience::AudienceMapping::default(),
         );
         assert!(verifying.describes_identity());
         assert_eq!(verifying.inbound_mode(), "direct");
@@ -873,6 +888,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             Some(OutboundAnchors::System),
+            crate::audience::AudienceMapping::default(),
         );
         assert_eq!(declared.outbound(), Some(&OutboundAnchors::System));
     }

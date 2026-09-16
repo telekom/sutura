@@ -4,6 +4,7 @@
 //! run twice. The instrument is a fake: the port is a Rust trait, so the honest stand-in is a type
 //! that implements it, and a test asserting on the text of an HTTP request would prove something
 //! about the test.
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::MAX_ROWS;
 use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ResponseByteLimit, ResultBound, ToolOutcome};
 use sutura_semantic::compile;
@@ -28,7 +29,7 @@ fn a_question_that_would_reach_a_second_data_system_is_split_into_two_legs() {
         vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
         Vec::new(),
     );
-    let compiled = compile(&asked, &split).expect("this is a plan, not an error");
+    let compiled = compile(&asked, &ScopedView::everything(&split)).expect("this is a plan, not an error");
     match compiled {
         sutura_semantic::Compiled::Federated { ref plan } => {
             assert_eq!(plan.legs().len(), 2, "a fact leg and a lookup leg");
@@ -62,7 +63,7 @@ fn a_question_whose_join_would_read_two_tables_of_one_name_is_refused() {
         vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
         Vec::new(),
     );
-    let compiled = compile(&through_the_join, &collides).expect("this is a refusal, not an error");
+    let compiled = compile(&through_the_join, &ScopedView::everything(&collides)).expect("this is a refusal, not an error");
     let expected = RefusalReason::PlanTablesShareAnIdentifier {
         table: sutura_domain::model::TableName::parse("orders").expect("a name"),
     };
@@ -84,7 +85,7 @@ fn a_question_whose_join_would_read_two_tables_of_one_name_is_refused() {
         vec![sutura_domain::model::DimensionName::parse("customer").expect("a name")],
         Vec::new(),
     );
-    let planned = compile(&no_join, &collides).expect("a question that needs no join is not a refusal");
+    let planned = compile(&no_join, &ScopedView::everything(&collides)).expect("a question that needs no join is not a refusal");
     assert_eq!(
         planned.refusal(),
         None,
@@ -481,7 +482,7 @@ fn the_longest_permitted_range_is_answered_and_one_day_more_is_refused() {
     let longest = ask("2020-01-01", "2030-01-01");
     assert_eq!(longest.range().days(), MAX_RANGE_DAYS);
     assert!(
-        compile(&longest, &pinned)
+        compile(&longest, &ScopedView::everything(&pinned))
             .expect("a refusal is not an error")
             .plan()
             .is_some(),
@@ -491,7 +492,7 @@ fn the_longest_permitted_range_is_answered_and_one_day_more_is_refused() {
     let one_day_longer = ask("2020-01-01", "2030-01-02");
     assert_eq!(one_day_longer.range().days(), MAX_RANGE_DAYS + 1);
     assert_eq!(
-        compile(&one_day_longer, &pinned)
+        compile(&one_day_longer, &ScopedView::everything(&pinned))
             .expect("a refusal is not an error")
             .refusal(),
         Some(&RefusalReason::TimeRangeTooLong {
@@ -581,7 +582,7 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
         ],
         Vec::new(),
     );
-    let compiled = compile(&asked, &split).expect("this is a plan, not an error");
+    let compiled = compile(&asked, &ScopedView::everything(&split)).expect("this is a plan, not an error");
     let sutura_semantic::Compiled::Federated { plan } = compiled else {
         panic!("a two-source question should federate");
     };
@@ -680,7 +681,7 @@ fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refu
         ],
         Vec::new(),
     );
-    let compiled = compile(&both, &collides).expect("this is a refusal, not an error");
+    let compiled = compile(&both, &ScopedView::everything(&collides)).expect("this is a refusal, not an error");
     let expected = RefusalReason::PlanTablesShareAnIdentifier {
         table: sutura_domain::model::TableName::parse("orders").expect("a name"),
     };
@@ -705,7 +706,7 @@ fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refu
         ],
         Vec::new(),
     );
-    let split = compile(&without_the_collision, &collides).expect("this is a plan, not an error");
+    let split = compile(&without_the_collision, &ScopedView::everything(&collides)).expect("this is a plan, not an error");
     match split {
         sutura_semantic::Compiled::Federated { ref plan } => {
             assert_eq!(plan.legs().len(), 2, "a fact leg and a lookup leg");

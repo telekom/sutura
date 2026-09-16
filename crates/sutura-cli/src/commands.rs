@@ -20,6 +20,7 @@ use sutura_catalog_local::LocalCatalog;
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::SourceName;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
@@ -346,7 +347,7 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
         };
         let pinned = load(Path::new(&root))?;
         let question = read_question(Path::new(&question_path))?;
-        match sutura_semantic::compile(&question, &pinned).map_err(|e| render(&e))? {
+        match sutura_semantic::compile(&question, &ScopedView::everything(&pinned)).map_err(|e| render(&e))? {
             Compiled::Refused { reason } => {
                 println!("{}", render_refusal(&reason)?);
             }

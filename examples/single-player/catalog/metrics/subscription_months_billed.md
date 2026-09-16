@@ -33,6 +33,7 @@ anchor:
     start: 2026-06-01
     end: 2026-07-01
   value: 62
+audience: open
 ---
 How many subscription-months the period billed.
 

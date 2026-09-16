@@ -20,9 +20,11 @@ use std::collections::{BTreeMap, BTreeSet};
 // the assembled `Definitions` they gate, and this file holds the declarations. The names stay where
 // they were - a caller still writes `sutura_domain::catalog::DimensionValue` - because the module is
 // the unit of API and the files are not.
+mod audience;
 mod authored;
 mod consistency;
 
+pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
 pub use authored::{
     AnchorValue, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
     MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
@@ -396,6 +398,9 @@ pub struct Metric {
     dimensions: BTreeMap<DimensionName, Dimension>,
     anchor: Option<Anchor>,
     description: Description,
+    /// Who may see this metric - `docs/adr/0028`. Under the digest, like everything else here: a
+    /// classification change moves it exactly as a rename would.
+    audience: Audience,
 }
 
 impl Metric {
@@ -464,6 +469,7 @@ impl Metric {
         dimensions: Vec<Dimension>,
         anchor: Option<Anchor>,
         description: Description,
+        audience: Audience,
     ) -> Result<Self, InconsistentDefinitions> {
         let mut declared: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
         for dimension in dimensions {
@@ -498,12 +504,19 @@ impl Metric {
             dimensions: declared,
             anchor,
             description,
+            audience,
         })
     }
 
     #[inline]
     pub const fn name(&self) -> &MetricName {
         &self.name
+    }
+
+    /// Who may see this metric - `docs/adr/0028`.
+    #[inline]
+    pub const fn audience(&self) -> &Audience {
+        &self.audience
     }
 
     #[inline]

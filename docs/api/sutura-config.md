@@ -113,6 +113,20 @@ happened rather than implying the check was run.
 
 Whether the generated documentation surface is served.
 
+## `use AudienceMapping`
+
+Maps a verified caller's `groups` claim values onto `docs/adr/0028` audience identifiers.
+
+**Absence is the safe default.** An unconfigured mapping grants nothing to anyone, which reads a
+restricted metric as invisible rather than open - the fail-closed direction this workspace
+prefers on the query path. That is the opposite failure mode from the catalog's own audience
+field, which has no default at all for the reason stated there: here the empty map is a genuine
+answer (no groups mapped yet), while there a missing declaration must not parse into one.
+
+## `use InvalidAudienceMapping`
+
+Why a mapping this operator wrote is not a usable one.
+
 ## `use CatalogKind`
 
 Which adapter the catalog configuration names, and therefore which one opens it.
@@ -1238,6 +1252,73 @@ pub const fn new(docs_enabled: bool, docs_were_explicit: bool) -> Self
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+## Module `audience`
+
+The deployment's own mapping from a verified group claim to `docs/adr/0028`'s audience
+identifiers.
+
+**Deliberately deployment policy and not part of the pinned bundle.** The catalog author
+classifies metadata under portable audience identifiers; a deployer separately decides which of
+their identity provider's groups map onto each one. Changing this mapping does not move the
+definition digest - `docs/adr/0028`'s "the catalog declaration moves the digest; the deployment
+mapping does not" - and it is not a scope: a scope is part of the deployed authorization-server
+contract, and adding a metric must not require adding one.
+
+### `enum InvalidAudienceMapping`
+
+```rust
+pub enum InvalidAudienceMapping
+```
+
+Why a mapping this operator wrote is not a usable one.
+
+#### Variants
+
+- `Identifier` - One of the audience identifiers a group maps to is not a usable one.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct AudienceMapping`
+
+```rust
+pub struct AudienceMapping
+```
+
+Maps a verified caller's `groups` claim values onto `docs/adr/0028` audience identifiers.
+
+**Absence is the safe default.** An unconfigured mapping grants nothing to anyone, which reads a
+restricted metric as invisible rather than open - the fail-closed direction this workspace
+prefers on the query path. That is the opposite failure mode from the catalog's own audience
+field, which has no default at all for the reason stated there: here the empty map is a genuine
+answer (no groups mapped yet), while there a missing declaration must not parse into one.
+
+#### Methods
+
+```rust
+pub fn granted_for<'a>(&self, claimed: impl Iterator<Item>) -> BTreeSet<AudienceId>
+```
+
+Every audience this deployment grants a caller whose verified `groups` claim named any of
+`claimed`.
+
+**A group this mapping does not name contributes nothing and vetoes nothing** -
+`docs/adr/0028`'s table: any mapped group among several is sufficient, and an unmapped group
+in a mixed claim neither grants nor cancels a mapped one. Union rather than intersection is
+what makes that true: each claimed group is looked up independently and its audiences (if
+any) are added to the result.
+
+```rust
+pub fn parse(raw: BTreeMap<String, BTreeSet<String>>) -> Result<Self, InvalidAudienceMapping>
+```
+
+Parses an operator's `security.audience_mapping`.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`
 
 ## Module `catalog`
 
@@ -3553,6 +3634,12 @@ pub const fn access_token(&self) -> Option<&AccessToken>
 The configured token, if there is one.
 
 ```rust
+pub const fn audience_mapping(&self) -> &crate::audience::AudienceMapping
+```
+
+`docs/adr/0028`'s deployment mapping: which audiences a verified caller's group claim grants.
+
+```rust
 pub const fn credential_cache(&self) -> CredentialCacheSettings
 ```
 
@@ -3614,7 +3701,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>, audience_mapping: crate::audience::AudienceMapping) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.

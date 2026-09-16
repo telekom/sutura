@@ -336,7 +336,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // from whatever leg 1 below established. INSIDE `require_capability`, because `Router::layer`
     // wraps what is already there - so `permitted_for` reads a value this layer already put in the
     // extensions rather than deriving it a second time. See `crate::capability::establish_asked`.
-    let versioned = versioned.route_layer(axum::middleware::from_fn(crate::capability::establish_asked));
+    let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        crate::capability::establish_asked,
+    ));
     // Then leg 1, if this deployment has it: a verified caller, or a `401` with a challenge. INSIDE
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated
@@ -664,9 +667,12 @@ fn agent_subtree(
     if declared.is_none() {
         return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
     }
-    let mount = mount
-        .ungoverned()
-        .layered(|router| router.route_layer(axum::middleware::from_fn(crate::capability::establish_asked)));
+    let mount = mount.ungoverned().layered(|router| {
+        router.route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::capability::establish_asked,
+        ))
+    });
     let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
     Ok(Some(mount))
 }

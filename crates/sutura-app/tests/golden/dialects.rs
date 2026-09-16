@@ -4,6 +4,7 @@
 //! one it is does not matter to a renderer, and the catalog axis is what makes that true.
 
 use std::collections::BTreeSet;
+use sutura_domain::pinned::view::ScopedView;
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::Grain;
@@ -24,7 +25,8 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
     for path in questions() {
         let asked = read_question(&path);
         let name = stem(&path);
-        let compiled = compile(&asked, &pinned).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+        let compiled =
+            compile(&asked, &ScopedView::everything(&pinned)).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
@@ -64,7 +66,7 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
     for path in questions() {
         let asked = read_question(&path);
         let literals = asked.literals();
-        let compiled = compile(&asked, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
@@ -177,7 +179,7 @@ fn quotes_every_identifier(dialect: Dialect) {
     let mut quoted_names_checked = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
-        let compiled = compile(&asked, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
@@ -231,7 +233,7 @@ fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot
     let mut checked = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
-        let compiled = compile(&asked, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
@@ -334,7 +336,7 @@ fn some_question_asks_for_every_grain_a_metric_declares() {
     let mut asked = BTreeSet::<Grain>::new();
     for path in questions() {
         let asked_question = read_question(&path);
-        let compiled = compile(&asked_question, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked_question, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };

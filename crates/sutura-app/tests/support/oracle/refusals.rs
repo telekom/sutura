@@ -22,7 +22,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
+use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
@@ -134,6 +134,7 @@ impl SemanticCatalog for TwoSourceCatalog {
             ],
             None,
             Description::default(),
+            Audience::Open,
         )
         .expect("one dimension cannot duplicate another");
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
@@ -246,6 +247,7 @@ impl SemanticCatalog for SameNameTablesCatalog {
             ],
             None,
             Description::default(),
+            Audience::Open,
         )
         .expect("these fixture dimensions are distinct");
         let definitions = Definitions::assemble(vec![fact, lookup], joins, vec![revenue])
@@ -371,6 +373,7 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
             ],
             None,
             Description::default(),
+            Audience::Open,
         )
         .expect("these fixture dimensions are distinct");
         let definitions = Definitions::assemble(vec![fact, crm, geo], joins, vec![revenue])

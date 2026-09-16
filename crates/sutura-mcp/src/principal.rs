@@ -17,7 +17,7 @@ use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 /// be indistinguishable from the honest case. Both tail positions are absent, so an agent acting
 /// for a human is not something this transport can currently claim - and when it can, this is the
 /// one function that changes.
-pub(crate) const fn established() -> RequestContext {
+pub(crate) fn established() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
 }
 

@@ -32,9 +32,10 @@ use std::time::Instant;
 use sutura_domain::catalog::Anchor;
 use sutura_domain::identity::{
     Agreed, Attribution, BoundToTheRequest, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry,
-    PresentedDisagreesWithPosture, RequestContext, SourceSet,
+    PresentedDisagreesWithPosture, RequestContext, SourceSet, Subject,
 };
 use sutura_domain::model::{Grain, MetricName, SourceName};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
@@ -368,7 +369,8 @@ where
     B: CredentialBroker,
 {
     let pinned = definitions.get();
-    let compiled = compile(query, pinned).map_err(|cause| ServiceError::Compile { cause })?;
+    let view = scoped_for(pinned, context);
+    let compiled = compile(query, &view).map_err(|cause| ServiceError::Compile { cause })?;
     // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
     // the plan itself, for its own dialect.
@@ -737,6 +739,26 @@ pub(crate) fn budget_exhausted(ledger: &SpendLedger, context: &RequestContext, p
     charge_subject(ledger, context, estimated_bytes.bytes(), Instant::now())
 }
 
+/// The view a request context resolves against - `docs/adr/0028`.
+///
+/// **Here, beside [`Asked`] and [`crate::capability::Permitted`]**, so no transport owns the
+/// decision: `answer` below reads it, and so does every route that renders a catalog through
+/// `Asked::context`.
+///
+/// **Derived from the SUBJECT, not from whether the caller presented anything else.** A verified
+/// caller's granted set stays on `context` regardless of whether it maps to anything, so an empty
+/// grant and no verification at all must not read alike: [`Subject::TheDeploymentItself`] is the
+/// explicit single-player posture the ADR's surface table names - every non-verified surface reaches
+/// this value and always has - while [`Subject::Verified`] is a caller this deployment
+/// authenticated, whose mapped audiences decide what is visible even when that set is empty.
+#[must_use]
+pub fn scoped_for<'a>(pinned: &'a PinnedDefinitions, context: &RequestContext) -> ScopedView<'a> {
+    match context.chain().subject() {
+        Subject::TheDeploymentItself => ScopedView::everything(pinned),
+        Subject::Verified(_) => ScopedView::granted_by(pinned, context.audiences().clone()),
+    }
+}
+
 /// Re-executes every declared anchor and reports what each produced.
 ///
 /// Returns a report rather than a `Result`, because "this one metric no longer computes its number"
@@ -794,7 +816,7 @@ where
 
     // No dimensions and no filters: an anchor is the metric's own number, not a slice of it.
     let question = Query::new(metric.clone(), grain, anchor.range(), Vec::new(), Vec::new());
-    let compiled = match compile(&question, pinned) {
+    let compiled = match compile(&question, &ScopedView::everything(pinned)) {
         Ok(compiled) => compiled,
         Err(cause) => {
             let (message, chain) = flatten(&cause);

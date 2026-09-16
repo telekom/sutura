@@ -5,6 +5,7 @@
 
 use sutura_app::{answer, verify_anchors};
 use sutura_domain::pinned::AnchorCheck;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::Executable;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::RowSet;
@@ -129,7 +130,7 @@ where
     let warehouse: W = open(&pinned);
     for path in questions() {
         let asked = read_question(&path);
-        let compiled = compile(&asked, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };

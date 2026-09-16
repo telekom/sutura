@@ -28,9 +28,12 @@ use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
 };
 
-// The four knowledge documents. Their own module because this file is already at two thirds of the
-// thousand-line limit `cargo xtask max-lines` enforces, and because they are a separate concern: a
-// definition decides what executes and a note decides what a reader understands.
+use crate::document::audience::{AudienceDoc, InvalidAudienceDeclaration};
+
+// Own modules: this file is near the thousand-line cap, and each is a separate concern - who may
+// see a metric, and the four knowledge documents (a definition decides what executes, a note
+// decides what a reader understands).
+pub mod audience;
 pub mod knowledge;
 
 /// What a document declares itself to be.
@@ -320,6 +323,12 @@ pub struct MetricDoc {
     dimensions: Vec<DimensionDoc>,
     #[serde(default)]
     anchor: Option<AnchorDoc>,
+    /// Who may see this metric - `docs/adr/0028`. **No default**: a missing key is a parse error
+    /// naming the metric, never a silent `open`. `singleton_map` for `measure`'s own reason:
+    /// `restricted:` is a YAML mapping, and the default externally-tagged form for that needs a
+    /// `!Tag` nobody authoring a catalog file spells; the unit variant `open` needs no adapter.
+    #[serde(with = "serde_norway::with::singleton_map")]
+    audience: AudienceDoc,
 }
 
 /// Why a metric document cannot become a metric.
@@ -368,6 +377,13 @@ pub enum InvalidMetricDocument {
         #[source]
         cause: InvalidDimensionValue,
     },
+    /// The `audience:` declaration is not a usable one - `docs/adr/0028`.
+    #[error("metric {metric}'s audience declaration is not usable as one")]
+    Audience {
+        metric: MetricName,
+        #[source]
+        cause: InvalidAudienceDeclaration,
+    },
 }
 
 impl MetricDoc {
@@ -387,6 +403,10 @@ impl MetricDoc {
                 metric: self.name.clone(),
                 cause,
             })?;
+        let audience = self.audience.into_domain().map_err(|cause| InvalidMetricDocument::Audience {
+            metric: self.name.clone(),
+            cause,
+        })?;
         let computation = Computation::assemble(self.measure, self.authored_sql).map_err(InvalidMetricDocument::Computation)?;
         Metric::new(
             self.name,
@@ -398,6 +418,7 @@ impl MetricDoc {
             dimensions,
             anchor,
             description,
+            audience,
         )
         .map_err(|cause| InvalidMetricDocument::Inconsistent(Box::new(cause)))
     }
@@ -405,10 +426,13 @@ impl MetricDoc {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::catalog::{DimensionValue, InconsistentDefinitions, InvalidDimensionValue};
+    use sutura_domain::catalog::{Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue};
     use sutura_domain::expression::InvalidComputation;
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
+    use sutura_domain::model::AudienceId;
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
     fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
@@ -439,6 +463,7 @@ measure:
   simple: { aggregate: sum, column: amount_cents }
 time_column: order_date
 grains: [month]
+audience: open
 ";
 
     /// The minimal document with a different measure block substituted in.
@@ -447,7 +472,9 @@ grains: [month]
     /// ending in a newline, so each measure test below reads as one statement about one shape
     /// instead of a second copy of every other field.
     fn metric_measuring(measure: &str) -> String {
-        format!("kind: metric\nname: revenue\nmodel: orders\nmeasure:\n{measure}time_column: order_date\ngrains: [month]\n")
+        format!(
+            "kind: metric\nname: revenue\nmodel: orders\nmeasure:\n{measure}time_column: order_date\ngrains: [month]\naudience: open\n"
+        )
     }
 
     #[test]
@@ -467,6 +494,39 @@ grains: [month]
         assert!(metric.anchor().is_none());
     }
 
+    /// `docs/adr/0028` step 2: `audience:` was an unknown field before this. Red on a tree with no
+    /// `audience` field on `MetricDoc`, green once it exists and parses.
+    #[test]
+    fn a_metric_document_declaring_its_audience_loads_and_carries_it() {
+        let doc = metric_doc(MINIMAL_METRIC).expect("a document declaring `audience: open` loads");
+        let metric = doc
+            .into_domain(description("Net revenue."))
+            .expect("no dimensions to duplicate");
+        assert_eq!(metric.audience(), &Audience::Open);
+    }
+
+    /// The `restricted:` spelling needs `singleton_map` on the field, unlike the bare-scalar
+    /// `open` - this is the one test that asks the REAL `MetricDoc`, not a proxy wrapper.
+    #[test]
+    fn a_metric_document_may_restrict_its_audience() {
+        let yaml = format!("{MINIMAL_METRIC}audience:\n  restricted: [finance]\n").replace("audience: open\n", "");
+        let metric = metric_doc(&yaml)
+            .expect("a restricted audience is a metric field")
+            .into_domain(Description::default())
+            .expect("no dimensions to duplicate");
+        let grant = AudienceGrant::parse(BTreeSet::from([AudienceId::parse("finance").expect("a test id")])).expect("grants");
+        assert_eq!(metric.audience(), &Audience::Restricted(grant));
+    }
+
+    /// The refusal half: no default means absence is a parse error, never a silent `open`.
+    #[test]
+    fn a_metric_document_with_no_audience_key_is_refused_by_name() {
+        let yaml = "kind: metric\nname: revenue\nmodel: orders\nmeasure:\n  \
+                    simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\n";
+        let err = metric_doc(yaml).expect_err("a metric with no audience declaration is not a metric document");
+        assert!(err.to_string().contains("audience"), "{err}");
+    }
+
     #[test]
     fn authored_sql_is_the_other_computation_a_metric_document_can_choose() {
         let yaml = "
@@ -477,6 +537,7 @@ authored_sql:
   portable: MAX(amount_cents) - MIN(amount_cents)
 time_column: order_date
 grains: [month]
+audience: open
 ";
         let metric = metric_doc(yaml)
             .expect("authored_sql is a metric field")
@@ -488,7 +549,7 @@ grains: [month]
 
     #[test]
     fn a_metric_document_must_choose_exactly_one_computation() {
-        let without = "kind: metric\nname: revenue\nmodel: orders\ntime_column: order_date\ngrains: [month]\n";
+        let without = "kind: metric\nname: revenue\nmodel: orders\ntime_column: order_date\ngrains: [month]\naudience: open\n";
         assert_eq!(
             metric_doc(without)
                 .expect("the document shape is readable")

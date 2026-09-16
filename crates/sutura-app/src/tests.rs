@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -143,6 +143,7 @@ pub(crate) fn bundle() -> PinnedDefinitions {
             AnchorValue::parse("197122").expect("a test anchor value is a value"),
         )),
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
