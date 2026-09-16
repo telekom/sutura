@@ -142,3 +142,171 @@ fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
         "a leg the data system refuses at the identity/authorization level must be refused, not {outcome:?}"
     );
 }
+
+/// [`federated_fact_rows`]'s shape, with its link column carrying an integer rather than a text -
+/// `telekom/sutura#138`'s own shape: paired with [`federated_lookup_rows`]'s text link, no row on
+/// either leg can ever match the other.
+///
+/// **Local to this file on purpose.** `xtask test-causality` reverts a changed file that adds no
+/// `#[test]` of its own to prove red-before-green, and `super::federated_fact_rows` lives in
+/// `tests.rs` beside no new test - so a fixture this suite needed stayed OUT of that file, exactly
+/// as `super::federated_plan_inner_join` below does for the same reason.
+fn mismatched_fact_rows() -> RowSet {
+    use sutura_domain::plan::InternalLabel;
+    RowSet::new(
+        vec![
+            String::from("product_family"),
+            InternalLabel::Link.label(),
+            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+            InternalLabel::Leaf(0).label(),
+        ],
+        vec![vec![
+            Value::Text("A".into()),
+            Value::Integer(1),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]],
+    )
+    .expect("a well-formed test fact result")
+}
+
+/// [`federated_plan`]'s own shape with `include_unmatched: false` - the INNER half of the pair
+/// below. Duplicated rather than reached through a shared parameterised fixture for the same
+/// `test-causality` reason [`mismatched_fact_rows`] documents: `federated_plan` lives in `tests.rs`,
+/// which this diff must not touch, since a helper edited there but exercised only from here would
+/// be reverted out from under this file's tests when the gate proves red-before-green.
+fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::Aggregate;
+    use sutura_domain::model::{ColumnName, DimensionName, TableName};
+    use sutura_domain::plan::{
+        AnswerKey, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel,
+        StatementTables, labels,
+    };
+
+    let fact_source = SourceName::parse("facts").expect("a test source");
+    let lookup_source = SourceName::parse("geo").expect("a test source");
+    let table = TableName::parse("fct_subscription_monthly").expect("a test table");
+    let column = |n: &str| ColumnName::parse(n).expect("a test column");
+    let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
+    let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
+    let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
+    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
+    let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
+
+    let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
+    let federation = sutura_domain::federation::Federation::of(&sum);
+    let terms: Vec<LegTerm> = labels(&federation)
+        .into_iter()
+        .map(|label| {
+            LegTerm::new(
+                PlanTerm::CountIf {
+                    column: tablecol("amount_cents"),
+                },
+                ResultLabel::internal(label),
+            )
+        })
+        .collect();
+    let fact = LegPlan::Fact {
+        source: fact_source,
+        metric: metric(),
+        tables: StatementTables::only(table.clone()),
+        bucket: bucket("month"),
+        keys: vec![key("product_family"), link()],
+        terms,
+        bindings: PlanBindings::none(),
+        range: june(),
+    };
+    let lookup = LegPlan::Lookup {
+        source: lookup_source,
+        table: table.clone().into(),
+        keys: vec![link(), key("region")],
+        bindings: PlanBindings::none(),
+    };
+    sutura_domain::plan::FederatedPlan::new(
+        metric(),
+        ResultLabel::measure(&metric()),
+        bucket("month"),
+        fact,
+        lookup,
+        false,
+        federation,
+        vec![
+            AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
+            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+        ],
+    )
+    .expect("a valid two-leg plan")
+}
+
+/// Two leg-executing fakes whose link columns carry different scalar kinds: `facts` an integer,
+/// `geo` a text - `telekom/sutura#138`'s own shape, run through both legs rather than asserted
+/// directly against [`sutura_domain::plan::FederatedPlan::combine`].
+fn mismatched_link_warehouses() -> Warehouses<crate::tests_support::LegsWarehouse> {
+    let shared = shared();
+    Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("facts").expect("a test source"),
+        shared.clone(),
+        mismatched_fact_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("geo").expect("a test source"),
+        shared,
+        federated_lookup_rows(),
+    ))
+    .expect("two sources, one registry")
+}
+
+#[test]
+fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a_left_join() {
+    // LEFT is the more misleading of the two flavours: before `LinkTypeMismatch`, every fact row
+    // here would have survived with a null remote side, reading as "no match for this key" rather
+    // than "these two link columns can never agree" - #138's own correction that one flavour
+    // alone passes vacuously, so this is paired with the INNER cell below.
+    let outcome = answer_federated(
+        &bundle(),
+        &federated_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &mismatched_link_warehouses(),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+    )
+    .expect("a link type mismatch is a refusal, not an error")
+    .into_outcome();
+    assert_eq!(
+        outcome,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::FederatedAnswerNotWellFormed {
+                federated: sutura_domain::plan::FederatedAnswerRefusal::LinkTypeMismatch,
+            },
+        },
+        "two legs whose link columns can never match must be refused, not {outcome:?}"
+    );
+}
+
+#[test]
+fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_an_inner_join() {
+    let outcome = answer_federated(
+        &bundle(),
+        &federated_plan_inner_join(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &mismatched_link_warehouses(),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+    )
+    .expect("a link type mismatch is a refusal, not an error")
+    .into_outcome();
+    assert_eq!(
+        outcome,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::FederatedAnswerNotWellFormed {
+                federated: sutura_domain::plan::FederatedAnswerRefusal::LinkTypeMismatch,
+            },
+        },
+        "two legs whose link columns can never match must be refused, not {outcome:?}"
+    );
+}

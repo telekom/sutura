@@ -154,7 +154,13 @@ Four parts, each with its own reason:
    the subject or tell two concurrent subjects apart, which is a property of `AccessTokens::bearer`'s
    signature rather than of the constant. What carries the leg's subject through per-leg execution is
    `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
-   (#284) - wired in serve, not proven live.
+   (#284). **Superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each
+   principal's own assertion against a real STS and resolved it to that principal, so leg 2 is
+   proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads: *"Leg 1
+   (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
+   through a declared per-source map, by a hosted run whose job holds both principals' keys by
+   construction - so the exchange mechanics resolve per subject; no served binary has executed as a
+   caller yet."*
 
 ### Which shipped artifact links what, per target
 
@@ -390,8 +396,13 @@ give it. **What this section's premise still gets right:** the corpus leg tested
 service-account credential, so a green run says nothing about the per-subject path. What that path
 needs is built, not unbuilt: `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`
 mints the per-leg credential and `sutura-serve`'s `bigquery` composition attaches it (#284). The
-limit is narrower - wired in serve, not proven live: no exchanged token has ever run against a real
-STS (`.agents/skills/sutura/identity/SKILL.md`, `docs/where-identity-is-proven.md`).
+limit is narrower - **superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity`
+exchanged each principal's own assertion against a real STS and resolved it to that principal, so
+leg 2 is proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads:
+*"Leg 1 (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
+through a declared per-source map, by a hosted run whose job holds both principals' keys by
+construction - so the exchange mechanics resolve per subject; no served binary has executed as a
+caller yet."* (`docs/where-identity-is-proven.md`).
 
 ### The service-account flow, and what it cost
 
@@ -875,7 +886,13 @@ errors, so no ordinary rendering of a shape-derived diagnostic can carry provide
 after every site below was written. Three, in the base body rather than in an earlier amendment:
 
 - *The decision* named `WorkloadIdentityBroker` as "composed in `sutura-serve` (#284)". It is composed
-  in `sutura-cli`'s `serve` module now; "wired in serve, not proven live" is unaffected.
+  in `sutura-cli`'s `serve` module now. **Superseded 2026-09-16:** a hosted run of
+  `bigquery-exchanged-identity` exchanged each principal's own assertion against a real STS and
+  resolved it to that principal, so leg 2 is proven for BigQuery through the declared per-source
+  map; AGENTS.md's sentence now reads: *"Leg 1 (knowing who is asking) is built. Leg 2 (a source
+  executing AS them) is proven for BigQuery through a declared per-source map, by a hosted run
+  whose job holds both principals' keys by construction - so the exchange mechanics resolve per
+  subject; no served binary has executed as a caller yet."*
 - *Which shipped artifact links what, per target*'s table carried a whole row for `sutura-serve` as
   its own release artifact, and a `Corrected:` note beneath it saying `nix/shipped.nix:161-164` names
   it as a shipped binary. Both are spent: `nix/shipped.nix`'s `binaries` list has one entry now

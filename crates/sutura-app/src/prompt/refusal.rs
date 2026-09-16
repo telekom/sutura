@@ -133,9 +133,10 @@ const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
 
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
     reason: "federated_answer_not_well_formed",
-    meaning: "answering this across two data systems hit a division by zero or a join key that \
-              matched more than one row - the same question and the same rows fail the same way \
-              every time",
+    meaning: "answering this across two data systems hit a division by zero, a join key that \
+              matched more than one row, or a join key that can never match because the two data \
+              systems store it as two different types - the same question and the same rows fail \
+              the same way every time",
     remedy: "Do not retry it unchanged. Ask the same metric without the dimension on the second \
              data system, or report it to a person: it is a fact about the data, not about how \
              you asked.",

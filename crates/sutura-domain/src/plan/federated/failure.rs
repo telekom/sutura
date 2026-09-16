@@ -48,6 +48,16 @@ pub enum FederatedFailure {
     /// D6: see this enum's own header for why `Display` does not interpolate `key`.
     #[error("a link value maps to more than one lookup row")]
     AmbiguousLink { key: String },
+    /// The fact leg's link column and the lookup leg's carry two different scalar kinds, so no row
+    /// on either leg can ever join to the other - `telekom/sutura#138`.
+    ///
+    /// The kinds are `"integer"` or `"text"`, never a cell: the join key itself is exactly the
+    /// caller data D6 above keeps out of a message, and the kind that produced it is not.
+    #[error("the fact leg's link column is {fact_kind} and the lookup leg's is {lookup_kind}, so no row can match")]
+    LinkTypeMismatch {
+        fact_kind: &'static str,
+        lookup_kind: &'static str,
+    },
     /// A leaf cell that was not a number reached a re-aggregating aggregate.
     ///
     /// The `DuckDB` adapter deliberately returns `DECIMAL` and wide integer columns as
@@ -132,6 +142,8 @@ pub enum FederatedAnswerRefusal {
     FloatLinkKey,
     /// A link value mapped to more than one lookup row.
     AmbiguousLink,
+    /// The two legs' link columns carry scalar kinds that can never match.
+    LinkTypeMismatch,
     /// A leaf cell reached a re-aggregating aggregate that is not the numeric type it needs.
     NonNumericLeaf,
     /// A leaf column mixed integer and real cells, so no total or comparison over it is exact.
@@ -144,7 +156,7 @@ impl FederatedAnswerRefusal {
     /// Classifies `cause` as this deterministic refusal, or `None` for the wiring defects this
     /// workspace still answers for as a `ServiceError`.
     ///
-    /// Exhaustive with no wildcard arm, so a ninth [`FederatedFailure`] variant has to say which
+    /// Exhaustive with no wildcard arm, so a new [`FederatedFailure`] variant has to say which
     /// side of the split it is on before this compiles.
     #[must_use]
     pub const fn of(cause: &FederatedFailure) -> Option<Self> {
@@ -152,6 +164,7 @@ impl FederatedAnswerRefusal {
             FederatedFailure::NonFinite { .. } => Some(Self::NonFinite),
             FederatedFailure::FloatLinkKey { .. } => Some(Self::FloatLinkKey),
             FederatedFailure::AmbiguousLink { .. } => Some(Self::AmbiguousLink),
+            FederatedFailure::LinkTypeMismatch { .. } => Some(Self::LinkTypeMismatch),
             FederatedFailure::NonNumericLeaf { .. } => Some(Self::NonNumericLeaf),
             FederatedFailure::MixedNumericLeaf { .. } => Some(Self::MixedNumericLeaf),
             FederatedFailure::Overflow { .. } => Some(Self::Overflow),

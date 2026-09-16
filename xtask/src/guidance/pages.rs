@@ -14,6 +14,12 @@
 //! green `--strict` build. It is a ratchet rather than a cleanup, and saying so is the point: the
 //! tree had none of those the day it landed, so what it buys is that the next one is loud.
 //!
+//! The third rule holds a different claim to the same standard: `docs/implementation-plan.md`
+//! says the tracker's reserved-number table stops two branches minting the same ADR number, and
+//! nothing in the tree checked that before [`duplicate_adr_numbers`]. It refuses a collision only
+//! - see that function's own documentation for why contiguity is deliberately not asserted.
+//!
+
 //! **Why a module under `check-guidance` and not a gate of its own.** The theme there is *a claim
 //! in prose is only as good as the thing that verifies it*, and an ordinal IS a claim - *this
 //! section is the one another page cites as the seventh*. The parent already walks every published
@@ -38,6 +44,8 @@
 //!   shapes this repository's own renderer still tables, taken from it rather than from
 //!   `CommonMark`; a shape nobody probed is treated as a paragraph, which reports rather than
 //!   misses. The probe and its result are in that function's own documentation.
+//! * **A gap in the ADR sequence.** [`duplicate_adr_numbers`] refuses a collision, not a jump; the
+//!   numbers this tree already ships were minted out of order and that is not a defect.
 
 use std::path::Path;
 
@@ -203,6 +211,44 @@ pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
     problems
 }
 
+/// The number an ADR filename claims, or `None` for a page this rule does not judge.
+///
+/// Only `docs/adr/NNNN-*.md` is in scope. The prefix must be all-digit and the file an actual
+/// Markdown page - a coincidental name elsewhere is not a claim on the sequence.
+fn adr_number(rel: &str) -> Option<&str> {
+    let name = rel.strip_prefix("docs/adr/").filter(|_| super::has_ext(rel, &["md"]))?;
+    let (number, _) = name.split_once('-')?;
+    (!number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then_some(number)
+}
+
+/// Refuses two ADR files that claim the same number.
+///
+/// **Uniqueness only, deliberately not contiguity.** `docs/implementation-plan.md`'s division
+/// table claims the tracker's reserved-number table stops two branches minting the same number -
+/// a collision claim, not an ordering one - and 0023 through 0031 were minted out of order on this
+/// very tree without that being a defect. A contiguity check would refuse a true history to
+/// enforce a guarantee nobody asked this mechanism to hold.
+fn duplicate_adr_numbers(files: &[String]) -> Vec<String> {
+    let mut by_number: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for rel in files {
+        if let Some(number) = adr_number(rel) {
+            by_number.entry(number).or_default().push(rel.as_str());
+        }
+    }
+    by_number
+        .into_iter()
+        .filter(|(_, paths)| paths.len() > 1)
+        .map(|(number, mut paths)| {
+            paths.sort_unstable();
+            format!(
+                "docs/adr: {number} is claimed by more than one file ({}) - two branches minted the \
+                 same ADR number, which the tracker's reserved-number table exists to prevent",
+                paths.join(", ")
+            )
+        })
+        .collect()
+}
+
 /// What one sweep read, for the caller to print.
 ///
 /// Returned rather than folded into a message, because a floor nobody can see is a floor nobody
@@ -216,7 +262,7 @@ pub(super) struct PageCounts {
     pub(super) headings: usize,
 }
 
-/// Both rules, over every Markdown page in scope.
+/// All three rules, over every Markdown page in scope.
 ///
 /// FAIL CLOSED on a page that cannot be lexed, for [`crate::api_links`]'s reason: an unclosed fence
 /// makes every line below it ambiguous, and a scan that reads nothing reports nothing wrong.
@@ -236,7 +282,7 @@ pub(super) struct PageCounts {
 ///   matching leaves both equalities above intact and this at zero.
 pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, PageCounts) {
     let offered = files.iter().filter(|f| f.to_ascii_lowercase().ends_with(".md")).count();
-    let mut problems = Vec::new();
+    let mut problems = duplicate_adr_numbers(files);
     let mut read = 0_usize;
     let mut headings = 0_usize;
     for rel in files.iter().filter(|f| super::has_ext(f, &["md"])) {
@@ -277,4 +323,47 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, Page
         ));
     }
     (problems, PageCounts { offered, read, headings })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duplicate_adr_numbers;
+
+    /// **No naturally occurring base regression exists for this rule**: `main` has no two ADR
+    /// files sharing a number, so there is nothing to be red against without building a fixture.
+    /// This constructs the collision the way `xtask/src/boundaries/adapters.rs`'s tests build
+    /// theirs, rather than pointing at the real tree.
+    #[test]
+    fn two_files_claiming_the_same_number_are_refused() {
+        let files = vec![
+            "docs/adr/0009-the-plan-from-one-source-to-many.md".to_owned(),
+            "docs/adr/0009-a-second-branch-minted-the-same-number.md".to_owned(),
+        ];
+        let problems = duplicate_adr_numbers(&files);
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert!(problems[0].contains("0009"), "{problems:#?}");
+    }
+
+    #[test]
+    fn distinct_numbers_are_not_reported() {
+        let files = vec![
+            "docs/adr/0009-the-plan-from-one-source-to-many.md".to_owned(),
+            "docs/adr/0010-transport-security-for-a-source.md".to_owned(),
+        ];
+        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+    }
+
+    /// A gap between numbers is not this rule's claim - only a collision is. 0023 through 0031
+    /// were minted out of order on this tree without being a defect.
+    #[test]
+    fn a_gap_between_numbers_is_not_a_collision() {
+        let files = vec!["docs/adr/0009-a.md".to_owned(), "docs/adr/0031-b.md".to_owned()];
+        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_file_outside_docs_adr_is_not_judged() {
+        let files = vec!["docs/adr/0009-a.md".to_owned(), "docs/0009-unrelated-page.md".to_owned()];
+        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+    }
 }

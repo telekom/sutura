@@ -161,16 +161,37 @@ fn workspace_dependency_keys(manifest: &str) -> Vec<String> {
 /// dependency*, so a crate whose sources it could not enumerate reports every dependency as
 /// unused, and a crate it enumerated only PART of reports the rest as unused. Either way the
 /// verdict is about a tree it did not read.
+///
+/// **Not `from_utf8_lossy`.** [`repo::Census::inspect`] reads raw bytes via `std::fs::read`,
+/// which never fails on invalid UTF-8 - only `read_to_string` did, and this used to lean on that
+/// failure to reach the refusal below. A lossy decode would accept the same bytes and mistokenise
+/// them instead, silently turning the refusal this closes into a short set. So the closure cannot
+/// return an error - it captures the FIRST decode failure instead, and it is returned once the
+/// walk itself has finished.
 fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> Result<BTreeSet<String>, String> {
-    let (_root, files) = repo::collect_files(root, crate_dir, &["rs"])
-        .into_listing(repo::Unmigrated::UnusedDeps)
-        .map_err(|why| why.describe())?;
     let mut identifiers = BTreeSet::new();
-    for rel in &files {
-        let text = std::fs::read_to_string(root.join(rel)).map_err(|why| format!("{rel}: {why}"))?;
-        identifiers.extend(tokenize(&text));
+    let mut invalid: Option<String> = None;
+    repo::collect_files(root, crate_dir, &["rs"])
+        .inspect(&[], every_rust_file, |rel, bytes| match std::str::from_utf8(bytes) {
+            Ok(text) => identifiers.extend(tokenize(text)),
+            Err(why) => {
+                if invalid.is_none() {
+                    invalid = Some(format!("{rel}: {why}"));
+                }
+            }
+        })
+        .map_err(|why| why.describe())?;
+    if let Some(why) = invalid {
+        return Err(why);
     }
     Ok(identifiers)
+}
+
+/// Every subject `collect_files` offers here: it already narrowed the census to this crate's own
+/// `.rs` files, so there is no second filter to apply. Named rather than a closure because
+/// [`repo::Scope`] is a bare `fn` pointer.
+const fn every_rust_file(_: &str) -> bool {
+    true
 }
 
 /// Split text into maximal runs of `[A-Za-z0-9_]`.

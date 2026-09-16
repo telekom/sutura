@@ -121,10 +121,11 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         // ambiguous join is the same plan against the same rows failing again - not an outage - so
         // retrying it will not change the answer.
         RefusalReason::FederatedAnswerNotWellFormed { .. } => String::from(
-            "answering this across two data systems hit a division by zero or a join key that \
-             matched more than one row. Retrying it unchanged will be refused again: ask the same \
-             metric without the dimension on the second data system, or say so to the person you \
-             are acting for.",
+            "answering this across two data systems hit a division by zero, a join key that \
+             matched more than one row, or a join key that can never match because the two data \
+             systems store it as two different types. Retrying it unchanged will be refused again: \
+             ask the same metric without the dimension on the second data system, or say so to the \
+             person you are acting for.",
         ),
         // Written for an agent, so it says which of the two moves is available rather than only that
         // this one failed: unlike the two-source refusal there usually is another question, because a

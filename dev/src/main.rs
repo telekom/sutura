@@ -28,6 +28,12 @@ use std::process::{Command, ExitCode};
 use sutura_dev::discovery::{self, Endpoints};
 use sutura_dev::scope::{SERVICES, Scope};
 
+/// The docker DataHub tier signs its own access tokens offline (see `mint.rs`). Its signing key
+/// lives behind the default-off `mock-issuer` feature, so the whole module is absent from `xtask`'s
+/// build - the same reasoning as `issuer.rs`.
+#[cfg(feature = "mock-issuer")]
+mod mint;
+
 /// A command: the name, the `--help` line, and the code it runs.
 ///
 /// Same shape as xtask's table, for the same reason: dispatch derives from the table, so
@@ -57,6 +63,15 @@ const COMMANDS: &[Cmd] = &[
         name: "doctor",
         description: "what is present, what is missing, what would fail",
         run: cmd_doctor,
+    },
+    // The docker DataHub tier's self-minted PAT. Gated on `mock-issuer` because it needs the
+    // shared `jsonwebtoken` dependency - the same feature `issuer.rs` sits behind - so `xtask`,
+    // which links this crate for the compose project name, never compiles a crypto backend for it.
+    #[cfg(feature = "mock-issuer")]
+    Cmd {
+        name: "mint-pat",
+        description: "<out-file> - the docker DataHub tier signs its own PAT with its signing key",
+        run: cmd_mint_pat,
     },
 ];
 
@@ -471,6 +486,60 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
     }
     println!("Ready. `just ports` shows this worktree's compose project and its endpoints.");
     ExitCode::SUCCESS
+}
+
+/// The signing key the docker `datahub` tier embeds in `compose.services.yaml`'s
+/// `x-datahub-backend-environment` anchor, used when the env does not name one. It is a FIXTURE
+/// value, deliberately: a throwaway container's signing key is a value that has to be non-empty,
+/// and nothing outside the host's ephemeral port can reach the container (see the anchor's comment).
+/// A different key can be injected via `DATAHUB_TOKEN_SERVICE_SIGNING_KEY` - the mutation suite
+/// does exactly that to prove GMS refuses a foreign signature.
+///
+/// Deliberately 36 bytes (288 bits): jjwt, which GMS validates HS256 with, REFUSES a verification
+/// key under 256 bits (`WeakKeyException`) - the tier's original fixture value was 22 bytes and
+/// every minted token came back 401 for exactly that reason, measured on the live 1.7.0 tier.
+#[cfg(feature = "mock-issuer")]
+const DEFAULT_SIGNING_KEY: &str = "sutura-dev-signing-key-with-256-bits";
+
+/// The corpuser the docker tier seeds (or seeds nothing for), whose urn the minted PAT claims. The
+/// probe measures which actor the tier validates; the bearer is presented verbatim.
+///
+/// Only `cmd_mint_pat` reads these, and it sits behind the `mock-issuer` feature - so the two
+/// constants are gated too. Ungated they trip the workspace's `dead_code = "deny"` on the
+/// default-feature `sutura-dev` bin (`just doctor` compiles it that way), which is how an
+/// all-features gate can be green while the tree is red at default features.
+#[cfg(feature = "mock-issuer")]
+const DEFAULT_ACTOR: &str = "datahub";
+
+/// `mint-pat` - the docker `DataHub` tier signs its own `PAT` into a caller-supplied output file.
+///
+/// Mirrors the compose anchor: read `DATAHUB_TOKEN_SERVICE_SIGNING_KEY` from the environment (the
+/// just task / nix app export it when they mint), falling back to the fixture value the anchor
+/// embeds. The PAT never appears on a command line after this - it is written to the file the
+/// served binary's `token_file` setting reads.
+#[cfg(feature = "mock-issuer")]
+fn cmd_mint_pat(args: &[String]) -> ExitCode {
+    let Some(out) = args.first() else {
+        eprintln!("sutura-dev mint-pat <out-file>");
+        return ExitCode::from(2);
+    };
+    let key = std::env::var("DATAHUB_TOKEN_SERVICE_SIGNING_KEY").unwrap_or_else(|_| DEFAULT_SIGNING_KEY.to_owned());
+    match mint::sign(&key, DEFAULT_ACTOR, mint::DEFAULT_LIFETIME) {
+        Ok(pat) => match std::fs::write(out, &pat) {
+            Ok(()) => {
+                eprintln!("sutura-dev mint-pat: wrote the tier's self-minted PAT to {out}");
+                ExitCode::SUCCESS
+            }
+            Err(problem) => {
+                eprintln!("sutura-dev mint-pat: could not write {out}: {problem}");
+                ExitCode::FAILURE
+            }
+        },
+        Err(problem) => {
+            eprintln!("sutura-dev mint-pat: {problem}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[cfg(test)]
