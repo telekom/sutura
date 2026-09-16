@@ -181,6 +181,14 @@ let
       # something to carry over - the one binary that remains is the one that was always allowed to
       # link it.
       alsoForbidden = [ ];
+      # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
+      # sutura#685` step 4. Empty here: this entry still ships cargo's default feature set, so
+      # `ring` and `ureq` stay banned for it. The field exists for the all-features artefact
+      # `#685` step 5 has not added yet - that entry will name `permit = [ "ring" "ureq" ];`
+      # rather than the alternative that would make this check go quiet instead: editing the
+      # shared `forbidden` list itself, which would silently permit both crates for every
+      # artefact, including a future default-off one added beside this.
+      permit = [ ];
     }
   ];
 
@@ -634,6 +642,13 @@ let
     # `cargoExtraArgs` from the same list, so the feature set cannot differ per target
     # without `nix/shipped.nix` saying so, and pulling four cross builds in to re-read the
     # same list would double this check's cost for nothing.
+    #
+    # **PER-ARTEFACT, since `github.com/telekom/sutura#685` step 4.** `forbidden` below is
+    # shared, but each binary's own `permit` list (declared beside it in `binaries` above)
+    # subtracts from it before this check runs. That is what lets a future all-features
+    # artefact carry `ring` and `ureq` on purpose without weakening what this check asserts
+    # for every OTHER binary - the alternative would be editing `forbidden` itself, which
+    # goes quiet for every artefact rather than naming the one that is allowed.
     shipped-features =
       let
         # `axum` for the HTTP surface `sutura serve` runs and `datafusion` for the engine
@@ -660,6 +675,16 @@ let
         # legitimately links `polyglot-sql` for `compile`, which used to be `sutura-serve`'s
         # own reason to ban it for ITSELF alone; folding the two binaries into one made that
         # ban moot rather than something to carry forward.
+        #
+        # **PER-ARTEFACT since `github.com/telekom/sutura#685` step 4, in the other direction
+        # too.** This list stays shared - one place to see what a shipped binary must not
+        # embed - but each binary's own `permit` (declared beside it above) subtracts from it
+        # in `checkOne` below, before checking rather than after. `sutura`'s `permit` is empty,
+        # so both names below are still enforced for it. The all-features artefact `#685` step
+        # 5 has not added yet will carry `ring` and `ureq` on purpose - `bigquery`, `tls` and
+        # `datahub` all pull them in - and its own `permit` is where that gets stated, by name,
+        # rather than by editing this list and silently permitting both crates for every
+        # binary that reads it.
         forbidden = [ "ring" "ureq" ];
         quoted = name: "'\"" + name + "\"'";
         wantOne = bin: name: ''
@@ -690,7 +715,7 @@ let
           fi
           echo "${b.bin}: $crates crate(s) embedded"
           ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
-          ${pkgs.lib.concatMapStrings (banOne b.bin) (forbidden ++ b.alsoForbidden)}
+          ${pkgs.lib.concatMapStrings (banOne b.bin) (pkgs.lib.subtractLists b.permit (forbidden ++ b.alsoForbidden))}
         '';
       in
       pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''
