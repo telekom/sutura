@@ -740,6 +740,41 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // #795 item 2. `#732` (`0ea25539`, `#378` PR2) gave `call_tool` a `context` parameter it
+        // actually reads through `AgentSurface::asked` - ADR-0023's own paragraph, written before
+        // that PR, still describes the parameter as bound to `_context` and discarded.
+        name: "the agent surface discards its per-request context",
+        wordings: &["already takes that value and discards it"],
+        evidence: &[Evidence {
+            path: "crates/sutura-mcp/src/server.rs",
+            holds: "let asked = self.asked(&context)?;",
+        }],
+        instead: "`crates/sutura-mcp/src/server.rs`'s `call_tool` names the parameter `context`, \
+                  not `_context`, and reads it through `AgentSurface::asked`; \
+                  `Asking::PerRequest` pulls a caller out of `context.extensions`. \
+                  `docs/adr/0023`'s `Amendment, 2026-09-16` carries the correction",
+        only: &[],
+        except: &["docs/adr/0023-how-the-agent-surface-learns-who-is-asking.md"],
+    },
+    Contradicted {
+        // #795 item 3. `feat/source-registry` (`crates/sutura-config/src/sources.rs`) landed the
+        // per-source adapter selection that ADR-0007's `feat/source-registry` bullet still cites
+        // `docs/architecture.md:595-600` for as deliberately absent - and the range that
+        // citation names has since moved to a different topic (push-down and federation) too.
+        name: "the source-to-adapter selection is deliberately absent",
+        wordings: &["the source-to-adapter selection `docs/architecture.md:595-600` records as deliberately absent"],
+        evidence: &[Evidence {
+            path: "crates/sutura-config/src/sources.rs",
+            holds: "pub enum SourceKind",
+        }],
+        instead: "`crates/sutura-config/src/sources.rs` parses a `sources:` tree per deployment: a \
+                  `SourceName` selects a warehouse out of a registry rather than being compared \
+                  for equality against the one linked adapter. `docs/architecture.md#what-exists-\
+                  today` and `docs/adr/0007`'s `Amendment, 2026-09-16` carry the correction",
+        only: &[],
+        except: &["docs/adr/0007-federating-across-different-data-systems.md"],
+    },
 ];
 
 /// `CONTRADICTED` rows a later commit deleted rather than re-anchored, kept only for their
