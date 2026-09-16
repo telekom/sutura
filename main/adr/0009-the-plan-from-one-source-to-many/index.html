@@ -877,6 +877,8 @@
       
         
       
+        
+      
     
     
     
@@ -1313,6 +1315,17 @@
     <span class="md-ellipsis">
       
         What is not decided
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-the-teststartup-source-refusals-rows-sentence-is-retired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: the test/startup-source-refusals row's sentence is retired
       
     </span>
   </a>
@@ -1959,6 +1972,34 @@
     
   
     The iamcredentials impersonation hop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0033-a-closed-enum-over-the-shipped-warehouse-kinds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed enum over the shipped warehouse kinds
   
 
     
@@ -2943,6 +2984,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-the-teststartup-source-refusals-rows-sentence-is-retired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: the test/startup-source-refusals row's sentence is retired
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3718,6 +3770,31 @@ now and impossible to retrofit, and they are marked.</p>
   and no branch in the plan. The chain is the key it would use, which is why <code>feat/principal-chain</code>
   builds the key and stops there.</li>
 </ul>
+<h2 id="second-amendment-2026-09-16-the-teststartup-source-refusals-rows-sentence-is-retired">Second amendment, 2026-09-16: the <code>test/startup-source-refusals</code> row's sentence is retired<a class="headerlink" href="#second-amendment-2026-09-16-the-teststartup-source-refusals-rows-sentence-is-retired" title="Permanent link">&para;</a></h2>
+<p><strong>"The order" table's <code>test/startup-source-refusals</code> row asserts on a sentence -
+<em>"one kind of data system at a time"</em> - that <code>telekom/sutura#112</code> retired, not merely moved.</strong>
+That row was already stale in one direction before this landed: it names
+<code>crates/sutura-cli/src/serve/tests.rs</code>, and the composition root it describes had folded from a
+second binary (<code>sutura-serve</code>) into <code>sutura-cli</code>'s <code>serve</code> module by then. The row is left as
+written above rather than edited in place, for the reason the amendment convention exists; this
+section is the correction.</p>
+<p><strong>What used to be true.</strong> <code>open_engine</code> grouped every declared source's kind and refused with
+that exact sentence the moment two disagreed - the arm the row calls "the more-than-one-source arm
+of <code>open_engine</code>", by then renamed to a per-KIND check.</p>
+<p><strong>What is true now.</strong> <code>crate::serve::kind::group_by_kind</code> still sorts every declared source into
+its kind, but a mismatch no longer refuses: <code>crate::serve::kind::open_mixed</code> opens each group
+through the SAME per-kind function the single-kind path always used and erases the result behind
+<code>AnyWarehouse</code> (this record's own sibling, <a href="../0007-federating-across-different-data-systems/">0007</a>'s
+<em>Second amendment</em>, carries the mechanism). So <code>test/startup-source-refusals</code>'s own Done-when is
+narrower than it reads today: two sources of one kind still load and both open, exactly as
+written, and two sources of two DIFFERENT kinds now also load and both open - what remains a
+startup refusal is a kind this build's features did not link an adapter for, which is a
+per-adapter message rather than a per-mismatch one.</p>
+<p><strong>What this does not touch:</strong> <code>feat/source-registry</code>'s own Done-when (a duplicate alias, a missing
+file, a relative path, the shared-identity acknowledgement, the per-adapter posture cross-check) is
+unaffected - every one of those checks still runs once per source, against that source's own
+concrete adapter constant, whichever of the now-larger set of shapes <code>open_engine</code> reaches it
+through.</p>
 
 
 

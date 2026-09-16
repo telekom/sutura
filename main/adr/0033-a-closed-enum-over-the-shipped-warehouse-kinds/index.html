@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How a metadata document names a table in another dataset or another project - why a qualified name is a composition of parsed identifiers rather than a string with dots in it, why cross-project is emphatically not federation and must not reach the splitter, how deep a path each dialect resolves, and the label collision a live BigQuery run found.">
+        <meta name="description" content="Warehouses<W> stays generic in one adapter and takes no adapter dependency; a composition root builds the concrete per-kind registry it always built and erases it behind a closed enum over the adapters that BUILD linked, so a deployment can hold two kinds of source instead of refusing at the kind mismatch - and why the leg-capability gate had to move from a type-level constant to an instance method to make that safe.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0019-a-table-outside-the-connections-dataset/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds/">
       
       
-        <link rel="prev" href="../0018-what-the-bigquery-wire-is-built-from/">
+        <link rel="prev" href="../0032-the-iamcredentials-impersonation-hop/">
       
       
-        <link rel="next" href="../0020-a-credential-the-compiler-refuses-to-print/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>A table outside the connection's own dataset - sutura</title>
+        <title>A closed enum over the shipped warehouse kinds - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#a-table-outside-the-connections-own-dataset" class="md-skip">
+        <a href="#a-closed-enum-over-the-shipped-warehouse-kinds" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              A table outside the connection's own dataset
+              A closed enum over the shipped warehouse kinds
             
           </span>
         </div>
@@ -1429,37 +1429,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A table outside the connection's own dataset
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
         
   
   
@@ -1475,125 +1448,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-report-and-why-the-failure-mode-is-a-wrong-number" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The report, and why the failure mode is a wrong number
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 2 - cross-project is NOT federation, and must not reach the splitter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3 - how deep a path a data system resolves is declared, not guessed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4 - a label may not be spelled the same as a table the statement reads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5 - two tables whose paths end in one name are refused, not aliased around
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-goldens-pin-and-where" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the goldens pin, and where
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is claimed, and what is not
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Amendment, 2026-09-16: one binary refuses at boot, not two
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1967,10 +1821,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0033-a-closed-enum-over-the-shipped-warehouse-kinds/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed enum over the shipped warehouse kinds
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1986,6 +1867,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-decides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this decides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-does-not-decide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this does not decide
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2853,10 +2787,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-report-and-why-the-failure-mode-is-a-wrong-number" class="md-nav__link">
+  <a href="#what-this-decides" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The report, and why the failure mode is a wrong number
+        What this decides
       
     </span>
   </a>
@@ -2864,10 +2798,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" class="md-nav__link">
+  <a href="#consequences" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots
+        Consequences
       
     </span>
   </a>
@@ -2875,76 +2809,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" class="md-nav__link">
+  <a href="#what-this-does-not-decide" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision 2 - cross-project is NOT federation, and must not reach the splitter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 3 - how deep a path a data system resolves is declared, not guessed
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 4 - a label may not be spelled the same as a table the statement reads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision 5 - two tables whose paths end in one name are refused, not aliased around
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-goldens-pin-and-where" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the goldens pin, and where
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is claimed, and what is not
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Amendment, 2026-09-16: one binary refuses at boot, not two
+        What this does not decide
       
     </span>
   </a>
@@ -2971,304 +2839,105 @@
   
 
 
-<h1 id="a-table-outside-the-connections-own-dataset">A table outside the connection's own dataset<a class="headerlink" href="#a-table-outside-the-connections-own-dataset" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted.</strong> Built, gated and pinned by goldens across four dialects, and a <strong>qualified
-read</strong> is proved against a real project - a <code>project.dataset.table</code> path is resolved by the service
-and a wrong dataset in one is refused. <strong>A cross-PROJECT read is not proved</strong>, because the acceptance
-credential's IAM refuses <code>datasets.create</code> and there was no second project to read across; <em>What is
-claimed, and what is not</em> at the end is the section to read before taking that green for more than it
-is.</p>
-<p><a href="../0017-what-a-bigquery-test-runs-against/">0017</a> and
-<a href="../0018-what-the-bigquery-wire-is-built-from/">0018</a> got a statement of ours accepted by a real
-<code>BigQuery</code> dataset. This record is about the gap between <em><code>BigQuery</code> works</em> and <em><code>BigQuery</code> works
-here</em>: the deployment this ships into is <strong>multi-project</strong>, and a metadata document could not name a
-table outside the one dataset its connection defaults to.</p>
-<h2 id="the-report-and-why-the-failure-mode-is-a-wrong-number">The report, and why the failure mode is a wrong number<a class="headerlink" href="#the-report-and-why-the-failure-mode-is-a-wrong-number" title="Permanent link">&para;</a></h2>
-<p>Three things blocked it, all verified in the tree rather than inferred:</p>
-<ol>
-<li><strong>A qualified name was unrepresentable.</strong> <code>catalog::Model</code> held one <code>table: TableName</code>, and
-   <code>TableName</code> parses through <code>parse_identifier</code>, which accepts <code>[A-Za-z_][A-Za-z0-9_]*</code> and rejects
-   a dot as <code>IllegalCharacter</code>. There was no field for a path and no value that would have passed.</li>
-<li><strong>The statement was emitted bare, for every dialect</strong> - <code>builder::select(..).from(table)</code>.</li>
-<li><strong>Resolution was a single connection-level default.</strong> The <code>BigQuery</code> adapter holds one
-   <code>default_dataset</code>, fixed when the warehouse opens and put into every <code>JobRequest</code>, so an
-   unqualified name resolves there and nowhere else.</li>
-</ol>
-<p><strong>The interesting half is what happens when the table exists in both places.</strong> A table absent from
-the default dataset is a clean <code>404</code> - honest. A table of the <em>same name</em> present in the default
-dataset is read instead, and a plausible number comes back under a certified metric with its
-definition digest unmoved. And same-name tables are the <em>normal</em> shape of a multi-project estate:
-dev/prod splits, per-tenant datasets and staging copies all reuse table names deliberately. So this
-sits in the same class as a wrong date bucket - valid SQL, nothing raised, wrong answer - and that is
-what decides every choice below in favour of a refusal over a best effort.</p>
-<h2 id="decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots">Decision 1 - a qualified name is a composition of parsed identifiers, never a string with dots<a class="headerlink" href="#decision-1-a-qualified-name-is-a-composition-of-parsed-identifiers-never-a-string-with-dots" title="Permanent link">&para;</a></h2>
-<p><code>sutura_domain::model::qualified</code> holds <code>QualifiedTable</code>, which is an <code>Option&lt;TableQualifier&gt;</code> and a
-<code>TableName</code>; <code>TableQualifier</code> is an <code>Option&lt;ProjectName&gt;</code> and a <strong>non-optional</strong> <code>DatasetName</code>.</p>
-<p><strong>Relaxing <code>TableName</code> to admit a <code>.</code> would have been one line, and it would have silently
-invalidated the reasoning two invariants rest on.</strong> <em>No identifier reaches the statement unquoted</em>
-and <em>no value from a question reaches the statement as text</em> are both asserted over the golden corpus
-by <strong>stripping quoted spans</strong> with a single toggle, and <code>golden/shared.rs</code> says in as many words why
-that toggle is sound: an identifier is <code>[A-Za-z0-9_]</code> and nothing else, <em>"which is what makes that a
-fact rather than an assumption - so neither a <code>"</code> nor a <code>'</code> can occur inside a name."</em> A dotted string
-would have put a whole path where those assertions expect one name, and nothing would have failed.</p>
-<p>So each part is parsed by the parser for its position and the generator quotes <strong>per part</strong>.
-<code>QualifiedTable::parse</code> is a <em>splitter in front of the canonical constructor</em> for the convenience of
-whoever writes a catalog document - it splits on <code>.</code>, which no part can contain, and hands each piece
-onward. Nothing stores the text it was handed.</p>
-<p>Three consequences worth stating because each was a decision:</p>
+<h1 id="a-closed-enum-over-the-shipped-warehouse-kinds">A closed enum over the shipped warehouse kinds<a class="headerlink" href="#a-closed-enum-over-the-shipped-warehouse-kinds" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted and built.</strong> <code>github.com/telekom/sutura#112</code>, blocker 1: <code>sutura_app::Warehouses&lt;W&gt;</code>
+is generic in one <code>W</code>, <code>Warehouse::IMPERSONATION</code> is a required associated constant with no default,
+so the port is not object-safe and <code>crate::serve::one_kind</code> refused any catalog whose declared
+sources spanned more than one kind. This record decides where the remedy lives, what it costs, and
+what it deliberately still does not fix. Amends <a href="../0007-federating-across-different-data-systems/">0007</a>
+and <a href="../0009-the-plan-from-one-source-to-many/">0009</a>, each at their own <em>Second amendment</em>.</p>
+<h2 id="what-this-decides">What this decides<a class="headerlink" href="#what-this-decides" title="Permanent link">&para;</a></h2>
+<p><strong>The enum is <code>crate::serve::kind::AnyWarehouse</code> in <code>sutura-cli</code>, not a type in <code>sutura-app</code>.</strong>
+This thread's own comments disagreed with each other about that before either side was measured
+against the tree: <code>sutura-app</code>'s <code>[dependencies]</code> names <code>sutura-domain</code>, <code>sutura-semantic</code> and
+<code>thiserror</code> and nothing else, and <code>crates/sutura-cli/src/serve.rs</code>'s own doc comment already
+carried the reason - "which adapters a process holds is a property of the BUILD" - naming
+<code>sutura_app::warehouses</code> as the record this decision would land in. Putting the enum in
+<code>sutura-app</code> would have been the first normal edge that crate ever took onto an adapter.</p>
+<p><strong><code>sutura_app::Warehouses</code> gains two adapter-agnostic methods rather than an adapter type.</strong>
+<code>into_mapped&lt;U&gt;(self, wrap: impl FnMut(W) -&gt; U) -&gt; Warehouses&lt;U&gt;</code> erases a concrete registry into
+whichever enum the caller declares; <code>merge(self, other: Self) -&gt; Result&lt;Self, SourceAlreadyOpen&gt;</code>
+is <code>and</code>'s whole-registry sibling. Both are generic in the adapter type and import none, so
+<code>sutura-app</code> still composes the port over whatever a root hands it rather than knowing what a root
+built it from. <code>crate::serve::kind::open_mixed</code> is the caller: for each of the (at most three)
+kinds a catalog declares, it calls the SAME <code>open_files</code>/<code>bigquery::open_bigquery</code>/
+<code>postgres::open_postgres</code> the single-kind path always called - so a mixed deployment is refused by
+the identical message a single-kind one would be, for whichever half is wrong - then wraps each
+concrete registry and merges them into one <code>Warehouses&lt;AnyWarehouse&gt;</code>.</p>
+<p><strong>The missing boundary is now a gate, not a convention.</strong> <code>AGENTS.md</code>'s layout table, the
+<code>crate-map</code> skill and <code>sutura-app</code>'s own module doc all said <code>-app</code> holds no adapter, and none of
+<code>check-boundaries</code>' eight existing halves could see a <code>sutura-app -&gt; sutura-exec-*</code> edge:
+<code>FORBIDDEN_EDGES</code> is a denylist naming two crates and had no row naming <code>sutura-app</code>; the
+intra-class rule compares members of the SAME class against each other, and <code>sutura-app</code> belongs
+to none of the three. <code>xtask/src/boundaries/application.rs</code> is the ninth half - one named crate
+against a class, the shape neither sibling rule is - proven both ways: a fake <code>sutura-exec-datafusion</code>
+dependency added to <code>sutura-app/Cargo.toml</code> and reverted, <code>cargo run -p xtask -- check-boundaries</code>
+read <code>FAILED - the application reaches a data-system adapter</code> naming the edge, then <code>ok</code> again.</p>
+<p><strong>The leg-capability gate moved from the type to the instance, and that is the one change that
+could not be avoided.</strong> <code>Warehouse::EXECUTES_LEGS</code> is an associated constant: one value for a
+whole TYPE. An enum wrapping a leg-capable adapter and a leg-declining one cannot answer this
+constant truthfully for both variants at once - the safe direction is the declining one, which
+would silently refuse every question a mixed build could otherwise answer on its capable leg.
+<code>Warehouse::executes_legs(&amp;self) -&gt; bool</code>, defaulted to <code>Self::EXECUTES_LEGS</code>, is the escape: an
+adapter that never overrides it keeps its one type-level fact for free, and the enum overrides it
+to match on <code>self</code> and delegate to whichever concrete adapter it holds. <code>sutura_app::federated::answer_federated</code>
+reads it per LEG now - <code>fact_warehouse.executes_legs() &amp;&amp; lookup_warehouse.executes_legs()</code> - rather
+than once per build, so a mixed registry with one capable kind and one declining kind refuses only
+the answer that would have needed the declining leg, exactly as a build linking only the capable
+kind always did.</p>
+<p><strong><code>IMPERSONATION</code> stays a lie the enum's own callers never ask.</strong> It is fixed at
+<code>NoPlaceForASubject</code> for every variant - the restrictive direction, because the permissive one
+would let a <code>files</code> source silently pass a check meant for a source that can actually carry a
+subject. Nothing reads it generically: <code>SourcePosture::deliverable_by</code> is called at each
+composition site against the source's own CONCRETE adapter constant, before that adapter is ever
+wrapped. <code>EXECUTES_AUTHORED_SQL</code>, <code>ACCEPTS_RAW_STATEMENTS</code> and <code>PRICES_DRY_RUN</code> take the same
+conservative default and are a real, stated limit rather than an inert one - see <em>What this does
+not decide</em>.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>A project without a dataset is unrepresentable rather than refused.</strong> <code>project..table</code> is not a
-  thing any data system names, and <code>TableQualifier</code> has no constructor taking a project alone and no
-  optional dataset field. There is no check to get wrong.</li>
-<li><strong><code>ProjectName</code> is the one name shape in this workspace that admits a hyphen, and it is not a
-  loosening of the property above.</strong> A <code>BigQuery</code> project id is lowercase letters, digits and hyphens</li>
-<li>the credential this repository's acceptance leg runs under has one, which is how this was found
-    rather than assumed - while a dataset id is letters, digits and underscore, exactly
-    <code>parse_identifier</code>'s set. <code>model::Hyphens</code> is a flag on <strong>one</strong> parser rather than a second parser,
-    and its documentation states the licence precisely: a hyphen is not <code>"</code>, <code>'</code> or <code>`</code>, so the
-    stripping argument is intact. A variant admitting a quote character, a dot or whitespace would
-    invalidate it, and that is written where the flag is. A legacy domain-scoped project -
-    <code>example.com:project</code> - is <strong>refused</strong>, because a <code>:</code> or a second <code>.</code> inside one part is the defect
-    this module exists to prevent.</li>
-<li><strong><code>Serialize</code> is hand-written to emit the dotted text.</strong> <code>serde(try_from)</code> affects <code>Deserialize</code>
-  alone, and a derived <code>Serialize</code> here would write a struct this type's own <code>Deserialize</code> refuses -
-  the asymmetry that shipped in this workspace on <code>Date</code>. It matters because the definition digest is
-  taken over the serialized form: a derived one would have covered a field layout appearing in no
-  catalog file. An unqualified table therefore serializes exactly as a <code>TableName</code> did, which is why
-  <strong>no existing golden moved</strong> and no existing digest moved.</li>
+<li><code>crate::serve::OpenedSources</code> gains a fourth variant, <code>Mixed(kind::Mixed)</code>, reached the moment
+  more than one of <code>kind::group_by_kind</code>'s three groups is non-empty; the three single-kind
+  variants and their call sites are untouched.</li>
+<li><code>boot::refuse_absent_tables</code> lost its <code>#[cfg(feature = "bigquery")]</code> gate: the mixed arm calls it
+  unconditionally over the whole heterogeneous registry, so a <code>files</code> entry now logs the same
+  informational <code>NotReported</code> line a <code>BigQuery</code> entry always has - <code>dead_code</code> no longer depends on
+  that one feature having a caller.</li>
+<li><code>RefusalReason::FederationNotExecutable</code>'s own doc moved from "a fact about the BUILD, read once"
+  to "a fact about the two adapters this answer would run on, read per leg" - the same correction
+  this record makes to <code>docs/adr/0009</code>'s <code>test/startup-source-refusals</code> row.</li>
+<li>Proof, not assertion: <code>AsymmetricLegWarehouse</code> (<code>sutura-app</code>'s own test support) is one TYPE whose
+  <code>EXECUTES_LEGS</code> constant is <code>true</code> and whose <code>executes_legs()</code> override answers a runtime field;
+  a registry of two instances, one built <code>false</code>, still refuses the whole answer under the new
+  gate and would have RUN both legs under the old one - measured directly, by temporarily
+  restoring the old <code>if !W::EXECUTES_LEGS</code> gate and watching that exact test fail with an <code>Answer</code>
+  rather than a <code>Refusal</code>.</li>
 </ul>
-<p>The authoring surface is the same <code>table:</code> key carrying one part, two or three. There is no second
-key for an author to get out of step with the first, and every document already on disk loads byte
-for byte.</p>
-<h2 id="decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter">Decision 2 - cross-project is NOT federation, and must not reach the splitter<a class="headerlink" href="#decision-2-cross-project-is-not-federation-and-must-not-reach-the-splitter" title="Permanent link">&para;</a></h2>
-<p><strong>A source is a credential plus a billing project, not a project.</strong> Two datasets, or two projects,
-reached by one credential in one statement is <strong>one</strong> source, and neither the splitter nor
-<code>PlanSpansTooManySources</code> (<code>PlanSpansTwoSources</code> when this was written, before <a href="../0007-federating-across-different-data-systems/">0007</a>'s
-federation landed) must fire on it.</p>
-<p>This is the most expensive thing in this record to get wrong, and it was live rather than
-hypothetical: row 10's splitter and combiner were being built in parallel. <code>BigQuery</code> joins across
-projects <strong>natively</strong> - one credential, one job, one engine - and pushes the join down. Routing that
-through a splitter and a client-side combiner would replace a pushed-down join with a slower one and
-discard exactly the pushdown that makes the adapter worth having.</p>
-<p>So the mechanism is a <em>shape</em> rather than a check: <code>sutura_semantic::plan</code> collects <code>SourceName</code> and
-<strong>nothing from any table path</strong>, and the paragraph saying why now sits at that collection rather than
-in a document. <code>PlanJoin</code> carries its own <code>QualifiedTable</code>, so a fact table in one dataset joined to a
-dimension table in another is one <code>JOIN</code> in one statement. What the source count still acts on is a
-second <strong>credential</strong>, which is the case it was always for: two are split into legs, and more are
-refused.</p>
-<h2 id="decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed">Decision 3 - how deep a path a data system resolves is declared, not guessed<a class="headerlink" href="#decision-3-how-deep-a-path-a-data-system-resolves-is-declared-not-guessed" title="Permanent link">&para;</a></h2>
-<p><code>Dialect::qualification</code> returns <code>sutura_domain::model::Qualification</code> from an exhaustive match, on
-the <code>DateTruncShape</code> and <code>identifier_quote</code> precedent - a fifth dialect cannot compile without
-answering.</p>
-<p>It has to be a declaration because <strong>the dialect layer will render three parts for any target</strong>: its
-<code>TableRef</code> is a name plus two <code>Option</code>s with no per-dialect arity check. So without this, a
-<code>project.dataset.table</code> rendered for a target with no third position produces a statement that fails
-at the data system or, worse, resolves the leading part as something else.</p>
-<table>
-<thead>
-<tr>
-<th>Dialect</th>
-<th>Resolves</th>
-<th>Why that arm</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>BigQuery</code></td>
-<td><code>project.dataset.table</code></td>
-<td>A first-class path. One credential reaches several projects, and a cross-project join is native. This is the reason the feature exists</td>
-</tr>
-<tr>
-<td>Postgres</td>
-<td><code>schema.table</code></td>
-<td>Cross-<em>database</em> is not a thing it does. Its three-part form is accepted only when the leading part is the database already connected to, so rendering one would work or fail on a connection detail no catalog can see</td>
-</tr>
-<tr>
-<td><code>ClickHouse</code></td>
-<td><code>database.table</code></td>
-<td>It has databases and no catalog above them. A rendering claim, not an execution one - nothing here executes <code>ClickHouse</code></td>
-</tr>
-<tr>
-<td><code>DuckDB</code></td>
-<td>the table alone</td>
-<td><strong>The arm worth reading twice, because it is narrower than what DuckDB can parse.</strong> DuckDB has schemas and attached catalogs. This is declared for what a DuckDB deployment <em>here</em> can resolve: <code>sutura-exec-duckdb</code> registers one view per model in the default schema and <code>sutura-exec-datafusion</code> registers one file per model in its own registry, so a qualified name resolves to nothing in either. Widening this arm is a change to what those adapters attach</td>
-</tr>
-</tbody>
-</table>
-<p>A path deeper than the target is <code>GenerateError::QualificationUnsupported</code>, naming both depths.
-<strong>Never a dropped qualifier</strong> - dropping the part that does not fit is the wrong-number failure at
-the top of this record, moved rather than fixed. It is a <code>GenerateError</code> and not a <code>RefusalReason</code>
-because no question a caller could ask produces one: a table path comes from a catalog document,
-which is upstream.</p>
-<p>The engine and the two binaries that link it refuse the same thing independently:
-<code>DataFusionWarehouse::scan</code> before it consults the registry, and <code>sutura-serve</code> and <code>sutura-cli</code>
-<strong>at boot</strong>, so a deployment that could not serve its bundle does not start.</p>
-<p><strong>No explicit table alias is emitted, and that is a declaration rather than an oversight.</strong> A column
-is qualified by the table's bare name, and <code>FROM a.b.c</code> gives the reference an implicit alias of <code>c</code>
-in all four targets. Saying so explicitly with <code>AS "c"</code> would be better, and it is not reachable
-through the fluent builder this repository uses deliberately: <code>left_join</code> takes a <code>&amp;str</code> and the
-aliasing constructor is private, so it would mean hand-building the AST. The implicit alias is what
-holds, the live run is what measures it on the target where a misquoted identifier is not a syntax
-error, and <code>sutura_sql::generate::table_path</code> carries this paragraph beside the code.</p>
-<h2 id="decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads">Decision 4 - a label may not be spelled the same as a table the statement reads<a class="headerlink" href="#decision-4-a-label-may-not-be-spelled-the-same-as-a-table-the-statement-reads" title="Permanent link">&para;</a></h2>
-<p><code>Definitions::assemble</code> already refused a dimension named after its metric or after the time bucket.
-It now also refuses <code>LabelShadowsTable</code>: the metric's own name, <code>TIME_BUCKET_LABEL</code> and every
-dimension name, against the metric model's table <strong>and every joined model's table</strong>.</p>
-<p><strong>This one is a report, not a prediction.</strong> The first live <code>BigQuery</code> submission returned <code>400
-invalidQuery</code> - <em>"Cannot access field day on a value with type INT64"</em> - because a metric label
-equalled the table name and <code>GoogleSQL</code> resolved the qualifier in <code>table.column</code> to the <strong>select-list
-alias</strong> instead of to the table. Same root cause as the unqualified table itself: a physical name that
-nothing checked against the labels beside it.</p>
-<p>It is refused for <strong>every</strong> dialect rather than for the one that reported it, because a rule about
-which of two things a qualifier binds to is precisely the kind of difference nobody should maintain
-per target - and the alternative outcomes across four dialects are a wrong number, a rejected
-statement and silence.</p>
-<p><strong>It checks every label against every table, which is stricter than the collision that has to bite.</strong>
-A joined table is in the <code>FROM</code> only when a dimension reached through it is asked for, but any other
-dimension can be asked for in the same question - so which pairs meet at query time is a function of
-the question, and a load-time check that tried to predict it would sometimes let one through.
-Refusing the cross product costs a catalog author one rename and cannot be wrong in the direction that
-returns a number. The check reads the table's <strong>bare</strong> name, because that is what a qualifier binds
-to: a metric named after the <em>dataset</em> collides with nothing.</p>
-<p><strong>Amended, because the first version of this check compared for equality and a review reproduced the
-gap.</strong> GoogleSQL's lexical reference lists <em>aliases within a query</em>, <em>column names</em> and <em>field names</em>
-as NOT case-sensitive - checked 2026-08-30 - while its <strong>table</strong> names are case-sensitive by default.
-So a table named <code>Orders</code> is a distinct table, the qualifier <code>Orders</code> still resolves to a select-list
-alias spelled <code>orders</code>, and an equality check let every such pair through to collide exactly as the
-same-case one did.</p>
-<p>The comparison now folds ASCII case, and it folds it for the two older checks too - a dimension named
-after the time bucket, and a dimension named after its metric - because GoogleSQL documents a result
-column's <em>name</em> as case-insensitive as well, so <code>Period</code> beside <code>period</code> is one column there. Neither
-needed a new variant; what changed is the comparison.</p>
-<p><strong>Which rule to compare under is a decision rather than an implementation detail, and it is made where
-the vocabulary is.</strong> <code>sutura_domain::model::IdentifierCase</code> is the vocabulary and
-<code>sutura_sql::Dialect::identifier_case</code> is the per-dialect declaration, on the <code>Qualification</code> and
-<code>DateTruncShape</code> precedent from Decision 3: the domain names what the difference is, a target answers
-for itself, and a comparison decides. <code>BigQuery</code> is <code>InsensitiveAscii</code> from the reference above, and
-<code>DuckDb</code> is too - <strong>measured</strong> on the pinned DuckDB 1.5.5, where a table created as a quoted <code>Orders</code>
-is bound by a quoted <code>orders</code> qualifier and returns a result.</p>
-<p>A bundle is dialect-agnostic, so both this check and Decision 5's compare under
-<code>IdentifierCase::COARSEST</code> whatever a dialect declares. <strong>That makes the declaration a self-check and
-not a barrier, and saying which is the point:</strong> a value declared <code>Sensitive</code> cannot make a bundle
-unsafe, which is why <code>Postgres</code> and <code>ClickHouse</code> are declared from documented behaviour and not
-measured - neither has a server in this repository to ask. What the declaration buys is
-<code>every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes</code>, so a variant folding <em>more</em> than
-ASCII case fails a test instead of quietly making both comparisons too fine.</p>
-<p><strong>Corrected: both now have a server in this repository, so that reason is spent while the
-declarations are unchanged.</strong> <code>nix/postgres-tier.nix</code> provisions Postgres from nixpkgs and
-<code>clickhouse</code> is a default service of the docker dev tier <code>just dev-up</code> brings up;
-<code>sutura_sql::Dialect::identifier_case</code> already carries the Postgres half of this correction.
-<strong>The limit on the other half:</strong> no ClickHouse adapter exists in this workspace -
-<code>compose.services.yaml</code> says so beside the service - so asking that server would mean a client
-rather than this renderer. So
-the two are <strong>not yet</strong> measured rather than unmeasurable. <strong>What that does not change is the
-decision</strong>, for the reason the paragraph above gives: a value declared <code>Sensitive</code> cannot make a
-bundle unsafe, so measuring either one tightens the self-check and moves no comparison.</p>
-<h2 id="decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around">Decision 5 - two tables whose paths end in one name are refused, not aliased around<a class="headerlink" href="#decision-5-two-tables-whose-paths-end-in-one-name-are-refused-not-aliased-around" title="Permanent link">&para;</a></h2>
-<p>Decision 1 says a column is qualified by the <strong>last</strong> part of a path, because <code>FROM a.b.orders</code> gives
-the reference an implicit alias of <code>orders</code> in all four targets. What Decision 1 did not say is what
-happens when two of the tables in one statement end their paths the same way, and a review reproduced
-it by changing one fixture: a fact table at <code>analytics-prod.sales.orders</code> joined to a dimension table
-at <code>reference-data.crm.orders</code> rendered an <code>ON</code> clause reading <code>orders.customer_id = orders.id</code> - one
-table compared with itself - with every projected column qualified by an identifier naming two tables.
-A real DuckDB 1.5.5 answers that statement <code>Binder Error: Ambiguous reference to table "orders"</code>; a
-target that binds it to one side instead returns a number under a certified metric name. Same-name
-tables across datasets are the estate shape this record exists for, so it is reachable rather than
-exotic.</p>
-<p><strong>Distinct explicit aliases are the fix that keeps the question answerable, and they are not reachable
-through the builder this workspace renders with.</strong> Measured against <code>polyglot-sql</code> 0.9.2:
-<code>SelectBuilder::from_expr</code> takes an expression, so the <code>FROM</code> side could carry an <code>AS</code>, but
-<code>left_join</code> and every other join method take a <code>&amp;str</code> table name and <code>join_with_kind</code> is private - so
-the joined side cannot be aliased without hand-building a select expression with upwards of thirty
-fields, which <code>sutura_sql::generate</code>'s own header rules out. An alias on one side of a join and not
-the other is not a fix.</p>
-<p>So the decision is the other one, and it is made <strong>unrepresentable rather than checked at render
-time</strong>: <code>sutura_domain::plan::StatementTables</code> is the only way to a <code>QueryPlan</code> <em>or</em> to a
-<code>LegPlan::Fact</code> - <code>QueryPlan::new</code> takes it instead of a table plus a vector of joins, and the leg
-variant holds one as a field - and its <code>parse</code> refuses two occurrences answering to one identifier
-under <code>IdentifierCase::COARSEST</code>. There is therefore no ambiguous plan of either shape for any dialect
-to render. <code>sutura_semantic::plan</code> turns that refusal into
-<code>RefusalReason::PlanTablesShareAnIdentifier</code>, beside <code>PlanSpansTooManySources</code>, which is the other
-refusal that stage produces about the shape of a statement rather than about anything a caller wrote.</p>
-<p><strong>A QUERY-time refusal and not a load-time one, which is the opposite of Decision 4 and deliberately
-so.</strong> A colliding <em>label</em> costs its author a rename; a colliding <em>table</em> is a physical name nobody
-here can change, and refusing the metric at load would make this record's own estate shape
-unauthorable. So the metric stays authorable and only a question that actually puts both tables in one
-statement is declined - a dimension on the fact table's own model is still answered, which
-<code>golden/service.rs</code> asserts as the second half of the same test.</p>
-<p>The comparison is over <strong>positions</strong> rather than over distinct paths, so the same table joined twice
-through two relationships is refused too: two occurrences under one identifier is a duplicate alias
-whether or not they name the same rows.</p>
-<p><strong>The limit this section used to state was the fact leg, and it was reached rather than left
-hypothetical - which is why the correction is recorded here instead of the claim being quietly
-widened.</strong> This record shipped saying the guard did not reach a <code>LegPlan::Fact</code>, that nothing outside
-a test constructed a leg, and that <em>"the change that gives a leg a producer is the change that should
-route it through <code>StatementTables</code>"</em>. <a href="../0007-federating-across-different-data-systems/">0007</a>'s
-splitter is that change, and the first version of it built both legs by struct literal: a federated
-question with a same-source hop to a colliding table rendered
-<code>FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id</code>, measured
-through <code>generate_leg</code> for <code>Dialect::BigQuery</code>. Worse than the whole-answer case rather than equal to
-it, because a leg's rows are combined above it and nothing downstream sees the statement. <code>Fact</code> now
-carries a <code>StatementTables</code> as its field, pinned by a <code>compile_fail</code> doctest with a compiling twin
-(E0559 on <code>table</code> and <code>joins</code>), and <code>golden/service.rs</code> provokes the refusal through a three-model
-catalog. <strong>A prediction in a doc comment is not a mechanism.</strong></p>
-<p>What remains is narrow: a <code>LegPlan::Lookup</code> reads one table and declares no joins, so it has no pair
-to compare, and two LEGS whose tables collide are not this defect - each leg is its own statement on
-its own data system, and what the combiner joins on is a label rather than a table qualifier.</p>
-<h2 id="what-the-goldens-pin-and-where">What the goldens pin, and where<a class="headerlink" href="#what-the-goldens-pin-and-where" title="Permanent link">&para;</a></h2>
-<p><code>crates/sutura-app/tests/golden/qualified.rs</code>, a third file on the dialect axis for the reason
-<code>golden/legs.rs</code> is a second one: <strong>the question corpus cannot produce these.</strong> A question has no
-field naming a table, so a path comes from a catalog document - and the shipped corpus under
-<code>examples/single-player</code> is deliberately left unqualified, because the two data systems that
-<em>execute</em> it register one file per model and would have nothing to resolve a project against.
-Qualifying the corpus would have moved every existing golden and broken the executed axis in order to
-demonstrate a rendering.</p>
-<p>Three fixtures - a dataset qualifier, a project above a dataset, and that fact table joined to a
-dimension table in <strong>another project</strong> - expanded over every registered dialect. Each cell handles
-both outcomes, read off <code>Dialect::qualification</code> rather than listed, so a fifth dialect is covered
-without an edit. Five statements carry the row cap, which moves <code>AGENTS.md</code>'s golden count from 88 to
-93.</p>
-<h2 id="what-is-claimed-and-what-is-not">What is claimed, and what is not<a class="headerlink" href="#what-is-claimed-and-what-is-not" title="Permanent link">&para;</a></h2>
-<p><strong>Claimed, and measured against a real project on 2026-08-31.</strong> The acceptance leg reads <strong>the same
-table three ways in one test</strong> - unqualified through the job's <code>defaultDataset</code>, then <code>dataset.table</code>,
-then <code>project.dataset.table</code> - and all three answer 42 for June and 99 for July. So a qualified path
-both <em>renders</em> and <em>resolves</em>, and the implicit-alias declaration in Decision 3 holds on the target
-where a misquoted identifier would not have been a syntax error.</p>
-<p><strong>The negative control is what makes that a measurement rather than an inference</strong>, and it is the
-half worth insisting on: the same table name asked for in <code>sutura_no_such_dataset.&lt;table&gt;</code> is
-<strong>refused</strong>. Without it, a service that ignored the qualifier and resolved the last part in its
-default dataset would have produced three identical green legs while proving nothing - which is this
-record's own opening failure, one layer further out.</p>
-<p><strong>Not claimed, and each of these is a gap rather than a hedge:</strong></p>
+<h2 id="what-this-does-not-decide">What this does not decide<a class="headerlink" href="#what-this-does-not-decide" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>No second project was reached.</strong> Measured rather than assumed: the acceptance service
-  account can see one project's datasets, and <code>datasets.insert</code> returns
-  <code>403 accessDenied ... does not have bigquery.datasets.create permission</code>, so a second project
-  could not be created to read across. <strong>What that leaves unproved is narrower than it sounds and
-  is worth stating exactly:</strong> the three-part path is proved to <em>resolve</em> - the qualifier is read,
-  and a wrong dataset in it is refused - and what is unproved is a read whose leading part is a
-  project the credential does not already bill to. That is an IAM grant rather than a code change;
-  the statement is identical in shape either way. It is the one thing to re-run when a second
-  project exists.</li>
-<li><strong>A cross-project JOIN was not executed.</strong> A cross-DATASET join within one billing project now
-  is - recorded on 2026-09-16 by run
-  https://github.com/telekom/sutura/actions/runs/35066825062, positive and negative control, PASS -
-  but a JOIN whose leading part is a second project the credential does not bill to remains
-  unexecuted. It is rendered, parse-checked, and pinned as one statement with one <code>JOIN</code> and one
-  <code>SourceName</code> - which is the design claim of Decision 2 - but no hosted run shows a service
-  performing it across projects, and none pretends to.</li>
-<li><strong>Nothing about the corpus.</strong> The live legs are hand-built statements, exactly as
-  <a href="../0018-what-the-bigquery-wire-is-built-from/">0018</a> says of its own.</li>
-<li><strong>Nothing about identity.</strong> A service-account key is <code>SharedServiceUser</code>. Cross-project reads under
-  a per-subject credential are <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a>'s
-  business, and this record touches none of it.</li>
+<li><strong>Whether a heterogeneous or leg-2 build actually SHIPS.</strong> This is a publishing and cost call
+  belonging to the maintainer - the musl/closure/cost surface <code>github.com/telekom/sutura#112</code>'s own
+  body names - and nothing here makes it. <code>nix/shipped.nix</code> is unchanged.</li>
+<li><strong>Promoting <code>sutura-exec-bigquery</code>'s <code>EXECUTES_LEGS</code>.</strong> It stays at the port's default. A mixed
+  build combining <code>files</code> and <code>bigquery</code> sources today opens both and refuses only a question that
+  would need the <code>bigquery</code> leg to run - <code>FederationNotExecutable</code>, unchanged in shape, now scoped
+  to the leg that cannot run rather than to the whole build.</li>
+<li><strong>A mixed-posture answer's reachability.</strong> <code>RefusalReason::LegsDecideIdentityDifferently</code> is
+  unaffected and unexercised by this record: every adapter this workspace ships is either
+  <code>NoPlaceForASubject</code> or, for <code>BigQuery</code>, <code>PerSubjectCredential</code> without <code>EXECUTES_LEGS</code>, so no
+  shipped combination can put two genuinely different postures on the same federated answer yet.</li>
+<li><strong>The three type-level consts this enum still lies about the conservative direction on.</strong> A
+  mixed build cannot serve the raw-SQL tool against a <code>Postgres</code> source it holds
+  (<code>ACCEPTS_RAW_STATEMENTS</code>), read a real dry-run byte estimate off a <code>BigQuery</code> source it holds
+  (<code>PRICES_DRY_RUN</code>), or execute an authored-SQL metric through any wrapped adapter
+  (<code>EXECUTES_AUTHORED_SQL</code>), even where the underlying adapter could. Each would need the same
+  instance-method escape <code>executes_legs</code> got, asked for by name when a deployment needs it.</li>
+<li><strong>A live, end-to-end served test of two kinds answering over HTTP.</strong> The boot path is proven at
+  the composition root (<code>crates/sutura-cli/src/serve/tests.rs</code>) and the per-leg combining
+  mechanism is proven at the domain/application boundary (<code>crates/sutura-app/tests/differential/federated/two_kinds.rs</code>,
+  mixing two DEV-ONLY adapters that both execute a leg, since no two SHIPPED kinds both do). A
+  served deployment mixing real linked kinds and answering a federated question over the wire is
+  not exercised here.</li>
 </ul>
-<h2 id="amendment-2026-09-16-one-binary-refuses-at-boot-not-two">Amendment, 2026-09-16: one binary refuses at boot, not two<a class="headerlink" href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" title="Permanent link">&para;</a></h2>
-<p><em>Decision 4</em> said "the engine and the two binaries that link it refuse the same thing independently:
-<code>DataFusionWarehouse::scan</code>... and <code>sutura-serve</code> and <code>sutura-cli</code> at boot." <code>sutura-serve</code> folded
-into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2); the engine's own refusal
-and the boot-time refusal are still two independent checks, and the second now runs once, in
-<code>sutura-cli</code>, for both the <code>serve</code> subcommand and the rest of the binary.</p>
 
 
 

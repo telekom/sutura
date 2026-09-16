@@ -877,6 +877,8 @@
       
         
       
+        
+      
     
     
     
@@ -1490,6 +1492,17 @@
     <span class="md-ellipsis">
       
         Amendment, 2026-09-16: the absence The order, by branch named has landed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-a-deployment-holding-two-kinds-has-landed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: a deployment holding two KINDS has landed
       
     </span>
   </a>
@@ -2192,6 +2205,34 @@
     
   
     The iamcredentials impersonation hop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0033-a-closed-enum-over-the-shipped-warehouse-kinds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed enum over the shipped warehouse kinds
   
 
     
@@ -3409,6 +3450,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-a-deployment-holding-two-kinds-has-landed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: a deployment holding two KINDS has landed
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3432,12 +3484,12 @@
 <h1 id="federating-across-different-data-systems">Federating across different data systems<a class="headerlink" href="#federating-across-different-data-systems" title="Permanent link">&para;</a></h1>
 <p>Status: accepted, and <strong>partly built</strong> - amended twice, in place, by the two blocks below. <em>Nothing
 here is built</em> was the status when this was written and is corrected rather than left: the splitter,
-the leg types, the per-dialect rendering, the combine and the orchestrating call all exist, and
-<code>sutura-exec-datafusion</code> executes a leg. What is still unbuilt is track 1 beyond the dialects that
-ship and a deployment holding two KINDS of data system. It decides a shape and an order; the code it
-led to is cited beside each amendment. <strong>Read <em>Amendment, 2026-09-16<em> before citing the
-<code>feat/source-registry</code> bullet under </em>The order, by branch</em></strong> - it names an absence that has since
-become false.
+the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
+<code>sutura-exec-datafusion</code> executes a leg, and a deployment can hold two KINDS of data system at
+once (<em>Second amendment, 2026-09-16</em>). What is still unbuilt is track 1 beyond the dialects that
+ship. It decides a shape and an order; the code it led to is cited beside each amendment. <strong>Read
+<em>Amendment, 2026-09-16<em> before citing the <code>feat/source-registry</code> bullet under </em>The order, by
+branch</em></strong> - it names an absence that has since become false.
 <a href="../0006-several-databases-behind-one-data-system/">Several databases behind one data system</a> declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.</p>
@@ -4682,6 +4734,40 @@ next edit regardless of which way the claim points.</p>
 <code>feat/source-registry</code> bundles three assumptions into one branch; that reasoning does not depend on
 whether the absence it illustrated still holds, and nothing above is a claim that the branch order
 was wrong.</p>
+<h2 id="second-amendment-2026-09-16-a-deployment-holding-two-kinds-has-landed">Second amendment, 2026-09-16: a deployment holding two KINDS has landed<a class="headerlink" href="#second-amendment-2026-09-16-a-deployment-holding-two-kinds-has-landed" title="Permanent link">&para;</a></h2>
+<p><strong>The status line's remaining "still unbuilt" half - "a deployment holding two KINDS of data
+system" - is corrected here, not struck: it is built now, and this section is what changed and
+what did not.</strong> <code>telekom/sutura#112</code> added <code>crate::serve::kind::AnyWarehouse</code> in <code>sutura-cli</code>,
+beside <code>OpenedSources</code>: a closed enum, one variant per adapter that BUILD linked, and
+<code>sutura_app::Warehouses::into_mapped</code>/<code>::merge</code> - two crate-agnostic methods added to the same
+registry this record already relies on - are what let a composition root build the concrete,
+per-kind registry it always built and erase-then-merge it into one heterogeneous
+<code>Warehouses&lt;AnyWarehouse&gt;</code>, rather than refusing at the kind mismatch as <code>one_kind</code> used to.</p>
+<p><strong>Placement, because the thread that asked for this landed a contradiction first.</strong> The enum is in
+<code>sutura-cli</code>, not in <code>sutura-app</code>: <code>sutura-app</code>'s own <code>[dependencies]</code> still names no adapter, held
+now by a ninth <code>check-boundaries</code> half (<code>sutura-app -&gt; sutura-exec-*</code> over a normal edge, dev
+exempt) that did not exist before this - <code>FORBIDDEN_EDGES</code> had no row naming <code>sutura-app</code>, and
+<code>sutura-app</code> joined none of the adapter classes <code>check-boundaries</code> already compared against each
+other, so the edge this record's own "which adapters a process holds is a property of the BUILD"
+argument forbids passed every existing check silently until now.</p>
+<p><strong>What this does NOT retire: <a href="../0009-the-plan-from-one-source-to-many/">Decision 3</a>'s combiner, and
+the leg gate.</strong> <code>Warehouse::IMPERSONATION</code> being a required associated constant is still why the
+enum cannot be <code>dyn Warehouse</code>, and it is ALSO why the enum cannot carry a truthful type-level
+<code>EXECUTES_LEGS</code> - an enum-wide constant is one value for every variant, and a <code>BigQuery</code> variant
+declaring the permissive one would be exactly the "silently widen the declaration" failure #113's
+scope note warned about for <code>IMPERSONATION</code>. So <code>Warehouse::executes_legs</code>, a new INSTANCE method
+defaulted to that same constant, is what <code>sutura_app::federated::answer_federated</code> now reads per
+leg - each leg against its own concrete adapter's declaration, not one constant for the whole
+registry - which is the change that lets a leg-capable kind sit beside a leg-declining one and
+refuse only the leg that cannot run.</p>
+<p><strong>What is still not decided, stated as a limit rather than left implicit:</strong> whether a
+heterogeneous or leg-2 build actually SHIPS - as opposed to merely compiling - is a publishing and
+cost call this amendment does not make; nothing here promotes <code>sutura-exec-bigquery</code>'s
+<code>EXECUTES_LEGS</code>, and it stays at the port's default. And the four consts this enum's own doc names
+as still type-level (<code>EXECUTES_AUTHORED_SQL</code>, <code>ACCEPTS_RAW_STATEMENTS</code>, <code>PRICES_DRY_RUN</code>, plus
+<code>IMPERSONATION</code> itself) take the conservative default when erased behind it - a mixed build cannot
+serve the raw-SQL tool against a <code>Postgres</code> source it holds, nor read a real dry-run byte estimate
+off a <code>BigQuery</code> one, until each gets the same instance-method escape <code>executes_legs</code> did.</p>
 
 
 
