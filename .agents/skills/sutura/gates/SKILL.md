@@ -1025,8 +1025,12 @@ a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (
 (declared-not-added and added-not-declared are both refusals), resolves each cell to a committed
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
-mutation kills it. A patch that does not apply, touches a test LINE, or leaves the cell green
-refuses the whole arm. The test-line rule is a PATH half and a TEXT half. The PATH half reads git's
+mutation kills it. A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
+cell green refuses the whole arm. A created file is read from the patch's own bytes (a
+`--- /dev/null` file section), never from whether a path happens to be found at HEAD, because a
+new file's own test region has no HEAD image to text-compare - closing a gap once masked by the
+accident that `git checkout HEAD -- <new>` fails afterward and reads as an unrelated restore
+failure. The test-line rule is a PATH half and a TEXT half. The PATH half reads git's
 own `--numstat` paths and refuses a touch of any file that is all test at HEAD (a `/tests/` target,
 a `#![cfg(test)]` or out-of-line `#[cfg(test)] mod` file). The TEXT half decides a MIXED file
 (production + an inline `#[cfg(test)] mod tests`): it APPLIES the patch and then requires every
@@ -1036,10 +1040,12 @@ used to let a second hunk smuggle an edit into the cell's own assertion past a l
 still refuses as `patch rewrites the cell`, while a genuine production-line mutation stays a valid
 target - the shape an inline claim cell needs to patch its own file. A run reports a KILL only when
 its `panicked at <path>:<line>` lands in the cell's OWN file, inside the cell's OWN test fn
-(located by the fn's name on the post-image, never by a line): a planted `panic!`/`unwrap()` in
+(located by the fn's name on the post-image - `fn`, `async fn`, any visibility in front, the same
+shapes `scoped::function_name` recognises, never by a line): a planted `panic!`/`unwrap()` in
 PRODUCTION, a downstream `.expect()` in an unpatched file, a panic inside ANOTHER file's test
-region (a shared `tests/common` helper), an exit/abort/signal death, or a FAIL with no site at all
-refuses as *not by the cell's own assertion*. All
+region (a shared `tests/common` helper), a panic on a production line of the cell's OWN file (still
+outside its own test fn), an exit/abort/signal death, or a FAIL with no site at all refuses as *not
+by the cell's own assertion*. All
 cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
 never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
 cell dies under its compiled mutation by its own assertion (at +N isolated rebuilds per declaration
@@ -1050,7 +1056,13 @@ flip, a body replaced by `Default::default()`) and the gate holds only that it k
 own assertion - whether it is the right break is review-held, with the patch visible in the diff for
 exactly that reason. It does NOT prove a `#[track_caller]` panic or a cell-line `unwrap()` on a
 mutated `None` is refused: those panic AT THE CELL'S OWN LINE, which is inside its own test fn, so
-no site-based rule can close them - that shape is review-held, the reviewer reads the patch. And
+no site-based rule can close them - that shape is review-held, the reviewer reads the patch. Nor
+does it prove a `Cargo.toml` feature/`[patch]`/path edit is refused (changes what the cell compiles
+against), a `build.rs` edit is refused (`cargo:rustc-cfg`, `env!`), or a `macro_rules!` shadow of
+`assert_eq!`/`assert!`/an `unwrap`-like helper in production lines above the inline test module is
+refused (the region's bytes are unchanged; a textual-scope macro shadows the prelude one inside the
+module, reasoned from rustc's caller-location rule rather than measured in a compiled crate) - all
+three are ACCEPTED, each visible in the committed patch, review-held the same way. And
 the `return claim::run(..)` wiring in `causality::run` is read by review, not measured by a cell
 here (stated, not hidden). The trailer never disables red-before-green for anything UNDECLARED: a claim
 cell without a trailer still reaches the green-against-base refusal unchanged.
