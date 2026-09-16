@@ -3171,17 +3171,24 @@ build that does not ask for this reader links no outbound TLS stack.</p>
 through a real <code>DataHub</code> 1.7.0 and compared what came back against the fixture byte-for-byte, so
 <code>harvest_metric</code> maps exactly the envelope that suite measured: <code>entities[]</code>, each carrying
 <code>metricInfo.value</code> and <code>structuredProperties.value.properties[]</code>.</p>
-<p><strong>The <code>dataset</code> and <code>semanticModel</code> entities are NOT measured against a live instance.</strong> Their
-field lists come from <code>docs/adr/0016</code>'s "Field by field" table, which was read from the platform's
-own <code>.pdl</code> schema sources rather than from a served response. This is stated once here and
-repeated at each mapping function, because the two facts have different consequences: a wrong
+<p><strong>The <code>semanticModel</code> entity's relationship shape IS measured against a live instance, the
+<code>dataset</code> entity's is NOT.</strong> Real <code>DataHub</code> 1.7.0 carries a joined relationship NOT as a
+top-level <code>semanticModelRelationship</code> aspect (which GMS drops on write) but nested inside the
+<code>semanticModel</code> entity's own <code>semanticModelInfo.value.relationships[]</code> array - measured on this
+repository's docker tier (2026-09-16) by upserting the recorded corpus's <code>orders_to_customer</code>
+relationship under <code>semanticModelInfo</code> and reading it back. So
+<code>HttpAspectReader::read_relationships</code> maps the aspect it fetches to the array
+<code>harvest_relationship</code> walks, and the fake <code>happy_path_answers</code> page serves the same nested
+shape - one content over two transports. The <code>dataset</code> entity's field
+list is still from <code>docs/adr/0016</code>'s "Field by field" table, read from the platform's own <code>.pdl</code>
+schema rather than from a served response. The two facts have different consequences: a wrong
 guess about <code>metric</code>'s envelope would be a regression against a proven round trip, and a wrong
-guess about the other two would be the FIRST claim this crate has made about them. So both
-mapping functions refuse an unexpected shape as a typed <code>HttpReaderError::UnexpectedShape</code>
-naming the entity and the field, rather than reading past a missing or mistyped key with a
-default - a guess that happened to be wrong would otherwise certify a bundle silently missing a
-model or a relationship. <strong>Do not cite this reader as proof the structural half works against a
-real <code>DataHub</code> until an acceptance leg like <code>tests/provisioned.rs</code>'s measures it.</strong></p>
+guess about <code>dataset</code> would be a FIRST claim this crate has made about it. Both mapping functions
+refuse an unexpected shape as a typed <code>HttpReaderError::UnexpectedShape</code> naming the entity and
+the field, rather than reading past a missing or mistyped key with a default - a guess that
+happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
+<strong>Do not cite this reader as proof the <code>dataset</code> half works against a real <code>DataHub</code> until an
+acceptance leg like <code>tests/provisioned.rs</code>'s measures it.</strong></p>
 <h1 id="what-every-read-is-bounded-by">What every read is bounded by<a class="headerlink" href="#what-every-read-is-bounded-by" title="Permanent link">&para;</a></h1>
 <p><code>ReadBounds</code> carries a request timeout and a response-size cap, both <strong>settings with defaults,
 not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_MAX_RESPONSE_BYTES</code> are the values a
@@ -3442,7 +3449,11 @@ every column the metric's measure, time column and required filter name) and <co
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
 </span></code></pre></div>
 <p>One <code>semanticModel</code> page, over the one relationship the certified fixture metric's dimension
-reaches <code>customers</code> through.</p>
+reaches <code>customers</code> through. Served in the shape a REAL <code>DataHub</code> carries - the relationship
+nested inside the <code>semanticModel</code> entity's own <code>semanticModelInfo.value.relationships[]</code>, not as
+a top-level aspect (GMS drops that on write; measured against the docker tier, 2026-09-16) - so
+the fake and the live tier serve one content over two transports, and
+<code>HttpAspectReader::read_relationships</code> walks both identically.</p>
 <h3 id="fn-metric_page"><code>fn metric_page</code><a class="headerlink" href="#fn-metric_page" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metric_page</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span>
 </span></code></pre></div>

@@ -835,6 +835,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-two-datahub-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two DataHub modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#running-it-locally-with-your-own-project" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2777,6 +2788,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-two-datahub-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two DataHub modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#running-it-locally-with-your-own-project" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2851,20 +2873,43 @@ whole reason:</p>
 <ul>
 <li><strong>Execution AS the asking subject.</strong> The source runs under one shared credential
   (<code>shared-service-user</code>), never a credential BigQuery resolves to the caller's own principal. That
-  is the row <a href="../where-identity-is-proven/"><code>where-identity-is-proven.md</code></a> keeps <strong><code>unrun</code></strong>: no
+  is the row <a href="../where-identity-is-proven/"><code>where-identity-is-proven.md</code></a> keeps <strong><code>wired</code></strong>: no
   <code>iamcredentials</code> hop is built and no subject assertion is minted. The <code>SESSION_USER()</code> cell in
   <code>crates/sutura-exec-bigquery/tests/exchanged_identity.rs</code> stays <code>#[ignore]</code>d behind the
   maintainer's binding (issue #376 P2).</li>
-<li><strong>A real DataHub HTTP tier.</strong> PR 1 answers issue #202's <em>recorded corpus</em> through an in-process
-  fake server. The docker tier (<code>--datahub tier</code>) is the hosted job's, so local runs use the fake.</li>
 <li><strong>Anything about Postgres, Oracle or other sources.</strong> BigQuery is the only adapter this showcase
   wires here.</li>
 </ul>
+<p>The two DataHub modes and what each proves are the next section; the missing piece above (execution
+AS the subject) is the one a green run of either mode still does not demonstrate.</p>
+<h2 id="the-two-datahub-modes">The two DataHub modes<a class="headerlink" href="#the-two-datahub-modes" title="Permanent link">&para;</a></h2>
+<p><code>just e2e-datahub-bigquery</code> takes one flag, <code>--datahub fake|tier</code>, defaulting to <code>fake</code>.</p>
+<ul>
+<li><strong><code>--datahub fake</code></strong> (the default locally, no docker) answers issue #202's <em>recorded corpus</em>
+  through an in-process HTTP fake (<code>sutura_catalog_datahub::test_support::FakeServer</code>). It proves
+  DataHub→HTTP on a real issuer's token→a real BigQuery project, and the refusal. Its DataHub leg
+  is the corpus, not the platform.</li>
+<li><strong><code>--datahub tier</code></strong> (the hosted job's) starts the REAL docker DataHub platform
+  (<code>xtask dev-up --with datahub</code> - five containers), provisions the certified <code>revenue</code> metric
+  under the deployment's own structured property (<a href="../adr/0016-what-datahub-can-carry/">ADR 0016</a>)
+  exactly as <code>datahub-acceptance</code> does, has the tier mint its own personal-access token offline with
+  its own signing key (headless GMS exposes no <code>/auth/*</code> surface - see <code>dev/src/mint.rs</code>; the PAT is
+  never committed, it is written to a generated <code>token_file</code> at run time), and points the served
+  binary's HTTP <code>AspectReader</code> at the platform. Same one cell, same three asks, same anchors -
+  fail-not-skip on every step.</li>
+</ul>
+<p>Both modes run the identical cell through the identical settings builder; the flag only decides
+which <code>endpoint</code>/<code>token_file</code> the deployment reads from. A docker tier is still not a production
+DataHub: single node, generated secrets, auth enabled for the minted PAT alone.</p>
 <h2 id="running-it-locally-with-your-own-project">Running it locally, with your own project<a class="headerlink" href="#running-it-locally-with-your-own-project" title="Permanent link">&para;</a></h2>
 <p>Everything is a <code>just</code> task, and the BigQuery leg needs <strong>your own open project</strong>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just keycloak-tier start       # the real issuer: a realm, a client and two provisioned subjects
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>just e2e-datahub-bigquery      # boots the composed binary, loads the fixture into BigQuery, asks both subjects over HTTP
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just keycloak-tier start              # the real issuer: a realm, a client and two provisioned subjects
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>just e2e-datahub-bigquery             # the wave: the recorded corpus over the fake (no docker)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>just e2e-datahub-bigquery -- --datahub tier   # the wave over the REAL docker DataHub tier (needs docker)
 </span></code></pre></div>
+<p>In <code>--datahub tier</code> mode the task (or the nix app <code>nix run .#e2e-datahub-bigquery -- --datahub tier</code>)
+brings the DataHub platform up with <code>xtask dev-up --with datahub</code>, provisions the metric, mints the
+PAT, and leaves the platform running - <code>just dev-down</code> tears it down.</p>
 <p>The task's cell FAILS, naming the missing one, when <code>GOOGLE_APPLICATION_CREDENTIALS</code> or
 <code>SUTURA_BQ_DATASET</code> is unset - never a silent fallback to the in-process engine. (The credential
 supplies its own billing project where it names one; <code>SUTURA_BQ_BILLING_PROJECT</code> is read only where

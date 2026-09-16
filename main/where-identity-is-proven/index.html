@@ -3393,13 +3393,13 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <td><strong>A provisioned Keycloak realm</strong></td>
 <td>in process, on the paths that touch it - a JVM the tier boots inside the job</td>
 <td>nothing - no secret and no docker; <code>nix/keycloak-tier.nix</code> says so in its own header</td>
-<td><code>just keycloak-served-test</code></td>
+<td><code>just keycloak-served-test</code>, <code>just e2e-datahub-bigquery</code></td>
 </tr>
 <tr>
 <td><strong>A real dataset under a shared key</strong></td>
 <td>a GitHub environment, on demand</td>
 <td>a service-account key and a billing project</td>
-<td><code>just bigquery-acceptance</code></td>
+<td><code>just bigquery-acceptance</code>, <code>just e2e-datahub-bigquery</code></td>
 </tr>
 <tr>
 <td><strong>A real enterprise identity provider</strong></td>
@@ -3933,7 +3933,10 @@ about the vocabulary rather than to this row.</p>
 <p><code>nix/keycloak-tier.nix</code> stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at <code>start</code> and written nowhere else - and
 <code>just keycloak-served-test</code> starts it, runs the one cell that needs it, and stops it whatever the
-cell does. Its own job in <code>.github/workflows/ci.yml</code>, gated on the <code>identity</code> category
+cell does. <code>just e2e-datahub-bigquery --datahub tier</code> (the wave-one hosted job) verifies the
+SAME realm over HTTP on its own composed deployment - a second, wider <code>Reached by</code> for the same
+venue, not a second row: its three asks all ride Keycloak-minted tokens.</p>
+<p>Its own job in <code>.github/workflows/ci.yml</code>, gated on the <code>identity</code> category
 (<code>xtask/src/affected.rs</code>'s <code>IDENTITY_PATHS</code>, which now names <code>crates/sutura-cli/src/serve/</code>,
 <code>crates/sutura-cli/tests/served</code> and <code>nix/keycloak-tier</code> beside the inbound transport), rather
 than <code>just test</code>: the JVM boot is a cost
@@ -3994,7 +3997,11 @@ that record, not uniqueness - the uniqueness this venue relies on is <code>sub_a
 <p><code>just bigquery-acceptance</code>, against a GitHub environment's own dataset. <code>docs/adr/0017</code> and
 <code>docs/adr/0019</code> are the records, and the sentence that matters here is short: <strong>a service-account key is
 one identity for everybody who asks</strong>, so what those legs establish is <em>accepted, and correct for that
-identity</em> - and nothing whatever about per-subject execution.</p>
+identity</em> - and nothing whatever about per-subject execution. <code>just e2e-datahub-bigquery --datahub tier</code>
+(the wave-one hosted <code>e2e-datahub-bigquery</code> job) reads the SAME <code>bq-test</code> environment's dataset for its BigQuery leg -
+same venue, no second row - and adds nothing to this claim's cell: it still executes under one shared
+credential (<code>shared-service-user</code>), so the per-subject half stays exactly where the exchange row below
+keeps it.</p>
 <p>Not merely written - the run was observed: <code>the_endpoint_accepts_one_statement_this_repository_generated</code>
 (<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>) passed in the <code>bigquery-acceptance</code> job on
 2026-08-31, CI run <a href="https://github.com/telekom/sutura/actions/runs/33382663404/job/99464748052">33382663404</a>
