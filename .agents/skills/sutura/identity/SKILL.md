@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Wired in serve, not proven live** | The port, the exchanging broker and the serve composition are built: `sutura serve`'s `bigquery` build attaches the broker, so an impersonating source is openable as the asker. **No exchanged token has ever run against a real STS and no deployment answers as an asker** - the two-grant acceptance leg cannot run without a project |
+| **Leg 2** - a source executing as them | **Proven live for one source, hosted** | On BigQuery through its declared per-source map, a hosted `workflow_dispatch` run resolved each principal to its own account (run in `docs/where-identity-is-proven.md`). The port, the exchanging broker and the serve composition are built; every other source still executes as one identity, and no served binary answers under an asker |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -185,29 +185,27 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   attaches only `StaticCredentialBroker`; the two roots are separate binaries and the CLI's
   attaching half is not built. A forgotten attachment cannot silently read every row as the
   deployment: the port refuses a source the broker holds neither half for as `credential_unavailable`.
-- The exchange has never run against a real STS. No live token has been exchanged, and no answer any
-  deployment produced was evaluated under an asker.
+- **An exchange HAS run against real STS and `iamcredentials`** - hosted, in the `bq-test` environment on 2026-09-16 - and resolved each principal to its own account. The limit beside it: that is BigQuery only, through the per-source map the source declares. No served binary has yet answered a caller under an asker.
 - `CredentialUnavailable` is reachable **through the served binary** now: a served impersonating
   source with no inbound gate answers `403 credential_unavailable` (no assertion to exchange), and a
   caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
   is an answer *under* an asker.
 
-**What it would take to call leg 2 served, and it is THREE things rather than two.** The list used
-to read *a workload-identity pool to exchange against, and a two-grant acceptance leg*. The pool is
-provisioned, the leg is written - `sutura-exec-bigquery`'s
-`two_subjects_with_different_grants_read_two_different_row_sets` and
-`each_principal_is_who_this_source_says_it_is_executing_as`, both `#[ignore]`d and both failing
-rather than skipping when their environment is unset - and neither has run. The third was found by
-writing the second:
-
-**The shipped exchange cannot become a service account at all.** `wire::StsOverHttp` posts one
-RFC 8693 request and returns what comes back, which for a workload-identity pool is a FEDERATED
-credential: the provider resolves it to a pool subject, not to an account. Turning that into a
-service account is a second call (`iamcredentials`) this adapter does not make, and the test stack
-binds no pool principal to either service account. So a real run of the exchange leg reads back a
-pool subject and goes red, which is the finding rather than a defect in the leg.
+**What proved leg 2 for BigQuery, hosted.** The pool is provisioned, the acceptance leg is written -
+`sutura-exec-bigquery`'s `each_principal_is_who_this_source_says_it_is_executing_as` with
+`the_deployments_own_identity_is_neither_principal` as its control, each `#[ignore]`d and failing
+rather than skipping when the environment is unset - and on 2026-09-16 a hosted `workflow_dispatch`
+run of it concluded `success`, each principal resolved to its own account. **The hop that used to be
+the missing third thing is built:** `wire::StsOverHttp` posts the RFC 8693 request and returns the
+FEDERATED credential a workload-identity pool resolves to a pool subject with; `wire::IamCredentialsOverHttp`
+now makes the second call (`iamcredentials.generateAccessToken`) to the account
+`WorkloadIdentity::target_for` declares (telekom/sutura#774), so a source's exchange resolves to a
+service account rather than stopping at the pool subject. The limit beside the claim: leg 2 is
+proven here for BigQuery only, on the hosted `bq-test` venue, through the per-source map - and the
+run is citable only beside the mint step, which holds both principals' own keys by construction, so
+it proves the mechanics resolve per subject and nothing about an unprivileged caller.
 
 **And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
 identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject
-tokens. One workload identity cannot become two accounts without the hop above, whatever the pool
-is configured with.
+tokens. One workload identity becomes two accounts through the `iamcredentials` hop, per the map
+`WorkloadIdentity::target_for` holds.

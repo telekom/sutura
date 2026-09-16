@@ -60,8 +60,9 @@
 //! shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
 //! a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
 //! the composition root that links this adapter: `crates/sutura-cli/src/serve/broker.rs` composes
-//! `sts::WorkloadIdentityBroker` today - wired in serve, not proven live, the same limit
-//! `docs/adr/0018` states for it.
+//! `sts::WorkloadIdentityBroker` today - built, though the run that proved the exchange drove no
+//! served binary, so a served source has not executed as a caller yet
+//! (`docs/where-identity-is-proven.md`).
 //!
 //! **ONE of the two subject shapes, and the other is refused rather than degraded.** A
 //! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
