@@ -638,7 +638,8 @@ mod tests {
         // uncertified question as A.
         #[cfg(feature = "agent")]
         {
-            drop(deployment.mcp(Some(&fixture.subject_a_token), &mcp_initialize(10)));
+            let init_reply = deployment.mcp(Some(&fixture.subject_a_token), &mcp_initialize(10));
+            assert_eq!(init_reply.status, 200, "{}", init_reply.body);
             let tools = mcp_tool_names(&deployment.mcp(Some(&fixture.subject_a_token), &mcp_tools_list(11)));
             assert!(
                 tools.iter().any(|tool| tool == "ask_metric"),
@@ -669,18 +670,28 @@ mod tests {
             );
             // The record lags the response (written from the blocking pool, not ordered against
             // it) - so this is a BLOCKING `awaiting`, the same read `served/keycloak_test.rs`
-            // makes, not a `log()` sweep that races a record arriving a millisecond later. The
-            // needle differs from `RECORD` on purpose: an HTTP ask's record is written inside the
-            // router's `[REQUEST - EVENT]` span, while `/mcp`'s is written inside the transport's
-            // own span (`[SERVE_INNER - EVENT]`), so matching on `RECORD` would never see it. The
-            // stable, span-independent marker is the audit sink's own `target`. The join: whoever
-            // asked over HTTP as A and over MCP as A is the SAME masked subject `/mcp` established
+            // makes, not a `log()` sweep that races a record arriving a millisecond later. Blocking
+            // on `"route":"/mcp"` alone returns too early: every `/mcp` call also writes a
+            // `[REQUEST - START]`/`finished processing request` line carrying that same field
+            // (measured: `initialize`'s own START line satisfies it before this ask even runs). The
+            // audit sink's `target` fires only for a real audit record, so it stays the block
+            // needle (also why `RECORD`, written inside the router's `[REQUEST - EVENT]` span,
+            // would never see `/mcp`'s own `[SERVE_INNER - EVENT]` one) - but `target` alone
+            // matches every record (HTTP `answered`, the REST refusal's `refused`, and the MCP one
+            // alike), so the FOUND line must also carry `"route":"/mcp"` and `answered`: a stale
+            // REST record (verified, A's own mask, left over from ask 2's refusal) must fail this
+            // join loudly, not pass it under the right subject for the wrong reason. The join:
+            // whoever asked over HTTP as A and over MCP as A is the SAME masked subject established
             // from the SAME Keycloak token.
             let lines_mcp = deployment.awaiting(r#""target":"sutura_runtime::audit""#);
             let mcp_subject_a = lines_mcp
                 .iter()
                 .rev()
-                .find(|line| line.contains(r#""subject_established":"verified""#))
+                .find(|line| {
+                    line.contains(r#""subject_established":"verified""#)
+                        && line.contains(r#""route":"/mcp""#)
+                        && line.contains("answered")
+                })
                 .map(|line| subject_field(line))
                 .expect("ask A over /mcp produced an audit record carrying its subject");
             assert_eq!(

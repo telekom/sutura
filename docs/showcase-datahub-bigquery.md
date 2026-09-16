@@ -26,9 +26,9 @@ credential:
    refused `401` before the question is looked at.
 5. **The same question over `/mcp`.** The agent surface mounts the SAME serving surface behind the SAME
    leg-1 gate, so the certified question asked over the streamable-HTTP agent surface returns the SAME
-   row total and the SAME masked `subject` as the HTTP ask - the byte-for-byte join over one deployment.
-   A verified caller is advertised the `ask_metric` tool, an unverified `/mcp` request is refused `401`
-   before the transport, and an uncertified question is a typed refusal inside the tool result
+   row total and the same `verified` subject tied to its own token as the HTTP ask - the byte-for-byte
+   join over one deployment. A verified caller is advertised the `ask_metric` tool, an unverified
+   `/mcp` request is refused `401` before the transport, and an uncertified question is a typed refusal inside the tool result
    (`outcome: "refusal"`, `reason.code: "metric_unknown"` - the same `code` the HTTP refusal pins; the
    REST `status` field has no tool-result counterpart).
 
