@@ -15,8 +15,8 @@
 //!
 //! # An allowlist, not a denylist.
 //!
-//! [`ALLOWED_IN_DOMAIN`](super::ALLOWED_IN_DOMAIN)'s shape rather than
-//! [`FORBIDDEN_EDGES`](super::FORBIDDEN_EDGES)'.
+//! [`ALLOWED_IN_DOMAIN`](super::edges::ALLOWED_IN_DOMAIN)'s shape rather than
+//! [`FORBIDDEN_EDGES`](super::edges::FORBIDDEN_EDGES)'.
 //!
 //! For the same reason the domain rule is one: a denylist catches what somebody thought to name,
 //! and the set of adapters grows. Here the permitted set is *the interior*, so it is one entry and
@@ -44,8 +44,8 @@ const HARNESS: &str = "sutura-conformance";
 /// The first-party crates the harness may reach through a NORMAL dependency.
 ///
 /// **The interior, and nothing else. Adding a name here is an architecture decision** - the same
-/// sentence [`ALLOWED_IN_DOMAIN`](super::ALLOWED_IN_DOMAIN) and
-/// [`FORBIDDEN_EDGES`](super::FORBIDDEN_EDGES) carry, for the same reason: the diff is where the
+/// sentence [`ALLOWED_IN_DOMAIN`](super::edges::ALLOWED_IN_DOMAIN) and
+/// [`FORBIDDEN_EDGES`](super::edges::FORBIDDEN_EDGES) carry, for the same reason: the diff is where the
 /// argument happens. The two names that will be asked for first are `sutura-semantic` and
 /// `sutura-sql`, for the COMPILE packs `docs/adr/0012` splits out - and the right answer there is a
 /// default-off feature of this crate rather than an entry here, so a data adapter binding the
