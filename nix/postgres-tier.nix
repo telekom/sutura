@@ -195,6 +195,41 @@ rec {
         esac
       }
 
+      # THE FALLBACK for exactly the case `pg_ctl status` cannot see: github.com/telekom/sutura#807,
+      # reproduced directly - remove only `postmaster.pid` from a live cluster, and `pg_ctl status`
+      # answers "no server running" (rc=3) while the server keeps answering `select 1`. `stop`
+      # below tries `pg_ctl status` FIRST and only calls this when that already said "not running",
+      # so a SIGSTOPped postmaster whose pidfile is still there never reaches this function at all -
+      # `pg_ctl status`'s own `kill(pid, 0)` sees a stopped-but-alive process fine, and that path is
+      # this check's SIGSTOP fixture. This function exists for the pidfile-independent half alone: a
+      # unix socket file `.s.PGSQL.<port>` is the postmaster's own bind and outlives the pidfile, so
+      # parsing its name for a port and asking that port a real query is what tells a live cluster
+      # apart from a socket file a crash left behind, with no pidfile to read at all.
+      #
+      # What this cannot see: a postmaster mid-startup or mid-crash-recovery, bound but not yet
+      # accepting connections, answers "not alive" here - the same direction `pg_ctl status` fails
+      # in for a server with no pidfile yet, and the safe one for a guard whose only job is
+      # refusing to delete. Nor a SIGSTOPped postmaster with NO pidfile: `PGCONNECT_TIMEOUT` bounds
+      # the wait rather than hanging forever, but the timeout still reads as "not alive" - narrower
+      # than the process is, and unreached by anything in this file today.
+      #
+      # `PGCONNECT_TIMEOUT` is not decoration: without a live backend to answer, a bare `psql`
+      # blocks on the startup response rather than failing fast.
+      alive() {
+        for sock in "$pg"/.s.PGSQL.*; do
+          [ -S "$sock" ] || continue
+          port_candidate="''${sock##*.s.PGSQL.}"
+          case "$port_candidate" in
+            ""|*[!0-9]*) continue ;;
+          esac
+          if PGCONNECT_TIMEOUT=5 psql -h "$pg" -p "$port_candidate" -U postgres -d postgres \
+            -tAc "select 1" >/dev/null 2>&1; then
+            return 0
+          fi
+        done
+        return 1
+      }
+
       write_server_config() {
         cat > "$pg/postgresql.conf" <<EOC
       listen_addresses = '127.0.0.1'
@@ -332,7 +367,25 @@ rec {
         # asked instead - and a server that is running and did not stop keeps its entry, because
         # withdrawing a claim over a live postmaster is exactly how a tier came to be `up` to a
         # wrapper and absent to every test.
-        if [ -d "$pg" ] && pg_ctl -D "$pg" status >/dev/null 2>&1; then
+        #
+        # `pg_ctl status` FIRST, `alive` only if that already says "not running" -
+        # github.com/telekom/sutura#807. The old guard trusted `pg_ctl status` alone, and that
+        # answer is exactly the one that lies once `postmaster.pid` is gone: rc=3, "no server
+        # running", over a cluster that keeps answering `select 1`. `alive` is the fallback that
+        # asks the socket instead, so a live cluster with no pidfile is still seen as live - and
+        # this `stop` refuses rather than deleting it, the same rule `nix/keycloak-tier.nix`'s
+        # `stop` holds over a JVM whose own pidfile went missing (#803). Ordering `pg_ctl status`
+        # first, rather than replacing it, is what keeps a SIGSTOPped postmaster - pidfile present,
+        # unresponsive on its socket - reaching `pg_ctl stop`'s own timeout below instead of
+        # reading as absent and falling straight through to the delete.
+        if [ -d "$pg" ] && { pg_ctl -D "$pg" status >/dev/null 2>&1 || alive; }; then
+          if [ ! -f "$pg/postmaster.pid" ]; then
+            echo "postgres tier: a server at $pg answers queries but postmaster.pid is gone, so" >&2
+            echo "               pg_ctl has no pid to signal. Its endpoint entry, data directory," >&2
+            echo "               TLS material and credential STAY. Find the postmaster by hand" >&2
+            echo "               and stop it, or restore postmaster.pid, then retry." >&2
+            exit 1
+          fi
           if ! pg_ctl -D "$pg" stop -m fast; then
             echo "postgres tier: the server did not stop, so its endpoint entry STAYS." >&2
             echo "               It is still running and still discoverable, which is the honest" >&2
@@ -813,6 +866,42 @@ rec {
       # The remedy that message names, run: the retry withdraws what the failed teardown kept.
       sutura-postgres-tier stop
       expect_entry absent "the retried teardown withdraws the claim the failed one kept"
+
+      # --- github.com/telekom/sutura#807: pg_ctl status lies when only the pidfile is gone ---
+      # Reproduced directly: a live postmaster, ONLY its pidfile removed. `pg_ctl status` answers
+      # "no server running" (rc=3) over exactly this server, and the old `stop` trusted that
+      # answer and ran its destructive half - `rm -rf` on the data directory, the TLS material and
+      # the credential - unconditionally underneath it.
+      sutura-postgres-tier start
+      postmaster="$(head -1 "$pg/postmaster.pid")"
+      pidfile_backup="$NIX_BUILD_TOP/postmaster.pid.bak"
+      cp "$pg/postmaster.pid" "$pidfile_backup"
+      rm -f "$pg/postmaster.pid"
+      if pg_ctl -D "$pg" status >/dev/null 2>&1; then
+        echo "pg_ctl status did not reproduce #807's lie: it still sees the server" >&2
+        exit 1
+      fi
+      echo "--- the refusal below is expected, its message included ---"
+      refused=0
+      sutura-postgres-tier stop || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "stop reported success over a live cluster whose pidfile alone was removed" >&2
+        exit 1
+      fi
+      for path in "$pg" "$pg.ssl" "$cred"; do
+        if [ ! -e "$path" ]; then
+          echo "a refused stop still deleted $path" >&2
+          exit 1
+        fi
+      done
+      if ! kill -0 "$postmaster" 2>/dev/null; then
+        echo "the postmaster died even though stop refused to touch its state" >&2
+        exit 1
+      fi
+      expect_entry true "the endpoint claim over a live server whose pidfile is gone STAYS"
+      cp "$pidfile_backup" "$pg/postmaster.pid"
+      sutura-postgres-tier stop
+      expect_state 1 "a genuinely stopped tier tears down fully once its pidfile is back"
 
       # --- concurrent writers to the SHARED document do not race ---
       # `github.com/telekom/sutura#528` item 3, and the shared writer's bug, not this tier's: two
