@@ -285,6 +285,12 @@ after every one of these was written.
 - "`sutura-serve`'s `main::outbound_anchors`" - `sutura-cli::serve::outbound_anchors`; there is no
   `main` module carrying it.
 - `sutura-runtime`'s dependents were listed as "`sutura-app`, `sutura-mcp`, `sutura-cli`,
-  `sutura-http`, `sutura-serve`" - four crates depend on it today, not five;
-  `grep -l sutura-runtime crates/*/Cargo.toml` is the check, and the point the sentence makes -
-  transports and composition roots, never a data-system adapter - is unaffected by the count moving.
+  `sutura-http`, `sutura-serve`" - `sutura-app` was never a real one: its `Cargo.toml` names
+  `sutura-runtime` only in a comment (explaining a DIFFERENT crate's feature), never in a
+  `[dependencies]` entry, so the list was already off by one before the fold. Three crates depend on
+  it today: `sutura-cli`, `sutura-http`, `sutura-mcp`. `grep -l sutura-runtime crates/*/Cargo.toml`
+  is not a check a reader can run and get that number - it self-matches
+  `sutura-runtime/Cargo.toml`'s own package-name line and also counts `sutura-app`'s comment;
+  `grep -l '^sutura-runtime = ' crates/*/Cargo.toml` names exactly the three. The point the sentence
+  makes - transports and composition roots, never a data-system adapter - is unaffected by the count
+  moving.
