@@ -34,7 +34,7 @@ use rmcp::service::{Peer, RequestContext, RoleServer};
 use rmcp::{ServerHandler, serve_client, serve_server};
 use sutura_app::prompt::CatalogProse;
 use sutura_app::{Asked, Capability, Permitted};
-use sutura_domain::identity::{PrincipalChain, RequestContext as PrincipalContext, Subject, SubjectId};
+use sutura_domain::identity::{PrincipalChain, RequestContext as PrincipalContext, Subject};
 
 use crate::testing;
 use crate::{AgentSurface, Asking};
@@ -90,9 +90,7 @@ fn hand_built_context(id: i64, peer: Peer<RoleServer>, asked: Option<Asked>) -> 
 /// A caller `Asked` naming a distinct subject, so two fixtures in one test are provably two
 /// different callers rather than the same value written twice.
 fn subject_asked(id: &str, permitted: Permitted) -> Asked {
-    let subject = Subject::Verified {
-        id: SubjectId::parse(id).expect("a test subject id is a subject id"),
-    };
+    let subject = Subject::verified(id).expect("a test subject id is a subject id");
     Asked::established(PrincipalContext::of(PrincipalChain::of(subject)), permitted)
 }
 
@@ -189,9 +187,7 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
     let error = refused.expect_err("a caller without the scope must be refused, not answered");
     assert_eq!(error.code, ErrorCode::METHOD_NOT_FOUND, "{error:?}");
 
-    let bob = Subject::Verified {
-        id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
-    };
+    let bob = Subject::verified("bob@example.com").expect("a test subject id is a subject id");
 
     // The control's second half, held at the PORT rather than at the channel: bob, granted the
     // scope, is not refused - and the identity his `ask_metric` reaches `Surface::answer` under is
@@ -243,9 +239,7 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
         .expect("bob's run_sql must not be refused at the channel");
     assert_eq!(
         recording.subjects(),
-        [Subject::Verified {
-            id: SubjectId::parse("bob@example.com").expect("a test subject id is a subject id"),
-        }],
+        [Subject::verified("bob@example.com").expect("a test subject id is a subject id")],
         "bob's run_sql must reach the port as Subject::Verified, never Subject::TheDeploymentItself"
     );
 }

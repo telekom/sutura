@@ -343,6 +343,37 @@ Named because `Result<usize, FixtureNotLoaded<T::Error>>` is over the `type_comp
 this workspace tightened, and for the reason `crate::Mapped` is named: the generic error is the
 point, and erasing it would lose which transport failed.
 
+## `use ImpersonateAsAccount`
+
+The second hop, telekom/sutura#376's iamcredentials step: a federated access token in, a
+service-account access token out.
+
+**A second port and not a second `StsExchange` method** - the two calls have different request
+and response shapes (RFC 8693 token exchange vs `{scope, lifetime}`) and different failure modes
+(STS `invalid_target` vs `iamcredentials`'s own `403` for "may not impersonate"). Everything this
+broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
+this port as `crate::wire::IamCredentialsOverHttp`, behind the same default-off `wire` feature
+`StsExchange`'s real implementor is.
+
+## `use NoImpersonation`
+
+The impersonation port a broker holds when it was never wired to one.
+
+**The default for the same reason `SystemClock` is one for the clock parameter**: a composition
+root that never calls `WorkloadIdentityBroker::impersonating_via` gets a broker whose TYPE says
+the hop cannot run, rather than a value that happens never to be invoked. Every test and every
+existing call site that declares no `impersonate` entry at all never reaches
+`ImpersonateAsAccount::impersonate` - `WorkloadIdentity::target_for` answers `None` for every
+subject, so `mint` never calls it.
+
+**A composition root can still reach it by mistake**, declaring a source's `impersonate` map
+without ever calling `WorkloadIdentityBroker::impersonating_via` - the type system does not
+forbid attaching an `I` and a per-source map independently, since `WorkloadIdentityBroker::impersonating`
+(the per-source declaration) takes no `I` at all. So this is a REFUSAL, not an
+invariant asserted with `unreachable!`: a caller whose subject resolves a target here is told the
+composition is wrong, the same way `ExchangeUnusable::Provider` tells it about any other
+provider defect, rather than the process panicking on a request nobody malformed.
+
 ## `use StsCredential`
 
 One exchanged credential: a Google access token and the instant it stops being usable.
@@ -1657,6 +1688,10 @@ composition root's one door in, and it takes the setting directly rather than a 
 ### `use UnusableBound`
 
 Why a bound this adapter was handed is not usable.
+
+### `use IamCredentialsOverHttp`
+
+An `ImpersonateAsAccount` that talks to Google's `iamcredentials` API over HTTP.
 
 ### `use StsOverHttp`
 

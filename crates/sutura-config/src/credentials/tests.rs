@@ -1,6 +1,6 @@
 //! The static broker's own suite. No network, no clock, no data system.
 
-use sutura_domain::identity::{Agreed, Expiry, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject, SubjectId};
+use sutura_domain::identity::{Agreed, Expiry, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject};
 use sutura_domain::model::SourceName;
 
 use super::StaticCredentialBroker;
@@ -52,6 +52,7 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
             "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
         ),
         scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+        impersonate: std::collections::BTreeMap::new(),
     }
 }
 
@@ -86,9 +87,9 @@ fn registry(entries: &[RawSourceEntry<'_>]) -> SourceRegistry {
 }
 
 fn asked_by_a_person() -> RequestContext {
-    RequestContext::of(PrincipalChain::of(Subject::Verified {
-        id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-    }))
+    RequestContext::of(PrincipalChain::of(
+        Subject::verified("someone@example.com").expect("a test subject is a subject"),
+    ))
 }
 
 #[test]

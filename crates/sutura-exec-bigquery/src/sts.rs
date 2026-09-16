@@ -29,7 +29,9 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
-use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet};
+use sutura_domain::identity::{
+    CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectKey,
+};
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SharedIdentityDeclared;
 
@@ -47,13 +49,42 @@ pub struct WorkloadIdentity {
     audience: String,
     /// The scope the exchanged credential is minted for.
     scope: String,
+    /// The declared subject -> service-account map for the second hop, telekom/sutura#376's
+    /// `iamcredentials.generateAccessToken` step.
+    ///
+    /// **Empty is a value, not an omission.** A source with nothing here keeps the bare RFC 8693
+    /// exchange - `docs/adr/0008` part 2's original shape, presented as the caller's own federated
+    /// credential - which is what makes this addition additive rather than a breaking change to
+    /// every source that never opts in.
+    ///
+    /// **Keyed on the FULL verified subject ([`SubjectKey`]), not the masked
+    /// [`SubjectId`](sutura_domain::identity::SubjectId).** The
+    /// hop is an authorization decision - which declared account a caller may become - and a mask
+    /// collides every undeclared caller that shares a declared subject's mask with the declared one.
+    /// [`SubjectKey`] holds the raw `sub` for equality while rendering only the mask, so two
+    /// distinct callers stay two distinct keys and an absent caller resolves `None`.
+    impersonate: BTreeMap<SubjectKey, String>,
 }
 
 impl WorkloadIdentity {
-    /// Names a provider audience and a scope for one impersonating source.
+    /// Names a provider audience and a scope for one impersonating source, with no impersonation hop.
     #[must_use]
     pub const fn of(audience: String, scope: String) -> Self {
-        Self { audience, scope }
+        Self {
+            audience,
+            scope,
+            impersonate: BTreeMap::new(),
+        }
+    }
+
+    /// Declares the subject -> service-account map this source's hop uses.
+    ///
+    /// A separate builder rather than a third [`Self::of`] argument, so every existing call site -
+    /// none of which impersonates a service account - reads unchanged.
+    #[must_use]
+    pub fn with_impersonation(mut self, impersonate: BTreeMap<SubjectKey, String>) -> Self {
+        self.impersonate = impersonate;
+        self
     }
 
     /// The provider audience.
@@ -68,6 +99,19 @@ impl WorkloadIdentity {
     #[must_use]
     pub fn scope(&self) -> &str {
         &self.scope
+    }
+
+    /// The service account `subject`'s exchanged credential is impersonated into, if this source
+    /// declares one.
+    ///
+    /// `None` is not a fallback - it is the answer for every subject a deployment did not name. A
+    /// source that declares a NON-empty map refuses a `None` caller in
+    /// [`WorkloadIdentityBroker::mint`] rather than answering with a bare exchange; an empty map
+    /// keeps today's bare exchange for everyone.
+    #[inline]
+    #[must_use]
+    pub fn target_for(&self, subject: &SubjectKey) -> Option<&str> {
+        self.impersonate.get(subject).map(String::as_str)
     }
 }
 
@@ -124,6 +168,77 @@ pub trait StsExchange {
     fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>;
 }
 
+/// The second hop, telekom/sutura#376's iamcredentials step: a federated access token in, a
+/// service-account access token out.
+///
+/// **A second port and not a second [`StsExchange`] method** - the two calls have different request
+/// and response shapes (RFC 8693 token exchange vs `{scope, lifetime}`) and different failure modes
+/// (STS `invalid_target` vs `iamcredentials`'s own `403` for "may not impersonate"). Everything this
+/// broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
+/// this port as [`crate::wire::IamCredentialsOverHttp`], behind the same default-off `wire` feature
+/// [`StsExchange`]'s real implementor is.
+pub trait ImpersonateAsAccount {
+    /// Why the hop could not happen. The broker wraps it the same way it wraps [`StsExchange::Error`]
+    /// and never lets it reach a caller raw.
+    type Error: core::error::Error + Send + Sync + 'static;
+
+    /// Impersonates `target_sa`, presenting `federated` (the exchanged access token from the first
+    /// hop) as the bearer, for `lifetime` at `scope`.
+    fn impersonate(
+        &self,
+        federated: &Secret,
+        target_sa: &str,
+        scope: &str,
+        lifetime: Duration,
+    ) -> Result<StsCredential, Self::Error>;
+}
+
+/// The impersonation port a broker holds when it was never wired to one.
+///
+/// **The default for the same reason [`SystemClock`] is one for the clock parameter**: a composition
+/// root that never calls [`WorkloadIdentityBroker::impersonating_via`] gets a broker whose TYPE says
+/// the hop cannot run, rather than a value that happens never to be invoked. Every test and every
+/// existing call site that declares no `impersonate` entry at all never reaches
+/// [`ImpersonateAsAccount::impersonate`] - [`WorkloadIdentity::target_for`] answers `None` for every
+/// subject, so `mint` never calls it.
+///
+/// **A composition root can still reach it by mistake**, declaring a source's `impersonate` map
+/// without ever calling [`WorkloadIdentityBroker::impersonating_via`] - the type system does not
+/// forbid attaching an `I` and a per-source map independently, since [`WorkloadIdentityBroker::impersonating`]
+/// (the per-source declaration) takes no `I` at all. So this is a REFUSAL, not an
+/// invariant asserted with `unreachable!`: a caller whose subject resolves a target here is told the
+/// composition is wrong, the same way [`ExchangeUnusable::Provider`] tells it about any other
+/// provider defect, rather than the process panicking on a request nobody malformed.
+#[derive(Debug, Clone, Copy)]
+pub struct NoImpersonation;
+
+/// A source's declared `impersonate` entry named a target and this broker holds no port to reach it.
+///
+/// Reachable only through a composition defect - `docs/adr`'s telekom/sutura#376 record names it as
+/// the cost of keeping [`WorkloadIdentityBroker::impersonating`] (declaring a target) and
+/// [`WorkloadIdentityBroker::impersonating_via`] (wiring the port that reaches one) independent
+/// calls, which is what lets every source that never opts in stay on [`NoImpersonation`]'s default.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error(
+    "a source's declared `impersonate` entry named a target, and this broker has no port wired to \
+     reach it - the composition root declared the map without calling `impersonating_via`"
+)]
+pub struct ImpersonationNotWired;
+
+impl ImpersonateAsAccount for NoImpersonation {
+    type Error = ImpersonationNotWired;
+
+    fn impersonate(
+        &self,
+        _federated: &Secret,
+        _target_sa: &str,
+        _scope: &str,
+        _lifetime: Duration,
+    ) -> Result<StsCredential, Self::Error> {
+        Err(ImpersonationNotWired)
+    }
+}
+
 /// Where this broker reads "now" for its expiry floor.
 ///
 /// **A port for the same reason [`StsExchange`] is one.** Everything this broker DECIDES is
@@ -172,8 +287,11 @@ impl UnixClock for SystemClock {
 /// A broker that mints a per-subject credential for impersonating sources and a declared witness for
 /// shared ones.
 #[derive(Debug, Clone)]
-pub struct WorkloadIdentityBroker<E, C = SystemClock> {
+pub struct WorkloadIdentityBroker<E, I = NoImpersonation, C = SystemClock> {
     exchange: E,
+    /// The second hop, `docs/adr` telekom/sutura#376 - [`NoImpersonation`] until a composition root
+    /// calls [`Self::impersonating_via`].
+    impersonation: I,
     /// Where the floor's "now" comes from - an INPUT, not an ambient read.
     clock: C,
     impersonating: BTreeMap<SourceName, WorkloadIdentity>,
@@ -235,8 +353,9 @@ pub enum ExchangeUnusable {
     },
 }
 
-impl<E> WorkloadIdentityBroker<E, SystemClock> {
-    /// An empty broker, on the wall clock. The two `with_*` constructors add the per-source halves.
+impl<E> WorkloadIdentityBroker<E, NoImpersonation, SystemClock> {
+    /// An empty broker, on the wall clock, with no impersonation hop wired. The `with_*` constructors
+    /// add the per-source halves; [`Self::impersonating_via`] wires the second hop.
     ///
     /// **No floor**, which is the honest default for a broker whose caller has not said how long a
     /// query may take: nothing is refused here - not even an already-past expiry, which is left to
@@ -246,6 +365,7 @@ impl<E> WorkloadIdentityBroker<E, SystemClock> {
     pub const fn empty(exchange: E) -> Self {
         Self {
             exchange,
+            impersonation: NoImpersonation,
             clock: SystemClock,
             impersonating: BTreeMap::new(),
             shared: BTreeMap::new(),
@@ -255,7 +375,7 @@ impl<E> WorkloadIdentityBroker<E, SystemClock> {
     }
 }
 
-impl<E, C> WorkloadIdentityBroker<E, C> {
+impl<E, I, C> WorkloadIdentityBroker<E, I, C> {
     /// Measures the floor against `clock` instead of the wall clock.
     ///
     /// A test hands a fixed instant and asserts the floor's decision at it; the served path never
@@ -263,13 +383,37 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
     /// the clock is a type parameter - a broker on a fixed instant is a different TYPE from one on
     /// the wall clock, which is what stops a composition root acquiring one by accident.
     #[must_use]
-    pub fn measured_against<K>(self, clock: K) -> WorkloadIdentityBroker<E, K>
+    pub fn measured_against<K>(self, clock: K) -> WorkloadIdentityBroker<E, I, K>
     where
         K: UnixClock,
     {
         WorkloadIdentityBroker {
             exchange: self.exchange,
+            impersonation: self.impersonation,
             clock,
+            impersonating: self.impersonating,
+            shared: self.shared,
+            floor: self.floor,
+            cache: self.cache,
+        }
+    }
+
+    /// Wires the second hop: telekom/sutura#376's `iamcredentials.generateAccessToken` step.
+    ///
+    /// A composition root that serves ANY source declaring an `impersonate` map entry must call this,
+    /// or a caller whose subject resolves that entry is refused with [`ImpersonationNotWired`] rather
+    /// than silently answered with a bare exchange for a subject the deployment meant to hop. Consumes and rebuilds for the same
+    /// reason [`Self::measured_against`] does: the port is a type parameter, so a broker with the real
+    /// hop wired is a different TYPE from one without.
+    #[must_use]
+    pub fn impersonating_via<J>(self, impersonation: J) -> WorkloadIdentityBroker<E, J, C>
+    where
+        J: ImpersonateAsAccount,
+    {
+        WorkloadIdentityBroker {
+            exchange: self.exchange,
+            impersonation,
+            clock: self.clock,
             impersonating: self.impersonating,
             shared: self.shared,
             floor: self.floor,
@@ -334,9 +478,20 @@ impl<E, C> WorkloadIdentityBroker<E, C> {
     }
 }
 
-impl<E, C> CredentialBroker for WorkloadIdentityBroker<E, C>
+/// The lifetime this broker requests at the second hop - Google's own documented ceiling for
+/// `iamcredentials.generateAccessToken`.
+///
+/// **A constant rather than a value derived from the source's own configured query timeout.** The
+/// broker's own expiry FLOOR already refuses a credential that would age out mid-answer, whatever its
+/// lifetime; requesting anything less here would only narrow the cache's own hit window
+/// (`sts/cache.rs`) for no compensating safety, since nothing downstream trusts a longer lifetime as
+/// a wider grant - the source's own authorization decides that per query, every time.
+const IMPERSONATED_LIFETIME: Duration = Duration::from_secs(3_600);
+
+impl<E, I, C> CredentialBroker for WorkloadIdentityBroker<E, I, C>
 where
     E: StsExchange,
+    I: ImpersonateAsAccount,
     C: UnixClock,
 {
     type Error = ExchangeUnusable;
@@ -403,30 +558,66 @@ where
             let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+            // The hop's target, if this source declares one for THIS subject - resolved before any
+            // round trip because it is part of the cache key (`sts/cache.rs`'s own doc: the SA is
+            // itself part of "what was asked for") and part of the decision whether to call the
+            // second hop at all.
+            //
+            // Keyed on the FULL verified `sub` (`asked_by.key()`), never on the masked `SubjectId`
+            // (`asked_by.id()`): the hop is the authorization decision "which declared account may
+            // this caller become", and a masked lookup would hand a declared subject's account to
+            // every undeclared caller sharing its mask.
+            let target_sa = asked_by.key().and_then(|key| workload.target_for(key));
 
-            // A live entry, if the cache holds one for this exact chain and this exact
-            // (audience, scope) - never for anything less, see `cache`'s own module doc. A hit
-            // skips the round trip entirely; nothing below this arm runs for that source.
+            // **REFUSAL, `docs/adr/0032`'s "absent from the map is refused before any network call":**
+            // a source that DECLARES a non-empty map has said who may execute here, and a verified
+            // caller with no entry either becomes one of those declared accounts or is a bare
+            // federated principal the source never sanctioned. Refused at the door - before the
+            // cache, before either round trip - naming the SOURCE and never the subject. An EMPTY
+            // map is the additive case and keeps today's bare exchange for everyone.
+            if !workload.impersonate.is_empty() && target_sa.is_none() {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
+
+            // A live entry, if the cache holds one for this exact chain, this exact (audience,
+            // scope), AND this exact target SA - never for anything less, see `cache`'s own module
+            // doc. A hit skips both round trips entirely; nothing below this arm runs for that
+            // source.
             if let (Some(cache), Some(now)) = (&self.cache, cache_now)
-                && let Some(hit) = cache.get(chain, workload, now)
+                && let Some(hit) = cache.get(chain, workload, target_sa, now)
             {
                 deadlines.push((source, hit.not_after));
                 drop(presented.insert(source.clone(), Presented::SubjectToken { material: hit.material }));
                 continue;
             }
 
-            let credential = self
+            let federated = self
                 .exchange
                 .exchange(workload.audience(), workload.scope(), assertion)
                 .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
+            // **The hop, immediately after a successful exchange.** A target names the FINAL
+            // credential this leg presents - the federated one is never itself presented once a
+            // target is declared, which is the property `the_resulting_bearer_is_the_sa_token_...`
+            // pins: a broker that skipped this and reused `federated` is the mutation that cell
+            // exists to kill.
+            let credential = match target_sa {
+                Some(target) => self
+                    .impersonation
+                    .impersonate(federated.access_token(), target, workload.scope(), IMPERSONATED_LIFETIME)
+                    .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?,
+                None => federated,
+            };
             deadlines.push((source, credential.not_after()));
-            // Populated from exactly this arm, right after a successful exchange - there is no
-            // other call to `put` anywhere in this broker, which is what makes "never cache a
-            // refusal or an error" true by absence rather than by a check.
+            // Populated from exactly this arm, right after a successful exchange (and, where
+            // declared, a successful hop) - there is no other call to `put` anywhere in this broker,
+            // which is what makes "never cache a refusal or an error" true by absence rather than by
+            // a check. Two round trips are cached as the one entry the FINAL credential is, keyed on
+            // the target too - never two entries for one leg.
             if let (Some(cache), Some(now)) = (&self.cache, cache_now) {
                 cache.put(
                     chain,
                     workload,
+                    target_sa,
                     credential.access_token().clone(),
                     credential.not_after(),
                     self.floor,
@@ -491,365 +682,4 @@ const fn clears_floor(not_after: Expiry, now_unix_seconds: u64, floor: NonZeroU6
 }
 
 #[cfg(test)]
-mod tests {
-    use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, CredentialsDoNotFitTheRequest, Expiry, Minted, Presented, PrincipalChain, RequestContext,
-        Secret, SourceSet, Subject, SubjectId,
-    };
-    use sutura_domain::model::SourceName;
-    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
-
-    use super::{ExchangeUnusable, NonZeroU64, StsCredential, StsExchange, UnixClock, WorkloadIdentity, WorkloadIdentityBroker};
-
-    /// The instant every floor decision below is measured against: 2096-10-02.
-    ///
-    /// **Deliberately seventy years out.** The suite this replaced minted a fixed 2027 expiry and
-    /// compared it against the real `SystemTime::now()`, so it was a test SCHEDULED to go red in
-    /// early 2027 - worse than a red test, because nobody would have been looking for it. The clock
-    /// is an input now, so an instant far past that date is one this suite runs at today, which is
-    /// the only honest demonstration that its verdict does not depend on the wall clock.
-    const A_FIXED_NOW: u64 = 4_000_000_000;
-
-    /// How long the deployment says an answer may take, as a floor. A test passing it gets a floor
-    /// that CAN fire, and therefore actually consults the clock rather than skipping past it.
-    const A_QUERY_BUDGET: u64 = 30;
-
-    /// A clock frozen at one instant - what the [`UnixClock`] port exists for.
-    struct Frozen(u64);
-
-    impl UnixClock for Frozen {
-        fn unix_seconds(&self) -> Result<u64, std::time::SystemTimeError> {
-            Ok(self.0)
-        }
-    }
-
-    /// A clock that cannot answer, so *this mint never asks what time it is* is provable rather than
-    /// commented.
-    ///
-    /// The error is a genuine `SystemTimeError`, which has no public constructor - the only way to
-    /// one is to ask for the distance from an instant to one before it, and there has never been a
-    /// clock for which the epoch is in the future.
-    struct NeverKnowsTheTime;
-
-    impl UnixClock for NeverKnowsTheTime {
-        fn unix_seconds(&self) -> Result<u64, std::time::SystemTimeError> {
-            Err(std::time::UNIX_EPOCH
-                .duration_since(std::time::SystemTime::now())
-                .expect_err("the epoch is not in the future"))
-        }
-    }
-
-    /// A fake exchange that mints a token echoing the caller's, so a test can assert WHOSE credential
-    /// reached the leg, with a lifetime the test chose.
-    ///
-    /// **The lifetime is a parameter, not a constant**, so one fake covers the static credential,
-    /// the one that clears the floor, the one inside it and the one already dead - and none of them
-    /// can drift from the instant the broker is measured against, because both come from the test.
-    struct FakeExchange {
-        not_after: Expiry,
-        exchanged: std::cell::RefCell<std::collections::BTreeMap<String, String>>,
-    }
-
-    impl FakeExchange {
-        fn minting(not_after: Expiry) -> Self {
-            Self {
-                not_after,
-                exchanged: std::cell::RefCell::default(),
-            }
-        }
-
-        /// An exchange yielding a credential that expires `seconds` after [`A_FIXED_NOW`].
-        fn minting_one_lasting(seconds: u64) -> Self {
-            Self::minting(Expiry::At {
-                unix_seconds: A_FIXED_NOW.saturating_add(seconds),
-            })
-        }
-    }
-
-    impl StsExchange for FakeExchange {
-        type Error = std::convert::Infallible;
-
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a fake exchange echoes the caller's token so a test can assert WHOSE credential reached the leg"
-        )]
-        fn exchange(&self, _audience: &str, _scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
-            let raw = String::from(subject_token.expose_secret());
-            self.exchanged.borrow_mut().insert(raw.clone(), raw.clone());
-            Ok(StsCredential::of(Secret::new(format!("exchanged-for-{raw}")), self.not_after))
-        }
-    }
-
-    fn source(raw: &str) -> SourceName {
-        SourceName::parse(raw).expect("a test source is a source")
-    }
-
-    fn declared() -> SharedIdentityDeclared {
-        SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a read-only reporting replica every caller is entitled to see")
-                .expect("a test reason is a reason"),
-        )
-    }
-
-    fn caller(assertion: Option<&str>) -> RequestContext {
-        let chain = PrincipalChain::of(Subject::Verified {
-            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
-        });
-        match assertion {
-            Some(raw) => RequestContext::with_assertion(chain, Secret::new(raw)),
-            None => RequestContext::of(chain),
-        }
-    }
-
-    /// One impersonating source, on the floor and the clock a test names - the served shape, minus
-    /// the network and the wall clock.
-    ///
-    /// `floor` is an `Option` for the same reason the broker's own field is: `None` is *no floor*,
-    /// and there is no third thing a zero could mean. Both it and the clock are parameters because
-    /// both are what the cases below differ by.
-    fn impersonating_warehouse<C>(
-        exchange: FakeExchange,
-        floor_seconds: Option<u64>,
-        clock: C,
-    ) -> WorkloadIdentityBroker<FakeExchange, C>
-    where
-        C: UnixClock,
-    {
-        let declared = WorkloadIdentityBroker::empty(exchange);
-        match floor_seconds {
-            Some(seconds) => declared.with_floor(seconds),
-            None => declared,
-        }
-        .measured_against(clock)
-        .impersonating(
-            source("warehouse"),
-            WorkloadIdentity::of(
-                String::from("//iam.googleapis.com/.../providers/sso"),
-                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
-            ),
-        )
-    }
-
-    /// The credentials a mint granted, or a panic naming which of the two ways it did not.
-    ///
-    /// It takes no token: `caller` builds the one subject this suite has whatever assertion it is
-    /// handed, and the agreement is checked against the subject, not the assertion.
-    fn granted(minted: Minted) -> sutura_domain::identity::BoundToTheRequest {
-        let agreed = minted
-            .agreeing_with(
-                caller(None).chain().subject(),
-                &SourceSet::of(source("warehouse")),
-                A_FIXED_NOW,
-            )
-            .expect("the grant agrees with the request");
-        let Agreed::Granted { credentials } = agreed else {
-            panic!("expected granted");
-        };
-        credentials
-    }
-
-    #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "reading the minted material IS the assertion: that the asker's own token is what was exchanged"
-    )]
-    fn an_impersonating_source_exchanges_the_askers_own_token_for_the_leg() {
-        // **Run at an instant seventy years past the date the old shape was scheduled to fail on**,
-        // over a DATED credential and a declared floor, so the floor is genuinely consulted here
-        // rather than made inert by a credential with no deadline.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting_one_lasting(3_600),
-            Some(A_QUERY_BUDGET),
-            Frozen(A_FIXED_NOW),
-        );
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect("the exchange does not fail");
-        let credentials = granted(minted);
-        let Presented::SubjectToken { material } = credentials.presented_for(&source("warehouse")).expect("a leg") else {
-            panic!("an impersonating source gets a subject token");
-        };
-        assert_eq!(material.expose_secret(), "exchanged-for-caller-token");
-        assert_eq!(
-            credentials.not_after(),
-            Expiry::At {
-                unix_seconds: A_FIXED_NOW + 3_600
-            }
-        );
-    }
-
-    #[test]
-    fn an_impersonating_source_with_no_asker_token_is_refused_not_answered_as_the_process() {
-        let broker = impersonating_warehouse(
-            FakeExchange::minting(Expiry::NothingExpires),
-            Some(A_QUERY_BUDGET),
-            Frozen(A_FIXED_NOW),
-        );
-        let minted = broker
-            .mint(&caller(None), &SourceSet::of(source("warehouse")))
-            .expect("a refusal is an Ok");
-        assert!(matches!(minted, Minted::Refused { source } if source.as_str() == "warehouse"));
-        assert!(broker.exchange.exchanged.borrow().is_empty(), "nothing was exchanged");
-    }
-
-    #[test]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "comparing the two minted values IS the assertion that two subjects are kept apart"
-    )]
-    fn two_subjects_get_two_different_credentials() {
-        // **The acceptance criterion, at the broker boundary.** Two askers, two tokens, two distinct
-        // exchanged credentials - which is exactly what lets a dataset with row-level security read a
-        // different row set for each.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting_one_lasting(3_600),
-            Some(A_QUERY_BUDGET),
-            Frozen(A_FIXED_NOW),
-        );
-        let ask = |token: &str| -> String {
-            let minted = broker
-                .mint(&caller(Some(token)), &SourceSet::of(source("warehouse")))
-                .expect("the exchange does not fail");
-            let credentials = granted(minted);
-            let Presented::SubjectToken { material } = credentials.presented_for(&source("warehouse")).expect("a leg") else {
-                panic!("expected a subject token");
-            };
-            String::from(material.expose_secret())
-        };
-        let first = ask("subject-a");
-        let second = ask("subject-b");
-        assert_eq!(first, "exchanged-for-subject-a");
-        assert_eq!(second, "exchanged-for-subject-b");
-        assert_ne!(first, second);
-    }
-
-    #[test]
-    fn the_floor_is_a_pure_comparison_readable_with_fixed_instants() {
-        use super::clears_floor;
-        let now = A_FIXED_NOW;
-        let floor = |seconds: u64| NonZeroU64::new(seconds).expect("a test floor is not zero");
-        // A static credential never expires, so it always clears any floor.
-        assert!(clears_floor(Expiry::NothingExpires, now, floor(u64::MAX)));
-        // **The boundary is REFUSED, and it is the domain that decides that**: `Expiry::passed_by`
-        // counts the boundary second as passed, so a credential with exactly the floor left would
-        // expire at the last instant of the budget it was checked against. One second more clears.
-        assert!(!clears_floor(Expiry::At { unix_seconds: now + 30 }, now, floor(30)));
-        assert!(clears_floor(Expiry::At { unix_seconds: now + 31 }, now, floor(30)));
-        assert!(!clears_floor(Expiry::At { unix_seconds: now + 29 }, now, floor(30)));
-        // An already-passed deadline is inside any floor.
-        assert!(!clears_floor(Expiry::At { unix_seconds: now }, now, floor(30)));
-        assert!(!clears_floor(
-            Expiry::At {
-                unix_seconds: now - 100_000
-            },
-            now,
-            floor(30)
-        ));
-    }
-
-    #[test]
-    fn a_credential_inside_the_floor_is_refused_rather_than_presented() {
-        // The broker-level half of the floor, at the BOUNDARY rather than a decade out: one second
-        // short of the query budget is refused naming the source, rather than presented and left to
-        // fail at the source mid-query. Deterministic because both the deadline and the instant it
-        // is compared against come from this test.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting_one_lasting(A_QUERY_BUDGET - 1),
-            Some(A_QUERY_BUDGET),
-            Frozen(A_FIXED_NOW),
-        );
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect("a refusal is an Ok");
-        assert!(matches!(minted, Minted::Refused { source } if source.as_str() == "warehouse"));
-    }
-
-    #[test]
-    fn a_floor_grants_a_credential_with_more_life_than_the_budget() {
-        // The other side of that boundary. One second MORE than the budget clears it; exactly the
-        // budget does not, because the domain counts the boundary second as already passed and this
-        // adapter asks the domain rather than writing a second comparison.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting_one_lasting(A_QUERY_BUDGET + 1),
-            Some(A_QUERY_BUDGET),
-            Frozen(A_FIXED_NOW),
-        );
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect("the exchange does not fail");
-        assert!(matches!(minted, Minted::Granted { .. }));
-    }
-
-    #[test]
-    fn a_broker_with_no_floor_leaves_an_already_dead_credential_to_the_domain() {
-        // **The `empty()` contract, and both halves of it.** With no floor declared the adapter
-        // grants an already-dead credential - and the domain then refuses it at `agreeing_with`, so
-        // "left to the domain" is a handoff that arrives rather than a place the check is lost.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting(Expiry::At { unix_seconds: 1 }),
-            None,
-            Frozen(A_FIXED_NOW),
-        );
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect("the exchange does not fail");
-        assert!(matches!(minted, Minted::Granted { .. }), "the adapter's floor is disabled");
-        let refused = minted
-            .agreeing_with(
-                caller(Some("caller-token")).chain().subject(),
-                &SourceSet::of(source("warehouse")),
-                A_FIXED_NOW,
-            )
-            .expect_err("the domain refuses a credential that is already dead");
-        assert!(matches!(
-            refused,
-            CredentialsDoNotFitTheRequest::Expired {
-                deadline_unix_seconds: 1,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn a_purely_shared_mint_never_asks_what_time_it_is() {
-        // A declared floor over a source with NO exchanged deadline cannot refuse anything, so it
-        // must not consult the clock - and a clock that always fails is the only way to assert
-        // that it did not, rather than describe it.
-        let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
-            .with_floor(A_QUERY_BUDGET)
-            .measured_against(NeverKnowsTheTime)
-            .shared(source("replica"), declared());
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("replica")))
-            .expect("a shared mint has no need of a clock");
-        assert!(matches!(minted, Minted::Granted { .. }));
-    }
-
-    #[test]
-    fn a_broker_with_no_floor_never_asks_what_time_it_is() {
-        // The second guard, asserted the same way: there is no floor, so there is nothing for an
-        // instant to be compared against even though an exchanged deadline exists.
-        let broker = impersonating_warehouse(FakeExchange::minting(Expiry::At { unix_seconds: 1 }), None, NeverKnowsTheTime);
-        let minted = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect("a zero-floor mint has no need of a clock");
-        assert!(matches!(minted, Minted::Granted { .. }));
-    }
-
-    #[test]
-    fn a_floor_that_can_fire_and_no_clock_to_fire_it_is_a_broker_failure() {
-        // **What keeps the two tests above from being vacuous.** The same unreadable clock, over the
-        // one shape that DOES need an instant - a positive floor and an exchanged deadline - fails
-        // the mint as `NoClock` rather than granting. Without this, a broker that had quietly stopped
-        // consulting its clock at all would pass both of them.
-        let broker = impersonating_warehouse(
-            FakeExchange::minting_one_lasting(3_600),
-            Some(A_QUERY_BUDGET),
-            NeverKnowsTheTime,
-        );
-        let failure = broker
-            .mint(&caller(Some("caller-token")), &SourceSet::of(source("warehouse")))
-            .expect_err("a floor that can fire needs an instant to fire against");
-        assert!(matches!(failure, ExchangeUnusable::NoClock { .. }));
-    }
-}
+mod tests;

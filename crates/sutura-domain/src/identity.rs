@@ -40,7 +40,8 @@ pub use crate::identity::credential::{
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
 pub use crate::identity::principal::{
-    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId,
+    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId,
+    SubjectKey, TaskId,
 };
 
 /// An opaque secret that nothing can render.

@@ -49,9 +49,9 @@
 //! that leg runs under the credential the transport already holds and asserts only that it is
 //! neither principal, which is the control's whole job.
 //!
-//! `each_principal_is_who_this_source_says_it_is_executing_as` has NOT run and cannot be run today.
-//! Both reasons were found by writing it, neither is a defect in it, and both are recorded here
-//! rather than in a commit message because the next person to reach for this file needs them first.
+//! `each_principal_is_who_this_source_says_it_is_executing_as` has NOT run in CI. One reason from the
+//! original writing of this cell is now closed; the other is still open and is recorded here rather
+//! than in a commit message because the next person to reach for this file needs it first.
 //!
 //! **1. The environment does not carry a subject assertion per principal - it is minted at job time
 //! instead, and that is still true after telekom/sutura#376's wiring.** A plain RFC 8693 exchange
@@ -73,18 +73,18 @@
 //! in this harness. See the fifth item in `docs/where-identity-is-proven.md`'s "would NOT establish"
 //! list.
 //!
-//! **2. The shipped exchange has no service-account impersonation hop, so it cannot answer an
-//! account's email at all.** `wire::StsOverHttp` posts one token-exchange request and returns what
-//! comes back, which for a workload-identity pool is a FEDERATED credential - Google resolves it to
-//! a pool subject, not to a service account. Becoming a service account from a federated credential
-//! is a second call this adapter does not make. So against the stack as provisioned, this cell's
-//! `SESSION_USER()` would come back as a pool subject and the run would be RED - which is why
-//! [`WhoAnswered::AFederatedPoolSubject`] is a named verdict rather than falling into
-//! [`WhoAnswered::NeitherPrincipal`]. **A red run naming that is the finding**, and it is the shape
-//! this cell is built to produce rather than a shape it hides.
+//! **2. CLOSED by this hop.** `wire::IamCredentialsOverHttp` now takes the federated access token
+//! `wire::StsOverHttp` returns and calls `iamcredentials.generateAccessToken` for the account
+//! [`WorkloadIdentity::target_for`] declares, so a source's exchange can resolve to a SERVICE
+//! ACCOUNT rather than stopping at the pool subject a bare RFC 8693 exchange yields. This cell below
+//! now declares that map for both principals (self-impersonation, in this harness - see
+//! `docs/adr/`'s new record for why that is only true here) and calls
+//! `WorkloadIdentityBroker::impersonating_via`, so a hosted `workflow_dispatch` run is what is left
+//! to move this row: the mechanics are exercised by the six fake-port cells in `sts.rs`, never by
+//! this cell, which needs the cloud stack and CI's minted assertions to run at all.
 //!
-//! `docs/where-identity-is-proven.md` carries both beside the venue's row, in the words that page
-//! uses for *written and never run*.
+//! `docs/where-identity-is-proven.md` still carries this venue as *written and never run* until a
+//! green `workflow_dispatch` says otherwise - the code alone does not move that row.
 //!
 //! # What this cell does NOT constrain about the token it hands over
 //!
@@ -168,11 +168,11 @@ mod support;
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::{
-        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectId,
+        Agreed, CredentialBroker as _, PrincipalChain, RequestContext, Secret, SourceSet, Subject, SubjectKey,
     };
     use sutura_domain::model::SourceName;
     use sutura_domain::source::SourcePosture;
-    use sutura_exec_bigquery::wire::{EndpointMessage, ReasonCode, StsOverHttp, WireAgent, WireError};
+    use sutura_exec_bigquery::wire::{EndpointMessage, IamCredentialsOverHttp, ReasonCode, StsOverHttp, WireAgent, WireError};
     use sutura_exec_bigquery::{BigQueryError, SessionUser};
     use sutura_exec_bigquery::{WorkloadIdentity, WorkloadIdentityBroker};
 
@@ -217,6 +217,16 @@ mod tests {
     /// APIs, so it names no resource of anybody's and a deployment does not choose a different one
     /// to read a dataset. A sixth environment value here would be a sixth thing to get wrong.
     const CLOUD_PLATFORM: &str = "https://www.googleapis.com/auth/cloud-platform";
+
+    /// The two `impersonate`-map subject labels the live cell chains each leg under.
+    ///
+    /// **Distinct after `SubjectId::parse`'s own masking, and that is checked rather than assumed.**
+    /// `principal.rs`'s mask keeps only the first character of each `.`/`@`-delimited segment, so
+    /// "principal-a" and "principal-b" alone would both mask to `p***` - two literals differing only
+    /// in that position would collide onto ONE map entry. These differ in their DOMAIN instead, which
+    /// is what survives the mask.
+    const CHAIN_A: &str = "principal-a@example.com";
+    const CHAIN_B: &str = "principal-b@example.org";
 
     /// The prefix Google's own identifiers for a federated principal begin with.
     ///
@@ -653,9 +663,37 @@ mod tests {
         // accepts the exchanged token as the job's bearer. **No principal's key is anywhere in
         // this**, which was the whole difference from the withdrawn `two_principals.rs`
         // (telekom/sutura#123).
+        // **The second hop, telekom/sutura#376, wired.** Both principals map to their OWN account -
+        // the harness's own limit, stated at the header: the pool subject the exchange resolves to
+        // already IS the SA to impersonate here, because each principal's assertion is self-signed by
+        // its own key. A production caller through the IdP has nothing this map could key on outside
+        // this harness - see `docs/adr/`'s new record.
+        //
+        // `CHAIN_A`/`CHAIN_B` (declared above, beside `CLOUD_PLATFORM`) are the two subject labels.
+        // The map keys on the FULL subject now (`SubjectKey`), so two distinct raw labels are two
+        // distinct entries by construction - the guard below still pins that they are in fact
+        // distinct raw strings, which is what the two declared map entries depend on.
+        debug_assert_ne!(
+            CHAIN_A, CHAIN_B,
+            "the two chain labels must be distinct raw subjects, or the impersonate map below silently drops one entry"
+        );
+        let impersonate = std::collections::BTreeMap::from([
+            (
+                SubjectKey::parse(CHAIN_A).expect("a test subject id parses"),
+                expected_a.clone(),
+            ),
+            (
+                SubjectKey::parse(CHAIN_B).expect("a test subject id parses"),
+                expected_b.clone(),
+            ),
+        ]);
         let broker = WorkloadIdentityBroker::empty(StsOverHttp::new(WireAgent::pinned(bounds)))
             .with_floor(30)
-            .impersonating(source(), WorkloadIdentity::of(audience, String::from(CLOUD_PLATFORM)));
+            .impersonating_via(IamCredentialsOverHttp::new(WireAgent::pinned(bounds)))
+            .impersonating(
+                source(),
+                WorkloadIdentity::of(audience, String::from(CLOUD_PLATFORM)).with_impersonation(impersonate),
+            );
         let warehouse = opened_as(source(), SourcePosture::ImpersonationAtSource, Connection::required(), bounds);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -663,11 +701,7 @@ mod tests {
             .as_secs();
 
         let asked_as = |assertion: &str, subject: &str| -> SessionUser {
-            let chain = |id: &str| {
-                PrincipalChain::of(Subject::Verified {
-                    id: SubjectId::parse(id).expect("a subject id parses"),
-                })
-            };
+            let chain = |id: &str| PrincipalChain::of(Subject::verified(id).expect("a subject id parses"));
             let context = RequestContext::with_assertion(chain(subject), Secret::new(String::from(assertion)));
             let minted = broker
                 .mint(&context, &SourceSet::of(source()))
@@ -685,8 +719,8 @@ mod tests {
             identity_or_die(warehouse.session_user(presented), subject)
         };
 
-        let from_a = asked_as(&assertion_a, "principal-a@example.com");
-        let from_b = asked_as(&assertion_b, "principal-b@example.com");
+        let from_a = asked_as(&assertion_a, CHAIN_A);
+        let from_b = asked_as(&assertion_b, CHAIN_B);
 
         // **The claim.** Each leg became the account its own exchange was for - not the other's,
         // not a pool subject, not the deployment's. The verdict is what is printed; the answer is

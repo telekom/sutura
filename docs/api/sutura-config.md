@@ -5227,6 +5227,13 @@ pub struct WorkloadIdentityConfig
 
 The token-exchange setup a `impersonation-at-source` source needs.
 
+**`impersonate` is the second hop, telekom/sutura#376's iamcredentials step, and it is additive.**
+An entry with an empty map keeps today's behaviour exactly: a bare RFC 8693 exchange, presented as
+the caller's own federated credential. A subject present as a key is the ONLY way a source ever
+asks Google's `iamcredentials.generateAccessToken` for anything - there is no fallback to the
+deployment's own identity for a caller absent from the map, because the broker that reads this
+refuses such a caller before any network call rather than answering as the process.
+
 ##### Methods
 
 ```rust
@@ -5236,10 +5243,28 @@ pub const fn audience(&self) -> &WifAudience
 The provider audience.
 
 ```rust
-pub fn parse(audience: impl AsRef<str>, scope: impl AsRef<str>) -> Result<Self, InvalidWorkloadIdentity>
+pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>
 ```
 
-Parses a declared audience and scope together, since neither is usable alone.
+The declared subject -> service-account map, for the composition root to hand the broker.
+
+```rust
+pub fn parse(audience: impl AsRef<str>, scope: impl AsRef<str>, impersonate: &std::collections::BTreeMap<String, String>) -> Result<Self, InvalidWorkloadIdentity>
+```
+
+Parses a declared audience, scope and impersonation map together.
+
+`impersonate` is read as raw strings rather than already-parsed types, for the reason
+`RawSource` carries every field as one: the settings tree speaks in strings, and parsing
+happens once, here.
+
+The map keys on `sutura_domain::identity::SubjectKey`, the FULL verified subject - never on
+the masked `SubjectId` a record renders. Keying an
+authorization decision on the mask would hand every undeclared caller sharing a declared
+subject's mask that subject's declared service account; the full value is the only key on
+which two distinct subjects stay distinct. Two declared keys are refused if they compare
+equal, and a declared key that is empty or whitespace-only is refused as unusable - the same
+parse that guards every principal identifier.
 
 ```rust
 pub const fn scope(&self) -> &WifScope
@@ -5250,6 +5275,41 @@ The scope the exchanged credential carries.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct WorkloadIdentitySa`
+
+```rust
+pub struct WorkloadIdentitySa
+```
+
+The service account a declared subject's exchanged credential is impersonated into.
+
+**Checked here, and checked again where it is sent.** The same reason `WifAudience` gives:
+`crates/sutura-exec-bigquery/src/wire/iamcredentials.rs` interpolates this value into a request
+path and may not depend on this crate, so the format is validated once at declaration and once at
+the adapter that sends it.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The account, for building a request.
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity>
+```
+
+Parses a declared impersonation target.
+
+The accepted set is the printable ASCII a service-account email is built from - letters,
+digits and `. - _ @`, exactly one `@` - so a value that would escape a request path cannot
+exist here.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
 
 #### `enum InvalidWorkloadIdentity`
 
@@ -5263,15 +5323,22 @@ Why a declared workload-identity value is not usable.
 operator-written text carries it: an audience and a scope are foreign strings heading for a
 request, and neither belongs in a log.
 
+**No `Clone`**, for the reason `InvalidSourceRegistry` (`crate::sources`) already gives: its own
+`ImpersonationSubject` variant's cause is `sutura_domain::identity::InvalidPrincipalId`, which is
+not `Clone` either - nothing needs to clone a startup refusal.
+
 ##### Variants
 
 - `Empty` - Nothing was written, or only whitespace was.
 - `TooLong` - Longer than the endpoint's ceiling.
 - `Character` - A character outside the accepted set.
+- `NotAnAccount` - An `impersonate` target has no `@`, or more than one - so it is not an account.
+- `ImpersonationSubject` - An `impersonate` key is not a usable principal identifier.
+- `DuplicateImpersonationSubject` - Two declared `impersonate` keys compare equal - the same subject declared twice, with no way to tell which service account was meant.
 
 ##### Implements
 
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `telemetry`
 
