@@ -545,7 +545,7 @@ mod tests {
         // The token file actually reached the wire (fake mode) or the tier accepted the minted PAT
         // (tier mode). Only the FAKE can capture the outbound authorizations - the served binary
         // cannot read the live tier's log - so in tier mode the PAT's acceptance is proven by the
-        // tier answering the read at all and by `mint_pat`'s own `200`s above.
+        // tier answering the read at all and by `provision`'s own `200`s above.
         // `finish` joins the fake thread; the audit record is written by the deployment's own
         // blocking pool, so this reads it after the fake is reaped with a bounded sweep of the
         // deployment's log rather than the fixed `awaiting` deadline.

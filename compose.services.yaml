@@ -482,15 +482,11 @@ services:
     environment:
       <<: *datahub-backend-environment
       DATAHUB_SERVER_TYPE: quickstart
-      # Auth is ON so the wave-one E2E's real reader can carry a minted PAT as a bearer - the same
-      # gap `datahub-acceptance`'s header once named ("a tier that proved the second would have to
-      # mint a token through the token service, and nothing reads one yet"). `just e2e-datahub-
-      # bigquery --datahub tier` now DOES read one: it authenticates as the seeded `datahub` admin
-      # (the quickstart's default; overridable via SUTURA_DATAHUB_ADMIN_* on the tier) and mints a
-      # personal-access token, written to a generated token_file, never committed. The unauthenticated
-      # `datahub-acceptance` cells that used to hit the OpenAPI surface without a bearer must present
-      # the same minted PAT - confirmed against a live tier by the lane that lands this, because the
-      # exact admin-seed shape of this tier is measured there, not read from a spec.
+      # Auth is ON so every read against the tier is an enforced one: the wave-one E2E's real
+      # reader and `datahub-acceptance` both present the tier's OWN self-minted PAT as a bearer.
+      # The token is minted offline with the signing key in the `x-datahub-backend-environment`
+      # anchor above (headless GMS exposes no token surface - see that anchor's comment), written
+      # to a generated token_file, never committed; nothing logs in.
       METADATA_SERVICE_AUTH_ENABLED: "true"
       AUTH_POLICIES_ENABLED: "true"
       MAE_CONSUMER_ENABLED: "true"

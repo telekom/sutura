@@ -394,7 +394,7 @@ about the vocabulary rather than to this row.
 `nix/keycloak-tier.nix` stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at `start` and written nowhere else - and
 `just keycloak-served-test` starts it, runs the one cell that needs it, and stops it whatever the
-cell does. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job, PR 2) verifies the
+cell does. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job) verifies the
 SAME realm over HTTP on its own composed deployment - a second, wider `Reached by` for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.
 
@@ -464,7 +464,7 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 `docs/adr/0019` are the records, and the sentence that matters here is short: **a service-account key is
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
 identity* - and nothing whatever about per-subject execution. `just e2e-datahub-bigquery --datahub tier`
-(the wave-one hosted job, PR 2) reads the SAME `bq-test` environment's dataset for its BigQuery leg -
+(the wave-one hosted `e2e-datahub-bigquery` job) reads the SAME `bq-test` environment's dataset for its BigQuery leg -
 same venue, no second row - and adds nothing to this claim's cell: it still executes under one shared
 credential (`shared-service-user`), so the per-subject half stays exactly where the exchange row below
 keeps it.

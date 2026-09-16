@@ -179,7 +179,7 @@ pub(super) const EXCHANGED_WORKFLOW: &str = ".github/workflows/bigquery-exchange
 /// The job in that file.
 pub(super) const EXCHANGED_JOB: &str = "bigquery-exchanged-identity";
 
-/// The wave-one E2E's own job (`telekom/sutura#766`), which places the SAME `svc_suturua_bq_ci`
+/// The wave-one E2E's own job (`telekom/sutura#134`), which places the SAME `svc_suturua_bq_ci`
 /// credential outside the checkout as `bigquery-acceptance` does, so it earns the same scan - a
 /// discipline measured on one job and silently copied into another is the drift this gate exists
 /// to refuse. Every property this gate holds (who may run it, where the credential goes, unset

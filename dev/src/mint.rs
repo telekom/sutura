@@ -2,7 +2,8 @@
 //!
 //! The headless GMS this tier runs exposes no token-minting surface: `/auth/authenticate` and
 //! `/auth/accessTokens` live in the React frontend, which `compose.services.yaml` deliberately omits
-//! (both return `404` on the pinned 1.7.0 GMS - measured). So the *tier* mints the PAT the wave-one
+//! (both answer `404` on the pinned 1.7.0 GMS once one is authenticated; without a bearer they are
+//! `401` - measured). So the *tier* mints the PAT the wave-one
 //! E2E serves, offline, with the tier's OWN `DATAHUB_TOKEN_SERVICE_SIGNING_KEY` - the symmetric key
 //! GMS validates access tokens against. The served binary presents the result via `token_file`
 //! exactly as it does the fake's token, and `datahub-acceptance` presents the same PAT as its
@@ -13,7 +14,7 @@
 //!
 //! Read out of `com.datahub.authentication.token.StatefulTokenService` (+ its `StatelessTokenService`
 //! parent and `DataHubTokenAuthenticator`) at the pinned 1.7.0, then confirmed against a live tier
-//! (build-lane probe: the minted PAT -> `GET /openapi/v3/entity/dataset?count=0` returned `200`
+//! (probe: the minted PAT -> `GET /openapi/v3/entity/dataset?count=0` returned `200`
 //! with `Bearer`; a bearer-less fetch of the same path returned `401`):
 //!
 //! * `version` **`1`**, not `2`. The stateful service only hash-and-looks-up *stored* tokens for
