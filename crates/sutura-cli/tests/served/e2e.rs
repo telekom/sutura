@@ -22,7 +22,10 @@
 //! though the SOURCE executes as one shared identity for both. `DataHub` is the recorded fake
 //! (`#202`'s `test_support`), the source is `bigquery` named identically to the catalog (the served
 //! `datahub` arm's fixed `bigquery`→name mapping, exactly as `served/datahub.rs` proves green for
-//! `files`), and the issuer is the provisioned Keycloak tier.
+//! `files`), and the issuer is the provisioned Keycloak tier. Over the `agent` feature (which `just
+//! e2e-datahub-bigquery`'s `--all-features` compiles) the same deployment additionally answers the
+//! certified question over `/mcp`, folded into the SAME cell so the byte-for-byte join - same rows,
+//! same masked `subject` - spans one boot, never two.
 //!
 //! # What is ONE cell rather than three
 //!
@@ -303,6 +306,18 @@ mod tests {
     /// caller's token IS the identity - no `security.access_token`, because a deployment declaring
     /// both is refused as `DeploymentTokenSharesTheHeader`).
     ///
+    /// The `server:` head: the wave-one loopback bind, and - under the `agent` feature, which
+    /// `just e2e-datahub-bigquery` compiles via `--all-features` - the `agent_surface` switch that
+    /// mounts `/mcp`. Emitted ONLY under that feature so a no-`agent` compile of this module neither
+    /// mounts the transport nor trips `serve`'s `agent_refused_if_enabled` boot refusal: the MCP
+    /// asks are gated on the same feature, so the two can never disagree.
+    fn server_head() -> String {
+        let mut head = String::from(LOOPBACK);
+        #[cfg(feature = "agent")]
+        head.push_str("  agent_surface:\n    enabled: true\n");
+        head
+    }
+
     /// `dir`/`data_dir` on the catalog are the two path fields `CatalogSettings` requires non-empty
     /// for EVERY kind including `datahub`, unread by the datahub opener - the same obviously-unused
     /// placeholders `served/datahub.rs` declares.
@@ -310,7 +325,7 @@ mod tests {
         let key_set = derived_beside(&config_path(CASE)).join("keycloak-jwks.json");
         format!(
             "server:\n\
-             {LOOPBACK}\
+             {server_head}\
              security:\n\
              {SECURITY_HEAD}\
              {inbound}\
@@ -333,6 +348,7 @@ mod tests {
                  credential_file: \"{credential_file}\"\n    \
                  max_bytes_billed: 1073741824\n    \
                  posture: \"shared-service-user\"\n",
+            server_head = server_head(),
             inbound = inbound_block(fixture, &key_set),
             endpoint = server.endpoint(),
             token_file = data.token_file().display(),
@@ -397,6 +413,58 @@ mod tests {
         after
             .split_once('"')
             .map_or_else(|| panic!("the `subject` field is not terminated: {line}"), |(value, _)| value)
+    }
+
+    // ------------------------------------------------------------------ the agent surface ----
+    // The MCP half of the wave-one join, gated on the `agent` feature exactly like `server_head`
+    // gates the `agent_surface` switch above: `just e2e-datahub-bigquery` compiles `--all-features`
+    // so both are present where this cell runs, and a no-`agent` compile of this module has neither
+    // the mount nor the asks that would answer it.
+
+    /// One MCP `initialize` body, the same shape `served/agent.rs` drives to prime the handshake
+    /// (the transport's stateless mode serves it one-shot under `legacy_session_mode: false`).
+    #[cfg(feature = "agent")]
+    fn mcp_initialize(id: i64) -> String {
+        serde_json::to_string(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                       "clientInfo": {"name": "sutura-serve-e2e", "version": "0.0.0"}}
+        }))
+        .expect("the initialize body serializes")
+    }
+
+    /// One MCP `tools/list` body.
+    #[cfg(feature = "agent")]
+    fn mcp_tools_list(id: i64) -> String {
+        serde_json::to_string(&serde_json::json!({"jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {}}))
+            .expect("the tools/list body serializes")
+    }
+
+    /// One MCP `tools/call` body. The `arguments` are taken VERBATIM as the wave-one `QUESTION`
+    /// string, so the byte-for-byte question text is the same over `/v1/query` and `/mcp`.
+    #[cfg(feature = "agent")]
+    fn mcp_tools_call(id: i64, name: &str, arguments_json: &str) -> String {
+        let arguments: serde_json::Value =
+            serde_json::from_str(arguments_json).unwrap_or_else(|cause| panic!("the question is a JSON object: {cause}"));
+        serde_json::to_string(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": arguments}
+        }))
+        .expect("the tools/call body serializes")
+    }
+
+    /// The tool names a `tools/list` reply advertised, for the `ask_metric` assertions.
+    #[cfg(feature = "agent")]
+    fn mcp_tool_names(reply: &crate::harness::Reply) -> Vec<String> {
+        reply
+            .json()
+            .get("result")
+            .and_then(|result| result.get("tools"))
+            .and_then(serde_json::Value::as_array)
+            .unwrap_or_else(|| panic!("a tools/list result carries a `tools` array: {}", reply.body))
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str).map(String::from))
+            .collect()
     }
 
     #[test]
@@ -560,5 +628,90 @@ mod tests {
         // audit's masking lets collide 1 in 16): each of the two distinct provisioned subjects'
         // tokens produced a record carrying that subject's OWN mask, so no record was attributed
         // to the wrong principal.
+
+        // The agent-surface half of the wave-one join: the SAME wave-one question asked over
+        // `/mcp`, behind the SAME leg-1 gate and the SAME serving `Surface` the HTTP asks above
+        // used. This is the byte-for-byte join over the composed binary that #758's served cells
+        // can only hold at the router level - one deployment, one verified caller, the same rows
+        // and the same masked subject over both transports. The asks mirror the HTTP asks in order:
+        // (i) `tools/list` as A, (ii) `tools/call` `ask_metric` as A, (iii) no bearer, (iv) the
+        // uncertified question as A.
+        #[cfg(feature = "agent")]
+        {
+            drop(deployment.mcp(Some(&fixture.subject_a_token), &mcp_initialize(10)));
+            let tools = mcp_tool_names(&deployment.mcp(Some(&fixture.subject_a_token), &mcp_tools_list(11)));
+            assert!(
+                tools.iter().any(|tool| tool == "ask_metric"),
+                "a verified caller must be advertised `ask_metric` over /mcp, got: {tools:?}"
+            );
+
+            // (ii) The certified question as A, over /mcp. The answer's `structuredContent` is the
+            // same `OutcomeContent` the HTTP surface serializes, so the SAME one row and SAME
+            // `executed_as` leg are asserted here as the REST ask asserted on `body`.
+            let mcp_reply = deployment.mcp(Some(&fixture.subject_a_token), &mcp_tools_call(12, "ask_metric", QUESTION));
+            let mcp_json = mcp_reply.json();
+            let mcp_content = mcp_json
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .unwrap_or_else(|| panic!("the tools/call result carried no `structuredContent`: {}", mcp_reply.body));
+            assert_eq!(mcp_content["outcome"], "answer", "{}", mcp_reply.body);
+            assert_eq!(
+                mcp_content["rows"],
+                serde_json::json!([["2026-06-01", "412345"]]),
+                "{}",
+                mcp_reply.body
+            );
+            assert_eq!(
+                mcp_content["executed_as"],
+                serde_json::json!([{ "source": CATALOG, "posture": "shared-service-user" }]),
+                "{}",
+                mcp_reply.body
+            );
+            // The record lags the response (written from the blocking pool, not ordered against
+            // it) - so this is a BLOCKING `awaiting`, the same read `served/keycloak_test.rs`
+            // makes, not a `log()` sweep that races a record arriving a millisecond later. The
+            // needle differs from `RECORD` on purpose: an HTTP ask's record is written inside the
+            // router's `[REQUEST - EVENT]` span, while `/mcp`'s is written inside the transport's
+            // own span (`[SERVE_INNER - EVENT]`), so matching on `RECORD` would never see it. The
+            // stable, span-independent marker is the audit sink's own `target`. The join: whoever
+            // asked over HTTP as A and over MCP as A is the SAME masked subject `/mcp` established
+            // from the SAME Keycloak token.
+            let lines_mcp = deployment.awaiting(r#""target":"sutura_runtime::audit""#);
+            let mcp_subject_a = lines_mcp
+                .iter()
+                .rev()
+                .find(|line| line.contains(r#""subject_established":"verified""#))
+                .map(|line| subject_field(line))
+                .expect("ask A over /mcp produced an audit record carrying its subject");
+            assert_eq!(
+                mcp_subject_a, subject_a,
+                "A's MCP record must carry the SAME masked subject as A's REST record - one caller, one subject, two transports"
+            );
+
+            // (iii) No bearer over /mcp: leg 1 refuses it BEFORE the transport - a `401`, never a
+            // `200` and never a JSON-RPC answer. Same challenge every forgery gets
+            // (`sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller…`).
+            let unauth_mcp = deployment.mcp(None, &mcp_tools_list(13));
+            assert_eq!(
+                unauth_mcp.status, 401,
+                "a request with no credential was answered over /mcp: {}",
+                unauth_mcp.body
+            );
+
+            // (iv) The uncertified question over /mcp: a typed GOVERNANCE refusal - an `Ok` tool
+            // result (`isError` absent, `outcome: "refusal"`), per `sutura_mcp::server`'s pinned
+            // contract, never a transport error. `RefusalContent` carries `code`+`detail` and no
+            // `status` (there is no HTTP status in a tool result) - so the join on the REST refusal
+            // is `reason.code`, which is the SAME `metric_unknown` the REST `body` pinned.
+            let refused_mcp = deployment.mcp(Some(&fixture.subject_a_token), &mcp_tools_call(14, "ask_metric", UNCERTIFIED));
+            let refused_json = refused_mcp.json();
+            let refused_content = refused_json
+                .get("result")
+                .and_then(|result| result.get("structuredContent"))
+                .unwrap_or_else(|| panic!("the refused tools/call carried no `structuredContent`: {}", refused_mcp.body));
+            assert_eq!(refused_content["outcome"], "refusal", "{}", refused_mcp.body);
+            assert_eq!(refused_content["reason"]["code"], REFUSAL_CODE, "{}", refused_mcp.body);
+            assert!(refused_content["reason"]["detail"].is_string(), "{}", refused_mcp.body);
+        }
     }
 }
