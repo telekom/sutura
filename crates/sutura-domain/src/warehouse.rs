@@ -331,6 +331,28 @@ pub trait Warehouse {
     /// number.
     const EXECUTES_LEGS: bool = false;
 
+    /// The same declaration, read per INSTANCE rather than per type.
+    ///
+    /// **Defaulted to [`Self::EXECUTES_LEGS`], so every adapter this workspace ships keeps ONE
+    /// declaration and gets this method for free.** The reason it exists at all, next to a constant
+    /// that already says the same thing: a constant is fixed for a whole `Warehouse` implementor,
+    /// and a closed enum standing in for "whichever adapter this deployment linked" - the shape a
+    /// heterogeneous registry needs, since the port's own [`Self::IMPERSONATION`] forecloses
+    /// `dyn Warehouse` - is one type wrapping several. An
+    /// associated const on that enum could only ever hold ONE value for every variant, which would
+    /// either lie for the variant that cannot federate or lie for the one that can. An instance
+    /// method has no such ceiling: an enum overrides it to match on `self` and answer whichever
+    /// concrete adapter's OWN declaration applies, so a leg-capable kind and a leg-declining kind
+    /// can sit in the same registry and be asked separately.
+    ///
+    /// `sutura_app::federated::answer_federated` is the caller - its per-leg gate reads this method
+    /// on each leg's own adapter instance, and it is why the check moved from the type to the
+    /// instance the moment a registry could hold more than one kind.
+    #[must_use]
+    fn executes_legs(&self) -> bool {
+        Self::EXECUTES_LEGS
+    }
+
     /// Whether this adapter can execute a metric whose computation is
     /// [`Computation::AuthoredSql`](crate::expression::Computation::AuthoredSql) - SQL a catalog
     /// author wrote, rather than a measure the generator composes.

@@ -221,6 +221,7 @@ nav:
           - Where a budget lives: adr/0030-where-a-budget-lives.md
           - Caching an exchanged credential: adr/0031-caching-an-exchanged-credential.md
           - The iamcredentials impersonation hop: adr/0032-the-iamcredentials-impersonation-hop.md
+          - A closed enum over the shipped warehouse kinds: adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md

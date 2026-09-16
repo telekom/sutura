@@ -68,6 +68,12 @@ mod bigquery;
 /// The same, for the `Postgres` connection this root opens and secures.
 mod postgres;
 
+/// The closed enum over the shipped warehouse KINDS - `github.com/telekom/sutura#112` - so this
+/// root can hold more than one at once. Unconditional, like [`OpenedSources`] itself: a build with
+/// neither optional adapter feature still has to REFUSE a mixed catalog by naming the missing
+/// feature, not by never reaching that code.
+mod kind;
+
 /// The agent-surface transport, under the `agent` feature. `cfg`-gated like `broker`: a build that
 /// links none of `sutura_mcp` has no `sutura_mcp::http::service` to attach.
 #[cfg(feature = "agent")]
@@ -206,11 +212,13 @@ pub(crate) fn run() -> Result<(), String> {
     // make unrepresentable.
     let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
     let spend_budget = settings.spend_budget();
-    // **One `Arc<dyn Surface>` out of two adapter types, and the erasure is where it always was.**
-    // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the service is monomorphised per kind
-    // - and `ServiceState` takes `Arc<dyn Surface>`, so the two shapes meet one line later either
-    // way. That is the whole reason this deployment does not need the closed enum over adapters that
-    // `sutura_app::warehouses` describes: nothing above this line is generic.
+    // **One `Arc<dyn Surface>` out of up to four adapter shapes, and the erasure is where it always
+    // was.** `sutura_app::Warehouses<W>` is generic in ONE adapter, so a single-kind arm still
+    // monomorphises `started` over its own concrete type - and `ServiceState` takes
+    // `Arc<dyn Surface>`, so every shape meets one line later either way. `telekom/sutura#112`
+    // added the fourth: `kind::AnyWarehouse` IS the closed enum `sutura_app::warehouses` names as
+    // the remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone - the other three
+    // arms stay exactly as generic-free as this comment used to claim of all of them.
     let (service, attached) = match opened {
         OpenedSources::Files(files) => {
             let broker = StaticCredentialBroker::from_registry(settings.sources());
@@ -276,6 +284,36 @@ pub(crate) fn run() -> Result<(), String> {
                 None,
             )
         }
+        OpenedSources::Mixed(mixed) => {
+            // One registry, so one pre-flight - generic in the adapter, so it runs the same way
+            // over whichever kinds this mix opened. A `files` entry answers `NotReported` here for
+            // the first time (its `preflight` takes the port's default), which `boot.rs`'s own doc
+            // says is informational rather than a defect.
+            boot::refuse_absent_tables(&pinned, &mixed.engines)?;
+            // The broker choice `build_broker`'s own doc already generalised: it scans the WHOLE
+            // `sources:` registry for shared and impersonating entries, not only `bigquery`-kind
+            // ones, so "does this mix need the exchanging broker" is exactly "did it open a
+            // `BigQuery` source" - never "is this build entirely `BigQuery`".
+            #[cfg(feature = "bigquery")]
+            let served = if kind::needs_exchanging_broker(&mixed.engines) {
+                let broker = broker::build_broker(
+                    settings.sources(),
+                    settings.server().request_timeout(),
+                    settings.security().credential_cache(),
+                    outbound.as_ref(),
+                )?;
+                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+            } else {
+                let broker = StaticCredentialBroker::from_registry(settings.sources());
+                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+            };
+            #[cfg(not(feature = "bigquery"))]
+            let served = {
+                let broker = StaticCredentialBroker::from_registry(settings.sources());
+                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+            };
+            (served, mixed.attached)
+        }
     };
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
@@ -290,8 +328,9 @@ pub(crate) fn run() -> Result<(), String> {
     // put them there. A `BigQuery` source has no attach step: the tables live in the dataset. That
     // used to mean a `bigquery` deployment whose catalog names a table the dataset does not hold
     // STARTED, and the first question against that model failed - where a `files` deployment in the
-    // same state did not start at all. `boot::refuse_absent_tables`, in the arm above, is that
-    // asymmetry closed: one metadata read per dataset, and a refusal naming the model and the table.
+    // same state did not start at all. `boot::refuse_absent_tables`, in the `BigQuery` arm above
+    // (and, since `telekom/sutura#112`, in the mixed one too), is that asymmetry closed: one
+    // metadata read per dataset, and a refusal naming the model and the table.
     //
     // **What is still narrower here than on the files path, stated because it is the whole remaining
     // gap:** the pre-flight reads the bundle loaded FIRST, so a model added to the catalog directory
@@ -550,20 +589,21 @@ pub(crate) struct Opened {
     attached: BTreeSet<TableName>,
 }
 
-/// The adapter this process opened its sources with, and everything the next step needs from it.
+/// The adapter(s) this process opened its sources with, and everything the next step needs from
+/// them.
 ///
 /// **One variant per LINKED adapter, and the enum is here rather than in `sutura-app` for the reason
 /// that crate's `warehouses` module states: which adapters a process holds is a property of the
-/// BUILD.** `sutura_app::Warehouses<W>` is generic in one `W`, so this is not a heterogeneous
-/// registry and does not try to be - it is the choice of which registry got built, made once, at the
-/// one place that can see both the declarations and the link.
+/// BUILD.** `sutura_app::Warehouses<W>` is generic in one `W`, so the first three variants are each
+/// a single-kind registry - the choice of which one got built, made once, at the one place that can
+/// see both the declarations and the link.
 ///
-/// The consequence is a refusal rather than a silence, and [`one_kind`] is where it is made: a
-/// catalog whose models sit on a `files` source AND a `bigquery` source cannot be served by this
-/// process. Federating across two kinds needs a closed enum over the adapter types or dynamic
-/// dispatch, which `sutura_app::warehouses` records as an architecture decision with a record - so
-/// what this enum does is make the limit a startup refusal naming both entries, instead of a
-/// `SourceUnavailable` on the first question against whichever source lost.
+/// **[`Self::Mixed`] is `telekom/sutura#112`'s closed enum, and it is what makes the other three
+/// variants a fast path rather than the whole decision.** `open_engine` still takes them when every
+/// declared source shares a kind - no erasure, no `crate::serve::kind::AnyWarehouse` in the type -
+/// and reaches for [`Self::Mixed`] the moment more than one of `kind::group_by_kind`'s three groups
+/// is non-empty. A catalog whose models sit on a `files` source AND a `bigquery` source now opens
+/// both, instead of the startup refusal this comment used to describe.
 pub(crate) enum OpenedSources {
     /// The in-process engine over directories of files.
     Files(Opened),
@@ -580,6 +620,10 @@ pub(crate) enum OpenedSources {
     /// resolved when the engine opens, so a TLS refusal stops the process before the listener binds.
     #[cfg(feature = "postgres")]
     Postgres(sutura_app::Warehouses<PostgresSource>),
+    /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
+    /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
+    /// feature rather than never reaching that arm.
+    Mixed(kind::Mixed),
 }
 
 /// A `Postgres` source as this binary composes it: one connection under the deployment's declared
@@ -690,54 +734,28 @@ fn open_engine(
     // parsed tree runs before the expensive one that starts a runtime and a memory pool. It also puts
     // the more actionable message first - an anchor with no identity to run it as names the metric.
     boot::refuse_unverifiable_anchors(pinned, registry)?;
-    // **An exhaustive match with no wildcard arm, and it is the one line where "which adapter opens a
-    // declared kind" is decided.** A third kind is a compile error here rather than a case that falls
-    // through, which is the whole reason `sutura_config::SourceKind`'s vocabulary is separate from the
-    // set of adapters a given binary LINKED: the vocabulary is the repository's and the link is this
-    // file's. It moved OUT of `build_engine` when the second kind stopped being a refusal - a refusal
-    // per source read the same whichever function held it, and a dispatch does not.
-    match one_kind(&declared, registry)? {
-        sutura_config::SourceKind::Files => open_files(pinned, &declared, registry, runtime).map(OpenedSources::Files),
-        sutura_config::SourceKind::BigQuery => bigquery::open_bigquery(&declared, registry, request_timeout, outbound),
-        sutura_config::SourceKind::Postgres => postgres::open_postgres(&declared, registry),
+    // **Sorted into its kind, and then a fast path or the mix.** `sutura_config::SourceKind`'s
+    // vocabulary is separate from the set of adapters a given binary LINKED - the vocabulary is
+    // the repository's and the link is this file's - so `kind::group_by_kind` is exhaustive with
+    // no wildcard arm, and a third kind is a compile error there rather than a case that falls
+    // through. Every declared source sharing one kind takes the ORIGINAL single-registry path -
+    // no erasure, no `kind::AnyWarehouse` anywhere in the type - and [`kind::open_mixed`] is
+    // reached only once more than one group is non-empty.
+    let grouped = kind::group_by_kind(&declared, registry)?;
+    match (
+        grouped.files.is_empty(),
+        grouped.bigquery.is_empty(),
+        grouped.postgres.is_empty(),
+    ) {
+        (false, true, true) => open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
+        (true, false, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
+        (true, true, false) => postgres::open_postgres(&grouped.postgres, registry),
+        // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
+        // one of the three groups, so this arm can only be `(true, true, true)` if nothing ran -
+        // which cannot happen. Written as a fallback rather than an unwrap the workspace denies.
+        (true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
-}
-
-/// The one kind every declared source is, or the refusal that says this process opens one at a time.
-///
-/// **A refusal and not a fan-out, and the reason is a type rather than an opinion.**
-/// `sutura_app::Warehouses<W>` is generic in one adapter, so a process holds two file sources or two
-/// datasets and cannot hold one of each; that limit is documented where the registry is, and this is
-/// where it becomes something an operator is told at startup instead of discovering as a
-/// `SourceUnavailable` on the first question against whichever source lost.
-///
-/// It names BOTH entries and both kinds, because the fix is a choice between two deployments rather
-/// than an edit to one line.
-fn one_kind(declared: &[&SourceName], registry: &sutura_config::SourceRegistry) -> Result<sutura_config::SourceKind, String> {
-    // The first source decides, and every other one is compared against it - so the refusal names the
-    // pair that disagreed rather than reporting a set. `declared` is non-empty at every call site;
-    // written as a fallback rather than an index because the workspace denies both.
-    let mut chosen: Option<(&SourceName, sutura_config::SourceKind)> = None;
-    for source in declared {
-        let kind = configured_source(source, registry)?.kind();
-        match chosen {
-            None => chosen = Some((source, kind)),
-            Some((_, expected)) if expected == kind => {}
-            Some((first, expected)) => {
-                return Err(format!(
-                    "`sources.{first}` is `kind: {}` and `sources.{source}` is `kind: {}`, and this \
-                     process opens one kind of data system at a time - the registry it holds is \
-                     generic in one adapter type. Serve the two from two deployments, or move the \
-                     models so one catalog reads one kind",
-                    expected.as_str(),
-                    kind.as_str()
-                ));
-            }
-        }
-    }
-    chosen
-        .map(|(_, kind)| kind)
-        .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
 /// Opens the in-process engine for every declared `files` source and registers one file per model.
