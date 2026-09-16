@@ -101,6 +101,30 @@ trusting a source's own row-level security rather than re-checking it here.
 **Does not touch Postgres, Oracle, or any source but BigQuery.** `BigQueryWarehouse` remains the only
 adapter carrying `PerSubjectCredential` at all.
 
+## Amendment: option (2)'s "nothing to map from outside the harness" is resolved - a real IdP subject IS a `SubjectKey` the map keys on
+
+**The blocker option (2) named is gone, and the mechanism is unchanged to remove it.** The map is
+already keyed on [`SubjectKey`] - the full, verified `sub`, a validated redacting newtype whose two
+doors are the settings parse and transport verification. A human IdP subject (an email or an opaque
+id a trusted IdP issued and leg 1 of `docs/adr/0014` verified) is a `SubjectKey` like any other: the
+broker never interprets the key, only equality-compares it against the declared map, so a production
+entry
+
+> `"ada@idp.example" -> "sa-declared@account-project.iam.gserviceaccount.com"`
+
+flows through the exact same exchange-plus-hop as every declared key. Option (2)'s rejection argued
+`bq-test`'s self-signed subjects **were** the account to impersonate and a production caller had
+"nothing to map from outside the test harness"; both halves of that are stale. A production caller
+through the IdP has the very `sub`/email the map keyed on all along, and the accepted
+cell's self-impersonation (`exchanged_identity.rs`: `CHAIN_A -> expected_a`) is only the harness's
+declared fixture - a property of that cell's own map, not of `sts.rs` or the wire. The offline cell
+`sts::tests::a_declared_subject_resolves_through_the_hop_to_the_declared_sa` pins the non-self shape:
+an IdP-subject key on a declared map pays one exchange plus one hop and presents the declared SA's
+token, never the federated one, with the config boundary refusing an empty, duplicate or over-long
+declared subject before it ever reaches the broker. This amendment resolves option (2)'s
+generalisability question; it moves no `docs/where-identity-is-proven.md` row, because a served
+binary has still not executed as a caller yet - that stays the exchange venue's own unrun half.
+
 **The map keys on the FULL verified subject, and a mask collision is now a refusal, not a silent
 overwrite.** The impersonation map is keyed on a redacting [`SubjectKey`] that holds the full `sub`
 for equality while rendering only the mask, so two distinct raw subjects - even ones, like
