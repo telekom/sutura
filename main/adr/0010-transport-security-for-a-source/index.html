@@ -1281,6 +1281,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-sutura-serve-named-four-sites-that-are-sutura-cli-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: sutura-serve named four sites that are sutura-cli now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2811,6 +2822,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-sutura-serve-named-four-sites-that-are-sutura-cli-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: sutura-serve named four sites that are sutura-cli now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3090,6 +3112,26 @@ authenticated.</p>
   declaration, not named or scoped to BigQuery) for exactly this reuse: a JWKS/discovery fetcher, when
   built, reads it with no second mechanism. No hermetic cell is added against it here, since there is
   no client yet to point one at - that would be coverage for code that does not exist.</p>
+<h2 id="amendment-2026-09-16-sutura-serve-named-four-sites-that-are-sutura-cli-now">Amendment, 2026-09-16: <code>sutura-serve</code> named four sites that are <code>sutura-cli</code> now<a class="headerlink" href="#amendment-2026-09-16-sutura-serve-named-four-sites-that-are-sutura-cli-now" title="Permanent link">&para;</a></h2>
+<p><code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2),
+after every one of these was written.</p>
+<ul>
+<li><code>Postgres</code> is behind "<code>sutura-serve</code>'s and <code>sutura-cli</code>'s default-off <code>postgres</code> feature" - one
+  feature, one crate, <code>sutura-cli</code>'s.</li>
+<li>"the composition-root wiring (<code>sutura-serve</code>, <code>sutura-cli</code>)" - one composition root.</li>
+<li>"<code>sutura-serve</code>'s <code>main::outbound_anchors</code>" - <code>sutura-cli::serve::outbound_anchors</code>; there is no
+  <code>main</code> module carrying it.</li>
+<li><code>sutura-runtime</code>'s dependents were listed as "<code>sutura-app</code>, <code>sutura-mcp</code>, <code>sutura-cli</code>,
+  <code>sutura-http</code>, <code>sutura-serve</code>" - <code>sutura-app</code> was never a real one: its <code>Cargo.toml</code> names
+  <code>sutura-runtime</code> only in a comment (explaining a DIFFERENT crate's feature), never in a
+  <code>[dependencies]</code> entry, so the list was already off by one before the fold. Three crates depend on
+  it today: <code>sutura-cli</code>, <code>sutura-http</code>, <code>sutura-mcp</code>. <code>grep -l sutura-runtime crates/*/Cargo.toml</code>
+  is not a check a reader can run and get that number - it self-matches
+  <code>sutura-runtime/Cargo.toml</code>'s own package-name line and also counts <code>sutura-app</code>'s comment;
+  <code>grep -l '^sutura-runtime = ' crates/*/Cargo.toml</code> names exactly the three. The point the sentence
+  makes - transports and composition roots, never a data-system adapter - is unaffected by the count
+  moving.</li>
+</ul>
 
 
 

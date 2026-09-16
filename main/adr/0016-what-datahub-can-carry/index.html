@@ -1704,6 +1704,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-the-two-composition-roots-are-two-entry-points-of-one-binary-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: the two composition roots are two entry points of one binary now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3321,6 +3332,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-the-two-composition-roots-are-two-entry-points-of-one-binary-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: the two composition roots are two entry points of one binary now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4496,6 +4518,24 @@ with <code>--features datahub</code> no longer refuses <code>catalog.kind: datah
   kind per deployment</strong>: <code>sutura-serve</code>'s composition reads every declared catalog's kind, refuses a
   mix by name, and opens one of two monomorphic vectors. <code>.agents/skills/sutura/crate-map/SKILL.md</code>
   carries the same sentence, so a reader of either finds it rather than only one.</li>
+</ul>
+<h2 id="second-amendment-2026-09-16-the-two-composition-roots-are-two-entry-points-of-one-binary-now">Second amendment, 2026-09-16: the two composition roots are two entry points of one binary now<a class="headerlink" href="#second-amendment-2026-09-16-the-two-composition-roots-are-two-entry-points-of-one-binary-now" title="Permanent link">&para;</a></h2>
+<p><em>The answer</em> said "the two composition roots differ... <code>sutura-serve</code> refuses, full stop. <code>sutura-cli</code>
+falls back to its own built-in declaration." <code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module
+(<code>github.com/telekom/sutura#685</code> step 2), after that section was written and before this one. The
+distinction survives - an absent source entry is still a hard refusal reached through <code>sutura serve</code>
+and still a <code>local</code>-named fallback reached through <code>sutura</code>'s other commands - it is a split between
+two entry points of one binary rather than between two binaries.</p>
+<ul>
+<li><strong>The same stale claim appears two sections up, inside the 2026-09-14 revision's addendum, and is
+  corrected here rather than there because that heading reads <code>## Revision</code>, not <code>## Amendment</code> -
+  invisible to <code>is_amendment</code> in <code>xtask/src/guidance/pages.rs</code>, so it is body text, not a dated
+  historical record.</strong> It says
+  "<code>sutura-serve</code>'s composition reads every declared catalog's kind, refuses a mix by name, and
+  opens one of two monomorphic vectors." The actor is <code>crates/sutura-cli/src/serve/catalog.rs</code> now,
+  by the same fold this amendment names above; <code>cargo tree -p sutura-cli --no-default-features -e
+  normal</code> and <code>find crates/sutura-cli/src -iname '*serve*'</code> show no <code>sutura-serve</code> crate left to be
+  the subject of that sentence.</li>
 </ul>
 
 

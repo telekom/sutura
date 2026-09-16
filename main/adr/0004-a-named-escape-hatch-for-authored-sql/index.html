@@ -1207,6 +1207,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-the-two-shipped-binaries-this-record-argued-about-are-one-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: the two shipped binaries this record argued about are one now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2999,6 +3010,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-the-two-shipped-binaries-this-record-argued-about-are-one-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: the two shipped binaries this record argued about are one now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3638,6 +3660,36 @@ the reason the two halves differ rather than the reason they agree.</p>
 anywhere on the definition path. Rejected for the reason 0002 rejected it once already: that path
 needs an upstream renderer, which is the precondition the first-party path exists because it is
 absent - and it now also means refusing an entire class of metadata provider rather than one metric.</p>
+<h2 id="amendment-2026-09-16-the-two-shipped-binaries-this-record-argued-about-are-one-now">Amendment, 2026-09-16: the two shipped binaries this record argued about are one now<a class="headerlink" href="#amendment-2026-09-16-the-two-shipped-binaries-this-record-argued-about-are-one-now" title="Permanent link">&para;</a></h2>
+<p><code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2), so
+four claims above are stale.</p>
+<ul>
+<li><em>What is built, and what is not</em> said <code>sutura-catalog-local</code> "is linked by both shipped binaries" -
+  there is one now, <code>sutura-cli</code>, which serves and runs locally out of the same artifact.</li>
+<li>The same section said <code>checks.shipped-features</code> "closes that gap for <code>sutura-serve</code> by banning
+  <code>polyglot-sql</code> from its embedded dependency list." That ban named <code>sutura-serve</code> alone because
+  <code>sutura</code> (the local tool) legitimately links <code>polyglot-sql</code> for <code>compile</code>; folding the two into one
+  binary that needs <code>compile</code> either way made the ban moot rather than something to carry forward -
+  <code>nix/shipped.nix</code>'s own comment beside <code>alsoForbidden</code> says so. Nothing in <code>checks.shipped-features</code>
+  bans this crate for either role today.</li>
+<li><em>A refusal in the composition root cannot be made structural today</em> said the domain-side witness
+  "cannot live in <code>sutura-sql</code>... because... <code>sutura-serve</code> may not reach <code>sutura-sql</code>." The rule that
+  actually holds this, unaffected by the fold, is <code>xtask/src/boundaries.rs</code>'s <code>FORBIDDEN_EDGES</code> -
+  it forbids <code>sutura-semantic</code> (the domain-adjacent core) from reaching <code>polyglot-sql</code> or <code>sutura-sql</code>
+  by crate name, not a binary by identity, so <code>sutura-cli</code> linking <code>sutura-sql</code> for <code>compile</code> today is
+  the same shape the pre-fold <code>sutura</code> binary already had.</li>
+<li><em>Consequences</em> said "<code>sutura_sql</code> is where the compile lives, the network binary does not link
+  it." True when written - the pre-fold <code>sutura-serve/Cargo.toml</code> had no edge to <code>sutura-sql</code>,
+  direct or through <code>sutura-catalog-local</code>. The fold is what makes it false: <code>sutura-cli</code> needs
+  <code>compile</code> for the LOCAL role the old <code>sutura</code> binary carried, so the same artifact that now also
+  serves links <code>sutura-sql</code> unconditionally - <code>cargo tree -p sutura-cli --no-default-features -e
+  normal</code> lists it with no feature required. The bullet immediately below it - "a catalog adapter
+  may not link it either" - is untouched: that half is <code>FORBIDDEN_EDGES</code> naming a crate, not a
+  binary, exactly the distinction the third bullet above draws.</li>
+</ul>
+<p>What survives unamended: the boot-time refusal - <code>Warehouse::EXECUTES_AUTHORED_SQL</code> and
+<code>sutura_app::verify_and_validate</code> - is the mechanism this whole record's <em>Consequences</em> rest on, and
+neither the fold nor the now-moot artifact ban touches it.</p>
 
 
 

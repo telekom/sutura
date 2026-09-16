@@ -1464,6 +1464,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#third-amendment-2026-09-16-the-base-records-both-binaries-are-one-binary-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Third amendment, 2026-09-16: the base record's "both binaries" are one binary now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3121,6 +3132,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#third-amendment-2026-09-16-the-base-records-both-binaries-are-one-binary-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Third amendment, 2026-09-16: the base record's "both binaries" are one binary now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3932,6 +3954,19 @@ default-off <code>bigquery</code> feature of its own, and <code>docs/adr/0017</c
 What is unchanged is the half that matters - <code>nix/shipped.nix</code> publishes both binaries with cargo's
 DEFAULT features, so no published artefact links the adapter, and <code>checks.shipped-features</code> reads
 <code>ureq</code>'s and <code>ring</code>'s absence off each shipped binary rather than off a manifest.</p>
+<h2 id="third-amendment-2026-09-16-the-base-records-both-binaries-are-one-binary-now">Third amendment, 2026-09-16: the base record's "both binaries" are one binary now<a class="headerlink" href="#third-amendment-2026-09-16-the-base-records-both-binaries-are-one-binary-now" title="Permanent link">&para;</a></h2>
+<p><code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2),
+after the base record and after this record's first two amendments - both of which predate the fold
+and are left as written. Two sentences above it do not:</p>
+<ul>
+<li><em>The connectors this has to carry</em> said <code>SharedServiceUser</code> "is the only one of these that SHIPS:
+  both binaries link it". <code>sutura-cli</code> is the one binary that ships now, and it links it.</li>
+<li><em>Metadata sources compose</em> said "the composition roots already name the adapters. <code>sutura-cli</code> and
+  <code>sutura-serve</code> each wire exactly one catalog today." One composition root wires it now.</li>
+</ul>
+<p><em>Data: which mode a source is in, and which capability the adapter has</em> also said
+<code>sutura-exec-datafusion</code> "is the engine <code>sutura-cli</code> and <code>sutura-serve</code> both link" - same correction,
+same crate.</p>
 
 
 

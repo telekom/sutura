@@ -1908,6 +1908,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-sutura-cli-wires-the-floor-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: sutura-cli wires the floor now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2889,6 +2900,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-sutura-cli-wires-the-floor-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: sutura-cli wires the floor now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3038,6 +3060,11 @@ raw assertion bytes - so a cache at that seam could key only on the assertion's 
 conflates "what the caller presented" with "who the domain has already verified them to be" and
 loses the one value (<code>RequestContext::chain().subject()</code>) the rest of this record's key depends on.
 <code>mint</code> is the one place both exist together.</p>
+<h2 id="amendment-2026-09-16-sutura-cli-wires-the-floor-now">Amendment, 2026-09-16: <code>sutura-cli</code> wires the floor now<a class="headerlink" href="#amendment-2026-09-16-sutura-cli-wires-the-floor-now" title="Permanent link">&para;</a></h2>
+<p><em>The floor's own limit is inherited, not repeated</em> said "<code>sutura-serve</code> wires
+<code>with_floor(request_timeout.seconds())</code>". <code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module
+(<code>github.com/telekom/sutura#685</code> step 2); the call site is <code>crates/sutura-cli/src/serve/broker.rs</code>
+now, and the claim about what it does and does not assert is unaffected.</p>
 
 
 

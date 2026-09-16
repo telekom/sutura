@@ -1672,6 +1672,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#fourth-amendment-2026-09-16-sutura-serve-folded-into-sutura-cli-and-the-artifact-tables-own-row-with-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fourth amendment, 2026-09-16: sutura-serve folded into sutura-cli, and the artifact table's own row with it
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3145,6 +3156,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#fourth-amendment-2026-09-16-sutura-serve-folded-into-sutura-cli-and-the-artifact-tables-own-row-with-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fourth amendment, 2026-09-16: sutura-serve folded into sutura-cli, and the artifact table's own row with it
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4071,6 +4093,23 @@ value renders only a static local marker. The same type is carried by incomplete
 errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.</p>
 <p><code>an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering</code> in
 <code>crates/sutura-exec-bigquery/src/wire/tests.rs</code> is the regression test for the boundary.</p>
+<h2 id="fourth-amendment-2026-09-16-sutura-serve-folded-into-sutura-cli-and-the-artifact-tables-own-row-with-it">Fourth amendment, 2026-09-16: <code>sutura-serve</code> folded into <code>sutura-cli</code>, and the artifact table's own row with it<a class="headerlink" href="#fourth-amendment-2026-09-16-sutura-serve-folded-into-sutura-cli-and-the-artifact-tables-own-row-with-it" title="Permanent link">&para;</a></h2>
+<p><code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2),
+after every site below was written. Three, in the base body rather than in an earlier amendment:</p>
+<ul>
+<li><em>The decision</em> named <code>WorkloadIdentityBroker</code> as "composed in <code>sutura-serve</code> (#284)". It is composed
+  in <code>sutura-cli</code>'s <code>serve</code> module now; "wired in serve, not proven live" is unaffected.</li>
+<li><em>Which shipped artifact links what, per target</em>'s table carried a whole row for <code>sutura-serve</code> as
+  its own release artifact, and a <code>Corrected:</code> note beneath it saying <code>nix/shipped.nix:161-164</code> names
+  it as a shipped binary. Both are spent: <code>nix/shipped.nix</code>'s <code>binaries</code> list has one entry now
+  (<code>bin = "sutura"</code>, <code>package = "sutura-cli"</code>), so there is no second row - the four native artifacts
+  and their <code>oci-&lt;triple&gt;</code> twins above are the whole table, and each still links neither
+  <code>sutura-exec-bigquery</code> nor <code>ureq</code> in its default build, unchanged.</li>
+<li><em>What is claimed, and what is not</em>'s <code>Corrected:</code> note said "<code>sutura-serve</code> links the adapter now",
+  citing <code>crates/sutura-cli/src/serve.rs</code>'s <code>OpenedSources::BigQuery</code> - the citation already named the
+  post-fold file; only the crate name in the sentence was <code>sutura-serve</code>. It is <code>sutura-cli</code> linking
+  the adapter, through the same type alias, unchanged otherwise.</li>
+</ul>
 
 
 

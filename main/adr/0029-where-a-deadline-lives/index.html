@@ -1835,6 +1835,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-stsoverhttp-is-wired-by-sutura-cli-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: StsOverHttp is wired by sutura-cli now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2855,6 +2866,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-stsoverhttp-is-wired-by-sutura-cli-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: StsOverHttp is wired by sutura-cli now
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3170,6 +3192,11 @@ arrives it shortens the budget the transport opens and changes nothing on the po
   credential before anything is sent - and this gap stays open until a fixture exists that is slow
   on purpose.</li>
 </ul>
+<h2 id="amendment-2026-09-16-stsoverhttp-is-wired-by-sutura-cli-now">Amendment, 2026-09-16: <code>StsOverHttp</code> is wired by <code>sutura-cli</code> now<a class="headerlink" href="#amendment-2026-09-16-stsoverhttp-is-wired-by-sutura-cli-now" title="Permanent link">&para;</a></h2>
+<p><em>What holds it, and what does not</em>'s BigQuery row named <code>StsOverHttp</code> as "<code>sutura-serve</code>'s". It is
+<code>sutura_exec_bigquery::wire::StsOverHttp</code>, wired by the composition root - <code>sutura-serve</code> folded into
+<code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2) - and the claim that it does
+not read the port's <code>Deadline</code> at all is otherwise unaffected.</p>
 
 
 

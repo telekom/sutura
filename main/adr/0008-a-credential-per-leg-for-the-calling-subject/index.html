@@ -1519,6 +1519,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-two-composition-roots-named-where-there-is-one-and-one-of-the-two-named-claims-moved-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: two composition roots named where there is one, and one of the two named claims moved too
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3396,6 +3407,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-two-composition-roots-named-where-there-is-one-and-one-of-the-two-named-claims-moved-too" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: two composition roots named where there is one, and one of the two named claims moved too
+      
+    </span>
+  </a>
   
 </li>
       
@@ -5578,6 +5600,21 @@ copy - an adapter is the last thing before a driver and may not assume who calle
 moved is the <em>claim</em>: it is now a property of the application rather than a convention each
 adapter is trusted to follow.</p>
 </blockquote>
+<h2 id="amendment-2026-09-16-two-composition-roots-named-where-there-is-one-and-one-of-the-two-named-claims-moved-too">Amendment, 2026-09-16: two composition roots named where there is one, and one of the two named claims moved too<a class="headerlink" href="#amendment-2026-09-16-two-composition-roots-named-where-there-is-one-and-one-of-the-two-named-claims-moved-too" title="Permanent link">&para;</a></h2>
+<p><code>sutura-serve</code> folded into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2), so
+two sentences naming it as a separate root are stale.</p>
+<ul>
+<li><em><code>It is synchronous</code></em> said "<code>sutura-serve</code> is already synchronous down to one <code>block_on</code>". That is
+  now <code>crates/sutura-cli/src/serve.rs</code>'s single <code>runtime.block_on(serve_until_stopped(...))</code> - the
+  claim survives, renamed to the module that carries it.</li>
+<li>The table row for <code>StaticCredentialBroker</code> said it is "Wired in both roots: <code>sutura-serve</code> builds it
+  from the registry, <code>sutura</code> from the one declaration that command makes in code" - naming a second
+  binary, and describing a mechanism <code>sutura</code> no longer has. Since
+  <code>github.com/telekom/sutura#121</code>, <code>crates/sutura-cli/src/sources.rs</code> also builds
+  <code>StaticCredentialBroker::from_registry</code> for a declared source; the "one declaration... in code" path
+  survives only as the fallback for a source the tree does not declare. <a href="../0011-pluggable-by-declaration/#second-amendment-the-second-composition-root-reads-the-tree-too">0011's second amendment</a>
+  is the record of that change; this row is corrected to point there rather than restate it.</li>
+</ul>
 
 
 

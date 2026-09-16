@@ -1577,6 +1577,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: one binary refuses at boot, not two
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2899,6 +2910,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: one binary refuses at boot, not two
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3207,6 +3229,12 @@ record's own opening failure, one layer further out.</p>
   a per-subject credential are <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a>'s
   business, and this record touches none of it.</li>
 </ul>
+<h2 id="amendment-2026-09-16-one-binary-refuses-at-boot-not-two">Amendment, 2026-09-16: one binary refuses at boot, not two<a class="headerlink" href="#amendment-2026-09-16-one-binary-refuses-at-boot-not-two" title="Permanent link">&para;</a></h2>
+<p><em>Decision 4</em> said "the engine and the two binaries that link it refuse the same thing independently:
+<code>DataFusionWarehouse::scan</code>... and <code>sutura-serve</code> and <code>sutura-cli</code> at boot." <code>sutura-serve</code> folded
+into <code>sutura-cli</code>'s <code>serve</code> module (<code>github.com/telekom/sutura#685</code> step 2); the engine's own refusal
+and the boot-time refusal are still two independent checks, and the second now runs once, in
+<code>sutura-cli</code>, for both the <code>serve</code> subcommand and the rest of the binary.</p>
 
 
 
