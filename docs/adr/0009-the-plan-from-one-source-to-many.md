@@ -715,3 +715,33 @@ now and impossible to retrofit, and they are marked.
 - **The budget.** Named in *Found on a second pass* above and in the identity record, with no port here
   and no branch in the plan. The chain is the key it would use, which is why `feat/principal-chain`
   builds the key and stops there.
+
+## Second amendment, 2026-09-16: the `test/startup-source-refusals` row's sentence is retired
+
+**"The order" table's `test/startup-source-refusals` row asserts on a sentence -
+*"one kind of data system at a time"* - that `telekom/sutura#112` retired, not merely moved.**
+That row was already stale in one direction before this landed: it names
+`crates/sutura-cli/src/serve/tests.rs`, and the composition root it describes had folded from a
+second binary (`sutura-serve`) into `sutura-cli`'s `serve` module by then. The row is left as
+written above rather than edited in place, for the reason the amendment convention exists; this
+section is the correction.
+
+**What used to be true.** `open_engine` grouped every declared source's kind and refused with
+that exact sentence the moment two disagreed - the arm the row calls "the more-than-one-source arm
+of `open_engine`", by then renamed to a per-KIND check.
+
+**What is true now.** `crate::serve::kind::group_by_kind` still sorts every declared source into
+its kind, but a mismatch no longer refuses: `crate::serve::kind::open_mixed` opens each group
+through the SAME per-kind function the single-kind path always used and erases the result behind
+`AnyWarehouse` (this record's own sibling, [0007](0007-federating-across-different-data-systems.md)'s
+*Second amendment*, carries the mechanism). So `test/startup-source-refusals`'s own Done-when is
+narrower than it reads today: two sources of one kind still load and both open, exactly as
+written, and two sources of two DIFFERENT kinds now also load and both open - what remains a
+startup refusal is a kind this build's features did not link an adapter for, which is a
+per-adapter message rather than a per-mismatch one.
+
+**What this does not touch:** `feat/source-registry`'s own Done-when (a duplicate alias, a missing
+file, a relative path, the shared-identity acknowledgement, the per-adapter posture cross-check) is
+unaffected - every one of those checks still runs once per source, against that source's own
+concrete adapter constant, whichever of the now-larger set of shapes `open_engine` reaches it
+through.

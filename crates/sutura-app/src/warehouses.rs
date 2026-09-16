@@ -20,17 +20,20 @@
 //!   bundle spanning two configured sources verifies rather than reporting every anchor on the second
 //!   one as a source mismatch.
 //!
-//! # The limit, and it is the reason step ten exists
+//! # The limit, and what a caller does about it
 //!
-//! **Every entry is the same adapter type.** `Warehouses<W>` is generic in one `W`, so a deployment
-//! can hold two file sources over two directories, or two databases behind one adapter - and cannot
-//! hold a file engine and a `BigQuery` adapter at once. Federating across *different* data systems
-//! needs a closed enum over the registered adapter types or dynamic dispatch, and which of those is a
-//! decision with a record rather than a change to this file: `Warehouse` carries a required associated
-//! constant, so it is not object-safe, and that was decided where the constant is declared.
+//! **Every entry of ONE `Warehouses<W>` is the same adapter type.** `Warehouse` carries a required
+//! associated constant (`IMPERSONATION`), so it is not object-safe and `dyn Warehouse` is
+//! unavailable - a heterogeneous set has to be a closed enum over the registered adapter types,
+//! decided where that constant is declared. This crate still holds no adapter type, by the same
+//! `[dependencies]` this header always described: [`Warehouses::into_mapped`] is generic in TWO
+//! adapter types and imports neither, so a composition root builds the concrete registry each
+//! source's own posture check needs and then erases it into whichever closed enum that root
+//! declares over the adapters it linked - one normal edge outward, never one in.
 //!
-//! What this shape does buy today is the whole of what the boot checks need: more than one source
-//! configured, each declaring its own posture, and an answer that says which posture produced it.
+//! What this shape buys is the whole of what the boot checks need: more than one source configured,
+//! of more than one kind if the caller's own enum covers it, each declaring its own posture, and an
+//! answer that says which posture produced it.
 
 use std::collections::BTreeMap;
 
@@ -138,6 +141,50 @@ where
         self.by_source.iter().map(|(name, warehouse)| (name, warehouse.posture()))
     }
 
+    /// Every adapter, wrapped by `wrap` into a second registry over a second type.
+    ///
+    /// **Adapter-agnostic, and that is the whole reason it belongs here rather than at a
+    /// composition root.** A build that links more than one kind erases each source's own adapter
+    /// behind a closed enum it declares - `sutura_app::warehouses`'s own header names the enum as
+    /// the remedy for the limit this file states - and that enum lives OUTSIDE this crate, one
+    /// normal edge away, because "which adapters a process holds is a property of the BUILD". This
+    /// method is what lets a root build the concrete registry it already knows how to build (one
+    /// call per source, one `deliverable_by` check against that source's own constant) and THEN
+    /// erase it, rather than threading the enum through every step that constructs an adapter.
+    ///
+    /// Total rather than fallible: `self`'s keys are already distinct by construction (every entry
+    /// passed through [`Self::of`] or [`Self::and`], both of which refuse a collision), and `wrap`
+    /// changes no key - so the second registry cannot collide either.
+    pub fn into_mapped<U, F>(self, mut wrap: F) -> Warehouses<U>
+    where
+        U: Warehouse,
+        F: FnMut(W) -> U,
+    {
+        Warehouses {
+            by_source: self
+                .by_source
+                .into_iter()
+                .map(|(name, adapter)| (name, wrap(adapter)))
+                .collect(),
+        }
+    }
+
+    /// Every entry of `other`, added to `self` - [`Self::and`]'s whole-registry sibling.
+    ///
+    /// A composition root that opened more than one KIND builds one registry per kind (each still
+    /// concrete, so `deliverable_by` still checks a real adapter constant) and erases each into the
+    /// SAME closed enum before reaching here - this is the step that turns "several registries of
+    /// one erased type" into the one registry a heterogeneous build serves.
+    pub fn merge(mut self, other: Self) -> Result<Self, SourceAlreadyOpen> {
+        for (source, adapter) in other.by_source {
+            if self.by_source.contains_key(&source) {
+                return Err(SourceAlreadyOpen { at: source });
+            }
+            drop(self.by_source.insert(source, adapter));
+        }
+        Ok(self)
+    }
+
     /// The execution record for an answer that ran on `source` and nowhere else.
     ///
     /// The one place a mono-source answer's provenance comes from, so the posture in an answer is the
@@ -160,6 +207,7 @@ where
 mod tests {
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
+    use sutura_domain::warehouse::Warehouse as _;
 
     use super::Warehouses;
     use crate::tests_support::FixedWarehouse;
@@ -232,5 +280,62 @@ mod tests {
             Some("shared-service-user")
         );
         assert!(registry.executed_on(&source("nowhere")).is_none());
+    }
+
+    #[test]
+    fn mapping_a_registry_keeps_every_source_and_the_wrap_runs_once_per_entry() {
+        // The mechanism a heterogeneous registry is built from: a caller maps a CONCRETE registry
+        // into a second type without touching a key, so two calls of this - one per kind a build
+        // links - and an `and` between the results is the whole of "erase, then merge". Mapped to
+        // the SAME type here (a closed enum's variant constructor is exactly this shape, one
+        // argument in and one value of a wider type out), so the assertion is on the registry
+        // rather than on a second adapter type this crate would have to import to prove it.
+        let concrete = Warehouses::of(FixedWarehouse::new(source("local"), SourcePosture::ImpersonationAtSource))
+            .and(FixedWarehouse::new(source("files"), shared("a directory of CSVs")))
+            .expect("two sources");
+
+        let mut wrapped_count = 0;
+        let mapped: Warehouses<FixedWarehouse> = concrete.into_mapped(|warehouse| {
+            wrapped_count += 1;
+            warehouse
+        });
+
+        assert_eq!(
+            wrapped_count, 2,
+            "the wrap runs once per entry, not once for the whole registry"
+        );
+        assert_eq!(mapped.count(), 2, "mapping changes no key, so the count survives");
+        assert_eq!(
+            mapped.get(&source("local")).map(|warehouse| warehouse.posture().as_str()),
+            Some("impersonation-at-source")
+        );
+        assert_eq!(
+            mapped.get(&source("files")).map(|warehouse| warehouse.posture().as_str()),
+            Some("shared-service-user")
+        );
+    }
+
+    #[test]
+    fn merging_two_registries_holds_every_source_of_both() {
+        let files = Warehouses::of(FixedWarehouse::new(source("local"), shared("a directory of CSVs")));
+        let bigquery = Warehouses::of(FixedWarehouse::new(source("warehouse"), SourcePosture::ImpersonationAtSource));
+
+        let merged = files.merge(bigquery).expect("two disjoint registries merge");
+        assert_eq!(merged.count(), 2);
+        assert!(merged.get(&source("local")).is_some());
+        assert!(merged.get(&source("warehouse")).is_some());
+    }
+
+    #[test]
+    fn merging_two_registries_that_share_a_source_is_refused() {
+        // The refusal, proven and not just its predicate: `merge` must not silently keep one of the
+        // two adapters registered for the colliding source.
+        let one = Warehouses::of(FixedWarehouse::new(source("local"), shared("a directory of CSVs")));
+        let two = Warehouses::of(FixedWarehouse::new(source("local"), SourcePosture::ImpersonationAtSource));
+
+        let Err(collision) = one.merge(two) else {
+            panic!("one source open in both registries is a collision, not a silent choice");
+        };
+        assert_eq!(collision.at(), &source("local"));
     }
 }
