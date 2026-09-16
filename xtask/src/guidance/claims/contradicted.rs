@@ -522,10 +522,9 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
         // exchange, and `crates/sutura-cli/src/serve/broker.rs` composes it (`build_broker`,
         // #284; that path was `crates/sutura-serve/src/broker.rs` before `github.com/telekom/
-        // sutura#685` step 2 folded the crate in). The true limit is
-        // `.agents/skills/sutura/identity/SKILL.md`'s own row: wired in serve, not proven live -
-        // no exchanged token has ever run against a real STS
-        // (`docs/where-identity-is-proven.md`).
+        // sutura#685` step 2 folded the crate in). The limit that stays true now is
+        // `.agents/skills/sutura/identity/SKILL.md`'s own row: built, though no served binary has
+        // executed as a caller yet (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",
         wordings: &[
             "IMPERSONATION` still reads `NoPlaceForASubject`",
@@ -540,12 +539,43 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                   cross-check no longer refuses it by name. The broker is built too: \
                   `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
                   exchange and `crates/sutura-cli/src/serve/broker.rs` composes it. What is still \
-                  true is narrower - wired in serve, not proven live: no exchanged token has ever \
-                  run against a real STS (`docs/where-identity-is-proven.md`)",
+                  true is narrower - proven by a hosted run whose job held both principals' own \
+                  keys, so it resolves per subject and no served binary has executed as a caller \
+                  yet (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what
         // stops this entry firing against its own fix; every OTHER page is still held to it.
+        except: &[
+            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
+            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
+        ],
+    },
+    Contradicted {
+        // telekom/sutura#376. `docs/where-identity-is-proven.md`'s bq-test venue moved from
+        // `wired` to `yes` after a hosted run (35076526218). The wording it retired - the broker
+        // was built but never taken to a real exchange - fell with it; this row is the ratchet that
+        // refuses it coming back anywhere but the ADR records that correct the sentence beside
+        // itself. The run held both principals' own keys by construction, so it proved the
+        // STS/`iamcredentials` mechanics resolve per subject; the served half stayed unproven.
+        name: "the BigQuery exchange never ran against a real STS",
+        wordings: &[
+            "wired in serve, not proven live",
+            "no exchanged token has ever run against a real STS",
+        ],
+        // Refuted by the venue row's own yes: while the page carries the observed run the rule is
+        // live and forbids its wording; if the row ever reverts to `wired` the rule retires itself
+        // rather than forbidding a sentence that has become true again.
+        evidence: &[Evidence {
+            path: "docs/where-identity-is-proven.md",
+            holds: "The state is `yes`",
+        }],
+        instead: "`docs/where-identity-is-proven.md` records a hosted `workflow_dispatch` of \
+                  `bigquery-exchanged-identity` that exchanged each principal's job-time assertion \
+                  against a real STS and resolved it to that principal's own account. The job held \
+                  both principals' own keys by construction, so the mechanics resolve per subject \
+                  and no served binary has executed as a caller yet",
+        only: &[],
         except: &[
             "docs/adr/0017-what-a-bigquery-test-runs-against.md",
             "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",

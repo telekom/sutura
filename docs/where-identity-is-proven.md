@@ -494,8 +494,10 @@ credential the transport itself holds, without which an exchange that did nothin
 **The state is `yes`**, held by a run somebody observed. On 2026-09-16 a `workflow_dispatch` of
 `.github/workflows/bigquery-exchanged-identity.yml` concluded `success` (run
 https://github.com/telekom/sutura/actions/runs/35076526218): the nextest log shows
-`each_principal_is_who_this_source_says_it_is_executing_as` answered `TheExpectedPrincipal` for
-both legs, with `the_deployments_own_identity_is_neither_principal` as the control. The limit beside
+`each_principal_is_who_this_source_says_it_is_executing_as` PASS, whose assertion is
+`TheExpectedPrincipal` for each leg and their distinctness - a passing test prints no verdict, so
+`TheExpectedPrincipal` is what the assertion requires - with
+`the_deployments_own_identity_is_neither_principal` as the control. The limit beside
 the claim: the job that minted the two subject assertions holds both principals' own keys by
 construction, so this proves the STS/`iamcredentials` mechanics resolve per subject - never that an
 untrusted caller could. Leg 2 is proven here for BigQuery only, through the map this source
@@ -552,12 +554,13 @@ below. And the account a source's exchange targets is declared per source
 **This venue's own claim - that a deployment holding ONE workload identity resolves each subject to a
 DIFFERENT principal - is now green, on BigQuery.** `sutura_exec_bigquery::WorkloadIdentityBroker`
 decides correctly, `StsOverHttp` serializes the documented request, `wire::IamCredentialsOverHttp`
-makes the hop, and all of it was measured against a real endpoint under an asker in the hosted run
-above. The half a green run here still does not touch is the served one: this cell drives the
-composition directly and no served binary is involved, so who a served deployment answers under an
-asker is still not proven by it. `AGENTS.md` keeps the shipped position on that:
+makes the hop, and all of it was measured against a real endpoint under each principal's own
+assertion in the hosted run above. The half a green run here still does not touch is the served
+one: this cell drives the composition directly and no served binary is involved, so who a served
+deployment answers under an asker is still not proven by it. `AGENTS.md` keeps the position
+verbatim:
 
-> no source a deployment SERVES executes as the asking subject.
+> no served binary has executed as a caller yet.
 
 And the claim that two subjects read two different ROW sets stays withdrawn (telekom/sutura#123): a
 data system enforcing row-level security is trusted to do so, and this venue asserts only who the
