@@ -29,12 +29,13 @@ A governed single-player semantic compiler and executor is built and served over
 token that authenticates the deployment rather than the caller. Per-subject execution - the leg that
 makes multiplayer real rather than a shared identity - is a design target, not built yet.
 
-There are 2 flavours of sutura:
+sutura is designed around 2 flavours:
 
-- single player (shared service user)
-- multiplayer (full E2E impersonation)
+- single player (shared service user) - what ships today, and the only mode any connection runs
+- multiplayer (full E2E impersonation) - the design target above; no adapter here carries a
+  per-subject credential yet, so nothing selects it
 
-Per connection the mode can be configured.
+Once multiplayer ships, the intended shape is a per-connection switch between the two.
 
 ## Vision
 
