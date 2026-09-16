@@ -5470,28 +5470,54 @@ body carrying <code>sql:</code> or <code>table:</code> deserializes cleanly with
 and a caller who believes they sent SQL gets an answer to a different question. With it, the
 attempt is a 400 naming the field. The tool surface has no field for any of that - see
 <code>sutura_domain::query</code> - and this is what keeps that true across a JSON parser.</p>
+<h3 id="enum-malformedquestion"><code>enum MalformedQuestion</code><a class="headerlink" href="#enum-malformedquestion" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-147-1"><a id="__codelineno-147-1" name="__codelineno-147-1" href="#__codelineno-147-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
+</span></code></pre></div>
+<p>Why a body is not a question.</p>
+<p><strong>Mostly owned by <code>sutura-domain::question</code>, not by this transport.</strong> HTTP's and MCP's field
+sets and typed refusals were identical - kept equal only by review - so the parse moved inward
+of both; <code>Self::Question</code> is what every existing reference to the domain's own
+<code>MalformedQuestion</code> in this crate now wraps.</p>
+<p><strong>No longer a bare alias</strong>, since <code>telekom/sutura#778</code>: a relative <code>range</code> needs a failure mode
+the domain does not have and must not gain - <code>Self::Range</code> wraps
+<code>sutura_runtime::relative_range::RangeResolutionError</code>, the resolver both transports share.</p>
+<h4 id="variants_15">Variants<a class="headerlink" href="#variants_15" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Question</code></li>
+<li><code>Range</code></li>
+</ul>
+<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-questionbody"><code>struct QuestionBody</code><a class="headerlink" href="#struct-questionbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-147-1"><a id="__codelineno-147-1" name="__codelineno-147-1" href="#__codelineno-147-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QuestionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-148-1"><a id="__codelineno-148-1" name="__codelineno-148-1" href="#__codelineno-148-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QuestionBody</span>
 </span></code></pre></div>
 <p>A question, as it arrives.</p>
-<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
-<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
-<h3 id="struct-rangebody"><code>struct RangeBody</code><a class="headerlink" href="#struct-rangebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-148-1"><a id="__codelineno-148-1" name="__codelineno-148-1" href="#__codelineno-148-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeBody</span>
-</span></code></pre></div>
-<p>A half-open period: <code>start</code> is included, <code>end</code> is not.</p>
-<p>Half-open at every grain and in every dialect, which is what makes a month
-<code>[2026-06-01, 2026-07-01)</code> rather than a last day that differs per month.</p>
 <h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
-<h3 id="struct-filterbody"><code>struct FilterBody</code><a class="headerlink" href="#struct-filterbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-149-1"><a id="__codelineno-149-1" name="__codelineno-149-1" href="#__codelineno-149-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterBody</span>
+<h3 id="struct-rangebody"><code>struct RangeBody</code><a class="headerlink" href="#struct-rangebody" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-149-1"><a id="__codelineno-149-1" name="__codelineno-149-1" href="#__codelineno-149-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeBody</span>
 </span></code></pre></div>
-<p>One equality filter.</p>
+<p>A half-open period: <code>start</code> is included, <code>end</code> is not. Either an absolute period
+(<code>start</code>/<code>end</code>) or a period relative to today (<code>last</code>) - never both, never neither.</p>
+<p>Half-open at every grain and in every dialect, which is what makes a month
+<code>[2026-06-01, 2026-07-01)</code> rather than a last day that differs per month.</p>
 <h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
+<h3 id="struct-lastbody"><code>struct LastBody</code><a class="headerlink" href="#struct-lastbody" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-150-1"><a id="__codelineno-150-1" name="__codelineno-150-1" href="#__codelineno-150-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastBody</span>
+</span></code></pre></div>
+<p>A count of calendar periods before today, resolved at request time rather than authored as
+dates - <code>telekom/sutura#778</code>.</p>
+<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
+<h3 id="struct-filterbody"><code>struct FilterBody</code><a class="headerlink" href="#struct-filterbody" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-151-1"><a id="__codelineno-151-1" name="__codelineno-151-1" href="#__codelineno-151-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterBody</span>
+</span></code></pre></div>
+<p>One equality filter.</p>
+<h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h3 id="enum-outcomebody"><code>enum OutcomeBody</code><a class="headerlink" href="#enum-outcomebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-150-1"><a id="__codelineno-150-1" name="__codelineno-150-1" href="#__codelineno-150-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeBody</span>
 </span></code></pre></div>
 <p>What a question produced.</p>
 <p><strong>The two variants come back with different statuses</strong>, and the <code>outcome</code> discriminator is what a
@@ -5502,24 +5528,24 @@ caller branches on within one of them. An answer is a <code>200</code>. A refusa
 retry. That was checked and does not hold; more to the point, a <code>200</code> made a governance refusal
 indistinguishable from an answer to every reader that sees a status and not a body. The body
 below is unchanged: same <code>outcome</code> tag, same <code>reason</code> object, one field added inside it.</p>
-<h4 id="variants_15">Variants<a class="headerlink" href="#variants_15" title="Permanent link">&para;</a></h4>
+<h4 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Answer</code> - The question was answered.</li>
 <li><code>Refusal</code> - The question was refused.</li>
 </ul>
-<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
+<h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-provenancebody"><code>struct ProvenanceBody</code><a class="headerlink" href="#struct-provenancebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-151-1"><a id="__codelineno-151-1" name="__codelineno-151-1" href="#__codelineno-151-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceBody</span>
 </span></code></pre></div>
 <p>Which definitions produced this answer.</p>
 <p>Always present on an answer, and it is the reason an answer can be trusted at all: the version
 names the snapshot and the digest is over its canonical form, so the same question against a
 different bundle is visibly a different answer.</p>
-<h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
+<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-legbody"><code>struct LegBody</code><a class="headerlink" href="#struct-legbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegBody</span>
 </span></code></pre></div>
 <p>One leg of an answer: which source it ran on, and which identity it ran as.</p>
 <p><strong>The posture is a word and the operator's acknowledgement reason is NOT here</strong>, deliberately. The
@@ -5529,10 +5555,10 @@ for. What a caller needs is which of the two postures produced the rows, and tha
 <p><strong>Reading this is not a control.</strong> It reaches a caller after the rows did, so it cannot prevent a
 disclosure. It makes one attributable, and it makes a misconfiguration visible to whoever reads an
 answer; what stops a shared source being served unnoticed is a startup refusal.</p>
-<h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
+<h4 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-refusalbody"><code>struct RefusalBody</code><a class="headerlink" href="#struct-refusalbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalBody</span>
 </span></code></pre></div>
 <p>Why a question was refused.</p>
 <p>A stable <code>code</code> per refusal, the status it came back as, and a sentence. The code is what a
@@ -5546,19 +5572,19 @@ rejected value becomes somebody else's input. The identifiers that <em>are</em> 
 newtypes over a bounded character set, and the numbers are derived from parsed dates or are this
 service's own limits.</p>
 <h4 id="methods_21">Methods<a class="headerlink" href="#methods_21" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The code, for a test that asserts on the contract rather than on the prose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The status, as the body carries it.</p>
-<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
+<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-outcome"><code>struct Outcome</code><a class="headerlink" href="#struct-outcome" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Outcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Outcome</span>
 </span></code></pre></div>
 <p>An outcome, and the status the transport says it with.</p>
 <p><strong>The one conversion from a <code>ToolOutcome</code> to a response</strong>, and it is one rather than two
@@ -5570,16 +5596,16 @@ not an <code>Err</code>: it arrives here through <code>Ok</code>, this handler c
 on the way turned it into a <code>crate::problem::Failure</code>. What changed is only what the transport
 says about it.</p>
 <h4 id="methods_22">Methods<a class="headerlink" href="#methods_22" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">OutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">OutcomeBody</span>
 </span></code></pre></div>
 <p>The body, for a test that asserts on the JSON rather than on the response.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">StatusCode</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">StatusCode</span>
 </span></code></pre></div>
 <p>The status this outcome comes back as.</p>
-<h4 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h4>
+<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>IntoResponse</code></p>
 <h3 id="struct-catalogbody"><code>struct CatalogBody</code><a class="headerlink" href="#struct-catalogbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
 </span></code></pre></div>
 <p>What this catalog defines.</p>
 <h1 id="why-a-structured-surface-reads-the-prose-setting-at-all">Why a structured surface reads the prose setting at all<a class="headerlink" href="#why-a-structured-surface-reads-the-prose-setting-at-all" title="Permanent link">&para;</a></h1>
@@ -5591,7 +5617,7 @@ prose, and a description that still reached an agent through a second transport 
 setting a statement about one surface rather than about the deployment. So the omission is
 honoured wherever the prose is carried, and the escaping stays where the delimiter is.</p>
 <h4 id="methods_23">Methods<a class="headerlink" href="#methods_23" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of a caller-scoped catalog, under the prose setting this deployment was
 started with.</p>
@@ -5603,29 +5629,23 @@ because that is what <code>docs/adr/0028</code> says the digest continues to ide
 <code>CatalogProse::default()</code> is <code>Quoted</code>, so a conversion reachable without the setting fails
 OPEN: it ships the prose of a deployment that asked for none, which is the defect this
 function exists to close. A second argument cannot be left out.</p>
-<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
+<h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-metricbody"><code>struct MetricBody</code><a class="headerlink" href="#struct-metricbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
 </span></code></pre></div>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <p>Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
 catalog port takes no request context and cannot - so this is a reader's view of a pinned
 bundle rather than an input to one.</p>
-<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
+<h4 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
+<h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
-<h3 id="type_alias-malformedquestion"><code>type_alias MalformedQuestion</code><a class="headerlink" href="#type_alias-malformedquestion" title="Permanent link">&para;</a></h3>
-<p>Why a body is not a question.</p>
-<p><strong>Owned by <code>sutura-domain::question</code>, not by this transport.</strong> HTTP's and MCP's field sets and
-typed refusals were identical - kept equal only by review - so the parse moved inward of both;
-this alias is what every existing reference to <code>crate::wire::MalformedQuestion</code> in this crate
-keeps meaning.</p>
 <h3 id="use-rawmalformedstatement"><code>use RawMalformedStatement</code><a class="headerlink" href="#use-rawmalformedstatement" title="Permanent link">&para;</a></h3>
 <p>Why a <code>run_sql</code> request body was not a statement.</p>
 <h3 id="use-rawoutcomebody"><code>use RawOutcomeBody</code><a class="headerlink" href="#use-rawoutcomebody" title="Permanent link">&para;</a></h3>
@@ -5661,23 +5681,23 @@ two keys on both bodies, because both carry rows and need the same two labels fo
 <p>The two are kept equal by review, the same limit <code>super::OutcomeBody</code>'s own module
 documentation states for the certified pair.</p>
 <h4 id="struct-runsqlbody"><code>struct RunSqlBody</code><a class="headerlink" href="#struct-runsqlbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
 </span></code></pre></div>
 <p>One raw statement, as the request body.</p>
-<h5 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h5>
+<h5 id="implements_53">Implements<a class="headerlink" href="#implements_53" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> request body was not a statement.</p>
-<h5 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h5>
+<h5 id="variants_17">Variants<a class="headerlink" href="#variants_17" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Statement</code></li>
 </ul>
-<h5 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h5>
+<h5 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-rawoutcomebody"><code>enum RawOutcomeBody</code><a class="headerlink" href="#enum-rawoutcomebody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawOutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawOutcomeBody</span>
 </span></code></pre></div>
 <p>What running a raw statement produced.</p>
 <p>Tagged so it cannot be mistaken for a certified answer's <code>super::OutcomeBody</code> - see the module
@@ -5686,25 +5706,25 @@ documentation.</p>
 already-<code>Raw</code>-prefixed type) - only their serialized tags do, pinned by an explicit
 <code>#[serde(rename)]</code> on each: <code>Refusal</code> alone would serialize exactly the certified path's own
 <code>outcome: "refusal"</code>, the one collision <code>docs/adr/0013</code> forbids.</p>
-<h5 id="variants_17">Variants<a class="headerlink" href="#variants_17" title="Permanent link">&para;</a></h5>
+<h5 id="variants_18">Variants<a class="headerlink" href="#variants_18" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Rows</code></li>
 <li><code>Refusal</code></li>
 </ul>
-<h5 id="implements_53">Implements<a class="headerlink" href="#implements_53" title="Permanent link">&para;</a></h5>
+<h5 id="implements_55">Implements<a class="headerlink" href="#implements_55" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-runsqloutcome"><code>struct RunSqlOutcome</code><a class="headerlink" href="#struct-runsqloutcome" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlOutcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlOutcome</span>
 </span></code></pre></div>
 <p>A raw outcome, and the status the transport says it with.</p>
 <p><code>super::Outcome</code>'s shape, over <code>RawOutcome</code> instead of a certified
 <code>sutura_domain::query::ToolOutcome</code>.</p>
 <h5 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawOutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawOutcomeBody</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">StatusCode</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">StatusCode</span>
 </span></code></pre></div>
-<h5 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h5>
+<h5 id="implements_56">Implements<a class="headerlink" href="#implements_56" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>IntoResponse</code></p>
 
 
