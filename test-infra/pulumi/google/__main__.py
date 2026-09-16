@@ -391,7 +391,9 @@ cross_dataset_res = gcp.bigquery.Dataset(
     "cross-dataset",
     dataset_id=cross_dataset,
     location=cross_dataset_location,
-    opts=pulumi.ResourceOptions(provider=gcp_provider),
+    # A dataset id is unique per project, so a replacement (location is immutable) must delete the
+    # old one first; the venue is disposable by design, nothing in it outlives a run.
+    opts=pulumi.ResourceOptions(provider=gcp_provider, delete_before_replace=True),
 )
 gcp.bigquery.DatasetIamMember(
     "ci-bigquery-dataeditor-cross",
