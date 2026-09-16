@@ -146,7 +146,7 @@ pub(crate) enum Failed {
     Load,
     #[error("the compiled fixture query did not return the required rows")]
     Query,
-    #[error("the negative control did not receive the endpoint's not-found refusal")]
+    #[error("the negative control did not receive a closed refusal (404 notFound or 403 accessDenied)")]
     Negative,
     #[error("fixture {at:?} operation failed; resource-bearing cause retained, not printed")]
     Operation {

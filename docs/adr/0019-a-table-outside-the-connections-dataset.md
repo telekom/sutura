@@ -293,18 +293,22 @@ record's own opening failure, one layer further out.
 
 **Not claimed, and each of these is a gap rather than a hedge:**
 
-- **No second dataset was reached, and no second project.** Measured rather than assumed: the
-  acceptance service account can see one dataset, and `datasets.insert` returns
-  `403 accessDenied ... does not have bigquery.datasets.create permission`, so neither a second
-  dataset nor a second project could be created to read across. **What that leaves unproved is
-  narrower than it sounds and is worth stating exactly:** the three-part path is proved to *resolve* -
-  the qualifier is read, and a wrong dataset in it is refused - and what is unproved is a read whose
-  leading part is a project the credential does not already bill to. That is an IAM grant rather than
-  a code change; the statement is identical in shape either way. It is the one thing to re-run when a
-  second project exists.
-- **A cross-project JOIN was not executed.** It is rendered, parse-checked, and pinned as one
-  statement with one `JOIN` and one `SourceName` - which is the design claim of Decision 2 - but no
-  local test can show a service performing it, and none pretends to.
+- **No second project was reached.** Measured rather than assumed: the acceptance service
+  account can see one project's datasets, and `datasets.insert` returns
+  `403 accessDenied ... does not have bigquery.datasets.create permission`, so a second project
+  could not be created to read across. **What that leaves unproved is narrower than it sounds and
+  is worth stating exactly:** the three-part path is proved to *resolve* - the qualifier is read,
+  and a wrong dataset in it is refused - and what is unproved is a read whose leading part is a
+  project the credential does not already bill to. That is an IAM grant rather than a code change;
+  the statement is identical in shape either way. It is the one thing to re-run when a second
+  project exists.
+- **A cross-project JOIN was not executed.** A cross-DATASET join within one billing project now
+  is - recorded on 2026-09-16 by run
+  https://github.com/telekom/sutura/actions/runs/35066825062, positive and negative control, PASS -
+  but a JOIN whose leading part is a second project the credential does not bill to remains
+  unexecuted. It is rendered, parse-checked, and pinned as one statement with one `JOIN` and one
+  `SourceName` - which is the design claim of Decision 2 - but no hosted run shows a service
+  performing it across projects, and none pretends to.
 - **Nothing about the corpus.** The live legs are hand-built statements, exactly as
   [0018](0018-what-the-bigquery-wire-is-built-from.md) says of its own.
 - **Nothing about identity.** A service-account key is `SharedServiceUser`. Cross-project reads under

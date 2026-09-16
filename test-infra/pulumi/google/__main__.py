@@ -61,6 +61,18 @@ if principal_a_rows == principal_b_rows:
 # all four.
 ci_dataset = cfg.require("ci_dataset")
 ci_table = cfg.require("ci_table")
+# The cross-resource writable venue's second dataset (`cross_resource.rs`'s live fixture loads the
+# dimension into it, beside the `ci_dataset` it and the acceptance legs share). Read beside the
+# refusal below, which keeps it a distinct THIRD dataset from both the policied and the acceptance
+# ones: the acceptance legs render `CREATE OR REPLACE TABLE` in `ci_dataset` which drops a table's
+# row access policies, and this venue writes beside them, so it must not be the policied dataset
+# either.
+cross_dataset = cfg.require("cross_dataset")
+# The cross dataset joins the acceptance dataset, and BigQuery refuses a query across two
+# locations - so it must be created in the SAME location as the acceptance dataset (`ci_dataset`),
+# never in `region`. Location is immutable on a dataset, so if the value ever changes the venue is
+# recreated on the next `up`.
+cross_dataset_location = cfg.require("cross_dataset_location")
 # The policied dataset and the acceptance dataset must be DIFFERENT datasets, and until this
 # refusal that separation was four independent config keys distinct only because
 # `Pulumi.example.yaml` gives them four different placeholder values. `sync-bq-test-env.sh` asserts
@@ -82,6 +94,37 @@ if dataset_id == ci_dataset:
         "dataset and ci_dataset must name different datasets: the acceptance legs render "
         "`CREATE OR REPLACE TABLE` in ci_dataset, which drops a table's row access policies, and "
         "the two-principal cell asserts on the policies in dataset"
+    )
+# The cross-resource venue's second dataset must be a distinct THIRD dataset in the same project:
+# the writable cell (cross_resource_fixture.rs) loads its dimension into it while the acceptance
+# legs share `ci_dataset`, so reusing either the policied or the acceptance dataset would put a
+# fixture-writing venue on a dataset whose policies or rows the other cells assert on.
+if cross_dataset in (dataset_id, ci_dataset):
+    raise ValueError(
+        "cross_dataset must name a third dataset distinct from both dataset and ci_dataset: the "
+        "cross-resource writable venue loads per-run fixtures into it beside ci_dataset, and its "
+        "dimension shadow must not land on the policied dataset"
+    )
+# The cross dataset joins the acceptance dataset, and BigQuery refuses a single statement across two
+# locations - so it must be created in the SAME location as the acceptance dataset, never in
+# `region`. `cross_dataset_location` is a free config value, so hold it against the acceptance
+# dataset's ACTUAL location here rather than trusting prose: a wrong value was once found only by a
+# hosted run failing at the Query step, after a location change had already deleted and recreated the
+# venue. The refusal needs `bigquery.datasets.get` on `ci_dataset` for the pulumi credential, which
+# the stack already exercises through the two `DatasetIamMember`s on it (a dataset-level
+# `dataEditor` includes `datasets.get`). If that permission is ever absent, this read fails at
+# `pulumi preview` rather than silently - say so and the refusal becomes "held by the hosted run,
+# not the program".
+ci_dataset_location = gcp.bigquery.get_dataset(
+    dataset_id=ci_dataset, project=project
+).location
+if (
+    ci_dataset_location
+    and ci_dataset_location.lower() != cross_dataset_location.lower()
+):
+    raise ValueError(
+        "cross_dataset_location must match the acceptance dataset's location: BigQuery refuses a "
+        "query across two locations, and the cross-resource join reads ci_dataset"
     )
 
 # The dataset location (may be a multi-region like `EU`) and the provider's COMPUTE region/zone are
@@ -361,6 +404,32 @@ gcp.bigquery.DatasetIamMember(
     member=ci_sa.member,
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
+# The cross-resource writable venue's second dataset, beside ci_dataset: `bigquery-cross-dataset`
+# loads its dimension into it. Same grant shape as the two above - dataset-level dataEditor, no
+# project-level `datasets.create` (the cell only makes tables in datasets that already exist, and the
+# absent dataset is the negative control and must stay unprovisioned).
+cross_dataset_res = gcp.bigquery.Dataset(
+    "cross-dataset",
+    dataset_id=cross_dataset,
+    location=cross_dataset_location,
+    # A dataset id is unique per project, so a replacement (location is immutable) must delete the
+    # old one first; the venue is disposable by design, nothing in it outlives a run. Delete-first
+    # needs contents-on-destroy too: a per-run table can outlive the run that made it (the loader
+    # expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a non-empty dataset
+    # unless `deleteContents=true`.
+    opts=pulumi.ResourceOptions(
+        provider=gcp_provider,
+        delete_before_replace=True,
+        delete_contents_on_destroy=True,
+    ),
+)
+gcp.bigquery.DatasetIamMember(
+    "ci-bigquery-dataeditor-cross",
+    dataset_id=cross_dataset,
+    role="roles/bigquery.dataEditor",
+    member=ci_sa.member,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[cross_dataset_res]),
+)
 ci_key = gcp.serviceaccount.Key(
     "ci-key",
     service_account_id=ci_sa.email,
@@ -488,3 +557,4 @@ pulumi.export("ci_email", ci_sa.email)
 pulumi.export("ci_key", ci_key.private_key)
 pulumi.export("ci_dataset", ci_dataset)
 pulumi.export("ci_table", ci_table)
+pulumi.export("cross_dataset", cross_dataset_res.dataset_id)

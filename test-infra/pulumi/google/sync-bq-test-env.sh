@@ -102,6 +102,12 @@ VARS = {
     # own five (telekom/sutura#123: sutura does not re-verify a source's row-level security). Nothing
     # reads them now; dropped rather than left to describe a cell that no longer exists.
     "SUTURA_BQ_RLS_DATASET": "dataset",
+    # The cross-resource writable venue's dataset: the disposable dataset it loads its dimension
+    # into. Only the DATASET is pushed as a var - the project-shaped reads for this venue
+    # (`SUTURA_BQ_CROSS_DATASET_PROJECT`, `SUTURA_BQ_CROSS_BILLING_PROJECT`, `SUTURA_BQ_RLS_PROJECT`)
+    # all take the same project the CI key names, and the workflow derives them from the key inside
+    # the step body rather than provisioning the id as a var, so it never lands in a job's `env:` dump.
+    "SUTURA_BQ_CROSS_DATASET": "cross_dataset",
 }
 need(*VARS.values())
 for gh_name, out in VARS.items():

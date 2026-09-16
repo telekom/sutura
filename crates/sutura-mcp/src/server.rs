@@ -559,16 +559,34 @@ impl RenderedCause {
 
     /// The outer sentence only, with no walk.
     ///
-    /// `MalformedStatement::NotAnObject`'s `#[source]` is a `serde_json::Error` whose message echoes
-    /// a caller-chosen unknown-field key verbatim, so walking it the way [`Self::of`] does would leak
-    /// that key into a peer's context. `Display` on this `thiserror` enum prints only the fixed
-    /// `#[error(...)]` sentence and never reaches that source - the property this relies on and does
-    /// not itself enforce.
+    /// `MalformedStatement::Statement`'s cause, `sutura_domain::raw::InvalidRawStatement`, carries
+    /// none of the text it measured - `Empty`, `TooLong { len, limit }`, `EmbeddedNul` name only the
+    /// shape of the failure. `MalformedStatement::NotAnObject`'s cause is different: its
+    /// `#[source]` is a `serde_json::Error` whose own `Display` for an unrecognized field does echo
+    /// the caller-chosen key verbatim, bidi controls included (confirmed against a standalone
+    /// reproduction pinned to this workspace's `serde_json`/`thiserror` versions, not run in-crate),
+    /// so walking it the way [`Self::of`] does would leak that key into a peer's context. `Display`
+    /// on this `thiserror` enum prints only the fixed `#[error(...)]` sentence and never reaches
+    /// that source - the property this relies on and does not itself enforce.
     fn outer_only(error: &MalformedStatement) -> Self {
         Self(error.to_string())
     }
 
     /// The one call to `ErrorData::invalid_params` a rendered cause may reach.
+    ///
+    /// `clippy.toml`'s `disallowed-methods` ban on `rmcp::ErrorData::invalid_params` names this as
+    /// the one permitted call site: both renderers reach the constructor only through here, so an
+    /// exposure added anywhere else in this workspace is a visible diff under `-D warnings`, the
+    /// same property `Secret::expose_secret` relies on. That ban is a second, independent
+    /// mechanism from this type's own privacy - see the struct's own doc for the limit that makes
+    /// it worth keeping rather than redundant: the ban catches a new *direct* call to
+    /// `invalid_params` anywhere in the crate, which nothing about this type's privacy does.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one call this crate makes to the banned constructor - both renderers reach it \
+                  only through `RenderedCause::of`/`RenderedCause::outer_only` and this method, so a \
+                  second direct call written elsewhere is a visible diff under -D warnings"
+    )]
     fn into_error_data(self) -> ErrorData {
         ErrorData::invalid_params(self.0, None)
     }
@@ -590,7 +608,8 @@ impl RenderedCause {
 /// ```
 mod compile_fail_tuple_field_is_private {}
 
-/// A malformed `run_sql` call, as a JSON-RPC error.
+/// A malformed `run_sql` call, as a JSON-RPC error. See [`RenderedCause::outer_only`] for why this
+/// must not walk the cause chain.
 fn invalid_statement(error: &MalformedStatement) -> ErrorData {
     RenderedCause::outer_only(error).into_error_data()
 }
