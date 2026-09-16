@@ -3868,6 +3868,32 @@ and a caller who believes they sent SQL gets an answer to a different question. 
 attempt is a 400 naming the field. The tool surface has no field for any of that - see
 `sutura_domain::query` - and this is what keeps that true across a JSON parser.
 
+### `enum MalformedQuestion`
+
+```rust
+pub enum MalformedQuestion
+```
+
+Why a body is not a question.
+
+**Mostly owned by `sutura-domain::question`, not by this transport.** HTTP's and MCP's field
+sets and typed refusals were identical - kept equal only by review - so the parse moved inward
+of both; `Self::Question` is what every existing reference to the domain's own
+`MalformedQuestion` in this crate now wraps.
+
+**No longer a bare alias**, since `telekom/sutura#778`: a relative `range` needs a failure mode
+the domain does not have and must not gain - `Self::Range` wraps
+`sutura_runtime::relative_range::RangeResolutionError`, the resolver both transports share.
+
+#### Variants
+
+- `Question`
+- `Range`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct QuestionBody`
 
 ```rust
@@ -3886,10 +3912,24 @@ A question, as it arrives.
 pub struct RangeBody
 ```
 
-A half-open period: `start` is included, `end` is not.
+A half-open period: `start` is included, `end` is not. Either an absolute period
+(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
 
 Half-open at every grain and in every dialect, which is what makes a month
 `[2026-06-01, 2026-07-01)` rather than a last day that differs per month.
+
+#### Implements
+
+`ComposeSchema`, `Debug`, `Deserialize<'de>`, `ToSchema`
+
+### `struct LastBody`
+
+```rust
+pub struct LastBody
+```
+
+A count of calendar periods before today, resolved at request time rather than authored as
+dates - `telekom/sutura#778`.
 
 #### Implements
 
@@ -4119,15 +4159,6 @@ One dimension of one metric.
 #### Implements
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
-
-### `type_alias MalformedQuestion`
-
-Why a body is not a question.
-
-**Owned by `sutura-domain::question`, not by this transport.** HTTP's and MCP's field sets and
-typed refusals were identical - kept equal only by review - so the parse moved inward of both;
-this alias is what every existing reference to `crate::wire::MalformedQuestion` in this crate
-keeps meaning.
 
 ### `use RawMalformedStatement`
 

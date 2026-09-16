@@ -106,17 +106,37 @@ pub struct AskArgs {
     filters: Vec<FilterArgs>,
 }
 
-/// A half-open period: `start` is included, `end` is not.
+/// A half-open period: `start` is included, `end` is not. Either an absolute period
+/// (`start`/`end`) or a period relative to today (`last`) - never both, never neither.
 ///
 /// Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
 /// last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RangeArgs {
-    /// The first day included, as `YYYY-MM-DD` - for example `2026-06-01`.
-    start: String,
-    /// The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`.
-    end: String,
+    /// The first day included, as `YYYY-MM-DD` - for example `2026-06-01`. Mutually exclusive
+    /// with `last`.
+    start: Option<String>,
+    /// The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`. Mutually exclusive
+    /// with `last`.
+    end: Option<String>,
+    /// A period ending today (or yesterday, unless `include_current`), resolved against this
+    /// deployment's own clock. Mutually exclusive with `start`/`end`.
+    last: Option<LastArgs>,
+}
+
+/// A count of calendar periods before today, resolved at request time rather than authored as
+/// dates - `telekom/sutura#778`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LastArgs {
+    /// How many `unit`s back. Must not be zero.
+    count: u32,
+    /// One of `day`, `week`, `month`, `quarter` or `year`.
+    unit: String,
+    /// Whether today's own, possibly partial, period is included.
+    #[serde(default)]
+    include_current: bool,
 }
 
 /// One equality filter.
@@ -152,32 +172,39 @@ pub enum MalformedQuestion {
     /// would otherwise carry its own copy of this whole vocabulary.
     #[error(transparent)]
     Question(#[from] sutura_domain::question::MalformedQuestion),
+    /// A relative `range` needs a failure mode the domain does not have and must not gain - see
+    /// `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole
+    /// purpose with.
+    #[error(transparent)]
+    Range(#[from] sutura_runtime::relative_range::RangeResolutionError),
 }
 
 impl TryFrom<AskArgs> for Query {
     type Error = MalformedQuestion;
 
-    /// Extracts this transport's own wire fields as plain strings and hands them to
-    /// `sutura_domain::question::parse_query` - the one place a caller's raw question becomes a
-    /// certified [`Query`], shared with `sutura-http`'s own `QuestionBody`. Nothing transport-specific
-    /// happens here beyond the extraction: no field is renamed, widened or defaulted on the way
-    /// through.
+    /// Resolves `range` against the shipping wall clock, then hands the two ISO dates - and every
+    /// other field, unchanged - to `sutura_domain::question::parse_query`. Production's only
+    /// clock; [`query_of`] is what a test substitutes a fixed one into.
     fn try_from(args: AskArgs) -> Result<Self, Self::Error> {
-        let filters: Vec<RawFilter<'_>> = args
-            .filters
-            .iter()
-            .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
-            .collect();
-        let query = sutura_domain::question::parse_query(
-            &args.metric,
-            &args.grain,
-            &args.range.start,
-            &args.range.end,
-            &args.dimensions,
-            &filters,
-        )?;
-        Ok(query)
+        query_of(args, &sutura_runtime::relative_range::SystemClock)
     }
+}
+
+/// The whole of [`TryFrom::try_from`], generic in the clock so a test can fix "today" without
+/// resolving against the day it happens to run on.
+fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallClock) -> Result<Query, MalformedQuestion> {
+    let filters: Vec<RawFilter<'_>> = args
+        .filters
+        .iter()
+        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .collect();
+    let last = args
+        .range
+        .last
+        .map(|last| sutura_runtime::relative_range::LastWire::new(last.count, last.unit, last.include_current));
+    let (start, end) = sutura_runtime::relative_range::resolve_range(clock, args.range.start, args.range.end, last)?;
+    let query = sutura_domain::question::parse_query(&args.metric, &args.grain, &start, &end, &args.dimensions, &filters)?;
+    Ok(query)
 }
 
 // ------------------------------------------------------------------ result ----
@@ -486,11 +513,79 @@ mod tests {
     }
 
     #[test]
-    fn a_range_with_no_end_does_not_deserialize_at_all() {
-        // The bound the type provides rather than the service: there is no unbounded form to send.
+    fn a_range_with_no_end_and_no_last_is_ambiguous() {
+        // `start` with no `end` deserializes now - both are `Option` so a relative range can omit
+        // them - and is refused one step later, by `range_choice`, rather than by serde.
         let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01"}}"#)
-            .expect_err("a range with no end is not a range");
-        assert!(error.to_string().contains("question"), "{error}");
+            .expect_err("a range with no end and no `last` is neither shape");
+        assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_range_naming_both_start_end_and_last_is_ambiguous() {
+        let error = parse(
+            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
+                             "last":{"count":1,"unit":"month"}}}"#,
+        )
+        .expect_err("both shapes at once is ambiguous");
+        assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_relative_range_resolves_against_a_fixed_clock() {
+        use sutura_domain::calendar::Date;
+
+        struct FixedClock(Date);
+        impl sutura_runtime::relative_range::WallClock for FixedClock {
+            fn today(&self) -> Result<Date, sutura_runtime::relative_range::ClockUnavailable> {
+                Ok(self.0)
+            }
+        }
+
+        let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
+        let excluding_today: super::AskArgs =
+            serde_json::from_str(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
+                .expect("valid arguments");
+        let query = super::query_of(excluding_today, &clock).expect("a fixed clock resolves a relative range");
+        assert_eq!(query.range().start().to_iso(), "2026-08-01");
+        assert_eq!(query.range().end().to_iso(), "2026-09-01");
+
+        let including_today: super::AskArgs = serde_json::from_str(
+            r#"{"metric":"revenue","grain":"month",
+                "range":{"last":{"count":1,"unit":"month","include_current":true}}}"#,
+        )
+        .expect("valid arguments");
+        let query = super::query_of(including_today, &clock).expect("include_current changes the resolved range");
+        assert_eq!(query.range().start().to_iso(), "2026-09-01");
+        assert_eq!(query.range().end().to_iso(), "2026-09-17");
+    }
+
+    /// The refusal proof for an unreadable clock - a predicate exercised with no test of its
+    /// refusal is the standard hole this repository watches for.
+    #[test]
+    fn an_unreadable_clock_is_a_clock_failure_not_a_malformed_question() {
+        use sutura_domain::calendar::Date;
+
+        struct BrokenClock;
+        impl sutura_runtime::relative_range::WallClock for BrokenClock {
+            fn today(&self) -> Result<Date, sutura_runtime::relative_range::ClockUnavailable> {
+                Err(sutura_runtime::relative_range::ClockUnavailable::NotADate {
+                    cause: Date::from_days_since_epoch(i32::MAX).expect_err("i32::MAX is not a date"),
+                })
+            }
+        }
+
+        let args: super::AskArgs =
+            serde_json::from_str(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#)
+                .expect("valid arguments");
+        let error = super::query_of(args, &BrokenClock).expect_err("the clock never answers");
+        assert!(
+            matches!(
+                error,
+                MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(_))
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]

@@ -81,8 +81,8 @@ mod tests {
     }
 
     /// Which field a shared parse failure names, as a tag rather than the variant itself - so one
-    /// function can compare HTTP's bare `sutura_domain::question::MalformedQuestion` against MCP's
-    /// own enum, which wraps the same type inside `Question`.
+    /// function can compare HTTP's own wrapping enum against MCP's, both of which wrap the same
+    /// domain type inside `Question`.
     fn shared_tag(error: &SharedMalformedQuestion) -> &'static str {
         match *error {
             SharedMalformedQuestion::Metric { .. } => "metric",
@@ -95,10 +95,21 @@ mod tests {
         }
     }
 
+    /// Neither transport's malformed corpus provokes `Range` - none of these cases sends a
+    /// relative `last` - so its tag exists for exhaustiveness rather than for a case exercised
+    /// here; `sutura_runtime::relative_range`'s own suite holds that failure mode.
+    fn http_tag(error: &sutura_http::wire::MalformedQuestion) -> &'static str {
+        match *error {
+            sutura_http::wire::MalformedQuestion::Question(ref shared) => shared_tag(shared),
+            sutura_http::wire::MalformedQuestion::Range(_) => "range_shape",
+        }
+    }
+
     fn mcp_tag(error: &sutura_mcp::wire::MalformedQuestion) -> &'static str {
         match *error {
             sutura_mcp::wire::MalformedQuestion::NotAnObject { .. } => "not_an_object",
             sutura_mcp::wire::MalformedQuestion::Question(ref shared) => shared_tag(shared),
+            sutura_mcp::wire::MalformedQuestion::Range(_) => "range_shape",
         }
     }
 
@@ -202,7 +213,7 @@ mod tests {
             let http_error = Query::try_from(http_body(&question)).expect_err(label);
             let mcp_error = Query::try_from(mcp_args(&question)).expect_err(label);
             assert_eq!(
-                shared_tag(&http_error),
+                http_tag(&http_error),
                 mcp_tag(&mcp_error),
                 "{label}: the two transports refused for different reasons - {http_error:?} vs {mcp_error:?}"
             );
