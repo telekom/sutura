@@ -32,8 +32,8 @@ makes multiplayer real rather than a shared identity - is a design target, not b
 sutura is designed around 2 flavours:
 
 - single player (shared service user) - what ships today, and the only mode any connection runs
-- multiplayer (full E2E impersonation) - the design target above; no adapter here carries a
-  per-subject credential yet, so nothing selects it
+- multiplayer (full E2E impersonation) - the design target above; no adapter in this build can
+  carry a per-subject credential, so nothing selects it
 
 Once multiplayer ships, the intended shape is a per-connection switch between the two.
 
