@@ -243,15 +243,16 @@ impl FixturePort for Live {
             }
         });
         let negative = plan(&absent)?;
+        // A table in a dataset this credential cannot even resolve - the whole point of an absent
+        // owned destination - arrives as `accessDenied` (403), not `notFound` (404): BigQuery will
+        // not reveal a dataset's existence to a caller allowed to see none of it. The refusal, not
+        // the specific code, is the guarantee; both classes mean the query was refused rather than
+        // silently served from the default dataset.
         match warehouse.execute(Executable::Query(&negative), &presented(), deadline()) {
             Err(BigQueryError::Endpoint {
-                cause:
-                    WireError::Refused {
-                        status: 404,
-                        named: sutura_exec_bigquery::wire::ReasonCode::NotFound,
-                        ..
-                    },
-            }) => {}
+                cause: WireError::Refused { status, named, .. },
+            }) if (status == 404 && named == sutura_exec_bigquery::wire::ReasonCode::NotFound)
+                || (status == 403 && named == sutura_exec_bigquery::wire::ReasonCode::AccessDenied) => {}
             _ => return Err(Failed::Negative),
         }
         let after = warehouse
@@ -261,7 +262,7 @@ impl FixturePort for Live {
             return Err(Failed::Query);
         }
         println!(
-            "bigquery-cross-resource: one-source join agreed; shadow differed; endpoint not-found followed by positive control"
+            "bigquery-cross-resource: one-source join agreed; shadow differed; endpoint refused the absent owned name; positive control agreed"
         );
         Ok(())
     }
