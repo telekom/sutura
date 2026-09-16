@@ -9,7 +9,9 @@ Status: **accepted, and nothing is built.** This record takes a transport decisi
 evidence it rests on; no wiring, no crate change and no gate ships with it. What it decides is
 *where* a per-request principal can arrive on the agent surface, and it does that before any code
 because the alternative - attaching an exchange to a transport that has nowhere to put a caller -
-is the expensive way to find out.
+is the expensive way to find out. **Read *Amendment, 2026-09-16* before citing the `_context`
+paragraph below** - the parameter it describes as discarded is now read, by code this record's
+evidence anticipated rather than by a change to this decision.
 
 [0014](0014-how-a-caller-proves-who-it-is.md) built leg 1 on the HTTP surface: a deployment
 declaring `security.inbound` verifies a caller's own token from a signature.
@@ -439,3 +441,38 @@ at all.
 **Wait for the chain, then do the transport.** Rejected on ordering. Without a per-request
 principal there is nothing for a chain's first hop to consume, so building the chain first
 produces machinery whose input does not exist.
+
+## Amendment, 2026-09-16: `context` is read now, and what that does and does not change
+
+**The `_context` paragraph above is stale, not just its line number.** `#732` (`0ea25539`, part of
+`#378` PR2) changed `crates/sutura-mcp/src/server.rs`. `call_tool`'s second parameter is `context`,
+not `_context` (`:377-380`), and `call_tool` reads it: `let asked = self.asked(&context)?;`
+(`:392`). `list_tools` reads it the same way (`:365-369`). Quoting the old signature now would give
+a false sentence a correct-looking citation, which is worse than the stale line number it would
+replace - so this is a correction to the argument, not a repoint.
+
+**What the paragraph was arguing, and what survives.** The section it sits in - *An inbound header
+does reach a handler, and this is the whole path* - was establishing that a slot for a per-request
+principal already existed on the handler's signature, so wiring one in would not need a new
+parameter, only a reason to stop discarding it. That conclusion is not weakened by `context` now
+being read; it is *demonstrated*. `AgentSurface::asked` (`:313-326`) is exactly the read the
+paragraph said the type could carry: under `Asking::PerRequest`, it pulls `context.extensions`,
+finds an `http::request::Parts`, and reads a `sutura_app::Asked` out of *its* extensions - the shape
+this ADR's evidence said the pinned SDK's HTTP transport produces, not a shape this crate invented.
+
+**What does not survive as written: the reason given for `_context`.** The paragraph said the
+binding was correct *because* the value was empty under the pipe. `context` is no longer bound to
+be ignored - it is threaded through `asked` unconditionally - but the pipe still supplies nothing to
+read: `Asking`'s other arm, `TheProcessOwner`, never inspects `context` at all (`:315-318`), and
+`crate::serve_stdio` - the only thing this crate serves - always builds `TheProcessOwner`
+(`crates/sutura-mcp/src/lib.rs:220-223`). `PerRequest` is produced only behind this crate's own
+default-off `http` feature, by a module (`crate::http`, `#378` PR3) that no composition root mounts
+yet (`lib.rs:84-93`). So the fact that changed is *which arm of a match statement ignores the
+context*, not *whether anything served today does*.
+
+**The limit this ADR already states, restated so this amendment does not overclaim it:** *What this
+decision does NOT cover* above already says leg 1 is built on HTTP and leg 2 - a source executing as
+the caller - has never run against a real token service, on any surface. Reading `context` on the
+agent transport is neither: it is the same type-level plumbing this record priced, now built and
+still unreached by anything served, and it moves nothing about per-subject execution. AGENTS.md's
+own line holds unchanged: leg 1 is built, leg 2 is not, on anything published.
