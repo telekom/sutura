@@ -14,7 +14,8 @@
 //! `devco/claim-mutations/<test-fn-name>.patch`*. It is **not** the permission: a trailer
 //! nothing checks is the gate that has quietly stopped gating, because anyone can bypass
 //! red-before-green by typing a word. So the trailer NARROWS what may pass and never disables the
-//! check - [`Claim`] collects what is declared, [`decide`] holds every part of it, and any
+//! check - [`Claim`] collects what is declared, [`validate`] holds every part of it, and [`run`]
+//! acts on nothing that does not hold, and any
 //! declaration that does not hold is a refusal rather than a pass. An undeclared claim cell (a
 //! test pinning existing behaviour, no trailer) still reaches the normal proof and its
 //! green-against-base refusal unchanged.
@@ -54,8 +55,8 @@ use std::process::Command;
 
 use crate::Verdict;
 use crate::causality::base;
-use crate::causality::isolation::Isolated;
 use crate::causality::place::AddedTest;
+use crate::causality::regions::{PostImage, TestScope, scope as test_scope};
 use crate::causality::runner::{Tree, cargo_test};
 use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
@@ -110,46 +111,132 @@ pub(super) enum Cause {
     Undeclared(String),
     /// No mutation patch lives at `devco/claim-mutations/<cell>.patch`.
     MissingPatch(String),
-    /// The patch touches a file this diff's scan classified as test-bearing. A mutation edits
-    /// PRODUCTION code only.
+    /// The patch touches a file the repo classifies as test-bearing at HEAD (or one this diff
+    /// itself added as a test file). A mutation edits PRODUCTION code only.
     TouchesTests { cell: String, path: String },
     /// The patch does not `git apply` cleanly in the worktree at HEAD.
     DoesNotApply { cell: String, why: String },
+    /// Applied and run, and the run reports the cell failing only because a PATTERN IN PRODUCTION
+    /// panicked - the assertion the cell carries never discriminated.
+    PanicsInMutation { cell: String, path: String },
+    /// Applied and run, but the tree could not be restored to HEAD, so this cell's mutation leaked
+    /// into the next cell's run.
+    RestoreFailed { cell: String, why: String },
     /// Applied and run, and the run did not REPORT that cell failing - the mutation does not kill.
     NotKilled { cell: String },
+}
+
+/// Why a mutated run did or did not kill its cell.
+///
+/// The verdict's whole mechanism, and it now reads MORE than the FAIL line. A patch whose only
+/// change is `panic!` / `unwrap()` on `None` at the top of a reached function kills ANY cell that
+/// reaches it - it proves reachability, not that the cell's assertion discriminates, which is the
+/// "looks like coverage" test AGENTS.md refuses. So a run that reports the cell failing BY PANIC
+/// INSIDE A PATCHED PRODUCTION FILE is refused: a genuine assertion-fail panics at the assert's own
+/// line in the cell's test file, never at a patched production path - a mutation may not touch a
+/// test file, so the two are disjoint and the panic site tells which one fired.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum MutationKill {
+    /// The run reported `cell` failing by assertion.
+    Killed,
+    /// The run did not REPORT `cell` failing - a different test, a green run, or a failed compile.
+    NotAsserted,
+    /// The run reports the cell failing only because production at `path` panicked.
+    PanicsInMutation(String),
 }
 
 /// Did the run REPORT `cell` failing by assertion?
 ///
 /// Pure, and the verdict's whole mechanism: a mutation "kills" a cell exactly when a run of that
-/// cell, with the mutation applied, fails and names that cell. The naming goes through the SAME
-/// key the base run uses ([`super::base::failures`] + [`super::base::is_scoped`]+
-/// [`AddedTest::claims`]), so a mutation that reddened a DIFFERENT test reads as *does not kill*
-/// rather than as evidence. A run that compiled and passed names no failure; a run that failed to
-/// compile names none either - neither kills.
-pub(super) fn classify_mutation(text: &str, cell: &AddedTest) -> bool {
-    base::failures(text)
+/// cell, with the mutation applied, fails and names that cell - UNLESS the run shows the failure
+/// was a panic inside a patched PRODUCTION file, which proves reachability and not the assertion.
+/// The naming goes through the SAME key the base run uses ([`super::base::failures`] +
+/// [`super::base::is_scoped`] + [`AddedTest::claims`]), so a mutation that reddened a DIFFERENT
+/// test reads as *does not kill* rather than as evidence. A run that compiled and passed names no
+/// failure; a run that failed to compile names none either - neither kills.
+pub(super) fn classify_mutation(text: &str, cell: &AddedTest, patched: &[String]) -> MutationKill {
+    if let Some(path) = panic_sites(text).into_iter().find(|p| patched.iter().any(|one| one == p)) {
+        return MutationKill::PanicsInMutation(path);
+    }
+    if base::failures(text)
         .iter()
         .any(|failure| base::is_scoped(failure, std::slice::from_ref(cell)))
+    {
+        MutationKill::Killed
+    } else {
+        MutationKill::NotAsserted
+    }
 }
 
-/// The patch file a declared cell's mutation lives at.
-fn mutation_path(root: &Path, cell: &str) -> PathBuf {
-    root.join(MUTATIONS_DIR).join(format!("{cell}.patch"))
-}
-
-/// The paths a `git apply`-able unified diff touches, out of its `diff --git` headers.
-///
-/// THE `+++` LINE WOULD DO, but a patch can carry hunks for several files and a rename or a pure
-/// deletion changes what `a/` vs `b/` means - the headers are where git itself names the files it
-/// would rewrite, so that is what the test-file check reads.
-fn patch_paths(content: &str) -> Vec<String> {
-    content
-        .lines()
-        .filter_map(|line| line.strip_prefix("diff --git "))
-        .filter_map(|rest| rest.split_whitespace().nth(1))
-        .map(|b| b.strip_prefix("b/").unwrap_or(b).to_owned())
+/// The paths nextest's `panicked at <path>:<line>:` locates, for panics inside a test's stack.
+fn panic_sites(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| line.split_once(" panicked at ")?.1.split(':').next().map(String::from))
         .collect()
+}
+
+/// The patch file a declared cell's mutation lives at, under `dir` (the HEAD worktree the arm
+/// reads it from).
+fn mutation_path(dir: &Path, cell: &str) -> PathBuf {
+    dir.join(MUTATIONS_DIR).join(format!("{cell}.patch"))
+}
+
+/// The paths a `git apply`-able unified diff touches, out of `git apply --numstat` output: one
+/// `<added>\t<deleted>\t<path>` row per file git would rewrite, the `b/` side of a rename, a pure
+/// deletion still named.
+fn numstat_paths(numstat: &str) -> Vec<String> {
+    numstat
+        .lines()
+        .filter_map(|line| line.split('\t').nth(2))
+        .map(String::from)
+        .collect()
+}
+
+/// The paths `git apply --numstat` reports for `patch`, run in `wt` - git's own account of what it
+/// would rewrite, which is the forgiveness the hand parser lacked.
+///
+/// `git apply` ACCEPTS a header-less unified diff (`--- a/x` / `+++ b/x`, with no `diff --git`
+/// line), and parsing `diff --git` headers alone would see no paths in one - the test-file rule
+/// would compare nothing and `restore` would early-return, leaving the mutation in the tree for
+/// the NEXT cell's run. `--numstat` is git resolving exactly the set it would rewrite, so a
+/// header-less patch names its paths too. Git refuses a patch that names no file (it errors
+/// without `--allow-empty`), so a successful call names at least one; a malformed patch reaches
+/// the caller as `Err`.
+fn touched_paths(wt: &Path, patch: &Path) -> Result<Vec<String>, String> {
+    let mut command = Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    command.current_dir(wt).args(["apply", "--numstat"]).arg(patch);
+    let out = command
+        .output()
+        .map_err(|e| format!("could not run git apply --numstat: {e}"))?;
+    if !out.status.success() {
+        let mut why = String::from_utf8_lossy(&out.stderr).into_owned();
+        why.push_str(&String::from_utf8_lossy(&out.stdout));
+        return Err(why);
+    }
+    Ok(numstat_paths(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Is `path` a fully test-bearing file at HEAD, by the same rule the rest of the gate uses?
+///
+/// WIDER than the diff's own `test_files` (which names only files this diff ADDED): a mutation may
+/// not touch ANY file the repo classifies as all-test code - a shared `tests/common/mod.rs`, a
+/// `#![cfg(test)]` helper in `src/`, an out-of-line `#[cfg(test)] mod` - because editing the test
+/// to fail proves nothing whether this diff touched it or not. [`test_scope`] is the repo's own
+/// classifier. A MIXED file (a `#[cfg(test)]` region inside production) is left alone: its
+/// production lines are a legitimate mutation target, and `--numstat` names paths, not lines, so
+/// this can only be whole-file.
+fn is_test_file(path: &str, read: &PostImage<'_>) -> bool {
+    matches!(test_scope(path, read), TestScope::WholeFile)
+}
+
+/// A post-image reader over the worktree the arm created at HEAD.
+///
+/// The test-file rule reads the state the mutation actually runs against, and the patch is read
+/// from the SAME committed tree the trailer declared it in - an uncommitted patch in the caller's
+/// working tree is not the range under review, so it is not evidence.
+fn head_reader(wt: &Path) -> impl Fn(&str) -> Option<String> + '_ {
+    move |path| std::fs::read_to_string(wt.join(path)).ok()
 }
 
 /// A `git apply` over `patch`, optionally as a dry check, run in `wt`.
@@ -182,7 +269,7 @@ fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), String> {
 /// and comes back to meet the next one. The git-backed checks ([`apply_git`]) are the third
 /// layer and run only for a cell whose earlier checks passed, because a missing patch or a
 /// test-file touch makes a dry apply either impossible or pointless.
-fn validate(root: &Path, wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> Vec<Cause> {
+fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> Vec<Cause> {
     let mut causes: Vec<Cause> = Vec::new();
     let added_set: BTreeSet<&str> = added.iter().copied().collect();
     let declared_set: BTreeSet<&str> = claim.cells().iter().map(String::as_str).collect();
@@ -197,14 +284,29 @@ fn validate(root: &Path, wt: &Path, claim: &Claim, added: &[&str], test_files: &
             causes.push(Cause::Undeclared((*name).to_owned()));
         }
     }
+    let read = head_reader(wt);
     for cell in claim.cells() {
-        let patch = mutation_path(root, cell);
-        let Ok(content) = std::fs::read_to_string(&patch) else {
+        // The patch is read from the HEAD worktree, not the caller's working tree - an UNCOMMITTED
+        // patch is not the range the trailer declared, so it is not under review.
+        let patch = mutation_path(wt, cell);
+        let Ok(_content) = std::fs::read_to_string(&patch) else {
             causes.push(Cause::MissingPatch(cell.clone()));
             continue;
         };
-        let touched = patch_paths(&content);
-        if let Some(touched_path) = touched.iter().find(|path| test_files.contains(path)) {
+        let touched = match touched_paths(wt, &patch) {
+            Ok(paths) => paths,
+            Err(why) => {
+                causes.push(Cause::DoesNotApply { cell: cell.clone(), why });
+                continue;
+            }
+        };
+        // The test-file rule is git's own path set against BOTH the diff's list and the repo's
+        // classifier at HEAD, so a header-less patch and a touched helper the diff did not add are
+        // both caught.
+        if let Some(touched_path) = touched
+            .iter()
+            .find(|path| test_files.contains(*path) || is_test_file(path, &read))
+        {
             causes.push(Cause::TouchesTests {
                 cell: cell.clone(),
                 path: touched_path.clone(),
@@ -225,46 +327,60 @@ fn validate(root: &Path, wt: &Path, claim: &Claim, added: &[&str], test_files: &
 /// leftover mutation would leak into the next cell's run or into a later base run sharing the
 /// target. The isolation (`super::isolation::Isolated`) is what stops the mutated build reusing
 /// the unmutated one's artifacts, which is the same witness the base/head runs use.
-fn kill_cell(root: &Path, wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<(), Cause> {
+fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<(), Cause> {
     let Some(added) = scoped.tests().iter().find(|one| one.name() == cell) else {
         return Err(Cause::NotAdded(cell.to_owned()));
     };
-    let patch = mutation_path(root, cell);
-    let Ok(content) = std::fs::read_to_string(&patch) else {
+    let patch = mutation_path(wt, cell);
+    let Ok(_content) = std::fs::read_to_string(&patch) else {
         return Err(Cause::MissingPatch(cell.to_owned()));
     };
-    let touched = patch_paths(&content);
-
-    if let Err(why) = Isolated::of(wt, target) {
-        return Err(Cause::DoesNotApply {
-            cell: cell.to_owned(),
-            why,
-        });
-    }
+    let touched = match touched_paths(wt, &patch) {
+        Ok(paths) => paths,
+        Err(why) => {
+            return Err(Cause::DoesNotApply {
+                cell: cell.to_owned(),
+                why,
+            });
+        }
+    };
     if let Err(why) = apply_git(wt, &patch, false) {
         return Err(Cause::DoesNotApply {
             cell: cell.to_owned(),
             why,
         });
     }
+    // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
+    // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
     let (_ok, text) = cargo_test(wt, target, &term, Tree::Reconstructed);
-    restore(wt, &touched);
-    if classify_mutation(&text, added) {
-        Ok(())
-    } else {
-        Err(Cause::NotKilled { cell: cell.to_owned() })
+    // RESTORE IS ON EVERY PATH and a failed restore is the run's own failure: a tree left mutated
+    // leaks this cell's mutation into the NEXT cell's run, whose isolation recompiles whatever is
+    // on disk.
+    if let Err(why) = restore(wt, &touched) {
+        return Err(Cause::RestoreFailed {
+            cell: cell.to_owned(),
+            why,
+        });
+    }
+    match classify_mutation(&text, added, &touched) {
+        MutationKill::Killed => Ok(()),
+        MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
+        MutationKill::PanicsInMutation(site) => Err(Cause::PanicsInMutation {
+            cell: cell.to_owned(),
+            path: site,
+        }),
     }
 }
 
 /// Restore the files a mutation patch touched back to HEAD.
 ///
-/// Best-effort, like the base worktree teardown: a tree left mutated is a correctness problem for
-/// the NEXT cell (whose isolation recompiles our crates from whatever source is on disk), so a
-/// failure here is the run's own failure rather than a warning.
-fn restore(wt: &Path, paths: &[String]) {
+/// A restore failure is the run's own failure rather than a warning (returned as the cause, not
+/// swallowed): a tree left mutated is a correctness problem for the NEXT cell, and staying silent
+/// about it would let one cell's patch leak into another's run.
+fn restore(wt: &Path, paths: &[String]) -> Result<(), String> {
     if paths.is_empty() {
-        return;
+        return Ok(());
     }
     let mut command = Command::new("git");
     crate::repo::strip_git_env(&mut command);
@@ -272,7 +388,14 @@ fn restore(wt: &Path, paths: &[String]) {
     for path in paths {
         command.arg(path);
     }
-    let _outcome = command.output();
+    let out = command.output().map_err(|e| format!("could not run git checkout: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let mut why = String::from_utf8_lossy(&out.stderr).into_owned();
+        why.push_str(&String::from_utf8_lossy(&out.stdout));
+        Err(why)
+    }
 }
 
 /// Run the whole claim arm: create the worktree, validate, kill every cell, verdict.
@@ -286,7 +409,7 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
     }
 
     let added: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
-    let causes = validate(root, &wt, claim, &added, test_files);
+    let causes = validate(&wt, claim, &added, test_files);
     if !causes.is_empty() {
         worktree::remove_worktree(root, &wt);
         return report_refused(&causes);
@@ -295,7 +418,7 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
     let declared = claim.cells().len();
     let mut killed = 0_usize;
     for cell in claim.cells() {
-        match kill_cell(root, &wt, &target, scoped, cell) {
+        match kill_cell(&wt, &target, scoped, cell) {
             Ok(()) => killed += 1,
             Err(cause) => {
                 worktree::remove_worktree(root, &wt);
@@ -353,6 +476,14 @@ fn cause_line(cause: &Cause) -> String {
         Cause::DoesNotApply { cell, why } => {
             format!("  does not apply: {cell}: {why}")
         }
+        Cause::PanicsInMutation { cell, path } => {
+            format!(
+                "  panics in the mutation: {path}  (the `{cell}` mutation kills by panic, not by assertion - it must fail the cell's own assertion)"
+            )
+        }
+        Cause::RestoreFailed { cell, why } => {
+            format!("  restore failed: {cell}: {why}  (a failed restore leaks the mutation into the next cell)")
+        }
         Cause::NotKilled { cell } => {
             format!("  not killed:  {cell}  (applied, run, and the cell did not fail - the mutation does not kill it)")
         }
@@ -373,131 +504,4 @@ fn accepted_lines(declared: usize, killed: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::probe::{KILLED, UNRELATED, cell};
-    use super::{Cause, Claim, classify_mutation, patch_paths, report_accepted, report_refused};
-    use crate::Verdict;
-
-    // A claim over one committed commit message, deduped and sorted, and no claim from a range
-    // that carries none - the mirror of the trailer-required rule over on `relocation`.
-    #[test]
-    fn the_claim_is_deduped_sorted_and_absent_without_a_trailer() {
-        let log = "feat(x): subject\n\nClaim-Cell: z_third\nClaim-Cell: a_first\nClaim-Cell: z_third\n";
-        assert_eq!(
-            Claim::of(log),
-            Some(Claim {
-                cells: vec![String::from("a_first"), String::from("z_third")],
-            })
-        );
-        // A trailer with no name is no claim: it leaves the run exactly as it was.
-        assert_eq!(Claim::of("chore: split\n\nClaim-Cell:\n"), None);
-        assert_eq!(Claim::of("chore: no trailer at all\n"), None);
-    }
-
-    // RED for the arm, half 1: a run that reports a DIFFERENT test failing does not kill the
-    // cell - a mutation that reddens someone else is not evidence about this one.
-    #[test]
-    fn a_run_that_names_a_different_test_is_not_a_kill() {
-        assert!(!classify_mutation(UNRELATED, &cell()));
-    }
-
-    // RED for the arm, half 2: a run that compiled and ran green names no failure - a mutation
-    // that leaves the cell green does not kill it.
-    #[test]
-    fn a_run_that_names_no_failure_is_not_a_kill() {
-        assert!(!classify_mutation("    Summary [   0.1s] 1 test run: 1 passed\n", &cell()));
-        // Compile errors carry no failure either: they measure nothing about the assertion.
-        assert!(!classify_mutation("error[E0061]: this function takes 1 argument\n", &cell()));
-    }
-
-    // GREEN for the arm: a run that reports this exact cell failing IS the kill, under the same
-    // key the base run uses.
-    #[test]
-    fn a_run_that_names_the_cell_is_a_kill() {
-        assert!(classify_mutation(KILLED, &cell()));
-    }
-
-    // The accepted verdict and its line, asserted on the compiled verdict rather than prose.
-    #[test]
-    fn the_accepted_arm_prints_and_passes() {
-        assert_eq!(report_accepted(1, 1), Verdict::Pass);
-        assert_eq!(report_accepted(2, 2), Verdict::Pass);
-    }
-
-    // The refused verdict, with a non-killing mutation refused by name. This is the shape an
-    // author is told about, so a test pins the wording.
-    #[test]
-    fn a_declared_but_unkilled_cell_refuses_the_whole_arm() {
-        assert_eq!(
-            report_refused(&[Cause::NotKilled {
-                cell: String::from("the_cell"),
-            }]),
-            Verdict::Fail
-        );
-    }
-
-    // RED: a declared test the diff did not add, and an added test not declared, are both
-    // refusals - the bijection is checked both ways.
-    #[test]
-    fn the_bijection_is_checked_both_ways() {
-        let claim = Claim {
-            cells: vec![String::from("declared_not_added")],
-        };
-        let causes = super::validate(
-            std::path::Path::new("/nowhere"),
-            std::path::Path::new("/nowhere"),
-            &claim,
-            &["added_not_declared"],
-            &[],
-        );
-        assert!(
-            causes.contains(&Cause::NotAdded(String::from("declared_not_added"))),
-            "{causes:?}"
-        );
-        assert!(
-            causes.contains(&Cause::Undeclared(String::from("added_not_declared"))),
-            "{causes:?}"
-        );
-    }
-
-    // RED: a declared cell whose mutation is missing is refused, and one whose patch touches a
-    // test-bearing file of the diff is refused - the mutation edits PRODUCTION code only.
-    #[test]
-    fn a_cell_without_a_patch_or_with_a_test_touch_is_refused() {
-        let root = std::env::temp_dir().join(format!("sutura-claim-{}", std::process::id()));
-        let _swept = std::fs::remove_dir_all(&root);
-        let claim = Claim {
-            cells: vec![String::from("missing_patch")],
-        };
-        // No patch file: the git checks never run, so this is testable without one.
-        let test_files = [String::from("crates/x/tests/t.rs")];
-        let causes = super::validate(&root, &root, &claim, &["missing_patch"], &test_files);
-        assert!(
-            causes.contains(&Cause::MissingPatch(String::from("missing_patch"))),
-            "{causes:?}"
-        );
-        let _swept = std::fs::remove_dir_all(&root);
-    }
-
-    // The patch reader names the files a diff touches, from its `diff --git` headers - including
-    // several hunks in one patch and a rename's `b/` side.
-    #[test]
-    fn the_patch_paths_reader_names_what_git_would_rewrite() {
-        let content = concat!(
-            "diff --git a/crates/x/src/lib.rs b/crates/x/src/lib.rs\n",
-            "index 1111111..2222222 100644\n",
-            "--- a/crates/x/src/lib.rs\n",
-            "+++ b/crates/x/src/lib.rs\n",
-            "@@ -1 +1 @@\n",
-            "-pub fn f() -> u8 { 1 }\n",
-            "+pub fn f() -> u8 { 2 }\n",
-            "diff --git a/crates/x/tests/next.rs b/crates/x/tests/next.rs\n",
-            "--- a/crates/x/tests/next.rs\n",
-            "+++ b/crates/x/tests/next.rs\n",
-        );
-        assert_eq!(
-            patch_paths(content),
-            vec![String::from("crates/x/src/lib.rs"), String::from("crates/x/tests/next.rs")]
-        );
-    }
-}
+mod tests;

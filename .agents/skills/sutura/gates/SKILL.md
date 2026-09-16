@@ -1025,7 +1025,12 @@ a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (
 (declared-not-added and added-not-declared are both refusals), resolves each cell to a committed
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* - the mutation kills it. A
-patch that does not apply, touches a test file, or leaves the cell green refuses the whole arm. All
+patch that does not apply, touches a test file, or leaves the cell green refuses the whole arm. The
+touched-file rule reads git's own `--numstat` path set against BOTH the diff's test files and the
+repo's all-test classification at HEAD, so a header-less patch and a `tests/` helper the diff never
+touched are refused too; and a run that reports the cell failing only because a `panic!`/`unwrap()`
+plant in PRODUCTION fired refuses with "kills by panic, not by assertion" - the cell must fail by
+its own assertion. All
 cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
 never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
 cell dies under its compiled mutation (at +N isolated rebuilds per declaration - the same ~68 s each

@@ -8,9 +8,11 @@ Each file must be named `<test-fn-name>.patch`, matching the exact function iden
 
 A patch is:
 
-- a `git apply`-able **unified diff** over **production code only** - it must not touch any file
-  the diff's scan classifies as test-bearing, because the whole point is to break the behaviour the
-  cell claims, and a patch that edits the test to fail proves nothing;
+- a `git apply`-able **unified diff** over **production code only** - it must not touch any file the
+  repo classifies as all-test at HEAD (a `/tests/` target, a `#![cfg(test)]` or out-of-line
+  `#[cfg(test)] mod` file, read with the same post-image rule `plan` uses) or any file this diff
+  added as a test file, because the whole point is to break the behaviour the cell claims, and a
+  patch that edits the test to fail proves nothing;
 - **committed** with the declaring commit, so it is in the same `base..HEAD` range the trailer is
   and is reviewable in the diff;
 - **killing**: applied in the isolated causality target and run against the named cell, it must make
