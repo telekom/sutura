@@ -100,6 +100,12 @@ mod tests {
     /// key set at exactly the path the fixture wrote.
     const CASE: &str = "e2e-datahub-bigquery";
 
+    /// A second, distinct `case` for the served-caller cell, which boots its own deployment under a
+    /// `security.inbound` block and a declared per-source impersonation map. A separate config dir,
+    /// for the same reason `CASE` is one: `start_configured` clears it, and clearing the wave-one
+    /// deployment's would leave both tests fighting over one directory.
+    const IMPERSONATION_CASE: &str = "e2e-served-caller-bigquery";
+
     /// The catalog's declared name, reused verbatim as the `sources:` entry's name - the served
     /// `datahub` arm fixes the `bigquery` dataPlatform→source mapping to the CATALOG's OWN name
     /// (`crates/sutura-cli/src/serve/catalog.rs`), so a source under any other name is unreachable by
@@ -762,5 +768,168 @@ mod tests {
             assert_eq!(refused_content["reason"]["code"], REFUSAL_CODE, "{}", refused_mcp.body);
             assert!(refused_content["reason"]["detail"].is_string(), "{}", refused_mcp.body);
         }
+    }
+
+    // ------------------------------------------------- the served-caller half of #376 ------
+
+    /// One `bigquery` source's impersonation declaration, the servable shape of the exchange-plus-
+    /// hop: `impersonate` maps each DECLARED verified caller's FULL `sub` - the `SubjectKey` the
+    /// bearer gate established from a real issuer's token - to the service account to execute as.
+    /// A source with a non-empty map refuses a caller absent from it at the broker door before any
+    /// network call, which is the assertion the refusal leg below pins. `declared_sa` is both the
+    /// target and the `verification_identity` for the datahub catalog's anchors, which this file's
+    /// served deployment re-runs at boot exactly as the wave-one cell does.
+    fn impersonating_source(bq: &BigQueryFixture, audience: &str, declared_sa: &str, impersonate: &[(&str, &str)]) -> String {
+        let impersonate = impersonate
+            .iter()
+            .map(|(subject, sa)| format!("        {subject:?}: {sa:?}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "  {CATALOG}:\n    kind: \"bigquery\"\n    \
+             billing_project: \"{billing_project}\"\n    dataset: \"{dataset}\"\n    \
+             credential_file: \"{credential_file}\"\n    max_bytes_billed: 1073741824\n    \
+             posture: \"impersonation-at-source\"\n    \
+             verification_identity: \"{declared_sa}\"\n    workload_identity:\n      \
+             audience: \"{audience}\"\n      \
+             scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
+             impersonate:\n{impersonate}\n",
+            billing_project = bq.billing_project,
+            dataset = bq.dataset,
+            credential_file = bq.credential_file.display(),
+            declared_sa = declared_sa,
+            audience = audience,
+        )
+    }
+
+    /// One `bigquery` environment variable naming a value of the impersonation deployment, or a
+    /// panic naming it. Fail-not-skip, the same argument `bq_named` above makes: this cell is
+    /// `#[ignore]`d and reached only by a hosted run, so a green report over a deployment that
+    /// never resolved a real principal would be the opposite of the truth.
+    fn impersonation_named(key: &str, what: &str) -> String {
+        match std::env::var(key) {
+            Ok(value) if !value.trim().is_empty() => value,
+            Ok(_) | Err(_) => panic!(
+                "{key} is not set - it names {what}. \
+                 `a_served_binary_executes_a_verified_human_caller_as_the_declared_account` \
+                 boots the served binary with `security.inbound` and a declared per-source \
+                 impersonation map, and resolves one real issuer's verified caller to a declared \
+                 service account; see the venue row in docs/where-identity-is-proven.md."
+            ),
+        }
+    }
+
+    /// The half a green `bigquery-exchanged-identity` run cannot touch: a SERVED binary answering
+    /// under the per-source map. `#[ignore]`d - it needs the Keycloak tier to mint a verified
+    /// human caller whose `sub` the map names, plus the provisioned WIF pool and a grant binding
+    /// that `IdP` subject to the declared SA. It will NOT run locally; the green run that moves the
+    /// venue row (docs/where-identity-is-proven.md) is the hosted one.
+    ///
+    /// **What it asserts, and the one thing the served surface cannot show.** Over `/v1/query` the
+    /// served surface's observable is `executed_as` - the source's declared POSTURE, never the
+    /// resolved account - so this cell shows (a) the served binary boots with `security.inbound` and
+    /// a declared map; (b) a verified caller whose full `sub` IS a declared key answers the certified
+    /// metric with `executed_as` `impersonation-at-source` (the hop ran, not the shared identity);
+    /// (c) a verified caller NOT in the map is refused as `credential_unavailable` before any
+    /// network call; and (d) the audit record carries the verified masked subject. The raw
+    /// `SESSION_USER() == declared SA` string is unreachable over `/v1/sql/run` (`BigQueryWarehouse`
+    /// keeps `ACCEPTS_RAW_STATEMENTS = false`), so it stays the job of
+    /// `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`'s direct-warehouse cell.
+    #[test]
+    #[ignore = "needs the provisioned Keycloak tier plus the WIF pool and IdP-to-SA grant; run by the hosted workflow that moves the venue row, never by `just test`"]
+    fn a_served_binary_executes_a_verified_human_caller_as_the_declared_account() {
+        let data = DataDir::prepared(IMPERSONATION_CASE);
+        let fixture = keycloak_settings(IMPERSONATION_CASE);
+        let bq = BigQueryFixture::required();
+        let _loaded = LoadedFixture::loaded(&bq.warehouse, &data);
+
+        // The verified human subject whose token the bearer gate will establish, and the service
+        // account the deployment declares it executes as. The map key must be the FULL `sub` -
+        // `SubjectKey::parse`'s raw value - read off the minted token rather than assumed.
+        let declared_subject = keycloak_subject_of(&fixture.subject_a_token);
+        let declared_sa = impersonation_named(
+            "SUTURA_BQ_IMPERSONATION_SA",
+            "the service-account email the declared Keycloak subject executes as through the per-source map",
+        );
+        let audience = impersonation_named(
+            "SUTURA_BQ_WIF_AUDIENCE",
+            "the provisioned workload-identity-provider resource the deployment exchanges against",
+        );
+
+        let mut answers = happy_path_answers();
+        answers.extend(happy_path_answers());
+        let server = FakeServer::start(answers);
+
+        let key_set = derived_beside(&config_path(IMPERSONATION_CASE)).join("keycloak-jwks.json");
+        let settings = format!(
+            "server:\n\
+             {server_head}\
+             security:\n\
+             {SECURITY_HEAD}\
+             {inbound}\
+             telemetry:\n  \
+               format: \"bunyan\"\n\
+             catalogs:\n  \
+               - name: \"{CATALOG}\"\n    \
+                 kind: \"datahub\"\n    \
+                 dir: \"/unused-for-datahub\"\n    \
+                 data_dir: \"/unused-for-datahub\"\n    \
+                 version: \"{VERSION}\"\n    \
+                 endpoint: \"{endpoint}\"\n    \
+                 token_file: \"{token_file}\"\n    \
+                 metric_property: \"{DEPLOYMENT_PROPERTY}\"\n\
+             sources:\n\
+             {impersonating_source}",
+            server_head = server_head(),
+            inbound = inbound_block(&fixture, &key_set),
+            endpoint = server.endpoint(),
+            token_file = data.token_file().display(),
+            impersonating_source = impersonating_source(
+                &bq,
+                &audience,
+                &declared_sa,
+                &[(declared_subject.as_str(), declared_sa.as_str())],
+            ),
+        );
+
+        let deployment = start_configured(IMPERSONATION_CASE, &settings);
+
+        // (a)+(b) The DECLARED verified human caller answers the certified metric, and the source
+        // reported it executed as `impersonation-at-source` - the hop ran, not the shared identity.
+        let granted = deployment.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(&fixture.subject_a_token),
+            QUESTION,
+        );
+        assert_eq!(granted.status, 200, "{}", granted.body);
+        assert_eq!(granted.json()["outcome"], "answer", "{}", granted.body);
+        assert_eq!(
+            granted.json()["executed_as"],
+            serde_json::json!([{ "source": CATALOG, "posture": "impersonation-at-source" }]),
+            "{}",
+            granted.body
+        );
+
+        // (c) A DIFFERENT verified caller absent from the declared map is refused at the broker
+        // door as `credential_unavailable` - before the exchange or hop, never answered as the
+        // declared account and never as the shared identity.
+        let refused = deployment.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(&fixture.subject_b_token),
+            QUESTION,
+        );
+        assert_eq!(refused.status, 403, "{}", refused.body);
+        assert_eq!(refused.json()["reason"]["code"], "credential_unavailable", "{}", refused.body);
+
+        // (d) The audit record for the granted ask carries the verified subject - the fully
+        // established leg-1 identity, not the deployment.
+        let lines = deployment.log();
+        assert!(
+            lines
+                .iter()
+                .rev()
+                .any(|line| line.contains(r#""subject_established":"verified""#)),
+            "the granted record does not say a caller was verified:\n{lines:?}"
+        );
     }
 }

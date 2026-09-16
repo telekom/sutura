@@ -359,4 +359,24 @@ mod tests {
         .expect_err("a whitespace-only declared subject is not an identifier");
         assert!(matches!(err, super::InvalidWorkloadIdentity::ImpersonationSubject { .. }));
     }
+
+    #[test]
+    fn an_over_long_declared_subject_is_refused_as_not_an_identifier() {
+        // The IdP-subject shape the map keys on is a `SubjectKey` like any other, and the config
+        // boundary refuses an oversized one the same way it refuses an empty or duplicate one:
+        // `SubjectKey::parse` bounds the identifier to 256 characters (`parse_principal_id`), and
+        // that refusal surfaces here as `ImpersonationSubject` rather than being accepted into the
+        // map. Sized past the ceiling exactly so the bound is what is exercised, not a parse-clean
+        // long string that happens to be refused for another reason.
+        let oversized = format!("{}@idp.example", "a".repeat(300));
+        let mut declared = std::collections::BTreeMap::new();
+        drop(declared.insert(oversized, String::from("sa-declared@acme-analytics.iam.gserviceaccount.com")));
+        let err = WorkloadIdentityConfig::parse(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &declared,
+        )
+        .expect_err("an over-long declared subject is not a usable identifier");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::ImpersonationSubject { .. }));
+    }
 }
