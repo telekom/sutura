@@ -129,6 +129,12 @@ macro_rules! any_predicate {
             (AnyWarehouse::BigQuery(warehouse), AnyWarehouseError::BigQuery(cause)) => warehouse.$method(cause),
             #[cfg(feature = "postgres")]
             (AnyWarehouse::Postgres(warehouse), AnyWarehouseError::Postgres(cause)) => warehouse.$method(cause),
+            // Unreachable, and therefore ABSENT, on the shipped feature set: with neither
+            // `bigquery` nor `postgres` linked, `AnyWarehouse` and `AnyWarehouseError` each have
+            // the one `Files` variant, so the arm above is exhaustive on its own and `-D warnings`
+            // (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept only where a
+            // second variant exists to make a cross-variant pairing possible in the first place.
+            #[cfg(any(feature = "bigquery", feature = "postgres"))]
             _ => $default,
         }
     };
@@ -345,14 +351,12 @@ fn bigquery_group(
     request_timeout: sutura_config::RequestTimeout,
     outbound: Option<&sutura_tls::LoadedAnchors>,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    match super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)? {
-        // Unreachable on a build without the `bigquery` feature: that arm's `open_bigquery` only
-        // ever returns `Err`. Written as a fallback rather than an `unreachable!` the workspace
-        // denies.
-        _ => Err(String::from(
-            "`open_bigquery` returned an open registry on a build with no BigQuery adapter linked",
-        )),
-    }
+    super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)?;
+    // Unreachable: that call's own feature-off twin only ever returns `Err`, propagated above by
+    // `?`. Written as a fallback rather than an `unreachable!` the workspace denies.
+    Err(String::from(
+        "`open_bigquery` returned an open registry on a build with no BigQuery adapter linked",
+    ))
 }
 
 /// The `Postgres` group, opened through [`super::postgres::open_postgres`] and erased.
@@ -375,25 +379,25 @@ fn postgres_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    match super::postgres::open_postgres(sources, registry)? {
-        _ => Err(String::from(
-            "`open_postgres` returned an open registry on a build with no Postgres adapter linked",
-        )),
-    }
+    super::postgres::open_postgres(sources, registry)?;
+    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
+    Err(String::from(
+        "`open_postgres` returned an open registry on a build with no Postgres adapter linked",
+    ))
 }
 
 /// Whether this mix needs the exchanging broker - true the moment ANY opened source is `BigQuery`,
 /// since `build_broker` already scans the whole `sources:` registry for shared AND impersonating
 /// entries rather than only `bigquery`-kind ones.
+///
+/// **No feature-off twin, unlike its siblings above.** Its one caller - `serve.rs`'s `Mixed` arm -
+/// only asks this inside its OWN `#[cfg(feature = "bigquery")]` half; the other half never needed
+/// an exchanging broker to begin with and calls neither this nor a stand-in for it. A twin
+/// returning `false` unconditionally would therefore have no caller on a build without the
+/// feature, which `-D dead-code` catches rather than tolerates.
 #[cfg(feature = "bigquery")]
 pub(crate) fn needs_exchanging_broker(engines: &sutura_app::Warehouses<AnyWarehouse>) -> bool {
     engines
         .each()
         .any(|(_, warehouse)| matches!(warehouse, AnyWarehouse::BigQuery(_)))
-}
-
-/// The feature-off twin: a build with no `BigQuery` adapter never needs its broker.
-#[cfg(not(feature = "bigquery"))]
-pub(crate) fn needs_exchanging_broker(_engines: &sutura_app::Warehouses<AnyWarehouse>) -> bool {
-    false
 }
