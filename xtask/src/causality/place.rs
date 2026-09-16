@@ -40,15 +40,19 @@ use crate::changes::package_name;
 /// One test the diff added, as a key that identifies it in a run's output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AddedTest {
+    /// The repository-relative path of the file that declares this test - carried so a claim
+    /// cell's own assertion can be required to live in its OWN file, never a sibling's.
+    file: String,
     binary: Binary,
     within: Module,
     name: Ident,
 }
 
 impl AddedTest {
-    /// The test `name` declares, in the file whose tests land at `at`.
-    pub(super) fn at(at: &Place, name: Ident) -> Self {
+    /// The test `name` declares, in the file at `path`, as its tests land at `at`.
+    pub(super) fn at(path: &str, at: &Place, name: Ident) -> Self {
         Self {
+            file: String::from(path),
             binary: at.binary.clone(),
             within: at.within.clone(),
             name,
@@ -62,6 +66,11 @@ impl AddedTest {
     /// proof left out; the filter and the failure comparison both go through the whole key.
     pub(crate) fn name(&self) -> &str {
         self.name.as_str()
+    }
+
+    /// The repository-relative path of the file that declares this test.
+    pub(crate) fn file(&self) -> &str {
+        &self.file
     }
 
     /// The filter expression term that runs exactly this test.

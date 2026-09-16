@@ -26,10 +26,9 @@ pub(super) fn cell() -> AddedTest {
 /// `crates/sutura-cli/src/audit.rs` is a MIXED file - production on top, `the_added_one` inside an
 /// inline `#[cfg(test)] mod tests { .. }` at the bottom - which is the realistic shape of a claim
 /// cell and the case the over-refusal finding was about: its own assertion panics at a line inside
-/// the file's test region, and a patch to the SAME file's production lines must not make that read
-/// as a production panic. The two `crates/x/src/*` files are production with no test region, the
-/// shape a downstream `.expect()` or a `#[track_caller]` relocation to a production caller lands
-/// in.
+/// the file's test fn, and a patch to the SAME file's production lines must not make that read as
+/// a production panic. The two `crates/x/src/*` files are production with no test region, the
+/// shape a downstream `.expect()` or a panic that stops at a production caller lands in.
 pub(super) fn reader() -> impl Fn(&str) -> Option<String> {
     crate::causality::fixtures::tree(&[
         (
@@ -74,10 +73,14 @@ pub(super) const DOWNSTREAM_EXPECT: &str = concat!(
     "error: test run failed\n",
 );
 
-/// A run whose panic is a `#[track_caller]` production `panic!()` whose relocation stops at a
-/// PRODUCTION caller - `crates/x/src/lib.rs:3`, not the cell's test region - so it reads as a
-/// production panic, not the cell's own assertion.
-pub(super) const TRACK_CALLER: &str = concat!(
+/// A run whose panic landed in a PRODUCTION caller - `crates/x/src/lib.rs:3`, not the cell's own
+/// test fn - so it reads as a production panic, not the cell's own assertion.
+///
+/// NAMED FOR WHAT THE RULE REFUSES, not for `#[track_caller]`: this SHOULD be refused because the
+/// site is production. It deliberately does NOT claim a `#[track_caller]` relocation is refused
+/// generally - a `track_caller` panic called DIRECTLY from the cell panics at the cell's own line
+/// (which this fixture does not model), and no site-based rule can refuse that; it is review-held.
+pub(super) const PRODUCTION_CALLER: &str = concat!(
     "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
     "thread 'audit::tests::the_added_one' panicked at crates/x/src/lib.rs:3:5:\n",
     "error: test run failed\n",

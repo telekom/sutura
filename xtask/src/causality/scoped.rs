@@ -199,7 +199,7 @@ impl Scan {
                         }
                     }
                     Declared::Runs(name) => {
-                        let one = AddedTest::at(&at, name);
+                        let one = AddedTest::at(&file.path, &at, name);
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }

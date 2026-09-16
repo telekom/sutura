@@ -1026,14 +1026,20 @@ a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. A patch that does not apply, touches a test LINE, or leaves the cell green
-refuses the whole arm. The touched-LINE rule reads git's own `--numstat` paths plus the patch's own
-`+c,d` hunk ranges against `regions::scope`, so a `tests/` helper the diff never touched is refused,
-a patch with a hunk inside any test region is refused, AND a MIXED file (production + an inline
-`#[cfg(test)] mod tests`) is a valid target in its production lines - the shape an inline claim
-cell needs to patch its own file. A run reports a KILL only when its `panicked at <path>:<line>`
-lands inside the cell's own test region: a planted `panic!`/`unwrap()` in PRODUCTION, a downstream
-`.expect()` in an unpatched file, a `#[track_caller]` relocation, an exit/abort/signal death, or a
-FAIL with no site at all refuses as *not by the cell's own assertion*. All
+refuses the whole arm. The test-line rule is a PATH half and a TEXT half. The PATH half reads git's
+own `--numstat` paths and refuses a touch of any file that is all test at HEAD (a `/tests/` target,
+a `#![cfg(test)]` or out-of-line `#[cfg(test)] mod` file). The TEXT half decides a MIXED file
+(production + an inline `#[cfg(test)] mod tests`): it APPLIES the patch and then requires every
+`#[cfg(test)]` region of the post-image to be byte-identical to HEAD's, with the regions RE-LOCATED
+by content on each image - so a deletion-only hunk above the region (which shifts line numbers and
+used to let a second hunk smuggle an edit into the cell's own assertion past a line-number rule)
+still refuses as `patch rewrites the cell`, while a genuine production-line mutation stays a valid
+target - the shape an inline claim cell needs to patch its own file. A run reports a KILL only when
+its `panicked at <path>:<line>` lands in the cell's OWN file, inside the cell's OWN test fn
+(located by the fn's name on the post-image, never by a line): a planted `panic!`/`unwrap()` in
+PRODUCTION, a downstream `.expect()` in an unpatched file, a panic inside ANOTHER file's test
+region (a shared `tests/common` helper), an exit/abort/signal death, or a FAIL with no site at all
+refuses as *not by the cell's own assertion*. All
 cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
 never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
 cell dies under its compiled mutation by its own assertion (at +N isolated rebuilds per declaration
@@ -1042,7 +1048,11 @@ which is the whole point) and it does not prove HEAD green (that stays `just tes
 prove that the mutation is the behaviour the cell CLAIMS: the author picks the patch (a `const`
 flip, a body replaced by `Default::default()`) and the gate holds only that it kills by the cell's
 own assertion - whether it is the right break is review-held, with the patch visible in the diff for
-exactly that reason. The trailer never disables red-before-green for anything UNDECLARED: a claim
+exactly that reason. It does NOT prove a `#[track_caller]` panic or a cell-line `unwrap()` on a
+mutated `None` is refused: those panic AT THE CELL'S OWN LINE, which is inside its own test fn, so
+no site-based rule can close them - that shape is review-held, the reviewer reads the patch. And
+the `return claim::run(..)` wiring in `causality::run` is read by review, not measured by a cell
+here (stated, not hidden). The trailer never disables red-before-green for anything UNDECLARED: a claim
 cell without a trailer still reaches the green-against-base refusal unchanged.
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an

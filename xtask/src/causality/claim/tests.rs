@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::probe::{DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, TRACK_CALLER, UNRELATED, cell, reader};
+use super::probe::{DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, PRODUCTION_CALLER, UNRELATED, cell, reader};
 use super::{Cause, Claim, MutationKill, classify_mutation, report_accepted, report_refused};
 use crate::Verdict;
 use crate::causality::fixtures::{changed, manifest, tree};
@@ -229,17 +229,49 @@ fn a_kill_by_a_downstream_expect_in_production_is_refused() {
     );
 }
 
-// BLOCKING RED (`#[track_caller]`): production `panic!()`s under `#[track_caller]`, so the panic
-// relocates. When it stops at a production caller the site is not the cell's test region, so it is
-// not an assertion kill - and until that rule held, the relocation read as a test-file assertion.
+// RED (a panic that stops at a PRODUCTION caller, e.g. a `#[track_caller]` panic whose relocation
+// lands in production): the site is production, not the cell's own test fn, so it is not an
+// assertion kill. NAMED FOR THE SHAPE THE RULE REFUSES - a track_caller panic CALLED FROM the
+// cell panics at the cell's own line and is unreservable by any site rule; that shape is
+// review-held, not claimed here (it sits in the does-not-prove list).
 #[test]
-fn a_track_caller_relocation_is_refused() {
+fn a_panic_at_a_production_caller_is_refused() {
     assert_eq!(
-        classify_mutation(TRACK_CALLER, &cell(), &reader()),
+        classify_mutation(PRODUCTION_CALLER, &cell(), &reader()),
         MutationKill::NotByAssertion {
             site: String::from("crates/x/src/lib.rs:3")
         }
     );
+}
+
+// RED (finding-5 restriction): a panic whose site is a test region of ANOTHER file - a shared
+// `tests/common` helper - is not this cell's own assertion, so it must not read as a kill. The
+// cell's `AddedTest` carries its OWN file, and the site must be inside that file's own test fn.
+#[test]
+fn a_kill_by_another_files_test_region_is_refused() {
+    let text = concat!(
+        "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "thread 'audit::tests::the_added_one' panicked at crates/y/tests/helper.rs:9:5:\n",
+        "error: test run failed\n",
+    );
+    assert_eq!(
+        classify_mutation(text, &cell(), &reader()),
+        MutationKill::NotByAssertion {
+            site: String::from("crates/y/tests/helper.rs:9")
+        }
+    );
+}
+
+// GREEN control for the finding-5 restriction: a DIFFERENT assertion line inside the cell's OWN
+// test fn is still the cell's own kill - whatever line the assert sits on.
+#[test]
+fn a_different_assertion_line_in_the_same_fn_is_still_a_kill() {
+    let text = concat!(
+        "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "thread 'audit::tests::the_added_one' panicked at crates/sutura-cli/src/audit.rs:6:9:\n",
+        "error: test run failed\n",
+    );
+    assert_eq!(classify_mutation(text, &cell(), &reader()), MutationKill::Killed);
 }
 
 // The accepted verdict and its line, asserted on the compiled verdict rather than prose.
@@ -359,8 +391,9 @@ fn a_patch_touching_a_mixed_files_production_is_allowed() {
 }
 
 // BLOCKING-2 RED: the SAME mixed file, but the patch adds a line INSIDE the `#[cfg(test)] mod
-// tests` region (line 6, `fn t`) - editing the test region is still refused, exactly as a pure
-// test file's edit is.
+// tests` region (line 6, `fn t`) - editing the test region is refused, exactly as a pure test
+// file's edit is. The refusal is the TEXT rule's: after apply, the region is no longer
+// byte-identical to HEAD, so the arm answers `PatchRewritesCell`.
 #[test]
 fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
     let repo = Repo::with(
@@ -371,9 +404,11 @@ fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
         "diff --git a/crates/x/src/lib.rs b/crates/x/src/lib.rs\n",
         "--- a/crates/x/src/lib.rs\n",
         "+++ b/crates/x/src/lib.rs\n",
-        "@@ -6 +6 @@\n",
-        "-fn t() { assert!(false); }\n",
-        "+fn t() { assert!(true); }\n",
+        "@@ -5,3 +5,3 @@\n",
+        "     #[test]\n",
+        "-    fn t() { assert!(false); }\n",
+        "+    fn t() { assert!(true); }\n",
+        " }\n",
     );
     repo.write("devco/claim-mutations/the_cell.patch", patch);
     repo.commit("patches");
@@ -382,10 +417,72 @@ fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
     };
     let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[String::from("crates/x/src/lib.rs")]);
     assert!(
-        causes.contains(&Cause::TouchesTests {
+        causes.contains(&Cause::PatchRewritesCell {
             cell: String::from("the_cell"),
             path: String::from("crates/x/src/lib.rs"),
         }),
+        "{causes:?}"
+    );
+}
+
+// BLOCKING-1 RED (the shift-smuggle the reviewer was handed): a DELETION-ONLY hunk above
+// `#[cfg(test)]` shifts every post-image line number up by 12, and a SECOND hunk then rewrites
+// the cell's own assertion - `git apply` accepts it, and the OLD line-number rule judged the
+// second hunk (post-image line 6) against the un-shifted HEAD region (15..20) and let it through.
+// The TEXT rule compares the region by BYTES on each image, so the assertion edit is still a
+// refusal: `PatchRewritesCell`.
+#[test]
+fn a_deletion_above_the_region_cannot_smuggle_a_test_edit() {
+    let src_leading = "// c1\n// c2\n// c3\n// c4\n// c5\n// c6\n// c7\n// c8\n// c9\n// c10\n// c11\n// c12\n";
+    let mut src = String::from(src_leading);
+    src.push_str("pub fn f() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { assert_eq!(1, 1); }\n}\n");
+    let repo = Repo::with("crates/x/src/lib.rs", &src);
+    let deletions = "-// c1\n-// c2\n-// c3\n-// c4\n-// c5\n-// c6\n-// c7\n-// c8\n-// c9\n-// c10\n-// c11\n-// c12\n";
+    let mut patch = String::from(
+        "diff --git a/crates/x/src/lib.rs b/crates/x/src/lib.rs\n--- a/crates/x/src/lib.rs\n+++ b/crates/x/src/lib.rs\n@@ -1,13 +1 @@\n",
+    );
+    patch.push_str(deletions);
+    patch.push_str(" pub fn f() -> u8 { 1 }\n");
+    patch.push_str("@@ -17,3 +5,3 @@\n     #[test]\n-    fn t() { assert_eq!(1, 1); }\n+    fn t() { assert_eq!(1, 2); }\n }\n");
+    repo.write("devco/claim-mutations/the_cell.patch", &patch);
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[String::from("crates/x/src/lib.rs")]);
+    assert!(
+        causes.contains(&Cause::PatchRewritesCell {
+            cell: String::from("the_cell"),
+            path: String::from("crates/x/src/lib.rs"),
+        }),
+        "{causes:?}"
+    );
+}
+
+// BLOCKING-1 green control for the TEXT rule: the SAME deletion-only hunk, but WITHOUT the second
+// assertion edit, is a legitimate production mutation - the post-image region is relocated by
+// content and is byte-identical to HEAD's, so `validate` refuses nothing. This is the line-shift
+// a real production deletion causes, and it must stay declarable.
+#[test]
+fn a_deletion_above_the_region_in_production_only_is_allowed() {
+    let src_leading = "// c1\n// c2\n// c3\n// c4\n// c5\n// c6\n// c7\n// c8\n// c9\n// c10\n// c11\n// c12\n";
+    let mut src = String::from(src_leading);
+    src.push_str("pub fn f() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { assert_eq!(1, 1); }\n}\n");
+    let repo = Repo::with("crates/x/src/lib.rs", &src);
+    let deletions = "-// c1\n-// c2\n-// c3\n-// c4\n-// c5\n-// c6\n-// c7\n-// c8\n-// c9\n-// c10\n-// c11\n-// c12\n";
+    let mut patch = String::from(
+        "diff --git a/crates/x/src/lib.rs b/crates/x/src/lib.rs\n--- a/crates/x/src/lib.rs\n+++ b/crates/x/src/lib.rs\n@@ -1,13 +1 @@\n",
+    );
+    patch.push_str(deletions);
+    patch.push_str(" pub fn f() -> u8 { 1 }\n");
+    repo.write("devco/claim-mutations/the_cell.patch", &patch);
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[String::from("crates/x/src/lib.rs")]);
+    assert!(
+        !causes.iter().any(|c| matches!(c, Cause::PatchRewritesCell { .. })),
         "{causes:?}"
     );
 }

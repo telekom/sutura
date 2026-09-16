@@ -32,12 +32,18 @@
 //! lives in the same range the trailer does) and it must be a `git apply`-able unified diff over
 //! PRODUCTION code that TOUCHES NO TEST LINE - because the whole point is to break the behaviour
 //! the cell claims, and a mutation that edits the test to fail proves nothing. The test-line rule
-//! is LINE-PRECISE: a mutation may touch a MIXED file (production + an inline `#[cfg(test)] mod
-//! tests`) as long as no hunk lands inside a test region, which is what lets #761's inline cells
-//! touch their own file's production lines. Each cell is then run in the ISOLATED causality target
-//! with the patch applied, and the cell is required to FAIL by its OWN ASSERTION - a `panicked at`
-//! site inside its own test region - the mutation kills it. A patch that does not apply, touches
-//! a test line, or leaves the cell green is refused by name.
+//! is a PATH half and a TEXT half. The PATH half refuses a touch of a file that is all test at
+//! HEAD. The TEXT half decides a MIXED file (production + an inline `#[cfg(test)] mod tests`, the
+//! shape #761's inline cells need to patch their own file's production lines): it APPLIES the
+//! patch, then requires every `#[cfg(test)]` region of the post-image to be byte-identical to
+//! HEAD's by BYTES, re-locating the regions by content on each image - so a deletion-only hunk
+//! above the region (which shifts line numbers and used to let a second hunk smuggle an edit into
+//! the cell's own assertion past the old LINE rule) still refuses as *patch rewrites the cell*.
+//! Each cell is then run in the ISOLATED causality target with the patch applied, and the cell is
+//! required to FAIL by its OWN ASSERTION - a `panicked at` site in the cell's OWN file, inside its
+//! own test fn (located by the fn's name on the post-image, never by a line) - the mutation kills
+//! it. A patch that does not apply, touches a test line or test region, or leaves the cell green
+//! is refused by name.
 //!
 //! **THE COST**: each mutated run pays the same ~68 s isolated rebuild every base/head run pays
 //! (the patch forces this workspace's own crates to recompile), so a declared diff costs `+N`
@@ -57,13 +63,14 @@
 //! classified output that NAMES the cell, never from a subprocess's `Ok`.
 
 use std::collections::BTreeSet;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Verdict;
 use crate::causality::base;
 use crate::causality::place::AddedTest;
-use crate::causality::regions::{PostImage, TestScope, scope as test_scope};
+use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, item_end, scope as test_scope};
 use crate::causality::runner::{Tree, cargo_test};
 use crate::causality::scoped::Scoped;
 use crate::causality::worktree;
@@ -121,12 +128,19 @@ pub(super) enum Cause {
     /// The patch touches a file the repo classifies as test-bearing at HEAD (or one this diff
     /// itself added as a test file). A mutation edits PRODUCTION code only.
     TouchesTests { cell: String, path: String },
+    /// The patch's POST-image is not byte-identical to HEAD inside the touched file's test
+    /// regions: it rewrites the cell's own test code (a deletion-only hunk above `#[cfg(test)]`
+    /// that shifts a later hunk into the region included) rather than breaking production. The
+    /// comparison is of region TEXT on each image, never of a line number, so a line-shift cannot
+    /// smuggle an edit past it.
+    PatchRewritesCell { cell: String, path: String },
     /// The patch does not `git apply` cleanly in the worktree at HEAD.
     DoesNotApply { cell: String, why: String },
     /// Applied and run, and the run reports the cell failing but no `panicked at` site lands
-    /// inside the cell's own test region - a kill by `process::exit`/`abort`/signal, a panic in a
-    /// production file (a downstream `.expect()`), a `#[track_caller]` relocation, or a FAIL with
-    /// no site at all. The assertion the cell carries never discriminated.
+    /// inside the cell's OWN test fn, in the cell's OWN file - a kill by `process::exit`/`abort`/
+    /// signal, a panic in a production file (a downstream `.expect()`), a panic inside another
+    /// file's test region (a shared `tests/common` helper), or a FAIL with no site at all. The
+    /// assertion the cell carries never discriminated.
     NotByAssertion { cell: String, site: String },
     /// Applied and run, but the tree could not be restored to HEAD, so this cell's mutation leaked
     /// into the next cell's run.
@@ -141,21 +155,22 @@ pub(super) enum Cause {
 /// change is `panic!` / `unwrap()` on `None` at the top of a reached function kills ANY cell that
 /// reaches it - it proves reachability, not that the cell's assertion discriminates, which is the
 /// "looks like coverage" test AGENTS.md refuses. So a run is a KILL only when nextest's
-/// `panicked at <path>:<line>` lands INSIDE the cell's own test region ([`test_scope`] +
-/// [`TestScope::covers`]): a genuine assertion-fail panics at the assert's own line in the cell's
-/// test code, and every other death - `process::exit`/`abort`/signal (no site), a panic in a
-/// production file (a downstream `.expect()` in ordinary careless mutation), a `#[track_caller]`
-/// relocation that stops in production - carries no site inside any test region and is refused.
+/// `panicked at <path>:<line>` lands in the cell's OWN file, inside the cell's OWN test fn
+/// ([`test_fn_region`], located by the fn's name on the post-image, never by a line number): a
+/// genuine assertion-fail panics at the assert's own line in the cell's test code, and every
+/// other death - `process::exit`/`abort`/signal (no site), a panic in a production file (a
+/// downstream `.expect()` in ordinary careless mutation), a panic inside ANOTHER file's test
+/// region (a shared `tests/common` helper) - carries no site in the cell's own fn and is refused.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum MutationKill {
-    /// The run reported `cell` failing, and a `panicked at` site landed inside the cell's own test
-    /// region - the assertion the cell carries discriminated.
+    /// The run reported `cell` failing, and a `panicked at` site landed in the cell's own file,
+    /// inside the cell's own test fn - the assertion the cell carries discriminated.
     Killed,
     /// The run did not REPORT `cell` failing - a different test, a green run, or a failed compile.
     NotAsserted,
-    /// The run reports `cell` failing but no `panicked at` site lands inside a test region - the
-    /// cell died some other way. `site` is the first `panicked at <path>:<line>` the run carried,
-    /// empty when there was none.
+    /// The run reports `cell` failing but no `panicked at` site lands in the cell's own test fn -
+    /// the cell died some other way. `site` is the first `panicked at <path>:<line>` the run
+    /// carried, empty when there was none.
     NotByAssertion { site: String },
 }
 
@@ -163,17 +178,19 @@ pub(super) enum MutationKill {
 ///
 /// Pure, and the verdict's whole mechanism: a mutation "kills" a cell exactly when a run of that
 /// cell, with the mutation applied, fails, names that cell, AND carries a `panicked at <path>:<line>`
-/// inside the cell's own test region - only an assertion fail panics there. A panic inside
-/// production (patched or not) proves reachability and not the assertion; an exit/abort/signal
-/// death or a FAIL with no site proves nothing about the assertion either. The naming goes through
-/// the SAME key the base run uses ([`super::base::failures`] + [`super::base::is_scoped`] +
-/// [`AddedTest::claims`]), so a mutation that reddened a DIFFERENT test reads as *does not kill*
-/// rather than as evidence. A run that compiled and passed names no failure; a run that failed to
-/// compile names none either - neither kills.
+/// in the cell's OWN file inside the cell's OWN test fn ([`test_fn_region`]) - only an assertion
+/// fail panics there. A panic inside production (patched or not) proves reachability and not the
+/// assertion; a panic inside ANOTHER file's test region (a shared `tests/common` helper) proves
+/// nothing about this cell's assertion either; an exit/abort/signal death or a FAIL with no site
+/// proves nothing about the assertion either. The naming goes through the SAME key the base run
+/// uses ([`super::base::failures`] + [`super::base::is_scoped`] + [`AddedTest::claims`]), so a
+/// mutation that reddened a DIFFERENT test reads as *does not kill* rather than as evidence. A
+/// run that compiled and passed names no failure; a run that failed to compile names none either -
+/// neither kills.
 ///
-/// `read` supplies each panic site's file so [`test_scope`] can say whether the line is test
-/// code - a parameter rather than a filesystem call, so the classifier is testable without a
-/// checkout, exactly as the region reader itself is.
+/// `read` supplies each panic site's file ([`AddedTest::file`]) and its content so the cell's own
+/// test fn can be located on the POST-image - a parameter rather than a filesystem call, so the
+/// classifier is testable without a checkout, exactly as the region reader itself is.
 pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'_>) -> MutationKill {
     let named = base::failures(text)
         .iter()
@@ -182,13 +199,91 @@ pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'
         return MutationKill::NotAsserted;
     }
     let sites = panic_sites(text);
-    if sites.iter().any(|(path, line)| test_scope(path, read).covers(*line)) {
+    if sites
+        .iter()
+        .any(|(path, line)| is_cells_own_assertion(cell, path, *line, read))
+    {
         MutationKill::Killed
     } else {
         MutationKill::NotByAssertion {
             site: sites.first().map(|(path, line)| format!("{path}:{line}")).unwrap_or_default(),
         }
     }
+}
+
+/// Is `site` at `line` in `path` the cell's OWN assertion - `path` is the cell's OWN file and the
+/// line sits inside that file's own test fn, located by the fn's name on the post-image?
+///
+/// One comparison more than "any test region": the cell's `AddedTest` carries its file
+/// ([`AddedTest::file`]), so a panic inside a SHARED helper's test region in another file - or in
+/// a sibling test fn of the same module - is refused rather than read as this cell's kill.
+fn is_cells_own_assertion(cell: &AddedTest, path: &str, line: usize, read: &PostImage<'_>) -> bool {
+    if path != cell.file() {
+        return false;
+    }
+    let Some(text) = read(path) else {
+        return false;
+    };
+    let scope = test_scope(path, read);
+    test_fn_region(&text, cell.name(), &scope).is_some_and(|region| region.contains(&line))
+}
+
+/// The lines of every `#[cfg(test)]` region in `text`, concatenated in file order.
+///
+/// CONTENT-DERIVED: the regions are re-found on whatever image is handed here, so a line-shift
+/// above them (a deletion-only production hunk) does not change the answer, while a byte change
+/// inside one does. `""` for a file with no `#[cfg(test)]` region. This is the TEXT rule's
+/// comparison key: `claim` compares it for a touched file at HEAD and after the patch and refuses
+/// on any difference, which is how a deletion-only hunk above `#[cfg(test)]` stops being an
+/// exploit - the shifted post-image region is still found and compared by its bytes, never by a
+/// line number from the other image.
+fn test_region_text(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = String::new();
+    // `test_regions` yields 1-BASED, half-open ranges (`#[cfg(test)]` lines as a person numbers
+    // them); `lines` is 0-based, so each side is shifted down by one for the slice.
+    for region in test_regions(text) {
+        if let Some(slice) = lines.get(region.start.saturating_sub(1)..region.end.saturating_sub(1)) {
+            for &line in slice {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+/// The 1-based, half-open line span of the test item `fn <name>`, located by CONTENT, not by a
+/// line number carried from another image.
+///
+/// `scope` says what counts as test code for `text`: for a dedicated test target
+/// ([`TestScope::WholeFile`]) the whole file is searched; for a mixed file the search stays
+/// inside the `#[cfg(test)]` regions. The fn's own braces are walked from its `fn <name>` line,
+/// so a real assertion panic - which fires at a line inside its own fn - is covered, and anything
+/// outside that fn (a sibling test's line, a production caller) is not. This is what keeps the
+/// kill an assertion kill and immune to line-shifts in the same patch.
+fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usize>> {
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        if !scope.covers(index + 1) {
+            continue;
+        }
+        if !fn_line_is(line, name) {
+            continue;
+        }
+        let last = item_end(&lines, index);
+        return Some(index + 1..last + 2);
+    }
+    None
+}
+
+/// Is `line` a `fn <name>(` declaration? The name sits before the `(` (and before generics and
+/// where-clauses), matching how the arm names its tests.
+fn fn_line_is(line: &str, name: &str) -> bool {
+    line.trim_start()
+        .strip_prefix("fn")
+        .and_then(|rest| rest.split(['(', '<', ':']).next())
+        .is_some_and(|token| token.trim() == name)
 }
 
 /// The `(path, line)` of every `panicked at <path>:<line>:` site nextest printed, for panics inside
@@ -247,89 +342,62 @@ fn touched_paths(wt: &Path, patch: &Path) -> Result<Vec<String>, String> {
     Ok(numstat_paths(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// One touched file, and the post-image line numbers the patch ADDS there.
-type AddedLines = Vec<(String, Vec<usize>)>;
-
-/// The post-image line numbers `patch` ADDS, per file it touches: for each `@@ -a,b +c,d @@` hunk,
-/// the `+` body lines, each at its post-image line number (context advances the counter, removed
-/// lines do not).
+/// The numstat PATH half of the test-file rule: refuse any touched file the repo classifies as
+/// all-test at HEAD ([`TestScope::WholeFile`]), or a diff-declared test file (`test_files`) whose
+/// test regions this reader cannot find at HEAD.
 ///
-/// This is the "hunk line ranges" half of the mixed-file rule - `git apply --numstat` supplies the
-/// touched PATHS, this supplies the LINES, and [`test_scope`] supplies which lines are test
-/// code. A header-less patch is handled because the current file tracks the `+++ b/` side, which
-/// such a patch carries.
-fn patch_added_lines(patch: &str) -> AddedLines {
-    let mut out: AddedLines = Vec::new();
-    let mut current: Option<usize> = None;
-    let mut new_line = 0_usize;
-    for line in patch.lines() {
-        if let Some(rest) = line.strip_prefix("+++ ") {
-            let file = rest.trim().strip_prefix("b/").unwrap_or_else(|| rest.trim()).to_owned();
-            current = Some(out.iter().position(|(one, _)| *one == file).unwrap_or_else(|| {
-                out.push((file, Vec::new()));
-                out.len() - 1
-            }));
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("@@ ") {
-            // `@@ -a,b +c,d @@` (optionally a label after): the `+c,d` opens the post-image range.
-            new_line = new_hunk_start(rest);
-            continue;
-        }
-        if let Some(index) = current {
-            match line.as_bytes().first() {
-                Some(b'+') => {
-                    if let Some(entry) = out.get_mut(index) {
-                        entry.1.push(new_line);
-                    }
-                    new_line += 1;
-                }
-                Some(b' ') => new_line += 1,
-                _ => {}
-            }
-        }
-    }
-    out
-}
-
-/// The post-image start line a unified-diff hunk header `@@ -a,b +c,d @@` names for the NEW side.
-fn new_hunk_start(header: &str) -> usize {
-    // `header` is everything after `@@ `, e.g. `-1,5 +1,7 @@` (a label may follow the second `@@`).
-    let body = header.split(" @@").next().unwrap_or(header);
-    let new_token = body.split_whitespace().find(|token| token.starts_with('+')).unwrap_or("+1");
-    let number = new_token.trim_start_matches('+');
-    let start = number.split(',').next().unwrap_or(number);
-    start.trim().parse().unwrap_or(1)
-}
-
-/// Does `patch` add any line inside a test region of any file it touches?
-///
-/// The mixed-file rule, LINE-PRECISE: a file the repo classifies as all-test ([`TestScope::WholeFile`])
-/// is refused on any touch; a MIXED file (production + a `#[cfg(test)]` region) is refused only
-/// when the patch ADDS a line inside one of its test regions; and a NON-test file reaches here and
-/// is allowed. A diff-declared test file (`test_files`) whose test region this reader cannot find
-/// at HEAD stays conservatively whole: if the repo classifier cannot show WHERE its tests sit, a
-/// production-looking hunk is still a test-file edit from the diff's own account, and the direction
-/// that asks rather than guesses keeps refusing.
-fn touches_test_line(patch: &str, touched: &[String], test_files: &[String], read: &PostImage<'_>) -> Option<String> {
-    let added = patch_added_lines(patch);
+/// A file is also a legitimate MIXED target in its production lines - the shape an inline claim
+/// cell needs to patch its own file - so this half refuses only what is test code WITHOUT a
+/// recoverable region to preserve; whether a mixed-file patch edits test code is the TEXT half's
+/// question ([[`rewrites_cell_test_region`]]), not this one's.
+fn touches_test(touched: &[String], test_files: &[String], read: &PostImage<'_>) -> Option<String> {
     for path in touched {
         match test_scope(path, read) {
             TestScope::WholeFile => return Some(path.clone()),
             TestScope::Regions(regions) if regions.is_empty() && test_files.contains(path) => {
                 return Some(path.clone());
             }
-            TestScope::Regions(regions) => {
-                let added_here = added.iter().find(|(one, _)| one == path);
-                if added_here
-                    .is_some_and(|(_, lines)| lines.iter().any(|line| regions.iter().any(|region| region.contains(line))))
-                {
-                    return Some(path.clone());
-                }
-            }
+            TestScope::Regions(_) => {}
         }
     }
     None
+}
+
+/// The test-region text of `path` as `read` sees it, or `None` when `read` has no such file.
+///
+/// The regions are re-found by CONTENT on the image handed in ([[`test_region_text`]]), never by
+/// a line number carried from another image - that is what makes the TEXT rule shift-proof.
+fn region_text_of(path: &str, read: &PostImage<'_>) -> Option<String> {
+    read(path).map(|text| test_region_text(&text))
+}
+
+/// HEAD's test-region text for every touched path that exists at HEAD, as the TEXT rule's
+/// `before` image. Snapshot taken BEFORE the patch applies, because the same reader afterwards
+/// reads the post-image.
+fn head_region_texts(touched: &[String], read: &PostImage<'_>) -> Vec<(String, String)> {
+    touched
+        .iter()
+        .filter_map(|path| region_text_of(path, read).map(|text| (path.clone(), text)))
+        .collect()
+}
+
+/// The TEXT half of the test-file rule, decided AFTER `git apply`: is any touched file's test
+/// region no longer byte-identical to HEAD's?
+///
+/// The exploit this closes was LINE-BASED: the old rule compared the patch's post-image `+c,d`
+/// line numbers against the file's regions at HEAD, so ONE deletion-only hunk above `#[cfg(test)]`
+/// shifted every later post-image number, and a SECOND hunk then rewrote the cell's own assertion
+/// inside the region while the rule judged it against the un-shifted HEAD range. Comparing region
+/// TEXT ([[`test_region_text`]], re-found by content on each image) is immune: a line-shift
+/// changes line numbers but not bytes, so an edit inside the region still differs and a
+/// production-only shift still matches. `before` is the snapshot taken pre-apply; `after` reads
+/// the worktree post-apply.
+fn rewrites_cell_test_region(before: &[(String, String)], after: &PostImage<'_>) -> Option<String> {
+    before.iter().find_map(|(path, head_text)| {
+        region_text_of(path, after)
+            .filter(|post_text| post_text != head_text)
+            .map(|_| path.clone())
+    })
 }
 
 /// A post-image reader over the worktree the arm created at HEAD.
@@ -391,10 +459,10 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> 
         // The patch is read from the HEAD worktree, not the caller's working tree - an UNCOMMITTED
         // patch is not the range the trailer declared, so it is not under review.
         let patch = mutation_path(wt, cell);
-        let Ok(content) = std::fs::read_to_string(&patch) else {
+        if std::fs::read_to_string(&patch).is_err() {
             causes.push(Cause::MissingPatch(cell.clone()));
             continue;
-        };
+        }
         let touched = match touched_paths(wt, &patch) {
             Ok(paths) => paths,
             Err(why) => {
@@ -402,21 +470,38 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> 
                 continue;
             }
         };
-        // The test-file rule is LINE-PRECISE and region-aware: a mutation may touch a MIXED file
-        // (production + inline `#[cfg(test)] mod tests`) as long as no hunk lands inside a test
-        // region - that is what makes #761's inline cells declarable at all, since a patch to that
-        // file's production lines would otherwise be refused for touching the very file they assert
-        // in. `git apply --numstat` supplies the touched path set; the patch's own `+c,d` hunks
-        // supply the post-image line numbers; `regions::scope` supplies which lines are test code.
-        if let Some(touched_path) = touches_test_line(&content, &touched, test_files, &read) {
+        // The test-file rule is a PATH half and a TEXT half. The PATH half (`--numstat`) keeps
+        // refusing a touch of a file that is all test at HEAD, or a diff-declared test file whose
+        // test regions this reader cannot find. The TEXT half decides a MIXED file (production +
+        // inline `#[cfg(test)] mod tests`, the shape #761's inline cells need to patch): it
+        // APPLIES the patch for real, then requires every `#[cfg(test)]` region of the post-image
+        // to be byte-identical to HEAD's, so an edit smuggled past a line-shift still refuses.
+        // Applying for real also makes a bad patch answer `DoesNotApply` the way the run will.
+        if let Some(touched_path) = touches_test(&touched, test_files, &read) {
             causes.push(Cause::TouchesTests {
                 cell: cell.clone(),
                 path: touched_path,
             });
             continue;
         }
-        if let Err(why) = apply_git(wt, &patch, true) {
+        // Snapshot the HEAD test-region text BEFORE the apply mutates the worktree; the same
+        // reader afterwards reads the post-image.
+        let before = head_region_texts(&touched, &read);
+        if let Err(why) = apply_git(wt, &patch, false) {
             causes.push(Cause::DoesNotApply { cell: cell.clone(), why });
+            continue;
+        }
+        let rewritten = rewrites_cell_test_region(&before, &read);
+        // RESTORE IS ON EVERY PATH and a failed restore is a cause: an apply this method leaves in
+        // the tree would leak into the next cell's validate or kill run.
+        let restored = restore(wt, &touched).err();
+        if let Some(path) = rewritten {
+            causes.push(Cause::PatchRewritesCell {
+                cell: cell.clone(),
+                path,
+            });
+        } else if let Some(why) = restored {
+            causes.push(Cause::RestoreFailed { cell: cell.clone(), why });
         }
     }
     causes
@@ -579,12 +664,17 @@ fn cause_line(cause: &Cause) -> String {
         Cause::TouchesTests { cell, path } => {
             format!("  touches tests: {path}  (the `{cell}` mutation must break PRODUCTION code, not a test)")
         }
+        Cause::PatchRewritesCell { cell, path } => {
+            format!(
+                "  patch rewrites the cell: {path}  (the `{cell}` mutation must leave its own test region byte-identical at HEAD)"
+            )
+        }
         Cause::DoesNotApply { cell, why } => {
             format!("  does not apply: {cell}: {why}")
         }
         Cause::NotByAssertion { cell, site } => {
             format!(
-                "  not by the cell's own assertion: {site}  (the `{cell}` mutation killed it without failing the assertion inside the cell's own test region - an exit/signal, a production panic, or a FAIL with no site)"
+                "  not by the cell's own assertion: {site}  (the `{cell}` mutation killed it without failing the assertion inside the cell's own test fn - an exit/signal, a production panic, or a FAIL with no site)"
             )
         }
         Cause::RestoreFailed { cell, why } => {

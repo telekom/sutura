@@ -168,7 +168,7 @@ fn carries_no_behaviour(line: &str) -> bool {
 /// Handles more than one such item, and an item that is not the last thing in the file: each
 /// region ends where its item's braces balance, and the search resumes after it. A nested
 /// `#[cfg(test)]` inside a region is therefore not a second region - it is already inside one.
-fn cfg_test_regions(text: &str) -> Vec<Range<usize>> {
+pub(crate) fn cfg_test_regions(text: &str) -> Vec<Range<usize>> {
     let lines: Vec<&str> = text.lines().collect();
     let mut regions: Vec<Range<usize>> = Vec::new();
     let mut cursor = 0_usize;
