@@ -1032,3 +1032,12 @@ with `--features datahub` no longer refuses `catalog.kind: datahub` by name.
   kind per deployment**: `sutura-serve`'s composition reads every declared catalog's kind, refuses a
   mix by name, and opens one of two monomorphic vectors. `.agents/skills/sutura/crate-map/SKILL.md`
   carries the same sentence, so a reader of either finds it rather than only one.
+
+## Second amendment, 2026-09-16: the two composition roots are two entry points of one binary now
+
+*The answer* said "the two composition roots differ... `sutura-serve` refuses, full stop. `sutura-cli`
+falls back to its own built-in declaration." `sutura-serve` folded into `sutura-cli`'s `serve` module
+(`github.com/telekom/sutura#685` step 2), after that section was written and before this one. The
+distinction survives - an absent source entry is still a hard refusal reached through `sutura serve`
+and still a `local`-named fallback reached through `sutura`'s other commands - it is a split between
+two entry points of one binary rather than between two binaries.

@@ -868,3 +868,21 @@ errors, so no ordinary rendering of a shape-derived diagnostic can carry provide
 
 `an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
 `crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.
+
+## Fourth amendment, 2026-09-16: `sutura-serve` folded into `sutura-cli`, and the artifact table's own row with it
+
+`sutura-serve` folded into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2),
+after every site below was written. Three, in the base body rather than in an earlier amendment:
+
+- *The decision* named `WorkloadIdentityBroker` as "composed in `sutura-serve` (#284)". It is composed
+  in `sutura-cli`'s `serve` module now; "wired in serve, not proven live" is unaffected.
+- *Which shipped artifact links what, per target*'s table carried a whole row for `sutura-serve` as
+  its own release artifact, and a `Corrected:` note beneath it saying `nix/shipped.nix:161-164` names
+  it as a shipped binary. Both are spent: `nix/shipped.nix`'s `binaries` list has one entry now
+  (`bin = "sutura"`, `package = "sutura-cli"`), so there is no second row - the four native artifacts
+  and their `oci-<triple>` twins above are the whole table, and each still links neither
+  `sutura-exec-bigquery` nor `ureq` in its default build, unchanged.
+- *What is claimed, and what is not*'s `Corrected:` note said "`sutura-serve` links the adapter now",
+  citing `crates/sutura-cli/src/serve.rs`'s `OpenedSources::BigQuery` - the citation already named the
+  post-fold file; only the crate name in the sentence was `sutura-serve`. It is `sutura-cli` linking
+  the adapter, through the same type alias, unchanged otherwise.

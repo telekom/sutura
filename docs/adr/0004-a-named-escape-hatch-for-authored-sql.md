@@ -669,3 +669,27 @@ stated.
 anywhere on the definition path. Rejected for the reason 0002 rejected it once already: that path
 needs an upstream renderer, which is the precondition the first-party path exists because it is
 absent - and it now also means refusing an entire class of metadata provider rather than one metric.
+
+## Amendment, 2026-09-16: the two shipped binaries this record argued about are one now
+
+`sutura-serve` folded into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2), so
+three claims above are stale.
+
+- *What is built, and what is not* said `sutura-catalog-local` "is linked by both shipped binaries" -
+  there is one now, `sutura-cli`, which serves and runs locally out of the same artifact.
+- The same section said `checks.shipped-features` "closes that gap for `sutura-serve` by banning
+  `polyglot-sql` from its embedded dependency list." That ban named `sutura-serve` alone because
+  `sutura` (the local tool) legitimately links `polyglot-sql` for `compile`; folding the two into one
+  binary that needs `compile` either way made the ban moot rather than something to carry forward -
+  `nix/shipped.nix`'s own comment beside `alsoForbidden` says so. Nothing in `checks.shipped-features`
+  bans this crate for either role today.
+- *A refusal in the composition root cannot be made structural today* said the domain-side witness
+  "cannot live in `sutura-sql`... because... `sutura-serve` may not reach `sutura-sql`." The rule that
+  actually holds this, unaffected by the fold, is `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` -
+  it forbids `sutura-semantic` (the domain-adjacent core) from reaching `polyglot-sql` or `sutura-sql`
+  by crate name, not a binary by identity, so `sutura-cli` linking `sutura-sql` for `compile` today is
+  the same shape the pre-fold `sutura` binary already had.
+
+What survives unamended: the boot-time refusal - `Warehouse::EXECUTES_AUTHORED_SQL` and
+`sutura_app::verify_and_validate` - is the mechanism this whole record's *Consequences* rest on, and
+neither the fold nor the now-moot artifact ban touches it.

@@ -504,3 +504,10 @@ that holds unconditionally. It does not, and the row is amended rather than the 
   to its end on the pool and nothing installs its result; a look that never returns under an awaiter
   that stays - the timer's - holds refresh for as long as it hangs, visible as a staleness that only
   grows.
+
+## Third amendment, 2026-09-16: `sutura-serve` is `sutura-cli`'s `serve` module now
+
+**Status of the amendment: accepted.** The *What is built* table's `Wired` row names `sutura-serve`
+as where the key set is read before the listener opens. `sutura-serve` folded into `sutura-cli`'s
+`serve` module (`github.com/telekom/sutura#685` step 2); the mechanism the row describes is unmoved,
+and the crate it runs in is `sutura-cli`.

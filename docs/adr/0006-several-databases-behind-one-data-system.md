@@ -700,3 +700,13 @@ joined table in a flat namespace out of one directory, and a question reaching a
 sources is *answered* under the metric's certified name and the bundle's digest. Not a refusal, not an
 error - a number. The same failure mode as the federation defect, arrived at from inside our own code,
 which is why both are in this record.
+
+## Amendment, 2026-09-16: `sutura-serve` is `sutura serve` now, one binary not two
+
+*What was measured*'s inline correction said the plan-stage refusal "IS reachable in `sutura-serve`,
+and the sentence above holds only of `sutura-cli`" - naming two binaries. `sutura-serve` folded into
+`sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2), so there is one binary now
+with two code paths: `sutura`'s default command and the `sutura serve` subcommand, both in
+`crates/sutura-cli`. The distinction the correction drew still holds - the plan-stage refusal is
+reachable through the listener and the paragraph above described only the other path - it is a
+subcommand split inside one crate rather than a split between two.

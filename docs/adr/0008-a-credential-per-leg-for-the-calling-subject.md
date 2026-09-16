@@ -2124,3 +2124,19 @@ below and still true for the rest.
    > copy - an adapter is the last thing before a driver and may not assume who called it - and what
    > moved is the *claim*: it is now a property of the application rather than a convention each
    > adapter is trusted to follow.
+
+## Amendment, 2026-09-16: two composition roots named where there is one, and one of the two named claims moved too
+
+`sutura-serve` folded into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2), so
+two sentences naming it as a separate root are stale.
+
+- *`It is synchronous`* said "`sutura-serve` is already synchronous down to one `block_on`". That is
+  now `crates/sutura-cli/src/serve.rs`'s single `runtime.block_on(serve_until_stopped(...))` - the
+  claim survives, renamed to the module that carries it.
+- The table row for `StaticCredentialBroker` said it is "Wired in both roots: `sutura-serve` builds it
+  from the registry, `sutura` from the one declaration that command makes in code" - naming a second
+  binary, and describing a mechanism `sutura` no longer has. Since
+  `github.com/telekom/sutura#121`, `crates/sutura-cli/src/sources.rs` also builds
+  `StaticCredentialBroker::from_registry` for a declared source; the "one declaration... in code" path
+  survives only as the fallback for a source the tree does not declare. [0011's second amendment](0011-pluggable-by-declaration.md#second-amendment-the-second-composition-root-reads-the-tree-too)
+  is the record of that change; this row is corrected to point there rather than restate it.

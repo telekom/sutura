@@ -310,3 +310,11 @@ record's own opening failure, one layer further out.
 - **Nothing about identity.** A service-account key is `SharedServiceUser`. Cross-project reads under
   a per-subject credential are [0008](0008-a-credential-per-leg-for-the-calling-subject.md)'s
   business, and this record touches none of it.
+
+## Amendment, 2026-09-16: one binary refuses at boot, not two
+
+*Decision 4* said "the engine and the two binaries that link it refuse the same thing independently:
+`DataFusionWarehouse::scan`... and `sutura-serve` and `sutura-cli` at boot." `sutura-serve` folded
+into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2); the engine's own refusal
+and the boot-time refusal are still two independent checks, and the second now runs once, in
+`sutura-cli`, for both the `serve` subcommand and the rest of the binary.
