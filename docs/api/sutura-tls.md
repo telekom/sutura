@@ -215,3 +215,26 @@ kind.
 `LoadError::IdentityRead` for a half that cannot be read; `LoadError::IdentityIncomplete` for
 a certificate file with no certificate; `LoadError::IdentityKey` for a key file that does not
 parse as a private key.
+
+## `use Outcome`
+
+What one look at the declared material decided.
+
+## `use POLL_INTERVAL`
+
+## `use Rotating`
+
+The read side a consumer holds: clones out the in-use `T`.
+
+`Clone` is sharing, not copying: every clone observes the same channel, so a rotation adopted by
+`poll_once` reaches every consumer that holds a clone. `current()` is an `Arc` clone under a
+`watch` borrow - no lock a request path waits on. `Debug` prints no path.
+
+## `use Rotator`
+
+The poll handle a composition root drives on `POLL_INTERVAL`.
+
+Owns the declared source (so it can re-read it), the `sender` half of the channel `Rotating`
+reads, the rebuild closure (the consumer's own materialization), and the `seen` marker that makes
+identical bytes silent. `poll_once` is synchronous, like `sutura-http::tls::Renewal::poll_once`;
+*starting* the loop is the composition root's choice, and this type does not spawn.

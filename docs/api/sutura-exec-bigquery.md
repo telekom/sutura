@@ -1326,6 +1326,26 @@ default for one with no `security.outbound.transport_anchors` block - see `Self:
 for the one setting that differs when a deployment declares one.
 
 ```rust
+pub const fn rotating(bounds: JobBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
+```
+
+The rotation-lane constructor over a handle built by `Self::rotating_agent`.
+
+```rust
+pub fn rotating_agent(bounds: JobBounds, anchors: Option<sutura_tls::Anchors>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
+```
+
+Builds the wire's rotating agent handle for a declared `security.outbound.transport_anchors`
+set (and, when one is declared, the poll handle the composition root drives on
+`sutura_tls::POLL_INTERVAL`). `None` returns a fixed handle over `ureq`'s compiled-in roots
+(the pre-`#125` behaviour, nothing to re-read); `Some` rebuilds `RootCerts::Specific` from each
+freshly loaded bundle, adopted by the next request.
+
+# Errors
+
+The declared bundle cannot be loaded at boot.
+
+```rust
 pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
 ```
 
@@ -1351,6 +1371,10 @@ The one place every non-default setting is decided, and every one of them is a d
   `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
   `security.outbound.transport_anchors` resolves to. No client identity: `security.outbound`
   is anchors only, so there is no `ClientCert` in either arm.
+
+The agent is wrapped in a never-rotating `sutura_tls::Rotating` - this constructor has no
+declaration to re-read. The rotation lane is `Self::rotating`, fed by
+`Self::rotating_agent`.
 
 #### Implements
 

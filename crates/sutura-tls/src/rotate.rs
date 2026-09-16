@@ -15,7 +15,7 @@
 //! # Shape: a poll handle and a read handle, like serving's `Renewal`/resolver split
 //!
 //! [`Rotator`] is the poll side: it owns the declared [`Anchors`] (and optional client [`Identity`]),
-//! the [`REBUILD`] closure that turns freshly loaded material into the consumer's rebuilt `T`, and the
+//! the `rebuild` closure that turns freshly loaded material into the consumer's rebuilt `T`, and the
 //! `seen` marker that makes identical bytes silent. `poll_once()` re-reads the declared paths
 //! (bounded, on [`POLL_INTERVAL`] - a slow tick over two small files, which is precisely the
 //! "deployment shape, not a knob" argument `sutura-http::tls::RENEWAL_INTERVAL` commits the serving
