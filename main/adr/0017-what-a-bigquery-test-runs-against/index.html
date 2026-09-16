@@ -4857,6 +4857,38 @@ the same change that records this. <code>test-infra/pulumi/google/__main__.py</c
 accounts, their keys and their row access policies are left provisioned: deleting cloud state is a
 separate decision, and both accounts are candidates for the <code>iamcredentials</code> impersonation hop
 telekom/sutura#376's exchanged-identity cell still needs.</p>
+<h2 id="fifteenth-amendment-2026-09-16-the-default-off-decision-is-superseded">Fifteenth amendment, 2026-09-16: the default-off decision is superseded<a class="headerlink" href="#fifteenth-amendment-2026-09-16-the-default-off-decision-is-superseded" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted; it records a reversal, not a build.</strong> The Eighth amendment
+above closes with <em>"What default-off IS still necessary for, unchanged and now the whole of the
+argument: no published artefact links an outbound TLS stack"</em> and calls that <em>the decision of step
+3</em>. <code>github.com/telekom/sutura#685</code>'s own shape table reverses it: <strong>one binary, every adapter
+compiled in, no per-feature artefacts</strong> - "which adapters a deployment uses is configuration, not a
+build." That is the opposite of what this record has argued for since the measurement above, and</p>
+<h1 id="685-is-what-wins-build-time-is-priced-and-accepted-there-and-the-artefact-this-records">685 is what wins: build time is priced and accepted there, and the artefact this record's<a class="headerlink" href="#685-is-what-wins-build-time-is-priced-and-accepted-there-and-the-artefact-this-records" title="Permanent link">&para;</a></h1>
+<p>default-off reasoning was defending against no longer applies.</p>
+<p><strong>What that makes false, stated rather than left to be found.</strong> Every sentence in this record and in
+<code>nix/shipped.nix</code> that reads <em>the shipped binary carries neither <code>tls</code>, <code>bigquery</code>, <code>postgres</code> nor
+<code>datahub</code></em> is a description of the tree today, not of a standing decision - the decision it used to
+describe is the one this amendment retires. <code>docs/getting-started.md</code>'s "build from source for the
+feature you need" instruction and <code>docs/verifying-a-release.md</code>'s "built with cargo's default
+features" table are in the same position: true of the artefact <code>#685</code> step 5 has not built yet, false
+of the one it decides.</p>
+<p><strong>What is NOT true yet, and this is the limit next to the claim.</strong> This amendment records the
+decision; it does not implement it. <code>nix/shipped.nix</code>'s <code>binaries</code> entry still has no <code>features</code>
+field, still builds cargo's default set, and <code>checks.shipped-features</code> still bans <code>ring</code> and <code>ureq</code>
+for it - unchanged, because its <code>permit</code> list (added below) is empty for that entry. The published
+<code>sutura</code> binary today carries exactly what the Eighth amendment measured. Turning that binary
+all-features, and the images beside it, is <code>#685</code> step 5 and is deliberately not part of this
+change.</p>
+<p><strong>What DOES land here, in the same commit as this amendment - <code>#685</code> step 4.</strong>
+<code>checks.shipped-features</code>'s <code>forbidden</code> list (<code>nix/shipped.nix</code>) was global: the only way a future
+all-features artefact could carry <code>ring</code> and <code>ureq</code> on purpose was to edit that list, which would
+have silently permitted both crates for every binary reading it, including a default-off one added
+beside it later. Each binary in <code>binaries</code> now carries its own <code>permit</code> list, subtracted from
+<code>forbidden</code> before the check runs. <code>sutura</code>'s is empty, so both crates stay banned for it exactly as
+before; the artefact <code>#685</code> step 5 adds will state <code>permit = [ "ring" "ureq" ]</code> on its own entry, by
+name, rather than by loosening the check for everyone. The mechanism is ready; the artefact that
+needs it is not built.</p>
 
 
 
