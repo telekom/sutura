@@ -498,10 +498,17 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
 /// Deliberately 36 bytes (288 bits): jjwt, which GMS validates HS256 with, REFUSES a verification
 /// key under 256 bits (`WeakKeyException`) - the tier's original fixture value was 22 bytes and
 /// every minted token came back 401 for exactly that reason, measured on the live 1.7.0 tier.
+#[cfg(feature = "mock-issuer")]
 const DEFAULT_SIGNING_KEY: &str = "sutura-dev-signing-key-with-256-bits";
 
 /// The corpuser the docker tier seeds (or seeds nothing for), whose urn the minted PAT claims. The
 /// probe measures which actor the tier validates; the bearer is presented verbatim.
+///
+/// Only `cmd_mint_pat` reads these, and it sits behind the `mock-issuer` feature - so the two
+/// constants are gated too. Ungated they trip the workspace's `dead_code = "deny"` on the
+/// default-feature `sutura-dev` bin (`just doctor` compiles it that way), which is how an
+/// all-features gate can be green while the tree is red at default features.
+#[cfg(feature = "mock-issuer")]
 const DEFAULT_ACTOR: &str = "datahub";
 
 /// `mint-pat` - the docker `DataHub` tier signs its own `PAT` into a caller-supplied output file.
