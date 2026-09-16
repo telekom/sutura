@@ -555,9 +555,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // telekom/sutura#376. `docs/where-identity-is-proven.md`'s bq-test venue moved from
         // `wired` to `yes` after a hosted run (35076526218). The wording it retired - the broker
         // was built but never taken to a real exchange - fell with it; this row is the ratchet that
-        // refuses it coming back anywhere but the ADR records that correct the sentence beside
-        // itself. The run held both principals' own keys by construction, so it proved the
-        // STS/`iamcredentials` mechanics resolve per subject; the served half stayed unproven.
+        // refuses it coming back anywhere. The two ADR records that used to echo the old wording
+        // were amended in place on 2026-09-16 with the superseding sentence, so nothing is
+        // excepted to grandfather them. The run held both principals' own keys by construction, so
+        // it proved the STS/`iamcredentials` mechanics resolve per subject; the served half stayed
+        // unproven.
         name: "the BigQuery exchange never ran against a real STS",
         wordings: &[
             "wired in serve, not proven live",
@@ -576,10 +578,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                   both principals' own keys by construction, so the mechanics resolve per subject \
                   and no served binary has executed as a caller yet",
         only: &[],
-        except: &[
-            "docs/adr/0017-what-a-bigquery-test-runs-against.md",
-            "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
-        ],
+        except: &[],
     },
     Contradicted {
         // github.com/telekom/sutura#159. `AGENTS.md` carried a *Built And Not Wired* section that

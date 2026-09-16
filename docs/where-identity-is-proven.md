@@ -539,7 +539,7 @@ below. And the account a source's exchange targets is declared per source
    the mock-issuer venue's `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` is
    where it is answered.
 4. **That any deployment answered anybody.** This cell drives the composition directly; no served
-   binary is involved, so `AGENTS.md`'s position is unchanged by any run of it.
+   binary is involved, so `AGENTS.md`'s served-half clause is unchanged by any run of it.
 5. **That the subject assertions were not minted from the principals' own keys.** They are, by
    construction (telekom/sutura#376): the two-workflow-step mint that produces them holds
    `SVC_SUTURUA_BQ_PRINCIPAL_A`/`_B`, the same keys the withdrawn two-principal cell used, so
