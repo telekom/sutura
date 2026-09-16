@@ -40,6 +40,33 @@ pub(super) fn reader() -> impl Fn(&str) -> Option<String> {
     ])
 }
 
+/// The same cell (`the_added_one`, same file), but declared `#[tokio::test] async fn` - the shape
+/// BOTH of #761's cells actually use (`gh pr diff 761` lines 303-304, 347-348) and the shape a
+/// bare-`fn` matcher never locates: `test_fn_region` would answer `None` and a real assertion kill
+/// would misread as `NotByAssertion`. The assertion stays on the same line (7) as [`reader`]'s.
+pub(super) fn async_reader() -> impl Fn(&str) -> Option<String> {
+    crate::causality::fixtures::tree(&[
+        (
+            "crates/sutura-cli/src/audit.rs",
+            "pub fn audit() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[tokio::test]\n    async fn the_added_one() {\n        assert_eq!(1, 2);\n    }\n}\n",
+        ),
+        ("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n"),
+        ("crates/x/src/other.rs", "pub fn g() -> u8 { 1 }\n"),
+    ])
+}
+
+/// The same cell again, declared `pub fn` - the other shape a bare-`fn` matcher never locates.
+pub(super) fn pub_fn_reader() -> impl Fn(&str) -> Option<String> {
+    crate::causality::fixtures::tree(&[
+        (
+            "crates/sutura-cli/src/audit.rs",
+            "pub fn audit() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    pub fn the_added_one() {\n        assert_eq!(1, 2);\n    }\n}\n",
+        ),
+        ("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n"),
+        ("crates/x/src/other.rs", "pub fn g() -> u8 { 1 }\n"),
+    ])
+}
+
 /// A run that reported exactly `the_added_one` failing by its OWN assertion - the panic
 /// (`crates/sutura-cli/src/audit.rs:7`) is inside the cell's test region, so the mutation KILLS.
 pub(super) const KILLED: &str = concat!(

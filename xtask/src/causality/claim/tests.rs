@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::probe::{DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, PRODUCTION_CALLER, UNRELATED, cell, reader};
+use super::probe::{
+    DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, PRODUCTION_CALLER, UNRELATED, async_reader, cell, pub_fn_reader, reader,
+};
 use super::{Cause, Claim, MutationKill, classify_mutation, report_accepted, report_refused};
 use crate::Verdict;
 use crate::causality::fixtures::{changed, manifest, tree};
@@ -206,6 +208,22 @@ fn a_kill_by_the_cells_own_assertion_is_the_kill() {
     assert_eq!(classify_mutation(KILLED, &cell(), &reader()), MutationKill::Killed);
 }
 
+// R4 BLOCKING RED: the SAME cell, declared `#[tokio::test] async fn` - the shape BOTH of #761's
+// cells actually use. `fn_line_is` matching only bare `fn` answered `test_fn_region` = `None` for
+// every `async fn`/`pub fn` cell, so a real assertion kill misread as `NotByAssertion` and the arm
+// could not accept the PR it exists for. `fn_line_is` now reuses `scoped::function_name` (#347's
+// extractor, which already carries these shapes).
+#[test]
+fn a_kill_by_an_async_fns_own_assertion_is_the_kill() {
+    assert_eq!(classify_mutation(KILLED, &cell(), &async_reader()), MutationKill::Killed);
+}
+
+// R4 BLOCKING RED, the other shape the old matcher missed: a `pub fn` test item.
+#[test]
+fn a_kill_by_a_pub_fns_own_assertion_is_the_kill() {
+    assert_eq!(classify_mutation(KILLED, &cell(), &pub_fn_reader()), MutationKill::Killed);
+}
+
 // BLOCKING RED (exit/abort/signal): a run reporting the cell failing with NO `panicked at` site -
 // a `std::process::exit(n)` / `abort()` / signal death - kills nothing by assertion.
 #[test]
@@ -258,6 +276,26 @@ fn a_kill_by_another_files_test_region_is_refused() {
         classify_mutation(text, &cell(), &reader()),
         MutationKill::NotByAssertion {
             site: String::from("crates/y/tests/helper.rs:9")
+        }
+    );
+}
+
+// R4 NON-BLOCKING (finding 2): the own-FN half of the kill rule had no red cell - MF (widening
+// `test_fn_region` to the whole file) reddened no author cell, because every refusal fixture's
+// site sat in ANOTHER file. A site on a PRODUCTION line of the cell's OWN file - inside the file,
+// outside its own test fn - must still be refused, and this is exactly what MF would flip to
+// `Killed`.
+#[test]
+fn a_panic_on_a_production_line_of_the_cells_own_file_is_refused() {
+    let text = concat!(
+        "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+        "thread 'audit::tests::the_added_one' panicked at crates/sutura-cli/src/audit.rs:1:1:\n",
+        "error: test run failed\n",
+    );
+    assert_eq!(
+        classify_mutation(text, &cell(), &reader()),
+        MutationKill::NotByAssertion {
+            site: String::from("crates/sutura-cli/src/audit.rs:1")
         }
     );
 }
@@ -366,6 +404,29 @@ fn a_patch_touching_a_diff_test_file_is_refused() {
         causes.contains(&Cause::TouchesTests {
             cell: String::from("the_cell"),
             path: String::from("crates/x/src/lib.rs"),
+        }),
+        "{causes:?}"
+    );
+}
+
+// R4 NON-BLOCKING (finding 4) RED, real git: a patch that CREATES a file - even one carrying its
+// own `#[cfg(test)]` region - is refused outright as `CreatesFile`, checked before any apply. Only
+// the accident that `git checkout HEAD -- <new>` cannot restore a path HEAD never had used to close
+// this (`RestoreFailed`, which misdescribes what happened, per `kill_cell_refuses_a_restore_failure`
+// below); `validate` now names the real limit and never applies a file-creating patch at all.
+#[test]
+fn a_patch_that_creates_a_file_is_refused() {
+    let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write("devco/claim-mutations/the_cell.patch", PATCH_NEWFILE);
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[]);
+    assert!(
+        causes.contains(&Cause::CreatesFile {
+            cell: String::from("the_cell"),
+            path: String::from("crates/x/src/newfile.rs"),
         }),
         "{causes:?}"
     );

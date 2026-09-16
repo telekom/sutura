@@ -30,20 +30,24 @@
 //! THE MUTATION IS ONE COMMITTED PATCH PER CELL, under `devco/claim-mutations/`. A patch file is
 //! reviewable in the diff and byte-reproducible; it is read at RUNTIME from the checkout (so it
 //! lives in the same range the trailer does) and it must be a `git apply`-able unified diff over
-//! PRODUCTION code that TOUCHES NO TEST LINE - because the whole point is to break the behaviour
-//! the cell claims, and a mutation that edits the test to fail proves nothing. The test-line rule
-//! is a PATH half and a TEXT half. The PATH half refuses a touch of a file that is all test at
-//! HEAD. The TEXT half decides a MIXED file (production + an inline `#[cfg(test)] mod tests`, the
-//! shape #761's inline cells need to patch their own file's production lines): it APPLIES the
-//! patch, then requires every `#[cfg(test)]` region of the post-image to be byte-identical to
-//! HEAD's by BYTES, re-locating the regions by content on each image - so a deletion-only hunk
-//! above the region (which shifts line numbers and used to let a second hunk smuggle an edit into
-//! the cell's own assertion past the old LINE rule) still refuses as *patch rewrites the cell*.
-//! Each cell is then run in the ISOLATED causality target with the patch applied, and the cell is
-//! required to FAIL by its OWN ASSERTION - a `panicked at` site in the cell's OWN file, inside its
-//! own test fn (located by the fn's name on the post-image, never by a line) - the mutation kills
-//! it. A patch that does not apply, touches a test line or test region, or leaves the cell green
-//! is refused by name.
+//! PRODUCTION code that TOUCHES NO TEST LINE and CREATES NO FILE - because the whole point is to
+//! break the behaviour the cell claims, and a mutation that edits the test to fail (or a new file
+//! whose own test region no image at HEAD exists to compare against) proves nothing. A CREATED
+//! file is read from the patch's own bytes (a `--- /dev/null` file section), never from whether a
+//! reader happens to find the path at HEAD - a mutation may only edit code HEAD already carries.
+//! The test-line rule is a PATH half and a TEXT half. The PATH half refuses a touch of a file that
+//! is all test at HEAD. The TEXT half decides a MIXED file (production + an inline
+//! `#[cfg(test)] mod tests`, the shape #761's inline cells need to patch their own file's
+//! production lines): it APPLIES the patch, then requires every `#[cfg(test)]` region of the
+//! post-image to be byte-identical to HEAD's by BYTES, re-locating the regions by content on each
+//! image - so a deletion-only hunk above the region (which shifts line numbers and used to let a
+//! second hunk smuggle an edit into the cell's own assertion past the old LINE rule) still refuses
+//! as *patch rewrites the cell*. Each cell is then run in the ISOLATED causality target with the
+//! patch applied, and the cell is required to FAIL by its OWN ASSERTION - a `panicked at` site in
+//! the cell's OWN file, inside its own test fn (located by the fn's name on the post-image - `fn`,
+//! `async fn`, any visibility in front, never by a line) - the mutation kills it. A patch that
+//! does not apply, touches a test line or test region, creates a file, or leaves the cell green is
+//! refused by name.
 //!
 //! **THE COST**: each mutated run pays the same ~68 s isolated rebuild every base/head run pays
 //! (the patch forces this workspace's own crates to recompile), so a declared diff costs `+N`
@@ -72,7 +76,7 @@ use crate::causality::base;
 use crate::causality::place::AddedTest;
 use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, item_end, scope as test_scope};
 use crate::causality::runner::{Tree, cargo_test};
-use crate::causality::scoped::Scoped;
+use crate::causality::scoped::{Scoped, function_name};
 use crate::causality::worktree;
 
 /// The repository-relative directory every committed mutation patch lives in.
@@ -128,6 +132,11 @@ pub(super) enum Cause {
     /// The patch touches a file the repo classifies as test-bearing at HEAD (or one this diff
     /// itself added as a test file). A mutation edits PRODUCTION code only.
     TouchesTests { cell: String, path: String },
+    /// The patch's own bytes declare a `--- /dev/null` file section - the mutation would CREATE a
+    /// file. `head_region_texts` only snapshots paths that exist at HEAD, so a new file's own
+    /// `#[cfg(test)]` region is never text-compared; a mutation may only edit code HEAD already
+    /// carries.
+    CreatesFile { cell: String, path: String },
     /// The patch's POST-image is not byte-identical to HEAD inside the touched file's test
     /// regions: it rewrites the cell's own test code (a deletion-only hunk above `#[cfg(test)]`
     /// that shifts a later hunk into the region included) rather than breaking production. The
@@ -277,13 +286,17 @@ fn test_fn_region(text: &str, name: &str, scope: &TestScope) -> Option<Range<usi
     None
 }
 
-/// Is `line` a `fn <name>(` declaration? The name sits before the `(` (and before generics and
-/// where-clauses), matching how the arm names its tests.
+/// Is `line` a `fn <name>(` declaration - `async fn`, `pub fn`, `pub(crate) async fn`, any
+/// visibility or `async` in front, included?
+///
+/// Reuses [`super::scoped::function_name`] rather than a second bare-`fn` parser: that extractor
+/// already carries the shapes a test's signature actually takes (#347), and a matcher here that
+/// only recognised bare `fn` never located `async fn`/`pub fn` cells - `test_fn_region` returned
+/// `None` for every one and a real assertion kill read `NotByAssertion` (both #761 cells are
+/// `#[tokio::test] async fn`). Fail-closed in the direction it broke: never a false `Killed`, only
+/// a real kill going unrecognised.
 fn fn_line_is(line: &str, name: &str) -> bool {
-    line.trim_start()
-        .strip_prefix("fn")
-        .and_then(|rest| rest.split(['(', '<', ':']).next())
-        .is_some_and(|token| token.trim() == name)
+    function_name(line).is_some_and(|ident| ident.as_str() == name)
 }
 
 /// The `(path, line)` of every `panicked at <path>:<line>:` site nextest printed, for panics inside
@@ -361,6 +374,31 @@ fn touches_test(touched: &[String], test_files: &[String], read: &PostImage<'_>)
         }
     }
     None
+}
+
+/// The `b/` path of every file `patch_text` CREATES, read from the patch's own bytes - a
+/// `--- /dev/null` line (the header-less shape too, matching how [`touched_paths`] already treats
+/// a header-less patch as evidence) followed by `+++ b/<path>`.
+///
+/// A TEXTUAL signal on the patch itself, not "does the reader find this path at HEAD": a patch
+/// touching a path a fixture's reader simply never populated (a malformed or context-mismatched
+/// patch) is a [`Cause::DoesNotApply`], not a file-creating mutation, and conflating the two would
+/// misreport the former. `head_region_texts` only snapshots a touched path's test-region text when
+/// `read` can find that path at HEAD, so a NEW file's own `#[cfg(test)]` region is never
+/// text-compared - the TEXT rule has nothing to compare it against. Before this check the hole was
+/// closed only by an accident: `restore`'s `git checkout HEAD -- <new>` fails for a path HEAD never
+/// had, so the run answered `RestoreFailed`, a cause whose wording ("leaks the mutation into the
+/// next cell") misdescribes what actually happened. Refusing here names the real limit and runs
+/// before any patch is applied, so a file-creating mutation never reaches `apply_git` at all.
+fn created_paths(patch_text: &str) -> Vec<String> {
+    let lines: Vec<&str> = patch_text.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| **line == "--- /dev/null")
+        .filter_map(|(index, _)| lines.get(index + 1)?.strip_prefix("+++ b/"))
+        .map(String::from)
+        .collect()
 }
 
 /// The test-region text of `path` as `read` sees it, or `None` when `read` has no such file.
@@ -459,8 +497,19 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> 
         // The patch is read from the HEAD worktree, not the caller's working tree - an UNCOMMITTED
         // patch is not the range the trailer declared, so it is not under review.
         let patch = mutation_path(wt, cell);
-        if std::fs::read_to_string(&patch).is_err() {
+        let Ok(patch_text) = std::fs::read_to_string(&patch) else {
             causes.push(Cause::MissingPatch(cell.clone()));
+            continue;
+        };
+        // A mutation may only edit code HEAD already carries: a `--- /dev/null` file section would
+        // CREATE a file, and its own `#[cfg(test)]` region could never be text-compared below -
+        // checked from the patch's own bytes before any git subprocess runs, so a file-creating
+        // patch never reaches `apply_git`.
+        if let Some(created) = created_paths(&patch_text).into_iter().next() {
+            causes.push(Cause::CreatesFile {
+                cell: cell.clone(),
+                path: created,
+            });
             continue;
         }
         let touched = match touched_paths(wt, &patch) {
@@ -663,6 +712,9 @@ fn cause_line(cause: &Cause) -> String {
         }
         Cause::TouchesTests { cell, path } => {
             format!("  touches tests: {path}  (the `{cell}` mutation must break PRODUCTION code, not a test)")
+        }
+        Cause::CreatesFile { cell, path } => {
+            format!("  creates a file: {path}  (the `{cell}` mutation must edit code that exists at HEAD, not create {path})")
         }
         Cause::PatchRewritesCell { cell, path } => {
             format!(
