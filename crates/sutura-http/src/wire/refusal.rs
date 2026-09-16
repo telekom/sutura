@@ -233,10 +233,11 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (
             StatusCode::CONFLICT,
             String::from(
-                "answering this across two data systems hit a division by zero or a join key that \
-                 matched more than one row; asking again unchanged returns this same refusal. Ask \
-                 the same metric without the dimension on the second data system, or report it to \
-                 a person",
+                "answering this across two data systems hit a division by zero, a join key that \
+                 matched more than one row, or a join key that can never match because the two \
+                 data systems store it as two different types; asking again unchanged returns this \
+                 same refusal. Ask the same metric without the dimension on the second data system, \
+                 or report it to a person",
             ),
         ),
         // 409, and the same reasoning `PlanSpansTooManySources` above carries: the question is well

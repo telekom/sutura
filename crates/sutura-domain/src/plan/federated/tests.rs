@@ -101,6 +101,24 @@ fn a_left_join_keeps_an_unmatched_fact_row_with_null_remote() {
 }
 
 #[test]
+fn a_link_type_mismatch_is_refused_under_a_left_join() {
+    // The other join flavour, and the more misleading of the two: under LEFT the same mismatch
+    // used to leave the fact row with a null remote side, which reads as "no data for this key"
+    // rather than "these two columns can never agree" - `telekom/sutura#138`'s own correction that
+    // one flavour alone passes vacuously.
+    let plan = sum_plan(true);
+    let fact = fact(vec![keyed_fact_row("A", Value::Integer(1), 100)]);
+    let lookup = lookup(vec![vec![Value::Text("1".into()), Value::Text("north".into())]]);
+    assert!(matches!(
+        plan.combine(&fact, &lookup, UNBOUNDED),
+        Err(FederatedFailure::LinkTypeMismatch {
+            fact_kind: "integer",
+            lookup_kind: "text",
+        })
+    ));
+}
+
+#[test]
 fn an_average_is_undivided_in_the_leg_and_divided_above() {
     let plan = avg_plan();
     let fact = avg_fact(vec![vec![
@@ -401,10 +419,13 @@ fn a_float_link_key_is_refused() {
 }
 
 #[test]
-fn an_integer_link_and_a_text_link_do_not_false_match() {
+fn an_integer_link_and_a_text_link_with_the_same_digits_are_refused_not_silently_unmatched() {
     // Integer(1001) and Text("1001") are different cells; comparing them as rendered text would
-    // join them, which is the false match the typed link key refuses. Under an inner join the
-    // non-matching fact row is dropped.
+    // false-match them, which the typed link key already refused (`key_cell_str` prefixes them
+    // apart). But that refusal used to be invisible: this fixture is `telekom/sutura#138`'s own
+    // shape, and an INNER combine answered an empty, successful result for it - a wrong answer
+    // that looks like a right one. `LinkTypeMismatch` is the fix: the same fixture now refuses
+    // rather than answering zero rows for a link that could never have matched.
     let plan = sum_plan(false);
     let fact = fact(vec![vec![
         Value::Text("A".into()),
@@ -414,11 +435,13 @@ fn an_integer_link_and_a_text_link_do_not_false_match() {
     ]]);
     // The lookup holds the same digits as text.
     let lookup = lookup(vec![vec![Value::Text("1001".into()), Value::Text("north".into())]]);
-    let combined = plan.combine(&fact, &lookup, UNBOUNDED).expect("combines");
-    assert!(
-        combined.rows().is_empty(),
-        "an integer link must not join to a text link with the same digits"
-    );
+    assert!(matches!(
+        plan.combine(&fact, &lookup, UNBOUNDED),
+        Err(FederatedFailure::LinkTypeMismatch {
+            fact_kind: "integer",
+            lookup_kind: "text",
+        })
+    ));
 }
 
 #[test]
@@ -727,6 +750,10 @@ fn federated_answer_refusal_classifies_every_failure_variant() {
         FederatedFailure::NonFinite { metric: revenue.clone() },
         FederatedFailure::FloatLinkKey { value: 1.5 },
         FederatedFailure::AmbiguousLink { key: String::from("c1") },
+        FederatedFailure::LinkTypeMismatch {
+            fact_kind: "integer",
+            lookup_kind: "text",
+        },
         FederatedFailure::NonNumericLeaf {
             aggregate: Aggregate::Sum,
             value: Value::Text(String::from("x")),
@@ -751,6 +778,13 @@ fn federated_answer_refusal_classifies_every_failure_variant() {
     assert_eq!(
         FederatedAnswerRefusal::of(&FederatedFailure::AmbiguousLink { key: String::from("c1") }),
         Some(FederatedAnswerRefusal::AmbiguousLink)
+    );
+    assert_eq!(
+        FederatedAnswerRefusal::of(&FederatedFailure::LinkTypeMismatch {
+            fact_kind: "integer",
+            lookup_kind: "text",
+        }),
+        Some(FederatedAnswerRefusal::LinkTypeMismatch)
     );
 
     let wiring_defects: Vec<FederatedFailure> = vec![

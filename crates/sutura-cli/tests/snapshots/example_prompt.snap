@@ -126,7 +126,8 @@ Every reason you can be given, and what to do about each:
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
   the second data system, or report it to a person.
 - **federated_answer_not_well_formed** - answering this across two data systems hit a division by
-  zero or a join key that matched more than one row - the same question and the same rows fail the
+  zero, a join key that matched more than one row, or a join key that can never match because the
+  two data systems store it as two different types - the same question and the same rows fail the
   same way every time.
   Do not retry it unchanged. Ask the same metric without the dimension on the second data system, or
   report it to a person: it is a fact about the data, not about how you asked.

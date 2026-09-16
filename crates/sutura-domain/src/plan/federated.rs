@@ -441,6 +441,54 @@ impl LegIndexes {
     }
 }
 
+/// The scalar kind a link cell can carry once a floating-point one is already refused.
+///
+/// `"integer"` and `"text"`, not the [`Value`] variant name: this reaches
+/// [`FederatedFailure::LinkTypeMismatch`], which a caller reads, and a caller-facing word for a
+/// scalar kind is prose this workspace already has a place for rather than a Rust identifier
+/// leaking into a message.
+const fn link_kind(value: &Value) -> Option<&'static str> {
+    match value {
+        Value::Integer(_) => Some("integer"),
+        Value::Text(_) => Some("text"),
+        // `Null` decides nothing about the column's kind, and `Real` is refused by the float-key
+        // rule wherever a row actually joins - this classification runs before either leg's rows
+        // are walked, so it must not pre-empt that refusal by treating a real as a kind of its own.
+        Value::Null | Value::Real(_) => None,
+    }
+}
+
+/// The first non-null, non-real kind a leg's link column carries, or `None` if it carries none.
+///
+/// One pass, no allocation, stopping at the first row that decides it - cheap enough to run before
+/// the join even considers a leg empty of matchable keys.
+fn dominant_link_kind(rows: &RowSet, join_index: usize) -> Option<&'static str> {
+    rows.rows().iter().find_map(|row| row.get(join_index).and_then(link_kind))
+}
+
+/// Refuses two legs whose link columns can never produce a match, because the join key `key_cell_str`
+/// builds is prefixed by scalar kind (`"I:"` vs `"T:"`) precisely so an integer and a text carrying
+/// the same digits never false-match.
+///
+/// **The defect this closes.** That prefix is correct for two sources that share a kind and wrong
+/// data - it must not false-match `Integer(1001)` against `Text("1002")` and it does not. But
+/// applied to two sources whose link columns disagree in KIND, every row on both legs misses by
+/// construction, and the combine used to return that silently: an empty INNER answer, or a LEFT
+/// answer whose every fact row survived with a null remote side - both a wrong answer that looks
+/// like a right one, which is worse than the refusal this function raises instead. Checked before
+/// either leg's rows are walked into the join, so a mismatch is refused before it can produce either
+/// silent shape.
+fn refuse_link_type_mismatch(fact: &RowSet, lookup: &RowSet, indexes: &LegIndexes) -> Result<(), FederatedFailure> {
+    let fact_kind = dominant_link_kind(fact, indexes.fact_join);
+    let lookup_kind = dominant_link_kind(lookup, indexes.lookup_join);
+    if let (Some(fact_kind), Some(lookup_kind)) = (fact_kind, lookup_kind)
+        && fact_kind != lookup_kind
+    {
+        return Err(FederatedFailure::LinkTypeMismatch { fact_kind, lookup_kind });
+    }
+    Ok(())
+}
+
 /// Every fact row, split by whether its link value can match a lookup row at all.
 ///
 /// A `Null` link matches nothing - `NULL = NULL` is not true in SQL - so a null-keyed fact row is
@@ -537,6 +585,7 @@ impl FederatedPlan {
         // first is metadata sized by the key list, the second borrows the fact rows it groups.
         let mut budget = ByteBudget::new(byte_budget);
         let indexes = LegIndexes::resolve(self, fact, lookup)?;
+        refuse_link_type_mismatch(fact, lookup, &indexes)?;
         let facts = fact_rows(fact, indexes.fact_join)?;
         let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns, &mut budget, byte_budget)?;
 
