@@ -206,27 +206,35 @@ rec {
       # parsing its name for a port and asking that port a real query is what tells a live cluster
       # apart from a socket file a crash left behind, with no pidfile to read at all.
       #
-      # What this cannot see: a postmaster mid-startup or mid-crash-recovery, bound but not yet
-      # accepting connections, answers "not alive" here - the same direction `pg_ctl status` fails
-      # in for a server with no pidfile yet, and the safe one for a guard whose only job is
-      # refusing to delete. Nor a SIGSTOPped postmaster with NO pidfile: `PGCONNECT_TIMEOUT` bounds
-      # the wait rather than hanging forever, but the timeout still reads as "not alive" - narrower
-      # than the process is, and unreached by anything in this file today.
-      #
-      # `PGCONNECT_TIMEOUT` is not decoration: without a live backend to answer, a bare `psql`
-      # blocks on the startup response rather than failing fast.
+      # THREE outcomes, not two: a SIGSTOPped or cgroup-frozen postmaster with NO pidfile is a
+      # real, reproduced fifth state (#807's pidfile loss plus an outside freeze), and an earlier
+      # draft here called it "unreached" and "the safe direction" - neither held. `psql` against a
+      # frozen socket HANGS; `PGCONNECT_TIMEOUT` bounds the hang but a larger value only narrows
+      # the window, never closes it, since a frozen process exhausts any finite timeout. A timeout
+      # is therefore NOT proof of death - only a REFUSED connection is, meaning no listener at all.
+      # Return 0 (alive), 1 (dead: every socket refused or none exists), 2 (unknown: a socket
+      # exists but neither answered nor was refused in time) - the caller MUST treat 2 like 0 and
+      # refuse. This also covers a postmaster mid-startup, bound but not yet accepting: reads as
+      # unknown too, the safe answer for either. `kill -0 $pid` has no role: the pid is exactly
+      # what the missing pidfile lost, and "unknown, refuse" is the honest answer here, not a gap.
       alive() {
+        inconclusive=
         for sock in "$pg"/.s.PGSQL.*; do
           [ -S "$sock" ] || continue
           port_candidate="''${sock##*.s.PGSQL.}"
           case "$port_candidate" in
             ""|*[!0-9]*) continue ;;
           esac
-          if PGCONNECT_TIMEOUT=5 psql -h "$pg" -p "$port_candidate" -U postgres -d postgres \
-            -tAc "select 1" >/dev/null 2>&1; then
+          if output="$(PGCONNECT_TIMEOUT=5 psql -h "$pg" -p "$port_candidate" -U postgres -d postgres \
+            -tAc "select 1" 2>&1)"; then
             return 0
           fi
+          case "$output" in
+            *"Connection refused"*) ;;
+            *) inconclusive=1 ;;
+          esac
         done
+        [ -z "$inconclusive" ] || return 2
         return 1
       }
 
@@ -378,7 +386,27 @@ rec {
         # first, rather than replacing it, is what keeps a SIGSTOPped postmaster - pidfile present,
         # unresponsive on its socket - reaching `pg_ctl stop`'s own timeout below instead of
         # reading as absent and falling straight through to the delete.
-        if [ -d "$pg" ] && { pg_ctl -D "$pg" status >/dev/null 2>&1 || alive; }; then
+        #
+        # `alive`'s three outcomes collapse to two branches: unknown (2) gets the SAME refusal as
+        # alive (0), since a timeout is not proof of death. Only a plain 1 reaches the delete.
+        rc=dead
+        if [ -d "$pg" ]; then
+          if pg_ctl -D "$pg" status >/dev/null 2>&1; then
+            rc=alive
+          elif alive; then rc=alive
+          elif [ $? -eq 2 ]; then rc=unknown
+          fi
+        fi
+        if [ "$rc" = unknown ]; then
+          echo "postgres tier: a server at $pg neither answered a query nor was refused within" >&2
+          echo "               the connect timeout, so alive or dead cannot be proven - a frozen" >&2
+          echo "               postmaster looks identical to a dead one, and postmaster.pid is" >&2
+          echo "               gone so there is no pid to check by hand. Its endpoint entry, data" >&2
+          echo "               directory, TLS material and credential STAY. Find the postmaster" >&2
+          echo "               by hand (\`ps\`), resume and stop it or confirm it is gone, retry." >&2
+          exit 1
+        fi
+        if [ "$rc" = alive ]; then
           if [ ! -f "$pg/postmaster.pid" ]; then
             echo "postgres tier: a server at $pg answers queries but postmaster.pid is gone, so" >&2
             echo "               pg_ctl has no pid to signal. Its endpoint entry, data directory," >&2
@@ -561,6 +589,15 @@ rec {
           echo "the postgres entry is '$got', expected '$1' - $2" >&2
           exit 1
         fi
+      }
+
+      # SIGCONT plus a bounded wait for the queued shutdown a SIGSTOP left pending.
+      resume_and_wait() {
+        kill -CONT "$1"
+        for _ in $(seq 1 60); do
+          kill -0 "$1" 2>/dev/null || break
+          sleep 1
+        done
       }
 
       # --- the answer is DERIVED from the document the harness reads ---
@@ -814,11 +851,7 @@ rec {
 
       # The queued shutdown runs the moment it is resumed, so wait for it rather than racing a
       # second stop against the first one's signal.
-      kill -CONT "$postmaster"
-      for _ in $(seq 1 60); do
-        kill -0 "$postmaster" 2>/dev/null || break
-        sleep 1
-      done
+      resume_and_wait "$postmaster"
 
       # And a stop that DOES take withdraws the entry; the last service out takes the file. This is
       # `github.com/telekom/sutura#231`'s lesson, kept: a claim left over a dead server makes a
@@ -858,11 +891,7 @@ rec {
       # Resume it so the queued shutdown completes - the pid is read while it is still SIGSTOPped,
       # because the postmaster takes its pid file with it on the way out.
       postmaster="$(head -1 "$pg/postmaster.pid")"
-      kill -CONT "$postmaster"
-      for _ in $(seq 1 60); do
-        kill -0 "$postmaster" 2>/dev/null || break
-        sleep 1
-      done
+      resume_and_wait "$postmaster"
       # The remedy that message names, run: the retry withdraws what the failed teardown kept.
       sutura-postgres-tier stop
       expect_entry absent "the retried teardown withdraws the claim the failed one kept"
@@ -883,7 +912,8 @@ rec {
       fi
       echo "--- the refusal below is expected, its message included ---"
       refused=0
-      sutura-postgres-tier stop || refused=$?
+      stop_output="$(sutura-postgres-tier stop 2>&1)" || refused=$?
+      echo "$stop_output" >&2
       if [ "$refused" = 0 ]; then
         echo "stop reported success over a live cluster whose pidfile alone was removed" >&2
         exit 1
@@ -894,6 +924,14 @@ rec {
           exit 1
         fi
       done
+      # `pg_ctl stop -m fast` also fails with no pidfile, so a neutralised `exit 1` here (echo
+      # kept, predicate still evaluated) still falls through to the generic "did not stop"
+      # refusal - pin the accurate message AND that it alone fired, not both.
+      case "$stop_output" in
+        *"pg_ctl has no pid to signal"*"did not stop"*) echo "stop's refusal fell through to the generic message too" >&2; exit 1 ;;
+        *"pg_ctl has no pid to signal"*) ;;
+        *) echo "stop fell through to the generic, misleading 'did not stop' message" >&2; exit 1 ;;
+      esac
       if ! kill -0 "$postmaster" 2>/dev/null; then
         echo "the postmaster died even though stop refused to touch its state" >&2
         exit 1
@@ -902,6 +940,34 @@ rec {
       cp "$pidfile_backup" "$pg/postmaster.pid"
       sutura-postgres-tier stop
       expect_state 1 "a genuinely stopped tier tears down fully once its pidfile is back"
+
+      # --- the FIFTH state: SIGSTOPped AND its pidfile gone, `alive` cannot prove either way ---
+      # #807's fixture plus one signal: frozen, not dead, so `pg_ctl status` fails the same way
+      # (no pidfile) and `alive`'s `psql` neither answers nor is refused before its timeout. A
+      # larger timeout only widens how long this arm waits, never whether it passes.
+      sutura-postgres-tier start
+      postmaster="$(head -1 "$pg/postmaster.pid")"
+      pidfile_backup="$NIX_BUILD_TOP/postmaster.pid.fifth.bak"
+      cp "$pg/postmaster.pid" "$pidfile_backup"
+      kill -STOP "$postmaster"
+      rm -f "$pg/postmaster.pid"
+      echo "--- the refusal below is expected, its message included ---"
+      unknown=0
+      started="$(date +%s)"
+      sutura-postgres-tier stop || unknown=$?
+      elapsed=$(( $(date +%s) - started ))
+      [ "$unknown" != 0 ] || { echo "stop reported success over a frozen, not dead, postmaster" >&2; exit 1; }
+      [ "$elapsed" -ge 4 ] || { echo "stop answered in ''${elapsed}s, skipping the timeout path" >&2; exit 1; }
+      for path in "$pg" "$pg.ssl" "$cred"; do
+        [ -e "$path" ] || { echo "a refused stop over the frozen postmaster still deleted $path" >&2; exit 1; }
+      done
+      # `ps` is not on this sandbox's PATH; `kill -0` is this file's existing liveness idiom.
+      kill -0 "$postmaster" 2>/dev/null || { echo "the postmaster died during a refused stop" >&2; exit 1; }
+      expect_entry true "the endpoint claim over a frozen, pidfile-less server STAYS"
+      resume_and_wait "$postmaster"
+      cp "$pidfile_backup" "$pg/postmaster.pid"
+      sutura-postgres-tier stop
+      expect_state 1 "a resumed tier with its pidfile restored tears down fully"
 
       # --- concurrent writers to the SHARED document do not race ---
       # `github.com/telekom/sutura#528` item 3, and the shared writer's bug, not this tier's: two
