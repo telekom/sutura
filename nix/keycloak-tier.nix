@@ -569,7 +569,9 @@ rec {
       }
 
       stop() {
+        signalled=0
         if [ -f "$pidfile" ]; then
+          signalled=1
           pid="$(cat "$pidfile")"
           kill -TERM -- "-$pid" 2>/dev/null || true
           for _ in $(seq 1 20); do
@@ -578,6 +580,32 @@ rec {
           done
           kill -KILL -- "-$pid" 2>/dev/null || true
           rm -f "$pidfile"
+        fi
+        # A STOP THAT CANNOT STOP DOES NOT WITHDRAW OR DELETE - `nix/postgres-tier.nix`'s `stop`
+        # holds the same rule over `pg_ctl status`. `running` is `start`'s OWN pidfile-independent
+        # guard (`github.com/telekom/sutura#528` item 1a: the pidfile lost, the JVM still alive,
+        # answered by a `flock -s` probe on `$lockfile` rather than by this file). Reusing it here
+        # closes the asymmetry `github.com/telekom/sutura#724` names: without this check, a heal
+        # that lost only the pidfile skips the kill above entirely and falls straight through to
+        # withdraw the claim and delete the realm file and the home out from under a JVM this
+        # function never signalled.
+        if running; then
+          if [ "$signalled" -eq 1 ]; then
+            echo "keycloak tier: sent TERM and KILL to pid $pid but a server still holds" >&2
+            echo "               $lockfile. Its endpoint entry, realm file and home STAY -" >&2
+            echo "               deleting them under a live JVM is worse than the stale" >&2
+            echo "               pidfile this guard exists to catch. Find and kill the" >&2
+            echo "               process by hand, then retry \`stop\`." >&2
+          else
+            echo "keycloak tier: $pidfile is gone but a server still holds $lockfile, so a" >&2
+            echo "               JVM is running here with no pid this script can signal." >&2
+            echo "               Its endpoint entry, realm file and home STAY - withdrawing" >&2
+            echo "               or deleting them out from under a live server is the" >&2
+            echo "               defect \`github.com/telekom/sutura#724\` names. Find the" >&2
+            echo "               process holding $lockfile by hand, kill it, then retry" >&2
+            echo "               \`stop\`." >&2
+          fi
+          exit 1
         fi
         # Withdraw the claim - both halves of it. A stale endpoint makes a fail-closed cell panic
         # on a dead server where the honest outcome is a skip, and a stale realm file hands out
@@ -822,6 +850,32 @@ rec {
       test "$(cat "$kc_home/tier.pid")" = "$pid_before"
       mv "$aside" "$realm"
       expect_state 0 "the tier reads as reachable again once its own credentials are back"
+
+      # --- STOP REFUSES RATHER THAN DELETING A LIVE JVM'S STATE WITH NO PIDFILE ---
+      # `github.com/telekom/sutura#724`, and NOT restored afterward this time - the earlier heal
+      # above restores the pidfile because the assertions after it read the file directly, which
+      # is exactly why this gap went uncaught: the one place that reproduces the precondition also
+      # erased it before `stop` ever ran. Here it does not: `stop`'s destructive half is guarded by
+      # `running`, `start`'s own pidfile-independent check, so losing only the pidfile must make
+      # `stop` refuse rather than withdraw the claim and delete the realm file and home out from
+      # under a JVM it never signalled.
+      rm -f "$kc_home/tier.pid"
+      echo "--- the refusal below is expected, its message included ---"
+      refused=0
+      sutura-keycloak-tier stop || refused=$?
+      if [ "$refused" = 0 ]; then
+        echo "stop reported success without ever signalling the live JVM" >&2
+        exit 1
+      fi
+      kill -0 "$pid_before" 2>/dev/null || {
+        echo "the JVM stop could not signal is gone anyway - refusal proved nothing" >&2
+        exit 1
+      }
+      test -f "$realm"
+      test -e "$kc_home"
+      test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
+      echo "$pid_before" > "$kc_home/tier.pid"
+      expect_state 0 "the live server, its realm file and its home all survived the refused stop"
 
       # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
       # exists for and which no other check can see: `checks.nextest` provisions Postgres
