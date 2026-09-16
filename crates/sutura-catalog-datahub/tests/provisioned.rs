@@ -7,7 +7,7 @@
 //! the deployment-defined document at all. `compose.services.yaml`'s `datahub` profile is that
 //! instance, and this is the only thing in this repository that talks to it.
 //!
-//! **Two venue cells, plus one that needs no venue:**
+//! **Three venue cells, plus one that holds auth on by a gate:**
 //!
 //!   * `the_deployment_names_its_property_and_the_adapter_names_its_field` - over two `&'static
 //!     str`s, so it runs in `just test`. It is what makes the second cell a measurement of decision
@@ -21,6 +21,11 @@
 //!     corpus's own document as its scalar, and what the instance serves back decodes through this
 //!     adapter into a certified `Metric` over the closed-vocabulary `Measure`. That is issue #202's
 //!     feasibility question, answered against a running instance instead of a specification.
+//!   * `a_bearerless_read_is_401_under_the_enforced_tier` - **the enforcement cell.** The tier runs
+//!     with `METADATA_SERVICE_AUTH_ENABLED: "true"`, and every write and read below presents the
+//!     tier's self-minted PAT as its bearer. The enforcement cell asks one bearer-less read and
+//!     asserts `401`, so a silent rollback of `METADATA_SERVICE_AUTH_ENABLED` to off - which nothing
+//!     else in this file would catch - makes this cell red. Held by a gate, not by this comment.
 //!
 //! # What is still NOT here, because the gap is the useful part
 //!
@@ -35,8 +40,11 @@
 //!     `fixture::FixtureReader`, so the snapshot this cell loads is half live and half recorded, and
 //!     the certified metric therefore rests on a recorded model. Reading `dataset` and
 //!     `semanticModel` aspects live is the rest of that reader's job.
-//!   * **Nothing is authenticated.** The tier runs with `METADATA_SERVICE_AUTH_ENABLED: "false"`,
-//!     as upstream's quickstart does, so the bearer half of a read path is untouched.
+//!   * **The bearer is a self-minted PAT, not a real token-service token.** The headless GMS
+//!     exposes no `/auth/accessTokens` minting surface (that lives in the absent React frontend), so
+//!     the TIER signs the PAT it trusts with its own `DATAHUB_TOKEN_SERVICE_SIGNING_KEY` - see
+//!     `dev/src/mint.rs`. Auth is genuinely ON (the enforcement cell proves it), but there is no
+//!     DB-backed PAT entity, no login or session flow, and no per-token revocation.
 //!
 //! Reading either cell as evidence of a working read path would be exactly the overstatement
 //! `AGENTS.md` calls the defect itself.
@@ -149,6 +157,15 @@ mod tests {
         )
     }
 
+    /// The self-minted PAT the `just datahub-acceptance` task exported, or a panic naming the
+    /// missing task. Auth is ON, so a request without this bearer is a `401` - a write "passing"
+    /// without it would be the silent-fail this file's fail-closed discipline exists to refuse.
+    fn pat() -> String {
+        std::env::var("SUTURA_DATAHUB_PAT").unwrap_or_else(|_| panic!(
+            "`just datahub-acceptance` must export SUTURA_DATAHUB_PAT (minted by `sutura-dev mint-pat`) - auth is enabled, so the cells cannot authenticate without it"
+        ))
+    }
+
     #[test]
     #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
                 the next writer rewrites it - run `just datahub-acceptance`"]
@@ -160,7 +177,12 @@ mod tests {
 
         for path in PROBES {
             let url = format!("http://{endpoint}/{path}");
-            let status = match agent.get(&url).call() {
+            // Both probes carry the tier's self-minted PAT: `health` is excluded from auth, and
+            // `openapi/v3/entity/dataset` is NOT - with auth ON it 401s without a bearer (the
+            // enforcement cell asserts that separately), so to prove the surface answers a verified
+            // reader it must be asked WITH one.
+            let bearer = format!("Bearer {}", pat());
+            let status = match agent.get(&url).header("Authorization", &bearer).call() {
                 Ok(response) => response.status().as_u16(),
                 Err(cause) => panic!(
                     "the provisioned DataHub did not answer `{path}` on {endpoint}: {cause}\n  \
@@ -237,13 +259,19 @@ mod tests {
     ///
     /// A body means an upsert and no body means a read; this surface needs no other verb, so the
     /// `Option` is the method rather than a second parameter that could disagree with it.
+    ///
+    /// Every request carries the tier's self-minted PAT as its bearer: with `METADATA_SERVICE_AUTH_ENABLED`
+    /// on, a request without one is a `401`. The one request that deliberately has NO bearer is the
+    /// enforcement cell's own assertion.
     fn send(agent: &ureq::Agent, url: &str, body: Option<&serde_json::Value>) -> (u16, String) {
+        let bearer = format!("Bearer {}", pat());
         let mut response = body
             .map_or_else(
-                || agent.get(url).call(),
+                || agent.get(url).header("Authorization", &bearer).call(),
                 |json| {
                     agent
                         .post(url)
+                        .header("Authorization", &bearer)
                         .header("Content-Type", "application/json")
                         .send(serde_json::to_string(json).expect("a probe body serializes"))
                 },
@@ -620,6 +648,35 @@ mod tests {
         assert!(
             body.contains("should be a string"),
             "the refusal names the declared value type: {body}"
+        );
+    }
+
+    /// **The enforcement cell.** With `METADATA_SERVICE_AUTH_ENABLED: "true"` the tier refuses a
+    /// bearer-less read of the entity surface with `401` - and the cell is the ONLY thing in this
+    /// file that would go red if somebody silently rolled auth back to off, because every other
+    /// request here now carries the self-minted PAT's bearer. Held by a gate.
+    #[test]
+    #[ignore = "needs `just dev-up-datahub`; a docker service is only in the discovery file until \
+                the next writer rewrites it - run `just datahub-acceptance`"]
+    fn a_bearerless_read_is_401_under_the_enforced_tier() {
+        let Some(endpoint) = endpoint() else {
+            return;
+        };
+        let agent = agent(false);
+        // Deliberately NO bearer - that is the assertion. `send` always adds one, so ask the agent
+        // directly.
+        let mut response = agent
+            .get(&format!("http://{endpoint}/openapi/v3/entity/metric"))
+            .call()
+            .expect("the provisioned DataHub answered, whatever it answered");
+        let status = response.status().as_u16();
+        let body = response.body_mut().read_to_string().expect("the answer is text");
+        assert_eq!(
+            status, 401,
+            "a bearer-less read of the entity surface must be refused while \
+             `METADATA_SERVICE_AUTH_ENABLED` is true - if this returns a 2xx, auth has been flipped \
+             off and every \"authenticated\" claim in this file is false. Flipping the compose \
+             value back on makes this cell pass again: {body}"
         );
     }
 }

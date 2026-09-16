@@ -718,17 +718,24 @@ through a real `DataHub` 1.7.0 and compared what came back against the fixture b
 `harvest_metric` maps exactly the envelope that suite measured: `entities[]`, each carrying
 `metricInfo.value` and `structuredProperties.value.properties[]`.
 
-**The `dataset` and `semanticModel` entities are NOT measured against a live instance.** Their
-field lists come from `docs/adr/0016`'s "Field by field" table, which was read from the platform's
-own `.pdl` schema sources rather than from a served response. This is stated once here and
-repeated at each mapping function, because the two facts have different consequences: a wrong
+**The `semanticModel` entity's relationship shape IS measured against a live instance, the
+`dataset` entity's is NOT.** Real `DataHub` 1.7.0 carries a joined relationship NOT as a
+top-level `semanticModelRelationship` aspect (which GMS drops on write) but nested inside the
+`semanticModel` entity's own `semanticModelInfo.value.relationships[]` array - measured on this
+repository's docker tier (2026-09-16) by upserting the recorded corpus's `orders_to_customer`
+relationship under `semanticModelInfo` and reading it back. So
+`HttpAspectReader::read_relationships` maps the aspect it fetches to the array
+`harvest_relationship` walks, and the fake `happy_path_answers` page serves the same nested
+shape - one content over two transports. The `dataset` entity's field
+list is still from `docs/adr/0016`'s "Field by field" table, read from the platform's own `.pdl`
+schema rather than from a served response. The two facts have different consequences: a wrong
 guess about `metric`'s envelope would be a regression against a proven round trip, and a wrong
-guess about the other two would be the FIRST claim this crate has made about them. So both
-mapping functions refuse an unexpected shape as a typed `HttpReaderError::UnexpectedShape`
-naming the entity and the field, rather than reading past a missing or mistyped key with a
-default - a guess that happened to be wrong would otherwise certify a bundle silently missing a
-model or a relationship. **Do not cite this reader as proof the structural half works against a
-real `DataHub` until an acceptance leg like `tests/provisioned.rs`'s measures it.**
+guess about `dataset` would be a FIRST claim this crate has made about it. Both mapping functions
+refuse an unexpected shape as a typed `HttpReaderError::UnexpectedShape` naming the entity and
+the field, rather than reading past a missing or mistyped key with a default - a guess that
+happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
+**Do not cite this reader as proof the `dataset` half works against a real `DataHub` until an
+acceptance leg like `tests/provisioned.rs`'s measures it.**
 
 # What every read is bounded by
 
@@ -1125,7 +1132,11 @@ pub fn relationship_page() -> serde_json::Value
 ```
 
 One `semanticModel` page, over the one relationship the certified fixture metric's dimension
-reaches `customers` through.
+reaches `customers` through. Served in the shape a REAL `DataHub` carries - the relationship
+nested inside the `semanticModel` entity's own `semanticModelInfo.value.relationships[]`, not as
+a top-level aspect (GMS drops that on write; measured against the docker tier, 2026-09-16) - so
+the fake and the live tier serve one content over two transports, and
+`HttpAspectReader::read_relationships` walks both identically.
 
 ### `fn metric_page`
 
