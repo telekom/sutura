@@ -39,7 +39,7 @@
 //! about a claim it never makes: the two legs here are two subjects, and this cell reads only who
 //! they became.
 //!
-//! # ONE LEG HAS RUN AND THE TWO THAT MATTER HAVE NOT, and two things stand between them and a run
+//! # THE LEGS HAVE RUN: the control in 2026-09-06, the exchanged-identity cell hosted on 2026-09-16
 //!
 //! **Measured on 2026-09-06, from a developer machine against the acceptance project:**
 //! `the_deployments_own_identity_is_neither_principal` passed. So `SESSION_USER()` is a statement
@@ -49,9 +49,13 @@
 //! that leg runs under the credential the transport already holds and asserts only that it is
 //! neither principal, which is the control's whole job.
 //!
-//! `each_principal_is_who_this_source_says_it_is_executing_as` has NOT run in CI. One reason from the
-//! original writing of this cell is now closed; the other is still open and is recorded here rather
-//! than in a commit message because the next person to reach for this file needs it first.
+//! `each_principal_is_who_this_source_says_it_is_executing_as` ran hosted on 2026-09-16 and
+//! concluded `success` (workflow `bigquery-exchanged-identity`, run
+//! <https://github.com/telekom/sutura/actions/runs/35076526218>): both it and its control
+//! `the_deployments_own_identity_is_neither_principal` passed, each principal answered
+//! `TheExpectedPrincipal`. That moved `docs/where-identity-is-proven.md`'s venue to `yes`. The two
+//! things that had to be true for the run to happen at all - job-time minting of one subject
+//! assertion per principal, and the `iamcredentials` hop - follow below as the mechanisms they are.
 //!
 //! **1. The environment does not carry a subject assertion per principal - it is minted at job time
 //! instead, and that is still true after telekom/sutura#376's wiring.** A plain RFC 8693 exchange
@@ -83,8 +87,8 @@
 //! to move this row: the mechanics are exercised by the six fake-port cells in `sts.rs`, never by
 //! this cell, which needs the cloud stack and CI's minted assertions to run at all.
 //!
-//! `docs/where-identity-is-proven.md` still carries this venue as *written and never run* until a
-//! green `workflow_dispatch` says otherwise - the code alone does not move that row.
+//! `docs/where-identity-is-proven.md` now carries this venue as `yes`, held by the 2026-09-16
+//! `workflow_dispatch` run named above - the code alone never moved that row, the run did.
 //!
 //! # What this cell does NOT constrain about the token it hands over
 //!
