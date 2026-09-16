@@ -197,12 +197,18 @@ rec {
       # concurrent probes racing each other - never mind the holder - would answer RUNNING off
       # each other's transient hold rather than off the server. `github.com/telekom/sutura#528`
       # item 1, measured: 40 concurrent probe pairs under `-x` all answered RUNNING; `-s` gives 0.
+      # THREE outcomes, not two - `nix/postgres-tier.nix`'s `alive()`, ported: 0 running, 1
+      # PROVABLY not (there is nothing to probe: `$state` itself was never created, so no run
+      # ever touched this lock), 2 UNKNOWN (the lock's own open failed for any other reason - a
+      # permissions problem, a full filesystem, an fd limit - which proves nothing about the
+      # JVM). `github.com/telekom/sutura#809`: the shape this replaced collapsed every open
+      # failure into "not running", and since #803 that verdict gates `stop`'s `rm -rf`. Callers
+      # MUST treat 2 like 0 and refuse, the same rule `alive`'s own callers hold.
       running() {
         # The group redirect is load-bearing, not style: `2>/dev/null` after a bare `exec` only
-        # attaches once the FIRST redirect (opening `$lockfile`) has already succeeded, so on a
-        # fresh worktree - `$state` not created yet, `running` legitimately answering "no" - the
-        # open's own failure message reached the log unsuppressed until this was a group.
-        { exec {running_fd}>"$lockfile"; } 2>/dev/null || return 1
+        # attaches once the FIRST redirect (opening `$lockfile`) has already succeeded.
+        [ -d "$state" ] || return 1
+        { exec {running_fd}>"$lockfile"; } 2>/dev/null || return 2
         if flock -n -s "$running_fd" 2>/dev/null; then
           flock -u "$running_fd"
           exec {running_fd}>&-
@@ -451,6 +457,9 @@ rec {
         # THE GUARD IS THE PROCESS, and what the records say about it is a second question asked
         # after it. Both were one question until `github.com/telekom/sutura#324`, which is why a
         # dropped entry used to print *already up* and return 0 having published nothing.
+        # `elif [ $? -eq 2 ]`, not `running; rc=$?` - a bare `running` outside a conditional
+        # would trip `errexit` on its own `return 1`. `nix/postgres-tier.nix`'s `stop` holds
+        # the same shape for `alive`'s three outcomes.
         if running; then
           if status; then
             echo "keycloak tier: already up - leaving it to whoever started it."
@@ -458,6 +467,14 @@ rec {
           fi
           republish
           return 0
+        elif [ $? -eq 2 ]; then
+          # #809: `running` could not open `$lockfile` to ask the kernel, so alive or dead
+          # cannot be proven - refusing beats clearing `$home` out from under a server this
+          # cannot rule out.
+          echo "keycloak tier: $lockfile could not be opened to check for a live JVM, so" >&2
+          echo "               alive or dead cannot be proven. $home stays - fix whatever" >&2
+          echo "               blocked the open (permissions, disk space, an fd limit) and retry." >&2
+          exit 1
         fi
         # Not running, so whatever is in the home is from a previous run: an embedded store that no
         # longer matches the realm file is worse than a cold start.
@@ -589,8 +606,28 @@ rec {
         # that lost only the pidfile skips the kill above entirely and falls straight through to
         # withdraw the claim and delete the realm file and the home out from under a JVM this
         # function never signalled.
+        # `if running; then ... elif [ $? -eq 2 ]; then ...` - not `running; rc=$?`, which
+        # would trip `errexit` on `running`'s own bare `return 1`. `start`'s guard holds the
+        # same shape, ported from `nix/postgres-tier.nix`'s `stop`.
+        refuse=alive
         if running; then
-          if [ "$signalled" -eq 1 ]; then
+          :
+        elif [ $? -eq 2 ]; then
+          refuse=unknown
+        else
+          refuse=
+        fi
+        if [ -n "$refuse" ]; then
+          if [ "$refuse" = unknown ]; then
+            # #809: `running`'s own lock probe could not open $lockfile, an outcome the two-
+            # valued shape used to read as "not running" and this refuses instead - alive
+            # or dead is unproven, and treating unknown like alive is the rule to hold, not
+            # the rare case to special-case away.
+            echo "keycloak tier: $lockfile could not be opened to check for a live JVM, so" >&2
+            echo "               alive or dead cannot be proven. Its endpoint entry, realm" >&2
+            echo "               file and home STAY - fix whatever blocked the open" >&2
+            echo "               (permissions, disk space, an fd limit) and retry \`stop\`." >&2
+          elif [ "$signalled" -eq 1 ]; then
             echo "keycloak tier: sent TERM and KILL to pid $pid but a server still holds" >&2
             echo "               $lockfile. Its endpoint entry, realm file and home STAY -" >&2
             echo "               deleting them under a live JVM is worse than the stale" >&2
@@ -876,6 +913,36 @@ rec {
       test "$(jq -r '.services.keycloak.port' "$endpoints")" = "$port"
       echo "$pid_before" > "$kc_home/tier.pid"
       expect_state 0 "the live server, its realm file and its home all survived the refused stop"
+
+      # --- STOP REFUSES WHEN THE LOCK PROBE ITSELF CANNOT BE OPENED (#809) ---
+      # `running`'s three outcomes collapse the same way `alive`'s do in `nix/postgres-tier.nix`:
+      # an open failure that is NOT "nothing to probe" (`$state` missing) is UNKNOWN, and unknown
+      # must refuse like alive rather than read as dead. The pidfile is removed FIRST - `stop`
+      # signals whatever it names before it ever asks `running`, so a present pidfile would kill
+      # the JVM through that path regardless of the lock probe below and prove nothing about it.
+      # Denying write on the lock file itself - `$state` still exists, `chmod u-r` on
+      # `server.log` above already proved this build is not running as a user permission bits do
+      # not bind - leaves the JVM genuinely alive and unreachable by `running` for a reason that
+      # says nothing about it.
+      rm -f "$kc_home/tier.pid"
+      lockfile="$tree/.sutura-dev/keycloak.lock"
+      chmod u-w "$lockfile"
+      echo "--- the refusal below is expected, its message included ---"
+      refused=0
+      sutura-keycloak-tier stop || refused=$?
+      chmod u+w "$lockfile"
+      if [ "$refused" = 0 ]; then
+        echo "stop reported success while its own lock probe could not be opened" >&2
+        exit 1
+      fi
+      kill -0 "$pid_before" 2>/dev/null || {
+        echo "the JVM stop could not signal is gone anyway - refusal proved nothing" >&2
+        exit 1
+      }
+      test -f "$realm"
+      test -e "$kc_home"
+      echo "$pid_before" > "$kc_home/tier.pid"
+      expect_state 0 "the live server survives a stop whose own lock probe could not be opened"
 
       # A SECOND TIER IN THE SAME FILE, which is the property `nix/tier-endpoints.nix`
       # exists for and which no other check can see: `checks.nextest` provisions Postgres

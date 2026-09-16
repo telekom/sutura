@@ -742,8 +742,17 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
+            # Armed BEFORE `start`, and only for a tier THIS invocation starts -
+            # `apps.e2e-datahub-bigquery`'s own pattern, ported for `github.com/telekom/sutura#804`.
+            # A trap armed only after `start` returns leaves the window during `start` unprotected:
+            # a JVM that binds a port then fails provisioning is left running with nothing to tear
+            # it down. And an unconditional `stop` on every exit path turns a passing run red the
+            # moment `stop` refuses rather than silently no-op-ing (`#803`) - this stops only what
+            # it started, never a tier some other caller already has up.
+            rc=0
+            sutura-keycloak-tier status >/dev/null 2>&1 || rc=$?
+            if [ "$rc" = 1 ]; then trap 'sutura-keycloak-tier stop' EXIT; fi
             sutura-keycloak-tier start
-            trap 'sutura-keycloak-tier stop' EXIT
             # `exec` inside a SUBSHELL, not the outer script: `check-warm-start` (xtask/src/warm_start.rs)
             # requires a live `exec cargo ` line, on the same theory every other warmed consumer follows -
             # but exec'ing the outer shell here would replace it before the `trap` above ever fires, which
