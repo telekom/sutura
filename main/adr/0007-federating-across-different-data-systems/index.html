@@ -1483,6 +1483,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-the-absence-the-order-by-branch-named-has-landed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: the absence The order, by branch named has landed
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3357,6 +3368,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-the-absence-the-order-by-branch-named-has-landed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: the absence The order, by branch named has landed
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3383,7 +3405,9 @@ here is built</em> was the status when this was written and is corrected rather 
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist, and
 <code>sutura-exec-datafusion</code> executes a leg. What is still unbuilt is track 1 beyond the dialects that
 ship and a deployment holding two KINDS of data system. It decides a shape and an order; the code it
-led to is cited beside each amendment.
+led to is cited beside each amendment. <strong>Read <em>Amendment, 2026-09-16<em> before citing the
+<code>feat/source-registry</code> bullet under </em>The order, by branch</em></strong> - it names an absence that has since
+become false.
 <a href="../0006-several-databases-behind-one-data-system/">Several databases behind one data system</a> declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.</p>
@@ -4593,6 +4617,41 @@ hand. Against three systems with grants it is decoration in its most literal for
 deployment is one data system. It is what this record recommends <em>until
 <code>feat/federation-decomposability</code> exists</em>, because the one thing worse than no federation is a
 federated answer nobody can tell is wrong.</p>
+<h2 id="amendment-2026-09-16-the-absence-the-order-by-branch-named-has-landed">Amendment, 2026-09-16: the absence <em>The order, by branch</em> named has landed<a class="headerlink" href="#amendment-2026-09-16-the-absence-the-order-by-branch-named-has-landed" title="Permanent link">&para;</a></h2>
+<p><strong>The <code>feat/source-registry</code> bullet cites <code>docs/architecture.md:595-600</code> for "the source-to-adapter
+selection ... records as deliberately absent."</strong> Read at <code>origin/main</code> today, that line range holds
+push-down and federation prose - a different topic - and the absence itself is gone: it landed.
+This is the alarming direction a false citation can point, so it is settled with evidence rather
+than repointed.</p>
+<p><strong>What was true when this was written, and where it went.</strong> <code>git log -S "deliberately absent" --
+docs/architecture.md</code> finds no commit ever adding or removing that exact phrase - the sentence was
+a paraphrase, not a quote, from the start. At <code>9928a012</code> (the commit that added this ADR),
+<code>docs/architecture.md:595-600</code> read: <em>"And absent in a way worth naming separately ... </em><em>no runtime
+selection of an adapter.</em><em> Which catalogue and which data system are decided at compile time in
+<code>sutura-cli</code>, not read from anywhere."</em> That is the absence this bullet meant, and it was accurate
+then.</p>
+<p><strong>What replaced it.</strong> <code>crates/sutura-config/src/sources.rs</code> (908 lines) is a <code>sources:</code> tree parsed
+per deployment - kind, placement, transport and identity posture per alias - and its own module
+documentation says the change it made: <em>"It replaced a comparison against a hard-coded source
+NAME"</em>, where the composition root used to refuse any source not called <code>local</code>. <code>docs/architecture.md</code>
+itself was kept current: <a href="../../architecture/#what-exists-today">What exists today</a> now says <em>"one
+thing that was absent here and is now half present ... a <code>SourceName</code> now selects a warehouse out
+of a registry rather than being compared for equality against the one adapter that was linked ...
+What it still will not do is answer a question spanning two data systems"</em> - landed for <em>which
+source</em>, still compile-time for <em>which kind</em>. <a href="../0009-the-plan-from-one-source-to-many/">0009</a>'s own
+branch table agrees: its <code>feat/source-registry</code> row describes the refusals this registry raises at
+parse, past tense.</p>
+<p><strong>So the claim is false and only the citation was ever a paraphrase - both need correcting, and a
+line number is the wrong fix for either.</strong> The bullet's factual clause is replaced by: <em>the
+source-to-adapter selection <a href="../../architecture/#what-exists-today">What exists today</a> once recorded
+as absent has landed - a <code>SourceName</code> selects a warehouse out of a registry; which</em> kind <em>a source
+may be remains a compile-time choice.</em> A heading anchor rather than a line number, because
+<code>docs/architecture.md</code> has moved this passage at least once already and a line number rots on the
+next edit regardless of which way the claim points.</p>
+<p><strong>The ordering argument itself is untouched.</strong> The bullet's job was to say <em>why</em>
+<code>feat/source-registry</code> bundles three assumptions into one branch; that reasoning does not depend on
+whether the absence it illustrated still holds, and nothing above is a claim that the branch order
+was wrong.</p>
 
 
 

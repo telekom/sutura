@@ -1776,6 +1776,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-context-is-read-now-and-what-that-does-and-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: context is read now, and what that does and does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3047,6 +3058,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-09-16-context-is-read-now-and-what-that-does-and-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-09-16: context is read now, and what that does and does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3072,7 +3094,9 @@
 evidence it rests on; no wiring, no crate change and no gate ships with it. What it decides is
 <em>where</em> a per-request principal can arrive on the agent surface, and it does that before any code
 because the alternative - attaching an exchange to a transport that has nowhere to put a caller -
-is the expensive way to find out.</p>
+is the expensive way to find out. <strong>Read <em>Amendment, 2026-09-16</em> before citing the <code>_context</code>
+paragraph below</strong> - the parameter it describes as discarded is now read, by code this record's
+evidence anticipated rather than by a change to this decision.</p>
 <p><a href="../0014-how-a-caller-proves-who-it-is/">0014</a> built leg 1 on the HTTP surface: a deployment
 declaring <code>security.inbound</code> verifies a caller's own token from a signature.
 <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a> built the port and the broker for leg
@@ -3097,7 +3121,7 @@ command is written here because a bare figure in prose is one nobody can re-chec
 <td><strong>0</strong>. <code>git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker</code> over a file <code>grep -c ''</code> reports at 471 lines</td>
 </tr>
 <tr>
-<td><code>crates/sutura-mcp/src/lib.rs:212</code></td>
+<td><code>crates/sutura-mcp/src/lib.rs:214</code></td>
 <td><code>pub async fn serve_stdio&lt;S&gt;(service, permitted, prose, admission, reply)</code> - <strong>no parameter a principal could arrive through</strong></td>
 </tr>
 <tr>
@@ -3473,6 +3497,46 @@ at all.</p>
 <p><strong>Wait for the chain, then do the transport.</strong> Rejected on ordering. Without a per-request
 principal there is nothing for a chain's first hop to consume, so building the chain first
 produces machinery whose input does not exist.</p>
+<h2 id="amendment-2026-09-16-context-is-read-now-and-what-that-does-and-does-not-change">Amendment, 2026-09-16: <code>context</code> is read now, and what that does and does not change<a class="headerlink" href="#amendment-2026-09-16-context-is-read-now-and-what-that-does-and-does-not-change" title="Permanent link">&para;</a></h2>
+<p><strong>The <code>_context</code> paragraph above is stale, not just its line number.</strong> <code>#732</code> (<code>0ea25539</code>, part of
+<code>#378</code> PR2) changed <code>crates/sutura-mcp/src/server.rs</code>. <code>call_tool</code>'s second parameter is <code>context</code>,
+not <code>_context</code> (<code>:377-380</code>), and <code>call_tool</code> reads it: <code>let asked = self.asked(&amp;context)?;</code>
+(<code>:392</code>). <code>list_tools</code> reads it the same way (<code>:365-369</code>). Quoting the old signature now would give
+a false sentence a correct-looking citation, which is worse than the stale line number it would
+replace - so this is a correction to the argument, not a repoint.</p>
+<p><strong>What the paragraph was arguing, and what survives.</strong> The section it sits in - <em>An inbound header
+does reach a handler, and this is the whole path</em> - was establishing that a slot for a per-request
+principal already existed on the handler's signature, so wiring one in would not need a new
+parameter, only a reason to stop discarding it. That conclusion is not weakened by <code>context</code> now
+being read; it is <em>demonstrated</em>. <code>AgentSurface::asked</code> (<code>:313-326</code>) is exactly the read the
+paragraph said the type could carry: under <code>Asking::PerRequest</code>, it pulls <code>context.extensions</code>,
+finds an <code>http::request::Parts</code>, and reads a <code>sutura_app::Asked</code> out of <em>its</em> extensions - the shape
+this ADR's evidence said the pinned SDK's HTTP transport produces, not a shape this crate invented.</p>
+<p><strong>What does not survive as written: the reason given for <code>_context</code>.</strong> The paragraph said the
+binding was correct <em>because</em> the value was empty under the pipe. <code>context</code> is no longer bound to
+be ignored - it is threaded through <code>asked</code> unconditionally - but the pipe still supplies nothing to
+read: <code>Asking</code>'s other arm, <code>TheProcessOwner</code>, never inspects <code>context</code> at all (<code>:315-318</code>), and
+<code>crate::serve_stdio</code> - the only thing this crate serves - always builds <code>TheProcessOwner</code>
+(<code>crates/sutura-mcp/src/lib.rs:222-225</code>). <code>PerRequest</code> is produced behind this crate's own
+default-off <code>http</code> feature, by a module (<code>crate::http</code>, <code>#378</code> PR3) that a composition root
+already mounts: <code>sutura-cli</code> wires it behind its own optional <code>agent</code> feature and a settings
+switch (<code>crates/sutura-cli/src/serve/agent.rs:62-73</code>, <code>serve.rs:336-341,350-353</code>), and
+<code>crates/sutura-cli/tests/served/agent.rs:104-134</code> starts the composed binary and exercises it end
+to end over a real socket. That landed at <code>#758</code>, an ancestor of this amendment's own merge base -
+a day before this dateline, not after it. What is still true, and distinct from that: no
+<em>published</em> artefact carries it. <code>nix/shipped.nix</code>'s cross-built binaries take no <code>features</code>
+argument (<code>crossPackages</code>, <code>:347-353</code>), so what ships is default-features; <code>agent</code> reaches only
+<code>allFeatures</code> and its <code>allFeaturesProbes</code> (<code>:173</code>, <code>:449</code>), which are exposed under <code>packages</code>,
+never <code>checks</code> (<code>:705</code>). So the fact that changed is <em>which arm of a match statement ignores the
+context</em> - and now a composed, tested binary reads it, behind a feature this repository never
+turns on for anything it publishes.</p>
+<p><strong>The limit this ADR already states, restated so this amendment does not overclaim it:</strong> <em>What this
+decision does NOT cover</em> above already says leg 1 is built on HTTP and leg 2 - a source executing as
+the caller - has never run against a real token service, on any surface. Reading <code>context</code> on the
+agent transport is neither: it is the same type-level plumbing this record priced, now built and
+mounted by a composed, tested binary behind an optional feature - reachable by nothing this
+repository publishes - and it moves nothing about per-subject execution. AGENTS.md's own line
+holds unchanged: leg 1 is built, leg 2 is not, on anything published.</p>
 
 
 

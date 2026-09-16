@@ -2759,7 +2759,9 @@ this crate, and the handler is three methods written by hand.</p>
   is unreachable from here - an adapter never calls another adapter - so, over the pipe,
   <code>Asking::PerRequest</code> is read but never produced. Behind this crate's own default-off <code>http</code>
   feature, <code>http::service</code> is what produces one over a real request - the streamable-HTTP
-  transport - and PR4 is the composition root that chooses to mount it.</li>
+  transport - and PR4 (<code>#758</code>) is the composition root that already mounts it, behind its own
+  optional <code>agent</code> feature and a settings switch; nothing this repository publishes turns that
+  feature on.</li>
 </ul>
 <p><strong>The consequence for what a scope gates here is stated rather than left implicit:</strong> the
   capability set this surface offers is narrowable, and over standard input and output nothing
