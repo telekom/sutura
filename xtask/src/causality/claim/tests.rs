@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::probe::{KILLED, UNRELATED, cell};
+use super::probe::{DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, TRACK_CALLER, UNRELATED, cell, reader};
 use super::{Cause, Claim, MutationKill, classify_mutation, report_accepted, report_refused};
 use crate::Verdict;
 use crate::causality::fixtures::{changed, manifest, tree};
@@ -113,6 +113,18 @@ const PATCH_LIB: &str = concat!(
     "+pub fn f() -> u8 { 2 }\n",
 );
 
+/// A full unified diff that CREATES a brand-new file - one `git checkout HEAD -- <path>` cannot
+/// restore (the path is not in HEAD, so git answers `pathspec did not match`). That is how a
+/// restore failure is provoked with a real git tree.
+const PATCH_NEWFILE: &str = concat!(
+    "diff --git a/crates/x/src/newfile.rs b/crates/x/src/newfile.rs\n",
+    "new file mode 100644\n",
+    "--- /dev/null\n",
+    "+++ b/crates/x/src/newfile.rs\n",
+    "@@ -0,0 +1 @@\n",
+    "+pub fn n() -> u8 { 1 }\n",
+);
+
 /// A full unified diff against a file this arm's repo does not carry.
 const PATCH_NOMATCH: &str = concat!(
     "diff --git a/crates/x/src/other.rs b/crates/x/src/other.rs\n",
@@ -143,7 +155,7 @@ fn the_claim_is_deduped_sorted_and_absent_without_a_trailer() {
 // cell - a mutation that reddens someone else is not evidence about this one.
 #[test]
 fn a_run_that_names_a_different_test_is_not_a_kill() {
-    assert_eq!(classify_mutation(UNRELATED, &cell(), &[]), MutationKill::NotAsserted);
+    assert_eq!(classify_mutation(UNRELATED, &cell(), &reader()), MutationKill::NotAsserted);
 }
 
 // RED for the arm, half 2: a run that compiled and ran green names no failure - a mutation
@@ -151,25 +163,26 @@ fn a_run_that_names_a_different_test_is_not_a_kill() {
 #[test]
 fn a_run_that_names_no_failure_is_not_a_kill() {
     assert_eq!(
-        classify_mutation("    Summary [   0.1s] 1 test run: 1 passed\n", &cell(), &[]),
+        classify_mutation("    Summary [   0.1s] 1 test run: 1 passed\n", &cell(), &reader()),
         MutationKill::NotAsserted
     );
     assert_eq!(
-        classify_mutation("error[E0061]: this function takes 1 argument\n", &cell(), &[]),
+        classify_mutation("error[E0061]: this function takes 1 argument\n", &cell(), &reader()),
         MutationKill::NotAsserted
     );
 }
 
-// GREEN for the arm: a run that reports this exact cell failing IS the kill, under the same key
-// the base run uses.
+// GREEN for the arm: a run that reports this exact cell failing AND carries a `panicked at` site
+// inside the cell's own test region IS the kill, under the same key the base run uses.
 #[test]
 fn a_run_that_names_the_cell_is_a_kill() {
-    assert_eq!(classify_mutation(KILLED, &cell(), &[]), MutationKill::Killed);
+    assert_eq!(classify_mutation(KILLED, &cell(), &reader()), MutationKill::Killed);
 }
 
 // BLOCKING-3 RED: a kill whose panic site is a PATCHED PRODUCTION file is not an assertion kill -
 // a `panic!()` planted in production kills every cell that reaches it, proving reachability and
-// not that the assertion discriminates.
+// not that the assertion discriminates. `classify_mutation` outgrew the patch set: a production
+// panic is refused by SITE, not by which file the patch touched.
 #[test]
 fn a_kill_by_panic_in_the_mutation_is_refused() {
     let text = concat!(
@@ -178,23 +191,54 @@ fn a_kill_by_panic_in_the_mutation_is_refused() {
         "error: test run failed\n",
     );
     assert_eq!(
-        classify_mutation(text, &cell(), &[String::from("crates/x/src/lib.rs")]),
-        MutationKill::PanicsInMutation(String::from("crates/x/src/lib.rs"))
+        classify_mutation(text, &cell(), &reader()),
+        MutationKill::NotByAssertion {
+            site: String::from("crates/x/src/lib.rs:9")
+        }
     );
 }
 
-// BLOCKING-3 green control: a REAL assertion kill panics at the CELL'S OWN test file (never a
-// patched production path, because a mutation may not touch a test file), so it still counts.
+// BLOCKING-3 green control: a REAL assertion kill panics at the CELL'S OWN test region (a line
+// of the cell's own test fn), so it still counts - even inside a MIXED file whose production this
+// very mutation may also touch.
 #[test]
 fn a_kill_by_the_cells_own_assertion_is_the_kill() {
-    let text = concat!(
-        "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
-        "thread 'audit::tests::the_added_one' panicked at crates/sutura-cli/src/audit.rs:12:9:\n",
-        "error: test run failed\n",
-    );
+    assert_eq!(classify_mutation(KILLED, &cell(), &reader()), MutationKill::Killed);
+}
+
+// BLOCKING RED (exit/abort/signal): a run reporting the cell failing with NO `panicked at` site -
+// a `std::process::exit(n)` / `abort()` / signal death - kills nothing by assertion.
+#[test]
+fn a_kill_by_process_exit_or_abort_is_refused() {
     assert_eq!(
-        classify_mutation(text, &cell(), &[String::from("crates/x/src/lib.rs")]),
-        MutationKill::Killed
+        classify_mutation(EXIT_NO_SITE, &cell(), &reader()),
+        MutationKill::NotByAssertion { site: String::new() }
+    );
+}
+
+// BLOCKING RED (downstream `.expect()`): a patch makes production return `None` and an EXISTING
+// `.expect()` in an UNPATCHED production file fires. The panic site is that production file, so
+// the cell died by reachability, not by its own assertion.
+#[test]
+fn a_kill_by_a_downstream_expect_in_production_is_refused() {
+    assert_eq!(
+        classify_mutation(DOWNSTREAM_EXPECT, &cell(), &reader()),
+        MutationKill::NotByAssertion {
+            site: String::from("crates/x/src/other.rs:1")
+        }
+    );
+}
+
+// BLOCKING RED (`#[track_caller]`): production `panic!()`s under `#[track_caller]`, so the panic
+// relocates. When it stops at a production caller the site is not the cell's test region, so it is
+// not an assertion kill - and until that rule held, the relocation read as a test-file assertion.
+#[test]
+fn a_track_caller_relocation_is_refused() {
+    assert_eq!(
+        classify_mutation(TRACK_CALLER, &cell(), &reader()),
+        MutationKill::NotByAssertion {
+            site: String::from("crates/x/src/lib.rs:3")
+        }
     );
 }
 
@@ -295,6 +339,57 @@ fn a_patch_touching_a_diff_test_file_is_refused() {
     );
 }
 
+// BLOCKING-2 green control: a MIXED file (production + an inline `#[cfg(test)] mod tests`) is a
+// legitimate mutation target in its PRODUCTION lines, so a patch touching line 1 (above the test
+// region) is ALLOWED - the shape #761's inline cells need to touch their own file. The old
+// blanket "patch touches a diff test-file" rule refused this.
+#[test]
+fn a_patch_touching_a_mixed_files_production_is_allowed() {
+    let repo = Repo::with(
+        "crates/x/src/lib.rs",
+        "pub fn f() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { assert!(false); }\n}\n",
+    );
+    repo.write("devco/claim-mutations/the_cell.patch", PATCH_LIB);
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[String::from("crates/x/src/lib.rs")]);
+    assert!(!causes.iter().any(|c| matches!(c, Cause::TouchesTests { .. })), "{causes:?}");
+}
+
+// BLOCKING-2 RED: the SAME mixed file, but the patch adds a line INSIDE the `#[cfg(test)] mod
+// tests` region (line 6, `fn t`) - editing the test region is still refused, exactly as a pure
+// test file's edit is.
+#[test]
+fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
+    let repo = Repo::with(
+        "crates/x/src/lib.rs",
+        "pub fn f() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { assert!(false); }\n}\n",
+    );
+    let patch = concat!(
+        "diff --git a/crates/x/src/lib.rs b/crates/x/src/lib.rs\n",
+        "--- a/crates/x/src/lib.rs\n",
+        "+++ b/crates/x/src/lib.rs\n",
+        "@@ -6 +6 @@\n",
+        "-fn t() { assert!(false); }\n",
+        "+fn t() { assert!(true); }\n",
+    );
+    repo.write("devco/claim-mutations/the_cell.patch", patch);
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[String::from("crates/x/src/lib.rs")]);
+    assert!(
+        causes.contains(&Cause::TouchesTests {
+            cell: String::from("the_cell"),
+            path: String::from("crates/x/src/lib.rs"),
+        }),
+        "{causes:?}"
+    );
+}
+
 // RED: a patch that does not `git apply` in the worktree is refused by name, through a real dry
 // apply whose context matches no file.
 #[test]
@@ -337,8 +432,27 @@ fn kill_cell_refuses_a_cell_with_no_patch() {
     assert_eq!(err, Cause::MissingPatch(String::from("the_cell")));
 }
 
-// M4 RED: the whole arm refuses a declared cell that does not hold - the verdict that a discarded
-// `claim::run(..)` return would flip to a pass.
+// RED for `kill_cell`'s restore arm: a mutation that CREATES a path `git checkout HEAD --` cannot
+// restore must refuse the whole arm as `RestoreFailed`, because a tree left mutated leaks into the
+// next cell's run. `restore_puts_a_mutated_file_back_at_head` proves `restore` works; this proves
+// `kill_cell` refuses when it does NOT - the half the round-2 review measured as green under MC.
+#[test]
+fn kill_cell_refuses_a_restore_failure() {
+    let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write("devco/claim-mutations/the_cell.patch", PATCH_NEWFILE);
+    repo.commit("patches");
+    let scoped = one_added_test("the_cell");
+    let err = super::kill_cell(&repo.dir, &repo.dir.join("target"), &scoped, "the_cell").expect_err("restore fails");
+    assert!(
+        matches!(&err, Cause::RestoreFailed { cell, why } if cell == "the_cell" && !why.is_empty()),
+        "{err:?}"
+    );
+}
+
+// The whole arm refuses a declared cell that does not hold. This asserts `claim::run`'s OWN
+// refusal; the site that routes a declared diff INTO `claim::run` (the `return claim::run(..)` in
+// `crate::causality::run`) is one level up, in a function this unit surface does not reach, so that
+// wiring is read by review, not measured here.
 #[test]
 fn the_arm_refuses_a_declared_cell_that_has_no_patch() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");

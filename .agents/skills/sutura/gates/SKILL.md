@@ -1024,20 +1024,26 @@ a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (
 `base..HEAD`); the gate then requires the declared set to equal the diff's added tests exactly
 (declared-not-added and added-not-declared are both refusals), resolves each cell to a committed
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
-target, runs the named cell, and requires it to FAIL *naming that cell* - the mutation kills it. A
-patch that does not apply, touches a test file, or leaves the cell green refuses the whole arm. The
-touched-file rule reads git's own `--numstat` path set against BOTH the diff's test files and the
-repo's all-test classification at HEAD, so a header-less patch and a `tests/` helper the diff never
-touched are refused too; and a run that reports the cell failing only because a `panic!`/`unwrap()`
-plant in PRODUCTION fired refuses with "kills by panic, not by assertion" - the cell must fail by
-its own assertion. All
+target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
+mutation kills it. A patch that does not apply, touches a test LINE, or leaves the cell green
+refuses the whole arm. The touched-LINE rule reads git's own `--numstat` paths plus the patch's own
+`+c,d` hunk ranges against `regions::scope`, so a `tests/` helper the diff never touched is refused,
+a patch with a hunk inside any test region is refused, AND a MIXED file (production + an inline
+`#[cfg(test)] mod tests`) is a valid target in its production lines - the shape an inline claim
+cell needs to patch its own file. A run reports a KILL only when its `panicked at <path>:<line>`
+lands inside the cell's own test region: a planted `panic!`/`unwrap()` in PRODUCTION, a downstream
+`.expect()` in an unpatched file, a `#[track_caller]` relocation, an exit/abort/signal death, or a
+FAIL with no site at all refuses as *not by the cell's own assertion*. All
 cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
 never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
-cell dies under its compiled mutation (at +N isolated rebuilds per declaration - the same ~68 s each
-base/head run pays); it does NOT prove red-on-base (the behaviour pre-exists, which is the whole
-point) and it does not prove HEAD green (that stays `just test`). And the trailer never disables
-red-before-green for anything UNDECLARED: a claim cell without a trailer still reaches the
-green-against-base refusal unchanged.
+cell dies under its compiled mutation by its own assertion (at +N isolated rebuilds per declaration
+- the same ~68 s each base/head run pays); it does NOT prove red-on-base (the behaviour pre-exists,
+which is the whole point) and it does not prove HEAD green (that stays `just test`). And it does NOT
+prove that the mutation is the behaviour the cell CLAIMS: the author picks the patch (a `const`
+flip, a body replaced by `Default::default()`) and the gate holds only that it kills by the cell's
+own assertion - whether it is the right break is review-held, with the patch visible in the diff for
+exactly that reason. The trailer never disables red-before-green for anything UNDECLARED: a claim
+cell without a trailer still reaches the green-against-base refusal unchanged.
 
 **AND READ THE COUNT WITH THE VERDICT, never on its own.** `N of N added tests measured` beside an
 INCONCLUSIVE line means the filterset NAMED N tests, not that any of them ran against base. #307

@@ -21,10 +21,31 @@ pub(super) fn cell() -> AddedTest {
         .expect("one added test")
 }
 
-/// A run that reported exactly `the_added_one` failing - the mutation KILLS the cell.
+/// The post-image reader the classify fixtures judge panic sites against.
+///
+/// `crates/sutura-cli/src/audit.rs` is a MIXED file - production on top, `the_added_one` inside an
+/// inline `#[cfg(test)] mod tests { .. }` at the bottom - which is the realistic shape of a claim
+/// cell and the case the over-refusal finding was about: its own assertion panics at a line inside
+/// the file's test region, and a patch to the SAME file's production lines must not make that read
+/// as a production panic. The two `crates/x/src/*` files are production with no test region, the
+/// shape a downstream `.expect()` or a `#[track_caller]` relocation to a production caller lands
+/// in.
+pub(super) fn reader() -> impl Fn(&str) -> Option<String> {
+    crate::causality::fixtures::tree(&[
+        (
+            "crates/sutura-cli/src/audit.rs",
+            "pub fn audit() -> u8 { 1 }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_added_one() {\n        assert_eq!(1, 2);\n    }\n}\n",
+        ),
+        ("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n"),
+        ("crates/x/src/other.rs", "pub fn g() -> u8 { 1 }\n"),
+    ])
+}
+
+/// A run that reported exactly `the_added_one` failing by its OWN assertion - the panic
+/// (`crates/sutura-cli/src/audit.rs:7`) is inside the cell's test region, so the mutation KILLS.
 pub(super) const KILLED: &str = concat!(
-    "    Starting 3 tests across 47 binaries\n",
     "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+    "thread 'audit::tests::the_added_one' panicked at crates/sutura-cli/src/audit.rs:7:9:\n",
     "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped\n",
     "error: test run failed\n",
 );
@@ -32,5 +53,32 @@ pub(super) const KILLED: &str = concat!(
 /// A run that reported a DIFFERENT test failing - the mutation does not kill this cell.
 pub(super) const UNRELATED: &str = concat!(
     "        FAIL [   0.313s] (86/1810) sutura-app::differential tests::postgres::sums_by_month\n",
+    "error: test run failed\n",
+);
+
+/// A run that reports the cell failing but NEVER carries a `panicked at` site - a kill by
+/// `std::process::exit(n)` or an abort/signal death. No site lands inside the cell's test region,
+/// so it is not an assertion kill.
+pub(super) const EXIT_NO_SITE: &str = concat!(
+    "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+    "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped\n",
+    "error: test run failed\n",
+);
+
+/// A run whose panic landed in an UNPATCHED PRODUCTION file - the ordinary careless mutation, a
+/// patch that makes `lib.rs` return `None`/`Err` and an existing `.expect()` in `other.rs` fires.
+/// The site is production, not the cell's test region, so it is not an assertion kill.
+pub(super) const DOWNSTREAM_EXPECT: &str = concat!(
+    "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+    "thread 'audit::tests::the_added_one' panicked at crates/x/src/other.rs:1:44:\n",
+    "error: test run failed\n",
+);
+
+/// A run whose panic is a `#[track_caller]` production `panic!()` whose relocation stops at a
+/// PRODUCTION caller - `crates/x/src/lib.rs:3`, not the cell's test region - so it reads as a
+/// production panic, not the cell's own assertion.
+pub(super) const TRACK_CALLER: &str = concat!(
+    "        FAIL [   0.021s] (2/3) sutura-cli::bin/sutura audit::tests::the_added_one\n",
+    "thread 'audit::tests::the_added_one' panicked at crates/x/src/lib.rs:3:5:\n",
     "error: test run failed\n",
 );
