@@ -262,7 +262,7 @@ impl FixturePort for Live {
             return Err(Failed::Query);
         }
         println!(
-            "bigquery-cross-resource: one-source join agreed; shadow differed; endpoint not-found followed by positive control"
+            "bigquery-cross-resource: one-source join agreed; shadow differed; endpoint refused the absent owned name; positive control agreed"
         );
         Ok(())
     }

@@ -105,6 +105,27 @@ if cross_dataset in (dataset_id, ci_dataset):
         "cross-resource writable venue loads per-run fixtures into it beside ci_dataset, and its "
         "dimension shadow must not land on the policied dataset"
     )
+# The cross dataset joins the acceptance dataset, and BigQuery refuses a single statement across two
+# locations - so it must be created in the SAME location as the acceptance dataset, never in
+# `region`. `cross_dataset_location` is a free config value, so hold it against the acceptance
+# dataset's ACTUAL location here rather than trusting prose: a wrong value was once found only by a
+# hosted run failing at the Query step, after a location change had already deleted and recreated the
+# venue. The refusal needs `bigquery.datasets.get` on `ci_dataset` for the pulumi credential, which
+# the stack already exercises through the two `DatasetIamMember`s on it (a dataset-level
+# `dataEditor` includes `datasets.get`). If that permission is ever absent, this read fails at
+# `pulumi preview` rather than silently - say so and the refusal becomes "held by the hosted run,
+# not the program".
+ci_dataset_location = gcp.bigquery.get_dataset(
+    dataset_id=ci_dataset, project=project
+).location
+if (
+    ci_dataset_location
+    and ci_dataset_location.lower() != cross_dataset_location.lower()
+):
+    raise ValueError(
+        "cross_dataset_location must match the acceptance dataset's location: BigQuery refuses a "
+        "query across two locations, and the cross-resource join reads ci_dataset"
+    )
 
 # The dataset location (may be a multi-region like `EU`) and the provider's COMPUTE region/zone are
 # separate: BigQuery takes its own `location`, while the GCP provider uses a compute region/zone to
@@ -392,8 +413,15 @@ cross_dataset_res = gcp.bigquery.Dataset(
     dataset_id=cross_dataset,
     location=cross_dataset_location,
     # A dataset id is unique per project, so a replacement (location is immutable) must delete the
-    # old one first; the venue is disposable by design, nothing in it outlives a run.
-    opts=pulumi.ResourceOptions(provider=gcp_provider, delete_before_replace=True),
+    # old one first; the venue is disposable by design, nothing in it outlives a run. Delete-first
+    # needs contents-on-destroy too: a per-run table can outlive the run that made it (the loader
+    # expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a non-empty dataset
+    # unless `deleteContents=true`.
+    opts=pulumi.ResourceOptions(
+        provider=gcp_provider,
+        delete_before_replace=True,
+        delete_contents_on_destroy=True,
+    ),
 )
 gcp.bigquery.DatasetIamMember(
     "ci-bigquery-dataeditor-cross",
