@@ -1566,3 +1566,40 @@ the same change that records this. `test-infra/pulumi/google/__main__.py`'s `sa_
 accounts, their keys and their row access policies are left provisioned: deleting cloud state is a
 separate decision, and both accounts are candidates for the `iamcredentials` impersonation hop
 telekom/sutura#376's exchanged-identity cell still needs.
+
+## Fifteenth amendment, 2026-09-16: the default-off decision is superseded
+
+**Status of the amendment: accepted; it records a reversal, not a build.** The Eighth amendment
+above closes with *"What default-off IS still necessary for, unchanged and now the whole of the
+argument: no published artefact links an outbound TLS stack"* and calls that *the decision of step
+3*. `github.com/telekom/sutura#685`'s own shape table reverses it: **one binary, every adapter
+compiled in, no per-feature artefacts** - "which adapters a deployment uses is configuration, not a
+build." That is the opposite of what this record has argued for since the measurement above, and
+#685 is what wins: build time is priced and accepted there, and the artefact this record's
+default-off reasoning was defending against no longer applies.
+
+**What that makes false, stated rather than left to be found.** Every sentence in this record and in
+`nix/shipped.nix` that reads *the shipped binary carries neither `tls`, `bigquery`, `postgres` nor
+`datahub`* is a description of the tree today, not of a standing decision - the decision it used to
+describe is the one this amendment retires. `docs/getting-started.md`'s "build from source for the
+feature you need" instruction and `docs/verifying-a-release.md`'s "built with cargo's default
+features" table are in the same position: true of the artefact `#685` step 5 has not built yet, false
+of the one it decides.
+
+**What is NOT true yet, and this is the limit next to the claim.** This amendment records the
+decision; it does not implement it. `nix/shipped.nix`'s `binaries` entry still has no `features`
+field, still builds cargo's default set, and `checks.shipped-features` still bans `ring` and `ureq`
+for it - unchanged, because its `permit` list (added below) is empty for that entry. The published
+`sutura` binary today carries exactly what the Eighth amendment measured. Turning that binary
+all-features, and the images beside it, is `#685` step 5 and is deliberately not part of this
+change.
+
+**What DOES land here, in the same commit as this amendment - `#685` step 4.**
+`checks.shipped-features`'s `forbidden` list (`nix/shipped.nix`) was global: the only way a future
+all-features artefact could carry `ring` and `ureq` on purpose was to edit that list, which would
+have silently permitted both crates for every binary reading it, including a default-off one added
+beside it later. Each binary in `binaries` now carries its own `permit` list, subtracted from
+`forbidden` before the check runs. `sutura`'s is empty, so both crates stay banned for it exactly as
+before; the artefact `#685` step 5 adds will state `permit = [ "ring" "ureq" ]` on its own entry, by
+name, rather than by loosening the check for everyone. The mechanism is ready; the artefact that
+needs it is not built.
