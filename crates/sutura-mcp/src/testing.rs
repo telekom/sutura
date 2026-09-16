@@ -51,6 +51,15 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
 
+/// A fixture for [`crate::AgentSurface`]'s `instructions` field.
+///
+/// None of this crate's own tests assert on `initialize`'s `instructions` content - that document
+/// is `sutura_app::prompt::render`'s claim, pinned by that crate's own snapshots - so every fixture
+/// here needs only *a* value, not the rendered one.
+pub(crate) fn instructions() -> Arc<str> {
+    Arc::from("test fixture instructions")
+}
+
 pub(crate) fn source() -> SourceName {
     SourceName::parse("local").expect("a test source is a source")
 }

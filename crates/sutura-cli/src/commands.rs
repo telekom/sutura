@@ -265,25 +265,43 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
         // deployment WOULD hand out, and a prompt rendered from a configuration directory that was
         // never found is the failure it exists to make visible.
         eprintln!("sutura: configuration from {}", settings.layers());
-        let (prose, instructions) = prompt_inputs(settings.prompt())?;
         let pinned = load(Path::new(&root))?;
-        // Every certified operation, because the HTTP surface mounts every one of them
-        // unconditionally. A transport that hid one passes the subset it mounts and the workflow
-        // drops the step rather than telling an agent to call something that is not there.
-        //
-        // `run_sql` is added on top rather than folded into `Tool::ALL`: it is off by default and a
-        // deployment turns it on separately (`tools.run_sql.enabled`), so this command reads the
-        // SAME settings the service would boot with - the ones already loaded above - rather than
-        // assuming every deployment mounts it. A configuration this command was not told about
-        // cannot make the rendered prompt describe a tool the deployment cannot call.
-        let mut tools = Tool::ALL.to_vec();
-        if settings.tools().run_sql_enabled() {
-            tools.push(Tool::RunSql);
-        }
-        let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
-        print!("{}", sutura_app::prompt::render(&pinned, &inputs));
+        print!("{}", agent_instructions(&pinned, &settings)?);
         Ok(())
     })())
+}
+
+/// Every tool this deployment's agent surface actually mounts, the way a served transport decides
+/// it: the certified pair unconditionally, plus the raw SQL tool only when `tools.run_sql.enabled`
+/// turned it on.
+///
+/// Every certified operation is included unconditionally, because the HTTP surface mounts every
+/// one of them unconditionally too. A transport that hid one would pass the subset it mounts and
+/// the workflow would drop the step rather than telling an agent to call something that is not
+/// there. `run_sql` is added on top rather than folded into `Tool::ALL`: it is off by default and a
+/// deployment turns it on separately, so this reads the same settings a service would boot with
+/// rather than assuming every deployment mounts it.
+fn agent_tools(settings: &sutura_config::Settings) -> Vec<Tool> {
+    let mut tools = Tool::ALL.to_vec();
+    if settings.tools().run_sql_enabled() {
+        tools.push(Tool::RunSql);
+    }
+    tools
+}
+
+/// The whole rendered agent prompt - what `prompt` prints, and since `telekom/sutura#776` what a
+/// served MCP transport's `initialize.instructions` carries too, so a served agent actually
+/// receives the bundle's knowledge instead of a fixed sentence naming none of it.
+///
+/// Shared rather than reimplemented per composition root - `crate::mcp` and `crate::serve::agent`
+/// both call this - for the reason `#266`'s `H1` already named for `catalog_prose`: two roots
+/// resolving one document separately is how a later change to either stops matching what this
+/// command prints for the same settings.
+pub(crate) fn agent_instructions(pinned: &PinnedDefinitions, settings: &sutura_config::Settings) -> Result<String, String> {
+    let (prose, instructions) = prompt_inputs(settings.prompt())?;
+    let tools = agent_tools(settings);
+    let inputs = PromptInputs::new(&tools, prose, instructions.as_deref());
+    Ok(sutura_app::prompt::render(pinned, &inputs))
 }
 
 /// How the catalog's prose is treated, and the operator's own text if a path was configured.

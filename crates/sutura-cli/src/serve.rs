@@ -376,7 +376,8 @@ pub(crate) fn run() -> Result<(), String> {
     let agent_mount = settings
         .server()
         .agent_surface_enabled()
-        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone()));
+        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone()))
+        .transpose()?;
     let mut state = ServiceState::new(service, Arc::new(settings), admission);
     // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
     // the state holds one and the watch needs to reach the same cache.

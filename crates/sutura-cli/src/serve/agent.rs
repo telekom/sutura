@@ -58,16 +58,24 @@ const fn catalog_prose(configured: sutura_config::prompt::CatalogProse) -> Catal
 /// `sutura_mcp::http::service` is always `Asking::PerRequest` and needs the server's execution
 /// bound and per-request deadline; the bound is the process's own `Admission`, shared with the HTTP
 /// surface, so both transports answer under one permit set and one deadline.
-#[must_use]
+///
+/// **Fallible since `telekom/sutura#776`**, for the reason [`crate::commands::agent_instructions`]
+/// already states: an operator-configured `prompt.instructions_file` that cannot be read is a
+/// startup refusal naming the path, not a served surface that silently omitted the operator's own
+/// section. Reads the bundle off `service` before erasing it, so what this renders the prompt over
+/// is the exact bundle `Surface::answer` computes against - never a second catalog load that could
+/// drift from it.
 pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
-) -> sutura_http::AgentMount {
-    sutura_http::AgentMount::new(sutura_mcp::http::service(
+) -> Result<sutura_http::AgentMount, String> {
+    let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
+    Ok(sutura_http::AgentMount::new(sutura_mcp::http::service(
         Arc::new(Serving(service)),
         catalog_prose(settings.prompt().catalog_prose()),
         admission,
         settings.server().request_timeout(),
-    ))
+        Arc::from(instructions),
+    )))
 }

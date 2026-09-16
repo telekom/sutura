@@ -477,9 +477,16 @@ mod tests {
         // `Implementation::new` over `from_build_env` for.
         assert_eq!(result["serverInfo"]["name"], "sutura-mcp", "{result}");
         assert!(result["capabilities"]["tools"].is_object(), "no tools capability: {result}");
+        // `telekom/sutura#776`: not merely non-empty - the RENDERED bundle, carrying knowledge only
+        // this catalog declares. `churn_rate_over_the_half_year` is a worked example's own `name:`
+        // frontmatter (`examples/single-player/catalog/knowledge/examples/`), so a fixed sentence
+        // this crate hard-coded could never contain it - only `sutura_app::prompt::render`, over
+        // THIS process's own pinned bundle, can.
         assert!(
-            result["instructions"].as_str().is_some_and(|text| !text.is_empty()),
-            "the surface introduced itself with no instructions: {result}"
+            result["instructions"]
+                .as_str()
+                .is_some_and(|text| text.contains("churn_rate_over_the_half_year")),
+            "the surface introduced itself with no rendered instructions: {result}"
         );
 
         // And the limit is stated on the LOG channel. Two claims in one: the notice exists, so a

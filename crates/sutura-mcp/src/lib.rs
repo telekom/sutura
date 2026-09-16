@@ -204,6 +204,12 @@ pub enum Asking {
 /// produced, and the reply deadline is how long one peer waits for one of them. None of the three
 /// cancels a question already inside the pool - see [`server`] and #160.
 ///
+/// **`instructions` is the fourth required value, and it is what a peer's `initialize` result
+/// carries as `instructions` - `telekom/sutura#776`.** It has to be rendered before this call, by
+/// [`sutura_app::prompt::render`] over the settings and the pinned bundle this `service` answers
+/// from, because this crate performs no catalog I/O of its own; the composition root that already
+/// read both is `sutura`'s `mcp` subcommand.
+///
 /// Returns when the peer closes or is cancelled.
 ///
 /// # Errors
@@ -217,12 +223,20 @@ pub async fn serve_stdio<S>(
     prose: sutura_app::prompt::CatalogProse,
     admission: sutura_runtime::Admission,
     reply: sutura_config::RequestTimeout,
+    instructions: std::sync::Arc<str>,
 ) -> Result<(), NotServed>
 where
     S: Surface,
 {
     let running = rmcp::serve_server(
-        AgentSurface::new(service, Asking::TheProcessOwner { permitted }, prose, admission, reply),
+        AgentSurface::new(
+            service,
+            Asking::TheProcessOwner { permitted },
+            prose,
+            admission,
+            reply,
+            instructions,
+        ),
         rmcp::transport::stdio(),
     )
     .await
