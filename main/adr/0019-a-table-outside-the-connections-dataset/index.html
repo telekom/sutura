@@ -3211,18 +3211,22 @@ default dataset would have produced three identical green legs while proving not
 record's own opening failure, one layer further out.</p>
 <p><strong>Not claimed, and each of these is a gap rather than a hedge:</strong></p>
 <ul>
-<li><strong>No second dataset was reached, and no second project.</strong> Measured rather than assumed: the
-  acceptance service account can see one dataset, and <code>datasets.insert</code> returns
-  <code>403 accessDenied ... does not have bigquery.datasets.create permission</code>, so neither a second
-  dataset nor a second project could be created to read across. <strong>What that leaves unproved is
-  narrower than it sounds and is worth stating exactly:</strong> the three-part path is proved to <em>resolve</em> -
-  the qualifier is read, and a wrong dataset in it is refused - and what is unproved is a read whose
-  leading part is a project the credential does not already bill to. That is an IAM grant rather than
-  a code change; the statement is identical in shape either way. It is the one thing to re-run when a
-  second project exists.</li>
-<li><strong>A cross-project JOIN was not executed.</strong> It is rendered, parse-checked, and pinned as one
-  statement with one <code>JOIN</code> and one <code>SourceName</code> - which is the design claim of Decision 2 - but no
-  local test can show a service performing it, and none pretends to.</li>
+<li><strong>No second project was reached.</strong> Measured rather than assumed: the acceptance service
+  account can see one project's datasets, and <code>datasets.insert</code> returns
+  <code>403 accessDenied ... does not have bigquery.datasets.create permission</code>, so a second project
+  could not be created to read across. <strong>What that leaves unproved is narrower than it sounds and
+  is worth stating exactly:</strong> the three-part path is proved to <em>resolve</em> - the qualifier is read,
+  and a wrong dataset in it is refused - and what is unproved is a read whose leading part is a
+  project the credential does not already bill to. That is an IAM grant rather than a code change;
+  the statement is identical in shape either way. It is the one thing to re-run when a second
+  project exists.</li>
+<li><strong>A cross-project JOIN was not executed.</strong> A cross-DATASET join within one billing project now
+  is - recorded on 2026-09-16 by run
+  https://github.com/telekom/sutura/actions/runs/35066825062, positive and negative control, PASS -
+  but a JOIN whose leading part is a second project the credential does not bill to remains
+  unexecuted. It is rendered, parse-checked, and pinned as one statement with one <code>JOIN</code> and one
+  <code>SourceName</code> - which is the design claim of Decision 2 - but no hosted run shows a service
+  performing it across projects, and none pretends to.</li>
 <li><strong>Nothing about the corpus.</strong> The live legs are hand-built statements, exactly as
   <a href="../0018-what-the-bigquery-wire-is-built-from/">0018</a> says of its own.</li>
 <li><strong>Nothing about identity.</strong> A service-account key is <code>SharedServiceUser</code>. Cross-project reads under
