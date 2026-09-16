@@ -17,8 +17,8 @@ pub enum InvalidAudienceGrant {
     Empty,
 }
 
-/// One or more audience identifiers a restricted metric is visible to. Parsed rather than a bare
-/// `BTreeSet<AudienceId>`, so [`InvalidAudienceGrant::Empty`] is refused once, at assembly.
+/// Parsed rather than a bare `BTreeSet<AudienceId>`, so [`InvalidAudienceGrant::Empty`] is
+/// refused once, at assembly.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct AudienceGrant(BTreeSet<AudienceId>);
 
@@ -30,7 +30,6 @@ impl AudienceGrant {
         Ok(Self(identifiers))
     }
 
-    /// Does this grant intersect a caller's granted set?
     #[inline]
     #[must_use]
     pub fn intersects(&self, granted: &BTreeSet<AudienceId>) -> bool {
@@ -50,14 +49,12 @@ impl AudienceGrant {
 pub struct GrantedAudiences(BTreeSet<AudienceId>);
 
 impl GrantedAudiences {
-    /// Nothing granted.
     #[inline]
     #[must_use]
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// What was granted.
     #[inline]
     #[must_use]
     pub const fn of(granted: BTreeSet<AudienceId>) -> Self {
@@ -82,8 +79,6 @@ pub enum Audience {
 }
 
 impl Audience {
-    /// Is this metric visible to a caller mapped to this set of audiences?
-    ///
     /// Takes the granted set, not a caller or a token: mapping a verified claim to it is a
     /// deployment's own job, done above this crate.
     #[inline]
