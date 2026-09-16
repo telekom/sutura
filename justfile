@@ -687,14 +687,29 @@ e2e-datahub-bigquery *datahub:
     mode="{{datahub}}"
     if [ -z "$mode" ]; then mode="--datahub fake"; fi
     case "$mode" in
-      "--datahub fake") ;;
+      "--datahub fake")
+        export SUTURA_E2E_DATAHUB_MODE=fake ;;
       "--datahub tier")
-        echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
-        echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
-        exit 1 ;;
-      *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+        export SUTURA_E2E_DATAHUB_MODE=tier
+        echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
+        echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under the"
+        echo "e2e-datahub-bigquery: deployment's structured property, has the tier mint its own PAT (never committed),"
+        echo "e2e-datahub-bigquery: and points the served binary's HTTP AspectReader at it. Fail-not-skip: dev-up exits"
+        echo "e2e-datahub-bigquery: non-zero if a container stays unhealthy, and the cell fails closed if the PAT is"
+        echo "e2e-datahub-bigquery: unreadable."
+        cargo run -q -p xtask -- dev-up --with datahub
+        # Headless GMS exposes no /auth/* token surface, so the TIER mints its own PAT offline with
+        # its own signing key. Written into a generated token_file (never committed - it is under the
+        # worktree's ignored discovery dir) and exported by path, exactly as the flake app does, so
+        # `tests/served/e2e.rs`'s `adopt_minted_pat` can pass it to the served binary unchanged.
+        DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+        cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
+        export SUTURA_DATAHUB_TOKEN_FILE="$DATAHUB_TOKEN_FILE"
+        ;;
+      *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
     esac
-    echo "e2e-datahub-bigquery: scope sutura-cli - the wave-one E2E over DataHub (fake), a real issuer and a real BigQuery source."
+    if [ "$mode" = "--datahub tier" ]; then carrier="the REAL docker DataHub tier"; else carrier="an in-process HTTP fake (the recorded corpus, #202)"; fi
+    echo "e2e-datahub-bigquery: scope sutura-cli - the wave-one E2E over $carrier, a real issuer and a real BigQuery source."
     echo "e2e-datahub-bigquery: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     echo "e2e-datahub-bigquery: leg 2 (executing AS the asking subject) stays behind #376 P2 - see docs/where-identity-is-proven.md."
     rc=0
@@ -790,14 +805,22 @@ dev-up-demo:
 datahub-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two cells: the instance is"
-    echo "datahub-acceptance: reachable, and a document written under a property THE DEPLOYMENT names"
-    echo "datahub-acceptance: comes back and decodes into a certified metric. There is no HTTP"
+    echo "datahub-acceptance: scope sutura-catalog-datahub - one target, two live cells plus an"
+    echo "datahub-acceptance: enforcement cell: the instance is reachable, a document written under a"
+    echo "datahub-acceptance: property THE DEPLOYMENT names comes back and decodes into a certified"
+    echo "datahub-acceptance: metric, and a bearer-LESS read is refused (auth is ON). There is no HTTP"
     echo "datahub-acceptance: AspectReader, so this is NOT a read path - the requests and the mapping"
     echo "datahub-acceptance: onto the adapter's shape are in the test, not in src/."
     echo "datahub-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with datahub
-    SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
+    # The tier self-mints its own PAT (headless GMS exposes no /auth/* surface) and the cells present
+    # it as their bearer; auth stays ON, so a write without it could not pass. Same mint, same key as
+    # `e2e-datahub-bigquery --datahub tier`, exported as the value the cells read.
+    DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+    cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
+    SUTURA_DEV_REQUIRE_TIER=1 \
+    SUTURA_DATAHUB_PAT="$(cat "$DATAHUB_TOKEN_FILE")" \
+    cargo test -p sutura-catalog-datahub --test provisioned -- --ignored --nocapture
 
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:

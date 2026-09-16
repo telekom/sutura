@@ -927,30 +927,35 @@ no docker socket - so it is evidence of whatever the last `just datahub-acceptan
 crate's default-off `http` feature. What it does and does not change:
 
 - **Three paged `GET /openapi/v3/entity/{entityName}` calls become one `Snapshot`** - `dataset`
-  (`schemaMetadata`, `datasetProperties`), `semanticModel` (`semanticModelRelationship`) and `metric`
-  (`metricInfo`, `structuredProperties`), one page each, at a fixed generous count. A page that
-  signals more results than the one page this reader reads (a `scrollId` alone, or a returned count
-  below a reported `total`) is a typed refusal (`HttpReaderError::MorePages`) rather than a silent
-  truncation - the "one page or a refusal" shape `sutura-exec-bigquery`'s wire already holds for
-  `jobs.query`, for the same reason: a caller must not certify a bundle built from a `Snapshot` that
-  silently dropped a model, a relationship or a metric. Each of the two tells is held by its own
-  cell now, after a review found the `scrollId` arm unheld by any of the original suite's cells.
-  **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own** - if it does,
-  every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
+  (`schemaMetadata`, `datasetProperties`), `semanticModel` (`semanticModelInfo.value.relationships[]`)
+  and `metric` (`metricInfo`, `structuredProperties`), one page each, at a fixed generous count. A
+  page that signals more results than the one page this reader reads (a `scrollId` alone, or a
+  returned count below a reported `total`) is a typed refusal (`HttpReaderError::MorePages`) rather
+  than a silent truncation - the "one page or a refusal" shape `sutura-exec-bigquery`'s wire already
+  holds for `jobs.query`, for the same reason: a caller must not certify a bundle built from a
+  `Snapshot` that silently dropped a model, a relationship or a metric. Each of the two tells is held
+  by its own cell now, after a review found the `scrollId` arm unheld by any of the original suite's
+  cells. **Unmeasured: whether a real v3 last page ever carries a `scrollId` of its own** - if it
+  does, every read of a real instance is a refusal, and the follow-up acceptance leg (shaped like
   `tests/provisioned.rs`) has to measure this before PR2 wires the composition.
-- **Only the `metric` mapping is measured against a live instance, and this is the same limit the
-  previous revision already stated, now attached to running code instead of to a test file.**
-  `HttpAspectReader`'s metric mapping is the one `tests/provisioned.rs`'s `harvest` wrote out first
-  and compared byte-for-byte against the recorded fixture - moved into the library it was always
-  meant to belong to, unaltered in shape. **The `dataset` and `semanticModel` mappings are NOT
-  measured against a live instance.** Their field lists come from this record's own "Field by field"
-  table, read from the platform's `.pdl` schema sources rather than from a served response, and this
-  reader's own module header repeats the limit rather than letting it live only here. Because a wrong
-  guess there would be a FIRST claim rather than a regression against a proven round trip, the
-  decoder refuses an unexpected shape by name (`HttpReaderError::UnexpectedShape { entity, field }`)
-  instead of reading past a missing or mistyped key with a default. **Do not cite this reader as
-  proof the structural half works against a real `DataHub`** until an acceptance leg measures it the
-  way `tests/provisioned.rs` measured the metric half.
+- **The `metric` and the `semanticModel` relationship mapping are measured against a live instance;
+  the `dataset` mapping is not.** `HttpAspectReader`'s metric mapping is the one
+  `tests/provisioned.rs`'s `harvest` wrote out first and compared byte-for-byte against the recorded
+  fixture - moved into the library it was always meant to belong to, unaltered in shape. The
+  relationship mapping was measured against the docker tier (2026-09-16): real `DataHub` 1.7.0
+  carries a joined relationship INSIDE the `semanticModel` entity's `semanticModelInfo.value.relationships[]`,
+  and a top-level `semanticModelRelationship` aspect is accepted then silently dropped by GMS - so
+  the reader walks the nested array, the fake's `happy_path_answers` page serves the same nested
+  shape, and the tier provisions it identically (one content, two transports). **The `dataset`
+  mapping is still NOT measured against a live instance.** Its field list comes from this record's
+  own "Field by field" table, read from the platform's `.pdl` schema sources rather than from a
+  served response, and this reader's own module header repeats the limit rather than letting it live
+  only here. Because a wrong guess there would be a FIRST claim rather than a regression against a
+  proven round trip, the decoder refuses an unexpected shape by name
+  (`HttpReaderError::UnexpectedShape { entity, field }`) instead of reading past a missing or
+  mistyped key with a default. **Do not cite this reader as proof the `dataset` half works against a
+  real `DataHub`** until an acceptance leg measures it the way `tests/provisioned.rs` measured the
+  metric half.
 - **`fromColumns`/`toColumns` arriving as arrays is now a refusal, not a silent narrowing.** The
   "Field by field" table already named `DataHub`'s relationship endpoints as WIDER than this
   adapter's single column per side; the reader reduces an array of exactly one to that one column and

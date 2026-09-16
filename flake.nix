@@ -882,12 +882,25 @@
               mode="$*"
             fi
             case "$mode" in
-              "--datahub fake") ;;
+              "--datahub fake")
+                export SUTURA_E2E_DATAHUB_MODE=fake ;;
               "--datahub tier")
-                echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
-                echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
-                exit 1 ;;
-              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+                export SUTURA_E2E_DATAHUB_MODE=tier
+                echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
+                echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under"
+                echo "e2e-datahub-bigquery: the deployment's structured property, has the tier mint its own PAT"
+                echo "e2e-datahub-bigquery: (never committed), and points the served binary's HTTP AspectReader at it."
+                echo "e2e-datahub-bigquery: Fail-not-skip."
+                cargo run -q -p xtask -- dev-up --with datahub
+                # Headless GMS exposes no /auth/* token surface, so the TIER mints its own PAT offline
+                # with its own signing key. Written into a generated token_file (never committed - it
+                # is under the ignored discovery dir) and exported by path, exactly as the just task
+                # does, so `tests/served/e2e.rs`'s `adopt_minted_pat` passes it to the served binary.
+                DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+                cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
+                export SUTURA_DATAHUB_TOKEN_FILE="$DATAHUB_TOKEN_FILE"
+                ;;
+              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
             esac
 
             ${cargoLinkEnv}

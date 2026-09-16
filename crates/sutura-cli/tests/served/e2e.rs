@@ -67,10 +67,18 @@
 //! source reading nothing this file wrote answers wrong or not at all); `GOOGLE_APPLICATION_CREDENTIALS`
 //! or `SUTURA_BQ_DATASET` unset (FAILS by name, never silently skips). GREEN is this file as written.
 
+// The docker DataHub tier harness, split out by the same `cargo xtask max-lines` 1000-line cap
+// that `harness.rs` and `served.rs`'s other `#[path] mod` children record: it carries no `#[test]`,
+// so moving it does not change what `just causality` can see.
+#[cfg(test)]
+#[path = "datahub_tier.rs"]
+mod datahub_tier;
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::harness::Served;
     use sutura_catalog_datahub::test_support::{DEPLOYMENT_PROPERTY, FakeServer, happy_path_answers};
     use sutura_domain::model::{SourceName, TableName};
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
@@ -298,14 +306,6 @@ mod tests {
             drop(std::fs::remove_dir_all(&self.0));
         }
     }
-
-    /// The settings a wave-one deployment needs: the `datahub` catalog pointed at the fake (`#202`'s
-    /// recorded corpus, served), a REAL `bigquery` source under the catalog's own name (`kind:
-    /// bigquery`, `posture: shared-service-user` - one credential for whoever asks, never a claim
-    /// about executing AS them), and the Keycloak issuer's own `inbound` (`mode: direct`, so the
-    /// caller's token IS the identity - no `security.access_token`, because a deployment declaring
-    /// both is refused as `DeploymentTokenSharesTheHeader`).
-    ///
     /// The `server:` head: the wave-one loopback bind, and - under the `agent` feature, which
     /// `just e2e-datahub-bigquery` compiles via `--all-features` - the `agent_surface` switch that
     /// mounts `/mcp`. Emitted ONLY under that feature so a no-`agent` compile of this module neither
@@ -318,10 +318,9 @@ mod tests {
         head
     }
 
-    /// `dir`/`data_dir` on the catalog are the two path fields `CatalogSettings` requires non-empty
-    /// for EVERY kind including `datahub`, unread by the datahub opener - the same obviously-unused
-    /// placeholders `served/datahub.rs` declares.
-    fn settings(fixture: &KeycloakFixture, server: &FakeServer, data: &DataDir, bq: &BigQueryFixture) -> String {
+    use super::datahub_tier::DatahubTier;
+
+    fn settings(fixture: &KeycloakFixture, endpoint: &str, token_file: &Path, bq: &BigQueryFixture) -> String {
         let key_set = derived_beside(&config_path(CASE)).join("keycloak-jwks.json");
         format!(
             "server:\n\
@@ -350,8 +349,8 @@ mod tests {
                  posture: \"shared-service-user\"\n",
             server_head = server_head(),
             inbound = inbound_block(fixture, &key_set),
-            endpoint = server.endpoint(),
-            token_file = data.token_file().display(),
+            endpoint = endpoint,
+            token_file = token_file.display(),
             billing_project = bq.billing_project,
             dataset = bq.dataset,
             credential_file = bq.credential_file.display(),
@@ -467,6 +466,43 @@ mod tests {
             .collect()
     }
 
+    /// Boot ONE deployment over the loopback fake (the recorded corpus, the default locally) or
+    /// the REAL docker `DataHub` tier (the hosted job's), and return the pair every ask shares - the
+    /// fake to reap (fake mode, for the outbound-bearer sweep) and the served deployment.
+    ///
+    /// One flag, one settings builder, no second test; both read `DataHub` through the binary's own
+    /// HTTP `AspectReader` over an endpoint the settings name. `SUTURA_E2E_DATAHUB_MODE` is set by the
+    /// `just` task / nix app from the `--datahub` parameter; anything else refuses loudly.
+    fn boot_wave_one(fixture: &KeycloakFixture, data: &DataDir, bq: &BigQueryFixture) -> (Option<FakeServer>, Served) {
+        let (endpoint, token_file, fake) = match std::env::var("SUTURA_E2E_DATAHUB_MODE").as_deref() {
+            Ok("fake") | Err(_) => {
+                let mut answers = happy_path_answers();
+                answers.extend(happy_path_answers());
+                let server = FakeServer::start(answers);
+                let endpoint = server.endpoint();
+                (endpoint, data.token_file(), Some(server))
+            }
+            Ok("tier") => {
+                // The docker tier minted its own PAT before this test ran (see `dev/src/mint.rs` /
+                // the just task and nix app); the served binary presents it via the token_file
+                // `adopt_minted_pat` populated, and provision() provisions the certified metric with
+                // it. No admin credential is read - the headless GMS has no login surface to use one.
+                let tier = DatahubTier::required();
+                tier.provision(&data.token_file());
+                // `DatahubTier` talks to the tier by bare host:port (it builds the scheme itself),
+                // but the served binary's settings key needs a scheme - the same shape the FAKE's
+                // `endpoint()` returns, so one settings builder stays valid for both modes.
+                let endpoint = format!("http://{}", tier.endpoint);
+                (endpoint, data.token_file(), None)
+            }
+            other => {
+                panic!("unknown SUTURA_E2E_DATAHUB_MODE {other:?} - set it from the `--datahub fake|tier` switch, never by hand")
+            }
+        };
+        let deployment = start_configured(CASE, &settings(fixture, &endpoint, &token_file, bq));
+        (fake, deployment)
+    }
+
     #[test]
     #[ignore = "needs the Keycloak tier and a real BigQuery project; run via `just e2e-datahub-bigquery`, which brings the tier up first"]
     fn the_wave_one_path_answers_a_verified_caller_under_the_shared_key() {
@@ -487,10 +523,7 @@ mod tests {
         // once every ask below is done - on the happy path AND on a panic partway through.
         let bq = BigQueryFixture::required();
         let _loaded = LoadedFixture::loaded(&bq.warehouse, &data);
-        let mut answers = happy_path_answers();
-        answers.extend(happy_path_answers());
-        let server = FakeServer::start(answers);
-        let deployment = start_configured(CASE, &settings(&fixture, &server, &data, &bq));
+        let (fake, deployment) = boot_wave_one(&fixture, &data, &bq);
 
         // Ask 1: principal A's Keycloak-minted token asks the certified DataHub-harvested metric,
         // answered from the REAL BigQuery table this test just loaded.
@@ -509,26 +542,31 @@ mod tests {
             "{}",
             reply.body
         );
-        // The token file actually reached the wire - the same assertion `served/datahub.rs` makes:
-        // a composition root that ignored the declared token file would still answer the question.
+        // The token file actually reached the wire (fake mode) or the tier accepted the minted PAT
+        // (tier mode). Only the FAKE can capture the outbound authorizations - the served binary
+        // cannot read the live tier's log - so in tier mode the PAT's acceptance is proven by the
+        // tier answering the read at all and by `provision`'s own `200`s above.
         // `finish` joins the fake thread; the audit record is written by the deployment's own
         // blocking pool, so this reads it after the fake is reaped with a bounded sweep of the
         // deployment's log rather than the fixed `awaiting` deadline.
-        let authorizations = server.finish();
-        assert!(
-            !authorizations.is_empty(),
-            "the served binary sent no DataHub page request at all"
-        );
-        assert!(
-            authorizations
-                .iter()
-                .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
-            "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
-        );
+        if let Some(server) = fake {
+            let authorizations = server.finish();
+            assert!(
+                !authorizations.is_empty(),
+                "the served binary sent no DataHub page request at all"
+            );
+            assert!(
+                authorizations
+                    .iter()
+                    .all(|seen| seen.as_deref() == Some("Bearer pat-under-test")),
+                "every DataHub page request must carry the token_file's bearer, got: {authorizations:?}"
+            );
+        }
         // The audit record arrives with the answer, read straight from the deployment's log - the
         // sweep and the `awaiting` deadline both fight the channel's behavior after the fake is
-        // reaped, so this reads once, after `finish` has joined the fake's thread. (`log()` drains
-        // the channel, so this read is what asks 2a/2b/3's later reads must not repeat.)
+        // reaped (fake mode), so this reads once, after `finish` has joined the fake's thread.
+        // Tier mode has no fake to reap - the served binary reads the REAL tier, and the audit
+        // record is read straight off the deployment's log.
         let lines_a = deployment.log();
         assert!(
             lines_a

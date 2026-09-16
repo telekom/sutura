@@ -12,17 +12,24 @@
 //! [`harvest_metric`] maps exactly the envelope that suite measured: `entities[]`, each carrying
 //! `metricInfo.value` and `structuredProperties.value.properties[]`.
 //!
-//! **The `dataset` and `semanticModel` entities are NOT measured against a live instance.** Their
-//! field lists come from `docs/adr/0016`'s "Field by field" table, which was read from the platform's
-//! own `.pdl` schema sources rather than from a served response. This is stated once here and
-//! repeated at each mapping function, because the two facts have different consequences: a wrong
+//! **The `semanticModel` entity's relationship shape IS measured against a live instance, the
+//! `dataset` entity's is NOT.** Real `DataHub` 1.7.0 carries a joined relationship NOT as a
+//! top-level `semanticModelRelationship` aspect (which GMS drops on write) but nested inside the
+//! `semanticModel` entity's own `semanticModelInfo.value.relationships[]` array - measured on this
+//! repository's docker tier (2026-09-16) by upserting the recorded corpus's `orders_to_customer`
+//! relationship under `semanticModelInfo` and reading it back. So
+//! [`HttpAspectReader::read_relationships`] maps the aspect it fetches to the array
+//! [`harvest_relationship`] walks, and the fake `happy_path_answers` page serves the same nested
+//! shape - one content over two transports. The `dataset` entity's field
+//! list is still from `docs/adr/0016`'s "Field by field" table, read from the platform's own `.pdl`
+//! schema rather than from a served response. The two facts have different consequences: a wrong
 //! guess about `metric`'s envelope would be a regression against a proven round trip, and a wrong
-//! guess about the other two would be the FIRST claim this crate has made about them. So both
-//! mapping functions refuse an unexpected shape as a typed [`HttpReaderError::UnexpectedShape`]
-//! naming the entity and the field, rather than reading past a missing or mistyped key with a
-//! default - a guess that happened to be wrong would otherwise certify a bundle silently missing a
-//! model or a relationship. **Do not cite this reader as proof the structural half works against a
-//! real `DataHub` until an acceptance leg like `tests/provisioned.rs`'s measures it.**
+//! guess about `dataset` would be a FIRST claim this crate has made about it. Both mapping functions
+//! refuse an unexpected shape as a typed [`HttpReaderError::UnexpectedShape`] naming the entity and
+//! the field, rather than reading past a missing or mistyped key with a default - a guess that
+//! happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
+//! **Do not cite this reader as proof the `dataset` half works against a real `DataHub` until an
+//! acceptance leg like `tests/provisioned.rs`'s measures it.**
 //!
 //! # What every read is bounded by
 //!
@@ -567,21 +574,43 @@ impl HttpAspectReader {
         entities.iter().map(harvest_dataset).collect()
     }
 
-    /// The `semanticModel` entity type's `semanticModelRelationship` aspect.
+    /// The `semanticModel` entity type's `semanticModelInfo` aspect, whose `relationships[]` array
+    /// this reader walks. Real `DataHub` carries a joined relationship INSIDE
+    /// `semanticModelInfo.value.relationships[]`, not as a top-level aspect - measured against the
+    /// docker tier (2026-09-16); a top-level `semanticModelRelationship` write is accepted and then
+    /// dropped by GMS, so the nested shape is the only one the two transports share.
     ///
-    /// **Unmeasured against a live instance** - see the module header. `fromColumns`/`toColumns`
-    /// arrive as arrays; this crate's own [`RelationshipAspect`] carries one column per side, so a
-    /// relationship declaring more than one is refused by name
+    /// `fromColumns`/`toColumns` arrive as arrays; this crate's own [`RelationshipAspect`] carries
+    /// one column per side, so a relationship declaring more than one is refused by name
     /// ([`HttpReaderError::UnexpectedShape`]) rather than reduced to a guess - `docs/adr/0016`'s
     /// "Field by field" table already names this as a place `DataHub` is WIDER than this adapter.
+    /// A `semanticModel` entity with `semanticModelInfo` but no `relationships` contributes none,
+    /// the same way a dataset with no annotation contributes an empty description.
     fn read_relationships(&self, budget: Budget) -> Result<Vec<RelationshipAspect>, HttpReaderError> {
         const ENTITY: &str = "semanticModel";
-        let page = self.fetch(budget, ENTITY, &["semanticModelRelationship"])?;
+        let page = self.fetch(budget, ENTITY, &["semanticModelInfo"])?;
         let entities = Self::entities(&page, ENTITY)?;
         if Self::page_signals_more(&page, entities.len()) {
             return Err(HttpReaderError::MorePages { entity: ENTITY });
         }
-        entities.iter().map(harvest_relationship).collect()
+        let mut relationships = Vec::new();
+        for entity in entities {
+            let info = entity.get("semanticModelInfo").and_then(|aspect| aspect.get("value")).ok_or(
+                HttpReaderError::UnexpectedShape {
+                    entity: ENTITY,
+                    field: "semanticModelInfo.value",
+                },
+            )?;
+            let list = info
+                .get("relationships")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            for relationship in list {
+                relationships.push(harvest_relationship(relationship)?);
+            }
+        }
+        Ok(relationships)
     }
 
     /// The `metric` entity type: `metricInfo` for the promotion candidate's raw half,
@@ -727,33 +756,27 @@ fn map_cardinality(raw: &str) -> Option<&'static str> {
     }
 }
 
-/// One `semanticModel` entity into this crate's own [`RelationshipAspect`] shape. See
-/// [`HttpAspectReader::read_relationships`] for what is and is not measured here.
-fn harvest_relationship(entity: &Value) -> Result<RelationshipAspect, HttpReaderError> {
+/// One relationship element out of a `semanticModel` entity's
+/// `semanticModelInfo.value.relationships[]` array, into this crate's own [`RelationshipAspect`]
+/// shape. See [`HttpAspectReader::read_relationships`] for what is and is not measured here.
+fn harvest_relationship(relationship: &Value) -> Result<RelationshipAspect, HttpReaderError> {
     const ENTITY: &str = "semanticModel";
-    let value = entity
-        .get("semanticModelRelationship")
-        .and_then(|aspect| aspect.get("value"))
-        .ok_or(HttpReaderError::UnexpectedShape {
-            entity: ENTITY,
-            field: "semanticModelRelationship.value",
-        })?;
-    let name = value
+    let name = relationship
         .get("name")
         .and_then(Value::as_str)
         .ok_or(HttpReaderError::UnexpectedShape {
             entity: ENTITY,
-            field: "semanticModelRelationship.value.name",
+            field: "semanticModelInfo.value.relationships[].name",
         })?;
-    let from_model = one_endpoint(value, "from")?;
-    let from_column = one_column(value, "fromColumns")?;
-    let to_model = one_endpoint(value, "to")?;
-    let to_column = one_column(value, "toColumns")?;
-    let cardinality = match value.get("cardinality").and_then(Value::as_str) {
+    let from_model = one_endpoint(relationship, "from")?;
+    let from_column = one_column(relationship, "fromColumns")?;
+    let to_model = one_endpoint(relationship, "to")?;
+    let to_column = one_column(relationship, "toColumns")?;
+    let cardinality = match relationship.get("cardinality").and_then(Value::as_str) {
         None => None,
         Some(raw) => Some(map_cardinality(raw).ok_or(HttpReaderError::UnexpectedShape {
             entity: ENTITY,
-            field: "semanticModelRelationship.value.cardinality",
+            field: "semanticModelInfo.value.relationships[].cardinality",
         })?),
     };
     let mut document = serde_json::Map::new();

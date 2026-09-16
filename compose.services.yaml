@@ -149,9 +149,13 @@ x-datahub-backend-environment: &datahub-backend-environment
   DATAHUB_SQL_SETUP_ENABLED: "true"
   # FIXTURES, and the same argument as the credential anchors above: nothing outside this host
   # can reach these containers, because the one published port is ephemeral. A deployment's
-  # signing key is a secret; a throwaway container's is a value that has to be non-empty.
+  # signing key is a secret; a throwaway container's is a value that has to be non-empty - and, for
+  # HS256, at least 256 bits long: jjwt (which GMS validates HS256 access tokens with) refuses a
+  # verification key under that size, measured on the pinned 1.7.0 tier. `sutura-dev`'s `mint-pat`
+  # uses the SAME litmus and value; the tier self-mints, because headless GMS exposes no token
+  # surface (`/auth/authenticate` and `/auth/accessTokens` live in the absent React frontend).
   DATAHUB_TOKEN_SERVICE_SALT: sutura-dev-salt
-  DATAHUB_TOKEN_SERVICE_SIGNING_KEY: sutura-dev-signing-key
+  DATAHUB_TOKEN_SERVICE_SIGNING_KEY: sutura-dev-signing-key-with-256-bits
   EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
   EBEAN_DATASOURCE_HOST: mysql:3306
   EBEAN_DATASOURCE_USERNAME: root
@@ -329,11 +333,18 @@ services:
   #   * **No `neo4j`.** `GRAPH_SERVICE_IMPL: elasticsearch` means the graph lives in `OpenSearch`, so
   #     the `NEO4J_*` keys upstream sets are read by nothing on this configuration and are not
   #     written here.
-  #   * **`METADATA_SERVICE_AUTH_ENABLED: "false"`, as upstream's quickstart has it - and that is a
-  #     STATED LIMIT rather than a convenience.** A real reader carries a personal access token as a
-  #     bearer, so what this tier can prove is the read path and the decoding, and NOT that the
-  #     adapter authenticates. A tier that proved the second would have to mint a token through the
-  #     token service, and nothing reads one yet.
+  #   * **`METADATA_SERVICE_AUTH_ENABLED: "true"` so every read of the wave-one E2E's real reader is
+  #     an enforced one, where upstream's quickstart defaults to `"false"`.** That was once a STATED
+  #     LIMIT ("a real reader carries a personal access token as a bearer, so what this tier can
+  #     prove is the read path and the decoding, and NOT that the adapter authenticates") - and it
+  #     stayed true until the wave-one E2E's tier mode started presenting a PAT. The headless GMS
+  #     this tier runs exposes NO token-minting surface: `/auth/authenticate` and `/auth/accessTokens`
+  #     live in the React frontend this file deliberately omits (both 404 on the pinned 1.7.0 GMS,
+  #     measured), so the TIER mints its own PAT offline with its own `DATAHUB_TOKEN_SERVICE_SIGNING_KEY`
+  #     (`sutura-dev mint-pat`), and `just e2e-datahub-bigquery --datahub tier` and
+  #     `just datahub-acceptance` both present it as their bearer. The limit that REMAINS is that a
+  #     self-minted PAT is not a DB-backed token-service token (no per-token revocation or audit),
+  #     and that this is still a single-node tier with generated secrets, not a production DataHub.
   #
   # ## Why it is behind a profile, where `clickhouse` is not
   #
@@ -471,9 +482,13 @@ services:
     environment:
       <<: *datahub-backend-environment
       DATAHUB_SERVER_TYPE: quickstart
-      # No token, and the note at the head of this block says what that costs: a real reader sends a
-      # personal access token as a bearer, so this tier proves the read path and NOT the auth half.
-      METADATA_SERVICE_AUTH_ENABLED: "false"
+      # Auth is ON so every read against the tier is an enforced one: the wave-one E2E's real
+      # reader and `datahub-acceptance` both present the tier's OWN self-minted PAT as a bearer.
+      # The token is minted offline with the signing key in the `x-datahub-backend-environment`
+      # anchor above (headless GMS exposes no token surface - see that anchor's comment), written
+      # to a generated token_file, never committed; nothing logs in.
+      METADATA_SERVICE_AUTH_ENABLED: "true"
+      AUTH_POLICIES_ENABLED: "true"
       MAE_CONSUMER_ENABLED: "true"
       MCE_CONSUMER_ENABLED: "true"
       PE_CONSUMER_ENABLED: "true"
