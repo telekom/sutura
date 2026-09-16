@@ -2830,7 +2830,19 @@ credential:</p>
 <li><strong>The refusal is typed.</strong> An uncertified question comes back as a refusal that carries its reason,
    pinned against <code>examples/wave-one/refusal.json</code>'s <code>status</code>/<code>code</code>; a request with no credential is
    refused <code>401</code> before the question is looked at.</li>
+<li><strong>The same question over <code>/mcp</code>.</strong> The agent surface mounts the SAME serving surface behind the SAME
+   leg-1 gate, so the certified question asked over the streamable-HTTP agent surface returns the SAME
+   row total and the same <code>verified</code> subject tied to its own token as the HTTP ask - the byte-for-byte
+   join over one deployment. A verified caller is advertised the <code>ask_metric</code> tool, an unverified
+   <code>/mcp</code> request is refused <code>401</code> before the transport, and an uncertified question is a typed refusal inside the tool result
+   (<code>outcome: "refusal"</code>, <code>reason.code: "metric_unknown"</code> - the same <code>code</code> the HTTP refusal pins; the
+   REST <code>status</code> field has no tool-result counterpart).</li>
 </ol>
+<p>The exact call, as a model chooses it:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="nt">"jsonrpc"</span><span class="p">:</span><span class="s2">"2.0"</span><span class="p">,</span><span class="nt">"id"</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">"method"</span><span class="p">:</span><span class="s2">"tools/call"</span><span class="p">,</span><span class="nt">"params"</span><span class="p">:{</span><span class="nt">"name"</span><span class="p">:</span><span class="s2">"ask_metric"</span><span class="p">,</span><span class="nt">"arguments"</span><span class="p">:{</span><span class="nt">"metric"</span><span class="p">:</span><span class="s2">"revenue"</span><span class="p">,</span><span class="nt">"grain"</span><span class="p">:</span><span class="s2">"month"</span><span class="p">,</span><span class="nt">"range"</span><span class="p">:{</span><span class="nt">"start"</span><span class="p">:</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="nt">"end"</span><span class="p">:</span><span class="s2">"2026-07-01"</span><span class="p">}}}}</span>
+</span></code></pre></div>
+<p>The <code>arguments</code> object is exactly <code>examples/wave-one/question.yaml</code> - the same question text both
+   transports answer.</p>
 <p>The cell that drives it end to end is <code>crates/sutura-cli/tests/served/e2e.rs</code>'s
 <code>the_wave_one_path_answers_a_verified_caller_under_the_shared_key</code>, invoked by <code>just e2e-datahub-bigquery</code>.</p>
 <h2 id="what-it-does-not-demonstrate">What it does not demonstrate<a class="headerlink" href="#what-it-does-not-demonstrate" title="Permanent link">&para;</a></h2>
@@ -2850,8 +2862,8 @@ whole reason:</p>
 </ul>
 <h2 id="running-it-locally-with-your-own-project">Running it locally, with your own project<a class="headerlink" href="#running-it-locally-with-your-own-project" title="Permanent link">&para;</a></h2>
 <p>Everything is a <code>just</code> task, and the BigQuery leg needs <strong>your own open project</strong>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>just keycloak-tier start       # the real issuer: a realm, a client and two provisioned subjects
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>just e2e-datahub-bigquery      # boots the composed binary, loads the fixture into BigQuery, asks both subjects over HTTP
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just keycloak-tier start       # the real issuer: a realm, a client and two provisioned subjects
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>just e2e-datahub-bigquery      # boots the composed binary, loads the fixture into BigQuery, asks both subjects over HTTP
 </span></code></pre></div>
 <p>The task's cell FAILS, naming the missing one, when <code>GOOGLE_APPLICATION_CREDENTIALS</code> or
 <code>SUTURA_BQ_DATASET</code> is unset - never a silent fallback to the in-process engine. (The credential
