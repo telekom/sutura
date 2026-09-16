@@ -68,6 +68,11 @@ ci_table = cfg.require("ci_table")
 # row access policies, and this venue writes beside them, so it must not be the policied dataset
 # either.
 cross_dataset = cfg.require("cross_dataset")
+# The cross dataset joins the acceptance dataset, and BigQuery refuses a query across two
+# locations - so it must be created in the SAME location as the acceptance dataset (`ci_dataset`),
+# never in `region`. Location is immutable on a dataset, so if the value ever changes the venue is
+# recreated on the next `up`.
+cross_dataset_location = cfg.require("cross_dataset_location")
 # The policied dataset and the acceptance dataset must be DIFFERENT datasets, and until this
 # refusal that separation was four independent config keys distinct only because
 # `Pulumi.example.yaml` gives them four different placeholder values. `sync-bq-test-env.sh` asserts
@@ -385,7 +390,7 @@ gcp.bigquery.DatasetIamMember(
 cross_dataset_res = gcp.bigquery.Dataset(
     "cross-dataset",
     dataset_id=cross_dataset,
-    location=region,
+    location=cross_dataset_location,
     opts=pulumi.ResourceOptions(provider=gcp_provider),
 )
 gcp.bigquery.DatasetIamMember(

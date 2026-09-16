@@ -66,6 +66,7 @@ declare -a REQUIRED=(
   "DATASET:dataset"
   "TABLE:table"
   "CROSS_DATASET:cross_dataset"
+  "CROSS_DATASET_LOCATION:cross_dataset_location"
   "GROUP_COLUMN:group_column"
   "WORKLOAD_POOL_ID:workload_pool_id"
   "WORKLOAD_PROVIDER_ID:workload_provider_id"

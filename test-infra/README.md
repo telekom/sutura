@@ -210,6 +210,10 @@ from the key inside the step body instead of provisioning it as a var, so the pr
 in a job's `env:` dump. Exporting it as a stack output would name that project in the world-readable
 export list, so it is not exported either.
 
+The cross dataset is created in the location its config names (`cross_dataset_location`), which must
+match the acceptance dataset it joins - BigQuery refuses a cross-location join, and because a
+dataset's location is immutable, changing that value recreates the venue on the next `up`.
+
 The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
 `bigquery.jobUser` and dataset-level `bigquery.dataEditor` on the stack dataset, the `ci_dataset`
 (the already-populated acceptance dataset) and the cross dataset, so the acceptance/corpus legs and

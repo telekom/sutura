@@ -19,6 +19,10 @@ config:
   # distinct from `dataset` and `ci_dataset` - the program refuses a collision. Created by the stack
   # and granted dataEditor to the CI service account.
   sutura-google-test-infra:cross_dataset: "your-cross-dataset-id"
+  # The CROSS dataset must be created in the SAME location as the acceptance dataset it joins
+  # (`ci_dataset`) - BigQuery refuses a cross-location join. Location is immutable on a dataset,
+  # so changing this value recreates the venue on the next `up`.
+  sutura-google-test-infra:cross_dataset_location: "europe-west1"
   sutura-google-test-infra:group_column: "segment"
   # The grouping value each principal's row access policy grants, and the rows the stack seeds. The
   # two-principal acceptance cell compares an answer against these, so they are exported to the
