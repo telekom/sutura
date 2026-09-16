@@ -599,6 +599,25 @@ and what the deadline does not stop.
 
 `Debug`, `ServerHandler`
 
+### `struct RenderedCause`
+
+```rust
+pub struct RenderedCause
+```
+
+A message built for `ErrorData::invalid_params`, and the only value `RenderedCause::into_error_data`
+may turn into one.
+
+**The limit, stated beside the claim.** `rmcp::ErrorData` is foreign, so this cannot sit in a
+*field* the way `sutura_http::problem::Detail` sits in `Failure::NotAQuestion` - there is no
+`ErrorData` field to hold it. What this buys instead is module privacy plus one call site: the
+tuple field is private and `Self::of`/`Self::outer_only` are its only constructors, so no code
+outside this module can mint one from an ad hoc string, and `Self::into_error_data` is the only
+function that calls `ErrorData::invalid_params`, so neither renderer below reaches a peer without
+going through it. It does **not** stop a *new* call to `ErrorData::invalid_params` written
+elsewhere in this module with its own string - that is weaker than `Detail`'s field type, which
+makes exactly that a compile error everywhere in the crate that builds a `Failure`.
+
 ## Module `tool`
 
 The tools this surface advertises, and the schemas they are described by.
