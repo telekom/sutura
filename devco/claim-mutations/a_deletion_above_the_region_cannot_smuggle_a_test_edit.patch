@@ -1,0 +1,17 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..fc4c5e51 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -432,10 +432,8 @@ fn region_text_of(path: &str, read: &PostImage<'_>) -> Option<String> {
+ /// `before` image. Snapshot taken BEFORE the patch applies, because the same reader afterwards
+ /// reads the post-image.
+ fn head_region_texts(touched: &[String], read: &PostImage<'_>) -> Vec<(String, String)> {
+-    touched
+-        .iter()
+-        .filter_map(|path| region_text_of(path, read).map(|text| (path.clone(), text)))
+-        .collect()
++    let _ = (touched, read);
++    Vec::new()
+ }
+
+ /// The TEXT half of the test-file rule, decided AFTER `git apply`: is any touched file's test

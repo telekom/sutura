@@ -1,0 +1,14 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..a60cf324 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -588,9 +588,6 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
+         return Err(Cause::NotAdded(cell.to_owned()));
+     };
+     let patch = mutation_path(wt, cell);
+-    let Ok(_content) = std::fs::read_to_string(&patch) else {
+-        return Err(Cause::MissingPatch(cell.to_owned()));
+-    };
+     let touched = match touched_paths(wt, &patch) {
+         Ok(paths) => paths,
+         Err(why) => {

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..05f02084 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -215,6 +215,8 @@ pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'
+         .any(|(path, line)| is_cells_own_assertion(cell, path, *line, read))
+     {
+         MutationKill::Killed
++    } else if sites.is_empty() {
++        MutationKill::NotAsserted
+     } else {
+         MutationKill::NotByAssertion {
+             site: sites.first().map(|(path, line)| format!("{path}:{line}")).unwrap_or_default(),

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..3c15e247 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -229,6 +229,8 @@ pub(super) fn classify_mutation(text: &str, cell: &AddedTest, read: &PostImage<'
+ /// ([`AddedTest::file`]), so a panic inside a SHARED helper's test region in another file - or in
+ /// a sibling test fn of the same module - is refused rather than read as this cell's kill.
+ fn is_cells_own_assertion(cell: &AddedTest, path: &str, line: usize, read: &PostImage<'_>) -> bool {
++    let _ = (cell, path, line, read);
++    return false;
+     if path != cell.file() {
+         return false;
+     }

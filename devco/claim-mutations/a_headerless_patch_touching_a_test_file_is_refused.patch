@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..61979590 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -327,7 +327,7 @@ fn mutation_path(dir: &Path, cell: &str) -> PathBuf {
+ fn numstat_paths(numstat: &str) -> Vec<String> {
+     numstat
+         .lines()
+-        .filter_map(|line| line.split('\t').nth(2))
++        .filter_map(|line| line.split('\t').nth(1))
+         .map(String::from)
+         .collect()
+ }

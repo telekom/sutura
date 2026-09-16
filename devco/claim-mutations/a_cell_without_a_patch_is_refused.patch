@@ -1,0 +1,12 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..7721aba6 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -517,7 +517,6 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) ->
+         // patch is not the range the trailer declared, so it is not under review.
+         let patch = mutation_path(wt, cell);
+         let Ok(patch_text) = std::fs::read_to_string(&patch) else {
+-            causes.push(Cause::MissingPatch(cell.clone()));
+             continue;
+         };
+         // A mutation may only edit code HEAD already carries: a `--- /dev/null` file section (or a

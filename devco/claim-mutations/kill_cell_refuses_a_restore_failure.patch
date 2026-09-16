@@ -1,0 +1,16 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..97cffccf 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -618,9 +618,9 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
+     // leaks this cell's mutation into the NEXT cell's run, whose isolation recompiles whatever is
+     // on disk.
+     if let Err(why) = restore(wt, &touched) {
+-        return Err(Cause::RestoreFailed {
++        return Err(Cause::NotByAssertion {
+             cell: cell.to_owned(),
+-            why,
++            site: why,
+         });
+     }
+     match verdict {

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..07451ca6 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -413,8 +413,6 @@ fn created_paths(patch_text: &str) -> Vec<String> {
+     for line in &lines {
+         if let Some(path) = line.strip_prefix("rename to ") {
+             out.push(String::from(path));
+-        } else if let Some(path) = line.strip_prefix("copy to ") {
+-            out.push(String::from(path));
+         }
+     }
+     out

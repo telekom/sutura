@@ -1,0 +1,19 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..bde8d2e3 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -400,14 +400,6 @@ fn touches_test(touched: &[String], test_files: &[String], read: &PostImage<'_>)
+ fn created_paths(patch_text: &str) -> Vec<String> {
+     let lines: Vec<&str> = patch_text.lines().collect();
+     let mut out: Vec<String> = Vec::new();
+-    // A `--- /dev/null` file section names its created path via the `+++ b/<path>` that follows.
+-    for (index, line) in lines.iter().enumerate() {
+-        if *line == "--- /dev/null"
+-            && let Some(path) = lines.get(index + 1).and_then(|next| next.strip_prefix("+++ b/"))
+-        {
+-            out.push(String::from(path));
+-        }
+-    }
+     // A git rename/copy header names its created path on the `rename to`/`copy to` line (bare, no
+     // `b/` prefix): both tell git to WRITE a path HEAD does not carry, so both are creations.
+     for line in &lines {

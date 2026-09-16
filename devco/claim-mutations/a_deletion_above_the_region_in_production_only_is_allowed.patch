@@ -1,0 +1,18 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..96a3f188 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -450,11 +450,8 @@ fn head_region_texts(touched: &[String], read: &PostImage<'_>) -> Vec<(String, S
+ /// production-only shift still matches. `before` is the snapshot taken pre-apply; `after` reads
+ /// the worktree post-apply.
+ fn rewrites_cell_test_region(before: &[(String, String)], after: &PostImage<'_>) -> Option<String> {
+-    before.iter().find_map(|(path, head_text)| {
+-        region_text_of(path, after)
+-            .filter(|post_text| post_text != head_text)
+-            .map(|_| path.clone())
+-    })
++    let _ = after;
++    before.first().map(|(path, _)| path.clone())
+ }
+
+ /// A post-image reader over the worktree the arm created at HEAD.

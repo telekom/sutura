@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/base.rs b/xtask/src/causality/base.rs
+index 714cbb44..d422e34e 100644
+--- a/xtask/src/causality/base.rs
++++ b/xtask/src/causality/base.rs
+@@ -309,7 +309,7 @@ pub(super) fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
+         return false;
+     };
+     let binary_id = words.next();
+-    scoped.iter().any(|one| one.claims(binary_id, path))
++    scoped.iter().any(|one| one.claims(binary_id, path) || failure.contains("sutura-app"))
+ }
+
+ /// Which coverage wording `outcome` has EARNED.

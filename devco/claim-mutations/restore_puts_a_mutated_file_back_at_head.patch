@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..09ac5304 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -639,6 +639,8 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
+ /// swallowed): a tree left mutated is a correctness problem for the NEXT cell, and staying silent
+ /// about it would let one cell's patch leak into another's run.
+ fn restore(wt: &Path, paths: &[String]) -> Result<(), String> {
++    let _ = (wt, paths);
++    return Ok(());
+     if paths.is_empty() {
+         return Ok(());
+     }

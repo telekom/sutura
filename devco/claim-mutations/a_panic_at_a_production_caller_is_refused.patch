@@ -1,0 +1,13 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..31b228c4 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -304,6 +304,8 @@ fn fn_line_is(line: &str, name: &str) -> bool {
+ /// The `(path, line)` of every `panicked at <path>:<line>:` site nextest printed, for panics inside
+ /// a test's stack.
+ fn panic_sites(text: &str) -> Vec<(String, usize)> {
++    let _ = text;
++    return Vec::new();
+     text.lines()
+         .filter_map(|line| {
+             let rest = line.split_once(" panicked at ")?.1;

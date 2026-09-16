@@ -1,0 +1,14 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..5172237d 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -309,7 +309,8 @@ fn panic_sites(text: &str) -> Vec<(String, usize)> {
+             let rest = line.split_once(" panicked at ")?.1;
+             let mut parts = rest.split(':');
+             let path = parts.next()?.to_owned();
+-            let line: usize = parts.next()?.trim().parse().ok()?;
++            let _: usize = parts.next()?.trim().parse().ok()?;
++            let line: usize = 999;
+             Some((path, line))
+         })
+         .collect()

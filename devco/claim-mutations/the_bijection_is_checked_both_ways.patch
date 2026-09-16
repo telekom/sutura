@@ -1,0 +1,11 @@
+diff --git a/xtask/src/causality/claim.rs b/xtask/src/causality/claim.rs
+index 3126ba93..3c044a4a 100644
+--- a/xtask/src/causality/claim.rs
++++ b/xtask/src/causality/claim.rs
+@@ -509,5 +509,3 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) ->
+     for name in added {
+-        if !declared_set.contains(name) {
+-            causes.push(Cause::Undeclared((*name).to_owned()));
+-        }
++        let _ = Cause::Undeclared((*name).to_owned());
+     }
