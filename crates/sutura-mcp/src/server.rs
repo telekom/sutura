@@ -529,6 +529,22 @@ fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, Err
 }
 
 /// A malformed `run_sql` call, as a JSON-RPC error.
+///
+/// The one permitted caller of the banned constructor for this failure.
+/// `MalformedStatement::Statement`'s cause, `sutura_domain::raw::InvalidRawStatement`, carries
+/// none of the text it measured - `Empty`, `TooLong { len, limit }`, `EmbeddedNul` name only the
+/// shape of the failure. `NotAnObject`'s cause, `serde_json::Error`, is different: its own
+/// `Display` for an unrecognized field does echo the caller-chosen key verbatim, bidi controls
+/// included (confirmed against a standalone reproduction pinned to this workspace's
+/// `serde_json`/`thiserror` versions, not run in-crate). What stops it reaching the message below
+/// is `Display` on a `thiserror` enum printing only the variant's own literal - `error.to_string()`
+/// never walks the `#[source]` chain, so that key never enters what this returns.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the renderers are the one permitted path into this constructor, and this one is the \
+              raw statement's: the domain error it renders carries the shape of the failure and \
+              none of the statement it measured"
+)]
 fn invalid_statement(error: &MalformedStatement) -> ErrorData {
     ErrorData::invalid_params(error.to_string(), None)
 }
@@ -539,6 +555,13 @@ fn invalid_statement(error: &MalformedStatement) -> ErrorData {
 /// sentence only, and here the inner one is the half that names the field or the character set. That
 /// is safe for exactly the reason `sutura_domain::question::MalformedQuestion`'s own note gives: no
 /// variant, and no link of any variant's cause chain, carries the caller's own text.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the renderers are the one permitted path into this constructor, and this one is the \
+              certified question's: every variant and every link of the cause chain it walks was \
+              written by us to name the field and the rule, so the chain walk renders nothing the \
+              caller chose"
+)]
 fn invalid(error: &MalformedQuestion) -> ErrorData {
     let mut message = error.to_string();
     for cause in cause_chain(error) {
