@@ -4,11 +4,22 @@
 //! two-source path shares every guard the mono path uses (mint once, agree the grant, execute under
 //! a presented credential) and differs only in that there are two of each. Keeping it as its own
 //! crate module also keeps the one decision only federation makes - an adapter may run a leg
-//! ([`Warehouse::EXECUTES_LEGS`]) or the question is refused before anything is minted - in one
+//! ([`Warehouse::executes_legs`]) or the question is refused before anything is minted - in one
 //! place.
 //!
+//! **The gate is PER LEG, read off each leg's own adapter INSTANCE, not off one type parameter.**
+//! `Warehouses<W>` is generic in one `W`, so a build that links exactly one kind still asks the same
+//! question it always did - both legs share a type, so both legs share an answer. What changed is
+//! the shape of the question: `telekom/sutura#112`'s closed enum lets `W` itself be "whichever
+//! kind this build linked", and `Warehouse::IMPERSONATION` being a required associated constant
+//! means that enum cannot carry a type-level `EXECUTES_LEGS` either - an enum-wide constant would
+//! have to lie for one of its variants. `Warehouse::executes_legs` is the instance method every
+//! adapter gets for free, defaulted to its own constant, so a heterogeneous registry asks each leg's
+//! CONCRETE adapter rather than the enum wrapping it - and a leg-capable kind sitting beside a
+//! leg-declining one refuses only the leg that cannot run, never the whole answer.
+//!
 //! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
-//! declares that constant and is non-optional in the shipped binary. What that does NOT make it
+//! declares the constant and is non-optional in the shipped binary. What that does NOT make it
 //! is two-identity: every adapter a release links declares
 //! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
 //! under one operating-system identity and
@@ -64,11 +75,12 @@ pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
 /// Reached only from [`Compiled::Federated`](sutura_semantic::Compiled::Federated). Every data
-/// system the plan reads must be open AND be able to execute a leg (`Warehouse::EXECUTES_LEGS`), or
-/// the answer is refused as [`RefusalReason::FederationNotExecutable`]. That check here, rather
-/// than in an adapter, is what keeps a build whose adapter declares `false` refusing a two-source
-/// question cleanly instead of letting a typed leg refusal surface as a retryable 503 - which is
-/// still every build linking `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
+/// system the plan reads must be open AND be able to execute a leg
+/// (`Warehouse::executes_legs`, asked of that source's own adapter), or the answer is refused as
+/// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
+/// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
+/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
+/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
@@ -88,27 +100,27 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    // The capability gate comes FIRST, and that ordering is pinned by an HTTP test: on a build whose
-    // adapter cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
-    // `FederationNotExecutable` no matter which sources it names - a build that cannot federate at all
-    // says so deterministically, rather than first reporting one of its sources as closed. Only a
-    // build that CAN execute a leg then falls through to the per-source availability check. Decided
-    // here rather than in an adapter, so a build that cannot federate refuses before minting or
-    // running anything instead of surfacing a typed leg refusal as a retryable 503.
-    if !W::EXECUTES_LEGS {
-        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-            reason: RefusalReason::FederationNotExecutable,
-        }));
-    }
     // Both data systems, so a missing one is the same refusal the mono path gives before any
     // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
-    // registry lookups cannot collide.
+    // registry lookups cannot collide. Looked up BEFORE the capability gate below, for the reason
+    // the gate itself is now per-instance rather than per-type: there is no adapter to ask about a
+    // source nobody opened.
     let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
     };
     let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
+    // The capability gate, PER LEG: a heterogeneous registry - one closed-enum variant per LINKED
+    // kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
+    // each leg's own instance rather than one `W::EXECUTES_LEGS` for the whole build. Refuses
+    // before minting or running anything, exactly as the type-level check used to, whichever side
+    // (or both) cannot run a leg.
+    if !fact_warehouse.executes_legs() || !lookup_warehouse.executes_legs() {
+        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+            reason: RefusalReason::FederationNotExecutable,
+        }));
+    }
     // Execution records for BOTH legs, so provenance names both identities. Read off the two
     // adapters this answer would run on rather than off a settings tree, for the reason
     // `Warehouse::posture` gives. `FederatedPlan::new` refuses same-source legs, so the two records

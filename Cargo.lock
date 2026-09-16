@@ -3886,6 +3886,7 @@ dependencies = [
  "sutura-semantic",
  "sutura-sql",
  "sutura-tls",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-postgres",
  "tracing",

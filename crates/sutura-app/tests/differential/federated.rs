@@ -92,6 +92,14 @@ use crate::adapters::{a_caller, deadline, posture, shared_credential, source, ve
 mod bounds;
 #[path = "federated/corpus.rs"]
 mod corpus;
+// A NEW file rather than inline, but it must carry a test of its own or `xtask test-causality`'s
+// base reconstruction REMOVES it (a new file with no `#[test]` in it is dropped outright) while
+// keeping this file - which calls into it - at HEAD, breaking the base build. `two_kinds::tests`
+// is what causality's own "held: … (carries its own tests)" rule keys on.
+#[path = "federated/two_kinds.rs"]
+mod two_kinds;
+
+use two_kinds::two_kinds;
 
 use corpus::{
     A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, every_question, lookup_source,
@@ -411,6 +419,17 @@ fn two_engines_answer_what_one_engine_answers() {
     let one = one_source(bundle(&derived.one_source));
     let two = two_engines(bundle(&derived.two_source));
     differential(&one, &two, "two in-process engines");
+}
+
+/// **The first side that mixes TWO KINDS of adapter (`telekom/sutura#112`)**, not two instances of
+/// one. Reaches [`differential`]'s whole `MUST_BE_REACHED` table exactly like the other two sides,
+/// so a defect in `Warehouse::executes_legs`'s per-leg reading reddens here too.
+#[test]
+fn two_sources_of_two_kinds_answer_the_same_rows_as_one_source_over_the_same_data() {
+    let derived = derived();
+    let one = one_source(bundle(&derived.one_source));
+    let two = two_kinds(bundle(&derived.two_source));
+    differential(&one, &two, "two kinds: duckdb and the engine");
 }
 
 /// **The differential.** Every question the two-source bundle splits, answered both ways.

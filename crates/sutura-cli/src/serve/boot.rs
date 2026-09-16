@@ -28,45 +28,23 @@
 //! by recall; `sutura_app::preflight::Verdict::boot_policy` states it once, so the arms below are
 //! `Ok`/`Err` because the shared type says so and cannot switch sides here.
 //!
-//! **`refuse_absent_tables` is behind `#[cfg(feature = "bigquery")]`, and the reason is a build that
-//! ships rather than tidiness.** Its only non-test caller is the `bigquery` arm of `main.rs`'s
-//! dispatch, so with that default-off feature absent `dead_code = "deny"` makes it a hard error -
-//! and `nix/shipped.nix` builds this package with cargo's DEFAULT features, so the published binary,
-//! its image and all four cross triples are exactly the configuration that would not compile.
-//!
-//! **Which gate would have caught it, stated precisely, because the first version of this paragraph
-//! said *nothing in this repository* and review measured otherwise - in both directions.** The four
-//! `cross` jobs build `.#sutura-<triple>-ci` for every shipped triple on every pull request -
-//! `.#sutura-serve-<triple>-ci` before `github.com/telekom/sutura#685` step 2 folded that binary
-//! in - and `nix/shipped.nix` passes `--package` and `--target` with no `--features`, i.e. cargo's
-//! default set: they WOULD have caught it, and they did not run, because they are `needs: [ci]` and
-//! `ci` had already failed. That is a sequencing fact rather than an absence of coverage. And
-//! `just validate` would not have caught it either: the checks it runs build no package, and their
-//! clippy and nextest both pass `--all-features`. So the honest sentence is *the gates a developer
-//! runs before pushing cannot see this lane; the four `cross` link checks can, and they run only
-//! after `ci` passes, which is why it reached review.*
-//!
-//! **The developer half of that lane is a gate now, which is what changes the paragraph above from
-//! advice into history.** `just gates` runs `check-default-features`, which reads the shipped package
-//! list out of `nix/shipped.nix` and both COMPILES and LINTS each one at cargo's default features -
-//! two things `just lint` and `just check-changed` cannot do, because both pass `--all-features`. It
-//! is in `gates` rather than `just hygiene` for `check-attribution`'s reason: it shells out
-//! to cargo, and the sandbox `hygiene` runs in has no registry. **It runs in CI as well now**, as
-//! `nix run .#default-features` in the one required job, sharing the warmed target directory the way
-//! `apps.causality` does - so the lint half of this lane is a required check and not a developer
-//! courtesy. A step is deleted more easily than a job, and `ci` is the only required context here,
-//! so the step's own presence is asserted by
-//! `default_features::tests::both_lanes_still_invoke_this_gate` rather than left to review.
+//! **`refuse_absent_tables` used to be behind `#[cfg(feature = "bigquery")]`, and it is history now
+//! rather than a live constraint.** Its only caller used to be the `bigquery` arm of `main.rs`'s
+//! dispatch, so a default build's `dead_code = "deny"` once made the gate the ONLY thing standing
+//! between an unguarded feature-off compile and a shipped binary that would not build - review
+//! measured that the gates a developer runs before pushing cannot see that lane at all, and only
+//! the `cross` link checks, gated behind `ci` passing first, could. `just gates`'s
+//! `check-default-features` closed that gap generally (compiles and lints every shipped package at
+//! cargo's default features, in CI too, held by `default_features::tests::both_lanes_still_invoke_this_gate`)
+//! - which is what makes it safe for THIS function to lose its own `#[cfg]` now: `telekom/sutura#112`
+//! gave it a second, always-compiled caller (the mixed-kind arm below `main.rs`'s dispatch), so
+//! `dead_code` cannot go quiet on a default build the way it once nearly did.
 
-#[cfg(feature = "bigquery")]
 use sutura_app::Warehouses;
-#[cfg(feature = "bigquery")]
 use sutura_app::preflight::{Notice, Refusal};
 use sutura_domain::pinned::PinnedDefinitions;
-#[cfg(feature = "bigquery")]
 use sutura_domain::warehouse::Warehouse;
 
-#[cfg(feature = "bigquery")]
 use super::flatten;
 
 /// Refuses a bundle naming a table the data system behind it does not hold.
@@ -126,7 +104,6 @@ use super::flatten;
 /// `sutura_app::preflight::Verdict::boot_policy`; what this function is, is the words and the sink.
 /// Its limits are stated there too, because a caller reading the port's answer needs them whichever
 /// root it is in.
-#[cfg(feature = "bigquery")]
 pub(crate) fn refuse_absent_tables<W>(pinned: &PinnedDefinitions, engines: &Warehouses<W>) -> Result<(), String>
 where
     W: Warehouse,
@@ -203,8 +180,11 @@ where
             ),
             // **`NotReported` gets a line of its own, and review is why.** It used to be silent, which
             // made the one outcome meaning *nothing verified this* the only one an operator could not
-            // see - and indistinguishable from a source the bundle names no models for. The `files`
-            // path never reaches here, so this cannot become a spurious line on the shipped engine.
+            // see - and indistinguishable from a source the bundle names no models for. **The `files`
+            // path used to never reach here** - this call was only ever made from the `bigquery` arm -
+            // and now does, whenever `main.rs`'s mixed-kind arm opens a registry holding a `files`
+            // entry: the in-process engine takes the port's default `preflight`, so this is the line
+            // an operator sees for it, once per source, and it is informational rather than a defect.
             Ok(Notice::NotReported { asked: tables }) => tracing::info!(
                 source = %source,
                 tables,
@@ -261,16 +241,11 @@ pub(crate) fn refuse_unverifiable_anchors(
 /// The pre-flight's own tests.
 #[cfg(test)]
 mod tests {
-    /// Everything that needs the `bigquery` feature, which is everything in here.
-    ///
-    /// **A nested module rather than a gate on the parent, and neither obvious form works.** With
-    /// the feature off there is no `refuse_absent_tables` to call, so a bare `#[cfg(test)]` fails to
-    /// compile on the DEFAULT feature set - one configuration over from the defect review caught.
-    /// Writing `#[cfg(all(test, feature = "bigquery"))]` on the parent is what a reader reaches for
-    /// and it makes every test in here a lint error, because `clippy::tests_outside_test_module` and
-    /// `clippy::expect_used` both key on the literal `#[cfg(test)]` attribute; an inner `#![cfg(..)]`
-    /// beside a doc comment is `clippy::mixed_attributes_style`. This nests, and trips neither.
-    #[cfg(feature = "bigquery")]
+    /// This suite's own module, kept nested rather than folded into its parent for the reason it
+    /// was carved out to begin with: it used to be the only thing in this file needing the
+    /// `bigquery` feature, back when `refuse_absent_tables` itself did - `telekom/sutura#112`
+    /// retired that `#[cfg]`, over a fake rather than the real adapter, and the nesting stayed
+    /// because splitting it back out is a second diff for no behaviour change.
     mod preflight {
 
         use core::cell::RefCell;

@@ -8592,12 +8592,15 @@ somebody else's input.
   an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
 - `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
 
-  **A fact about the BUILD, not about the question or the sources.** `Warehouses<W>` holds one
-  adapter type, so this reads that type's `Warehouse::EXECUTES_LEGS` once: a build whose adapter
-  declares it answers every two-source question it can plan, and a build whose adapter takes the
-  default refuses all of them. The in-process engine declares it and is non-optional in both
-  published binaries, so a release answers; an adapter that takes the default - `BigQuery`, or a
-  fake - still arrives here.
+  **A fact about the two adapters this answer would run on, read per LEG.** `Warehouses<W>`
+  holds one adapter TYPE, but that type can itself be a closed enum over every kind a build
+  linked (`telekom/sutura#112`) - so this reads `Warehouse::executes_legs` on each leg's own
+  INSTANCE rather than one constant for the whole build. A build linking only the in-process
+  engine still answers every two-source question it can plan, because both legs share that
+  one instance's declaration; a build whose registry mixes a leg-capable kind with one that
+  takes the port's default now refuses only the leg naming the declining kind, never the whole
+  build's worth of questions. An adapter that takes the default everywhere - `BigQuery`, or a
+  fake - still arrives here for every question it is asked.
 
   `answer` refuses here rather than surface the adapter's own refusal as a retryable 503: this
   is not a data system being down, and a caller must not retry it.

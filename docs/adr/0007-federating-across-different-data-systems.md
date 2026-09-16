@@ -7,12 +7,12 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 Status: accepted, and **partly built** - amended twice, in place, by the two blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
-the leg types, the per-dialect rendering, the combine and the orchestrating call all exist, and
-`sutura-exec-datafusion` executes a leg. What is still unbuilt is track 1 beyond the dialects that
-ship and a deployment holding two KINDS of data system. It decides a shape and an order; the code it
-led to is cited beside each amendment. **Read *Amendment, 2026-09-16* before citing the
-`feat/source-registry` bullet under *The order, by branch*** - it names an absence that has since
-become false.
+the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
+`sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
+once (*Second amendment, 2026-09-16*). What is still unbuilt is track 1 beyond the dialects that
+ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
+*Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
+branch*** - it names an absence that has since become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
@@ -1102,3 +1102,42 @@ next edit regardless of which way the claim points.
 `feat/source-registry` bundles three assumptions into one branch; that reasoning does not depend on
 whether the absence it illustrated still holds, and nothing above is a claim that the branch order
 was wrong.
+
+## Second amendment, 2026-09-16: a deployment holding two KINDS has landed
+
+**The status line's remaining "still unbuilt" half - "a deployment holding two KINDS of data
+system" - is corrected here, not struck: it is built now, and this section is what changed and
+what did not.** `telekom/sutura#112` added `crate::serve::kind::AnyWarehouse` in `sutura-cli`,
+beside `OpenedSources`: a closed enum, one variant per adapter that BUILD linked, and
+`sutura_app::Warehouses::into_mapped`/`::merge` - two crate-agnostic methods added to the same
+registry this record already relies on - are what let a composition root build the concrete,
+per-kind registry it always built and erase-then-merge it into one heterogeneous
+`Warehouses<AnyWarehouse>`, rather than refusing at the kind mismatch as `one_kind` used to.
+
+**Placement, because the thread that asked for this landed a contradiction first.** The enum is in
+`sutura-cli`, not in `sutura-app`: `sutura-app`'s own `[dependencies]` still names no adapter, held
+now by a ninth `check-boundaries` half (`sutura-app -> sutura-exec-*` over a normal edge, dev
+exempt) that did not exist before this - `FORBIDDEN_EDGES` had no row naming `sutura-app`, and
+`sutura-app` joined none of the adapter classes `check-boundaries` already compared against each
+other, so the edge this record's own "which adapters a process holds is a property of the BUILD"
+argument forbids passed every existing check silently until now.
+
+**What this does NOT retire: [Decision 3](0009-the-plan-from-one-source-to-many.md)'s combiner, and
+the leg gate.** `Warehouse::IMPERSONATION` being a required associated constant is still why the
+enum cannot be `dyn Warehouse`, and it is ALSO why the enum cannot carry a truthful type-level
+`EXECUTES_LEGS` - an enum-wide constant is one value for every variant, and a `BigQuery` variant
+declaring the permissive one would be exactly the "silently widen the declaration" failure #113's
+scope note warned about for `IMPERSONATION`. So `Warehouse::executes_legs`, a new INSTANCE method
+defaulted to that same constant, is what `sutura_app::federated::answer_federated` now reads per
+leg - each leg against its own concrete adapter's declaration, not one constant for the whole
+registry - which is the change that lets a leg-capable kind sit beside a leg-declining one and
+refuse only the leg that cannot run.
+
+**What is still not decided, stated as a limit rather than left implicit:** whether a
+heterogeneous or leg-2 build actually SHIPS - as opposed to merely compiling - is a publishing and
+cost call this amendment does not make; nothing here promotes `sutura-exec-bigquery`'s
+`EXECUTES_LEGS`, and it stays at the port's default. And the four consts this enum's own doc names
+as still type-level (`EXECUTES_AUTHORED_SQL`, `ACCEPTS_RAW_STATEMENTS`, `PRICES_DRY_RUN`, plus
+`IMPERSONATION` itself) take the conservative default when erased behind it - a mixed build cannot
+serve the raw-SQL tool against a `Postgres` source it holds, nor read a real dry-run byte estimate
+off a `BigQuery` one, until each gets the same instance-method escape `executes_legs` did.

@@ -77,6 +77,7 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::BigQuery(_)) => panic!("expected the file engine, got the BigQuery arm"),
         #[cfg(feature = "postgres")]
         Ok(OpenedSources::Postgres(_)) => panic!("expected the file engine, got the Postgres arm"),
+        Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
 }
@@ -352,16 +353,19 @@ mod agent;
 mod bigquery;
 
 #[test]
-fn a_catalog_reading_two_kinds_of_source_does_not_start() {
-    // **The limit `sutura_app::Warehouses` documents, made a startup refusal instead of a surprise.**
-    // That registry is generic in one adapter type, so this process holds two file sources or two
-    // datasets and cannot hold one of each; federating across two kinds needs a closed enum over the
-    // adapter types or dynamic dispatch, which that module records as an architecture decision.
+#[cfg(feature = "bigquery")]
+fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_kinds_own_boot_check() {
+    // **`telekom/sutura#112` retired the refusal this test used to be
+    // `a_catalog_reading_two_kinds_of_source_does_not_start`.** `kind::AnyWarehouse` is the closed
+    // enum `sutura_app::warehouses`'s own header names as the remedy for a heterogeneous registry,
+    // so a catalog whose models sit on a `files` source and a `bigquery` source now opens BOTH
+    // through `kind::open_mixed` instead of refusing at the kind mismatch.
     //
-    // The alternative is what makes this worth a refusal rather than a comment: whichever kind lost
-    // would be a source nothing opened, and the first question against it would answer
-    // `SourceUnavailable` - a refusal that reads as "nobody configured that" about a source the
-    // operator configured.
+    // Proven by which refusal fires, not by a successful boot: the credential file is deliberately
+    // absent (`bigquery_entry`'s own doc says why), so this mix still fails - but it fails on
+    // `open_bigquery`'s real credential read, which it can only reach after the `files` source has
+    // ALSO opened. The old message named the pair and both kinds; this one names the file
+    // `open_bigquery` actually tried to read.
     let both = format!(
         "{}{}",
         entry(ENGINE_SOURCE, "shared-service-user", ""),
@@ -378,19 +382,19 @@ fn a_catalog_reading_two_kinds_of_source_does_not_start() {
             default_timeout(),
             None,
         ),
-        "one process opens one kind of data system at a time",
+        "a mixed catalog opens each kind and reaches the bigquery arm's own credential refusal",
     );
     assert!(
-        error.contains(ENGINE_SOURCE) && error.contains("warehouse"),
-        "the refusal must name both entries: {error}"
+        !error.contains("one kind of data system at a time"),
+        "the retired gate must not fire any more: {error}"
     );
     assert!(
-        error.contains("files") && error.contains("bigquery"),
-        "the refusal must name both kinds: {error}"
+        error.contains("credential_file"),
+        "the refusal must be `open_bigquery`'s own, naming the key: {error}"
     );
     assert!(
-        error.contains("one kind of data system at a time"),
-        "the refusal must say what the limit is: {error}"
+        error.contains("nonexistent") || error.contains("sutura-test-bigquery.json"),
+        "the refusal must name the file this mix actually tried to read: {error}"
     );
 }
 

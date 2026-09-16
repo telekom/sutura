@@ -16,8 +16,8 @@ use tower::ServiceExt as _;
 
 use crate::surface::LocalService;
 use crate::testing::{
-    bundle, call, catalog_of, fake_warehouse, request, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
-    warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
+    bundle, call, catalog_of, fake_warehouse, request, sink, two_source_bundle, two_source_fake_warehouse, unanchored_bundle,
+    warehouse_pretending_to_be, warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
 mod fixtures;
@@ -178,13 +178,18 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 
 #[tokio::test]
 async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
-    // **Still green, and about the FAKE rather than the shipped set.** It runs over
-    // `fake_warehouse()`, which takes the port's defaulted `EXECUTES_LEGS`, so it pins the status a
-    // build whose adapter cannot run a leg gives: a 409 from `answer`'s own gate, not an adapter's
-    // typed refusal surfacing as the 503 reserved for a retryable outage.
-    // `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer reaches
-    // this branch; `sutura-exec-bigquery` and any adapter taking the default still do.
-    let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
+    // **Still green, and about the FAKE rather than the shipped set.** Both sources open over
+    // `two_source_fake_warehouse()` - two `FakeWarehouse`s, each taking the port's defaulted
+    // `executes_legs` - so this pins the status a build whose adapter cannot run a leg gives: a
+    // 409 from `answer_federated`'s own gate, not an adapter's typed refusal surfacing as the 503
+    // reserved for a retryable outage, and not `SourceUnavailable` for a source this fixture never
+    // opened. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
+    // reaches this branch; `sutura-exec-bigquery` and any adapter taking the default still do.
+    let app = over(
+        two_source_bundle(),
+        two_source_fake_warehouse(),
+        settings(Environment::Development, ""),
+    );
     let (status, code, detail) = refusal(
         &app,
         r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
