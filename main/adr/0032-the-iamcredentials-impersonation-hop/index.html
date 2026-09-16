@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Why sutura_domain::identity::Secret is built on secrecy rather than on a hand-written redaction - what four accidents stopped compiling, what the dependency costs measured against the shipped binary rather than the workspace, why the serde feature is off and what that does and does not buy, and the two BigQuery wire documents where the accident was still representable one layer up.">
+        <meta name="description" content="A declared per-source subject-to-service-account map, a second port mirroring the STS exchange, and why a direct principal:// grant was rejected even though it would need no adapter code - the RowAccessPolicy grantee shape and telekom/sutura#376's own acceptance text both name a service-account email, and a federated principal string can never satisfy that comparison.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0020-a-credential-the-compiler-refuses-to-print/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0032-the-iamcredentials-impersonation-hop/">
       
       
-        <link rel="prev" href="../0019-a-table-outside-the-connections-dataset/">
+        <link rel="prev" href="../0031-caching-an-exchanged-credential/">
       
       
-        <link rel="next" href="../0021-how-a-published-artefact-proves-where-it-came-from/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>A credential the compiler refuses to print - sutura</title>
+        <title>The iamcredentials impersonation hop - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#a-credential-the-compiler-refuses-to-print" class="md-skip">
+        <a href="#the-iamcredentials-impersonation-hop" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              A credential the compiler refuses to print
+              The iamcredentials impersonation hop
             
           </span>
         </div>
@@ -1455,37 +1455,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A credential the compiler refuses to print
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
         
   
   
@@ -1501,109 +1474,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-was-wrong-and-it-was-not-a-leak" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What was wrong, and it was not a leak
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="What was wrong, and it was not a leak">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#why-a-newtype-and-not-the-library-type-directly" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why a newtype and not the library type directly
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-two-bigquery-wire-documents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The two BigQuery wire documents
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-costs-measured" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What this costs, measured
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-was-considered-instead" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What was considered instead
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is claimed, and what is not
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Amendment, 2026-09-02: the expose_secret limit is now a lint
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1921,10 +1791,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0032-the-iamcredentials-impersonation-hop/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The iamcredentials impersonation hop
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1940,6 +1837,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-decides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this decides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#options-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-does-not-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this does NOT close
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-explicitly-leaves-for-later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this explicitly leaves for later
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2807,49 +2768,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-was-wrong-and-it-was-not-a-leak" class="md-nav__link">
+  <a href="#what-this-decides" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What was wrong, and it was not a leak
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="What was wrong, and it was not a leak">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#why-a-newtype-and-not-the-library-type-directly" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why a newtype and not the library type directly
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-two-bigquery-wire-documents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The two BigQuery wire documents
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-this-costs-measured" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What this costs, measured
+        What this decides
       
     </span>
   </a>
@@ -2857,10 +2779,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-was-considered-instead" class="md-nav__link">
+  <a href="#options-considered" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What was considered instead
+        Options considered
       
     </span>
   </a>
@@ -2868,10 +2790,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
+  <a href="#what-this-does-not-close" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is claimed, and what is not
+        What this does NOT close
       
     </span>
   </a>
@@ -2879,10 +2801,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" class="md-nav__link">
+  <a href="#what-this-explicitly-leaves-for-later" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Amendment, 2026-09-02: the expose_secret limit is now a lint
+        What this explicitly leaves for later
       
     </span>
   </a>
@@ -2909,219 +2831,116 @@
   
 
 
-<h1 id="a-credential-the-compiler-refuses-to-print">A credential the compiler refuses to print<a class="headerlink" href="#a-credential-the-compiler-refuses-to-print" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted.</strong> Built. <code>sutura_domain::identity::Secret</code> is a newtype over
-<code>secrecy::SecretString</code>; four <code>compile_fail</code> doctests with compiling twins pin what stopped building,
-each verified non-vacuous by unmarking it and reading the compiler's reason. The dependency cost is
-<strong>+2 packages in the shipped binary's graph and +1 in <code>Cargo.lock</code></strong> - measured, below.</p>
-<h2 id="what-was-wrong-and-it-was-not-a-leak">What was wrong, and it was not a leak<a class="headerlink" href="#what-was-wrong-and-it-was-not-a-leak" title="Permanent link">&para;</a></h2>
-<p><code>Secret</code> was <code>Secret(String)</code> with a hand-written <code>Debug</code> <strong>and</strong> a hand-written <code>Display</code>, both
-printing a placeholder. Nothing ever leaked through either one, and there is no incident behind this
-record.</p>
-<p>The defect is that the accident stayed <strong>representable</strong>. Both of these compiled:</p>
-<p>```rust,ignore
-tracing::info!(token = %token, "a caller presented a token");
-let line = format!("token={token}");
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Each produced a line reading `REDACTED`, at a call site whose author believed a value had been
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>logged. That is a redaction - a *check* - and this repository's own rule is *prefer unrepresentable to
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>checked*: a check can be moved, skipped or ordered wrongly, and a shape that cannot hold the value
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>cannot. A `Display` on a credential is a shape that holds it.
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>Two further gaps sat beside it. There was **no zeroization**: the value stayed in the process image
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>after the type dropped, for as long as the allocator left the page alone. And in
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>`sutura-exec-bigquery`'s credential wire, `Secret` was applied only *after* parsing - so one layer up,
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>two private documents derived `Debug` while holding a private key, a refresh token, a client secret
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>and an access token as raw `Option&lt;String&gt;`.
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>## Decision
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>**`sutura_domain::identity::Secret` is a newtype over `secrecy::SecretString`, and the `Display` is
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>gone.**
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>```rust,ignore
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>pub struct Secret(SecretString);
-</span></code></pre></div></p>
-<p><code>secrecy::SecretBox&lt;str&gt;</code> has no <code>Display</code>, no <code>PartialEq</code>, and - with its <code>serde</code> feature off - no
-<code>Deserialize</code>. So four things that used to compile no longer do, and each is pinned by a
-<code>compile_fail</code> doctest with a compiling twin beside it that differs by one token:</p>
-<table>
-<thead>
-<tr>
-<th>Accident</th>
-<th>Compiler's reason, from unmarking the doctest</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>format!("token={token}")</code></td>
-<td><code>E0277: Secret doesn't implement std::fmt::Display</code> - <em>"cannot be formatted with the default formatter"</em></td>
-</tr>
-<tr>
-<td>a <code>Display</code> bound, which is what <code>%</code> desugars to</td>
-<td><code>E0277: Secret doesn't implement std::fmt::Display</code>, at the <code>impl Display</code> parameter</td>
-</tr>
-<tr>
-<td><code>a == b</code></td>
-<td><code>E0369: binary operation == cannot be applied to type Secret</code></td>
-</tr>
-<tr>
-<td><code>serde_json::from_str::&lt;Secret&gt;(..)</code></td>
-<td><code>E0277: the trait bound Secret: serde::Deserialize&lt;'de&gt; is not satisfied</code></td>
-</tr>
-</tbody>
-</table>
-<p>The real macro is pinned separately, in <code>sutura_http::inbound</code> - the one module holding caller-supplied
-token material <em>and</em> a <code>tracing</code> dependency. <code>tracing::info!(token = %token, ..)</code> fails with
-<code>E0277: Secret doesn't implement std::fmt::Display</code>, pointing at <code>tracing_core::field::display</code>. It
-cannot live in the domain: <code>cargo xtask check-boundaries</code> walks <code>sutura-domain</code>'s whole resolve graph,
-which includes dev-dependencies, so a <code>tracing</code> dev-dependency there would fail the gate. The domain
-therefore pins the <strong>bound</strong> and says so; the transport pins the <strong>macro</strong>.</p>
-<h3 id="why-a-newtype-and-not-the-library-type-directly">Why a newtype and not the library type directly<a class="headerlink" href="#why-a-newtype-and-not-the-library-type-directly" title="Permanent link">&para;</a></h3>
-<p>Three properties, and the first is the one that matters:</p>
-<ol>
-<li><strong>A <code>Deserialize</code> cannot arrive by feature unification.</strong> <code>secrecy</code>'s <code>serde</code> feature gives
-   <code>SecretBox</code> a <code>Deserialize</code>, cargo unions features across a build graph, and a crate added later
-   could turn it on for its own reasons. A newtype that derives nothing is unaffected. So
-   <code>default-features = false</code> in the manifest is a supply-chain decision and <strong>not</strong> the mechanism -
-   which matters, because the "a caller cannot state its own identity" invariant rests on the absence
-   of that impl.</li>
-<li><code>SecretString</code> has a <code>Default</code>. That is the newtype guide's own counterexample pointed at
-   credentials: a default secret is not a thing, and it would be a value that never passed a
-   constructor.</li>
-<li><code>SecretString</code> has <code>From&lt;String&gt;</code> and <code>From&lt;&amp;str&gt;</code> - two ways in that bypass <code>Secret::new</code>. The
-   wrapper has one canonical constructor because it does not restate them.</li>
-</ol>
-<p><code>Secret::expose</code> is renamed <code>Secret::expose_secret</code>, after <code>secrecy</code>'s own trait method, so the
-vocabulary is one word rather than two. It is an <strong>inherent</strong> method and not an <code>ExposeSecret</code> impl: a
-trait would have to be in scope at every call site, and implementing it would make <code>Secret</code>
-substitutable for the library type in generic code, which is the opposite of what the newtype is for.
-<a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a> refers to the old name in two places;
-those sentences are left as written, because an accepted record is a record of what was decided then.</p>
-<h3 id="the-two-bigquery-wire-documents">The two BigQuery wire documents<a class="headerlink" href="#the-two-bigquery-wire-documents" title="Permanent link">&para;</a></h3>
-<p><code>wire::credential</code>'s private <code>Document</code> and <code>TokenResponse</code> <strong>lose their <code>Debug</code> derives.</strong> Their
-fields stay <code>Option&lt;String&gt;</code>: <code>Secret</code> has no <code>Deserialize</code>, deliberately, so deserialize-then-wrap is
-the only shape available and these types are the layer where the value is still bare.</p>
-<p>Nothing printed them - <code>serde_json</code>'s errors carry a line and a column rather than the input, and the
-one <code>{document:?}</code> in that crate's tests is an unrelated <code>&amp;str</code> fixture. <strong>The mechanism here is
-weaker than the one above, and it is worth being plain about that:</strong> these are private types, so there
-is no <code>compile_fail</code> doctest to write and no gate that fails. What holds is that the derive is absent
-and that adding it back is a line in a diff. Review catches it or nothing does.</p>
-<h2 id="what-this-costs-measured">What this costs, measured<a class="headerlink" href="#what-this-costs-measured" title="Permanent link">&para;</a></h2>
-<p><strong>One new entry in <code>Cargo.lock</code>: 446 packages to 447, and it is <code>secrecy</code>.</strong> <code>zeroize 1.9.0</code> was
-already resolved - <code>rustls</code> and <code>rustls-pki-types</code> both depend on it - at the same version, so this
-introduces no duplicate; <code>zeroize_derive 1.5.0</code> was already in the lock beside it. Checked by grepping
-the base lockfile for all three names rather than by reading the diff, because a lockfile diff of a
-compacted file is not readable evidence.</p>
-<p><strong>Two in the shipped binary's graph: 231 packages to 233.</strong> <code>sutura-cli</code> links the engine and no TLS
-stack, so it had neither. That is the honest number for a release artifact, and it is the one to quote.</p>
-<p><code>cargo tree -p sutura-domain --all-features -e normal</code>:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sutura-domain v0.2.4
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── secrecy v0.10.3
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>│   └── zeroize v1.9.0
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>├── serde v1.0.229
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>...
-</span></code></pre></div>
-<p><code>secrecy</code> pulls <strong>only</strong> <code>zeroize</code>, and pulls it with <code>default-features = false, features = ["alloc"]</code>,
-so nothing follows behind it. Neither is a framework: no runtime, no client, no engine, no proc macro.
-Both are <code>Apache-2.0 OR MIT</code>, which <code>deny.toml</code> already allows - so the licence allowlist needs no new
-entry and no existing allowance becomes unused, which <code>unused-allowed-license = "deny"</code> would have
-failed on. Checked with <code>cargo deny</code>, not assumed.</p>
-<p>Two costs are real and are not on that list:</p>
+<h1 id="the-iamcredentials-impersonation-hop">The iamcredentials impersonation hop<a class="headerlink" href="#the-iamcredentials-impersonation-hop" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted.</strong> <code>github.com/telekom/sutura#376</code> is the issue; <code>crates/sutura-exec-bigquery/src/wire/credential/id_token.rs</code>
+and <code>docs/where-identity-is-proven.md</code> both name the gap this closes: a bare RFC 8693 exchange
+(<code>docs/adr/0008</code> part 2, <code>wire::StsOverHttp</code>) resolves a workload-identity pool subject and stops
+there. Every grant this stack provisions is anchored to a service account as an IAM member
+(<code>test-infra/pulumi/google/__main__.py</code>'s <code>RowAccessPolicy.grantees</code> and <code>DatasetIamMember</code>, both
+<code>serviceAccount:&lt;email&gt;</code>), and the issue's own acceptance text requires <code>SESSION_USER()</code> to be
+"asserted equal to that principal's known email" - a pool subject can never satisfy that comparison.</p>
+<h2 id="what-this-decides">What this decides<a class="headerlink" href="#what-this-decides" title="Permanent link">&para;</a></h2>
+<p><strong>A second hop, <code>iamcredentials.generateAccessToken</code>, behind a declared per-source map.</strong>
+<code>WorkloadIdentityBroker</code> gains a second port, <code>ImpersonateAsAccount</code>
+(<code>crates/sutura-exec-bigquery/src/sts.rs</code>), called immediately after a successful <code>StsExchange</code>
+exchange for a source whose declared <code>WorkloadIdentity</code> names a target account for the caller's
+<code>SubjectId</code>. <code>wire::IamCredentialsOverHttp</code> is the real implementor, mirroring <code>wire::StsOverHttp</code>:
+same <code>WireAgent</code>, same pins, same outbound-anchor resolution, a different request and response shape
+and a different failure vocabulary (<code>IamCredentialsError</code>, never <code>StsError</code>'s).</p>
+<p><strong>The map is declared, not derived.</strong> <code>sutura_config::sources::workload_identity::WorkloadIdentityConfig</code>
+carries an <code>impersonate: BTreeMap&lt;SubjectKey, WorkloadIdentitySa&gt;</code>, keyed on the FULL verified <code>sub</code>
+(as a redacting domain newtype that renders only the mask) rather than on a masked, per-provider pool
+subject string - keying an authorization decision on the mask would hand every undeclared caller that
+shares a declared subject's mask that subject's declared service account. A subject absent from the
+map never reaches the hop and is never granted a fallback identity: the broker refuses it before any
+network call, naming the source, the same as today's "no assertion at all" refusal. An entry with an
+empty map is unchanged behaviour: a bare exchange, presented as the caller's own federated
+credential. This is what makes the change additive rather than a breaking change to every source
+that has not opted in.</p>
+<p><strong>The cache key gains the resolved target account.</strong> <code>sts/cache.rs</code>'s <code>ExchangeKey</code> was
+<code>(PrincipalChain, audience, scope)</code>; a fourth field, <code>target_sa: Option&lt;String&gt;</code>, is now part of it -
+the same reasoning <code>docs/adr/0031</code> already gives for <code>(audience, scope)</code>: the target is itself part of
+"what was asked for", and a subject permitted to impersonate more than one account depending on
+requested scope must not have one account's cached credential served for another. Two round trips
+(STS, then <code>iamcredentials</code>) are cached as the one entry the FINAL credential is - not two entries for
+one leg. Carrying the full <code>SubjectKey</code> in the chain is what makes the key mask-safe, too: because the
+chain now holds the verified <code>sub</code> itself rather than a masked projection, two subjects whose masks
+collide (any two opaque <code>sub</code>s sharing a first character) are two distinct <code>ExchangeKey</code>s and each
+pays its own exchange - the pre-existing ADR 0031 defect of serving one caller another's cached
+credential on a mask collision is closed as a side effect, held by <code>two_subjects_with_a_colliding_mask_pay_two_exchanges</code>.</p>
+<p><strong>The audit trail's limit, stated rather than left implied.</strong> The resolved service account is not
+threaded onto <code>sutura_domain::audit::CallRecord</code> or <code>Provenance</code> in this change.
+<code>SourcePosture</code>/<code>ExecutedAs</code> are declared, per-source, config-time facts that ride on the
+CALLER-FACING provenance - widening either to carry a per-request resolved account would mean every
+one of the ten-plus match sites on <code>Presented::SubjectToken</code> across <code>sutura-app</code>, every adapter and
+every test fixture, plus a new <code>CallRecord::of</code> parameter at both its call sites and its own suite -
+a separately-scoped change, not a fourth field on an existing struct. Today the resolved account is
+visible in the broker's own state and in <code>sts/cache.rs</code>'s key; it is not yet the fact an incident asks
+<code>CallRecord</code> for. Recorded here rather than silently deferred, so the next person to reach for this
+does not have to re-derive why it is missing.</p>
+<p><strong>And the specific consequence of that deferral, stated plainly:</strong> <code>CallRecord</code> cannot yet tell a
+hop'd leg (whose executing identity is a declared service account) from a bare one (a federated
+principal) on the same <code>impersonation-at-source</code> source - both record identically today, because
+<code>executed_as</code> is derived from the declared posture, not from the resolved account. This is accepted
+here, and only here, because the broker refuses an undeclared caller on a source that declares a map,
+so <strong>every granted leg on a declared map is a hop'd leg and "who executed" is derivable at record time
+from the record's subject plus that source's own map</strong> (with the map keyed on the full subject, that
+derivation is unambiguous). The follow-up that lands the distinction - threading the resolved account
+onto <code>CallRecord</code>/<code>Provenance</code> - is what this then leaves open, scoped above.</p>
+<h2 id="options-considered">Options considered<a class="headerlink" href="#options-considered" title="Permanent link">&para;</a></h2>
+<p><strong>(1) The declared map + hop - taken.</strong> Shaped narrowly above. Costs a second port, a second wire
+adapter, and one more settings key; buys a fixed, human-nameable, auditable service-account identity
+that is stable across pool and session churn, and satisfies the acceptance text as written.</p>
+<p><strong>(2) Treat "the pool subject the exchange resolves to" as the account - rejected, and real only
+inside this harness.</strong> <code>bq-test</code>'s two principals are self-signed by their own keys, so here the pool
+subject genuinely IS the account to impersonate and there is no separate caller. A production caller
+through the IdP (<code>docs/adr/0014</code>) has a <code>sub</code>/email that is never a GCP service-account identifier, so
+this option has nothing to map from outside the test harness. Not generalizable; not taken as the
+shipped mechanism, though it is exactly what <code>crates/sutura-exec-bigquery/tests/exchanged_identity.rs</code>
+declares for its own two principals (self-impersonation), stated as that cell's own limit.</p>
+<p><strong>(3) Grant <code>principalSet://</code>/<code>principal://</code> directly to the federated identity, no hop - rejected.</strong>
+Real: BigQuery does accept a <code>principal://iam.googleapis.com/…/subject/X</code> string as a grantee, and
+this option needs zero adapter code. Rejected because both anchors above name a service-account
+email, and the issue's own acceptance text requires the same - a federated principal string fails
+that comparison outright, regardless of whether the grant itself would work. It also trades a fixed,
+nameable identity for one that scales with every distinct caller and reports as an opaque numeric
+string in every log and grant forever, which is the tradeoff a reviewer choosing between (1) and (3)
+should see stated rather than have to derive.</p>
+<h2 id="what-this-does-not-close">What this does NOT close<a class="headerlink" href="#what-this-does-not-close" title="Permanent link">&para;</a></h2>
+<p><strong>Does not prove an arbitrary undeclared caller cannot obtain a credential.</strong> A caller absent from
+the map is refused by configuration, before any network call - not by a cloud-side policy this crate
+re-verifies. <code>roles/iam.workloadIdentityUser</code> is Google's own control over who may start the exchange
+at all, and this hop does not reverify it, mirroring <code>github.com/telekom/sutura#123</code>'s stance on
+trusting a source's own row-level security rather than re-checking it here.</p>
+<p><strong>Does not touch Postgres, Oracle, or any source but BigQuery.</strong> <code>BigQueryWarehouse</code> remains the only
+adapter carrying <code>PerSubjectCredential</code> at all.</p>
+<p><strong>The map keys on the FULL verified subject, and a mask collision is now a refusal, not a silent
+overwrite.</strong> The impersonation map is keyed on a redacting [<code>SubjectKey</code>] that holds the full <code>sub</code>
+for equality while rendering only the mask, so two distinct raw subjects - even ones, like
+<code>alice@corp.example</code> and <code>aaron@corp.example</code>, whose <code>SubjectId</code> masks are identical - are two
+distinct map entries. A caller whose FULL subject is absent from a declared map is refused before any
+network call, whatever its mask collides with; and <code>WorkloadIdentityConfig::parse</code> refuses two
+declared keys that compare equal after parsing (differing only by surrounding whitespace, which
+<code>parse_principal_id</code> trims) rather than silently keeping whichever came last. The collapse that
+<code>SubjectId</code>'s masking used to cause, and the escalation it enabled, are the property the reviewer's
+attack cell M1 pins (<code>an_undeclared_caller_with_a_masked_subject_colliding_with_a_declared_one_is_refused_not_handed_the_sa</code>).</p>
+<p><strong>Does not move <code>docs/where-identity-is-proven.md</code>'s row.</strong> The mechanics are exercised by six
+fake-port cells in <code>sts.rs</code> and <code>sts/cache.rs</code>, never by a live call. A green <code>bigquery-exchanged-identity</code>
+<code>workflow_dispatch</code> is what moves that row - the code landing here is necessary and not sufficient,
+per that page's own standard for what may be cited for an identity claim.</p>
+<p><strong>Does not thread the resolved account onto the audit record.</strong> See above; recorded as a fast-follow
+rather than folded into this change's own scope.</p>
+<h2 id="what-this-explicitly-leaves-for-later">What this explicitly leaves for later<a class="headerlink" href="#what-this-explicitly-leaves-for-later" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>zeroize</code> contains <code>unsafe</code></strong> - volatile writes and a compiler fence. That is precisely why it is a
-  dependency rather than sixty local lines: <code>unsafe_code</code> is <code>forbid</code> across this workspace, the
-  guarantee is that the writes are not optimised away, and a test cannot observe whether they were.
-  The same argument already carries <code>sha2</code> and <code>subtle</code> into this tree. <code>secrecy</code> itself is
-  <code>forbid(unsafe_code)</code>.</li>
-<li><strong><code>secrecy 0.10.3</code> was published 2024-10-09</strong> and is the newest release; it has not moved in nearly
-  two years. For a ~330-line crate whose whole content is three trait impls and a <code>Drop</code>, "finished"
-  is a reasonable reading of that - but it is a maintenance bet, and the newtype is what makes it a
-  cheap one to unwind: <code>Secret</code>'s public surface is <code>new</code>, <code>expose_secret</code>, <code>Debug</code> and <code>Clone</code>, so
-  replacing the inner type touches one file.</li>
+<li><strong>Threading the resolved account onto <code>CallRecord</code>/<code>Provenance</code></strong>, once that widening is itself
+  scoped and reviewed on its own - see the limit above.</li>
+<li><strong>A parsed lifetime derived from the caller's own request budget</strong> rather than the fixed
+  3600-second ceiling this hop always REQUESTS. The granted credential's expiry is now read from the
+  endpoint's own <code>expireTime</code> (bounded by that requested ceiling, refused if absent or longer than
+  requested - so the correctness gap this record's first round called out is closed); what remains an
+  optimisation rather than a correctness gap is picking the REQUESTED lifetime from the caller's
+  budget, which the broker's own expiry floor already refuses on the safe side regardless.</li>
 </ul>
-<p><code>sutura-domain</code>'s dependency list is now five crates rather than four, and <code>ALLOWED_IN_DOMAIN</code> in
-<code>xtask/src/boundaries.rs</code> names <strong>three</strong> new packages with the reason. That list exists so this is an
-argument in a diff, and it worked as intended: adding <code>secrecy</code> and <code>zeroize</code> alone failed
-<code>check-boundaries</code> by name -</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>xtask check-boundaries: FAILED - sutura-domain reaches crates it may not:
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  zeroize_derive
-</span></code></pre></div>
-<ul>
-<li>because that gate walks the whole-workspace resolve graph rather than deciding which optional edges
-  a feature resolver would really enable. <code>zeroize</code>'s <code>derive</code> feature is off, nothing in this workspace
-  turns it on, and <code>cargo tree -p sutura-domain --all-features</code> does not list <code>zeroize_derive</code>; it is an
-  entry of the over-broad kind that list already documents, and its own tree - <code>proc-macro2</code>, <code>quote</code>,
-  <code>syn</code> - is the serde derives' tree, already allowed. The domain's walked tree is 31 crates, all
-  allowlisted.</li>
-</ul>
-<h2 id="what-was-considered-instead">What was considered instead<a class="headerlink" href="#what-was-considered-instead" title="Permanent link">&para;</a></h2>
-<p><strong>Delete only the <code>Display</code> from the hand-written <code>Secret</code>, and add no dependency.</strong> This gets the
-first two rows of the table above - <code>{}</code> and <code>%</code> both stop compiling - for zero new packages, and it
-was put to the user as the cheaper option.</p>
-<p>It was <strong>not</strong> chosen, and the decision is settled rather than open. It buys nothing for <code>==</code> beyond
-what was already there, buys nothing at all for zeroization, and leaves the redaction a hand-written
-formatter that a future diff can edit. The point of the change is that no first-party code formats a
-credential; keeping our own <code>Debug</code> keeps a function whose job is to be careful. Against a measured +1
-lockfile entry, that is not a trade worth taking.</p>
-<p><strong>Take <code>zeroize</code> alone and keep the hand-written type.</strong> Same package count as <code>secrecy</code>, and it
-delivers the wipe. Rejected because it delivers <em>only</em> the wipe: the <code>Display</code> removal would still be
-ours to remember, and <code>secrecy</code> is the vocabulary a reader already knows.</p>
-<p><strong>A <code>Secret&lt;T&gt;</code> generic over the material.</strong> Everything credential-shaped here is UTF-8 text.
-<code>SecretSlice&lt;u8&gt;</code> is available under the same dependency on the day something holds key bytes, and a
-generic invented before its second case would be a shape nobody could check.</p>
-<h2 id="what-is-claimed-and-what-is-not">What is claimed, and what is not<a class="headerlink" href="#what-is-claimed-and-what-is-not" title="Permanent link">&para;</a></h2>
-<p><strong>Claimed.</strong> No first-party code can render a <code>Secret</code>: there is no <code>Display</code> to call, the <code>Debug</code> is
-<code>secrecy</code>'s and prints <code>SecretBox&lt;str&gt;([REDACTED])</code>, and <code>==</code> does not compile. Neither impl can be
-reintroduced by a derive on the wrapper, because the inner type has neither. The value is wiped on
-drop.</p>
-<p><strong>Not claimed.</strong></p>
-<ul>
-<li><strong>The wipe covers the buffer this type holds, and no copy made before the value reached it.</strong> A
-  settings file read into a <code>String</code>, a <code>serde</code>-deserialized <code>Option&lt;String&gt;</code> on a wire document, and
-  the <code>String</code> <code>Secret::new</code> consumes are ordinary allocations - and <code>String::into_boxed_str</code>
-  reallocates whenever capacity exceeds length, freeing the original buffer unwiped. Shortening that
-  window means parsing into <code>Secret</code> closer to where bytes are read, not a stronger claim here.</li>
-<li><strong>There is no test for the wipe.</strong> Observing it means reading memory after free, which is undefined
-  behaviour. What is tested is that the type composes; the property is <code>zeroize</code>'s.</li>
-<li><strong><code>{secret:?}</code> still compiles</strong>, and is safe only because that <code>Debug</code> cannot render the value. A
-  call site can still write <code>token.expose_secret()</code> into a log, which is why that method is named to
-  be conspicuous in a grep rather than relied upon to be absent.</li>
-<li><strong>The BigQuery <code>Debug</code> removals are held by review</strong>, not by a mechanism. Said again here because
-  the rest of this record is about mechanisms.</li>
-<li><strong>Nothing about <code>Serialize</code>.</strong> <code>Secret</code> has none and never had one, and no doctest pins that
-  separately - the <code>Deserialize</code> one is the half a request could reach.</li>
-<li><strong>Only two of the five <code>compile_fail</code> doctests are red against the base behaviour</strong>, and this file
-  says which rather than letting five look like five. The <code>{}</code> one and the two <code>Display</code>-bound ones -
-  the domain's and the real <code>tracing</code> macro in <code>sutura_http::inbound</code> - all PASS on base, which is a
-  failure for a <code>compile_fail</code> test, because the old type had a <code>Display</code>; that was demonstrated by
-  restoring the impl and watching them fail. The <code>==</code> and <code>Deserialize</code> ones would have passed before
-  this change too: both impls were already absent. They are in anyway, as <strong>regression pins on two
-  invariant rows whose mechanism moved</strong> - from <em>we did not write the impl</em> to <em>the inner type has
-  none, so a derive on the wrapper cannot produce one</em>. A row being restated is the moment to pin it;
-  calling either one red-before-green would not be true.</li>
-</ul>
-<h2 id="amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint">Amendment, 2026-09-02: the <code>expose_secret</code> limit is now a lint<a class="headerlink" href="#amendment-2026-09-02-the-expose_secret-limit-is-now-a-lint" title="Permanent link">&para;</a></h2>
-<p>The bullet above - <em>"a call site can still write <code>token.expose_secret()</code> into a log, which is why
-that method is named to be conspicuous in a grep rather than relied upon to be absent"</em> - is the one
-limit in this record that a mechanism could close, and #145 closed it. <code>clippy.toml</code> disallows
-<code>sutura_domain::identity::Secret::expose_secret</code>, so an exposure is an error under <code>-D warnings</code>
-until somebody writes an <code>#[expect]</code> beside it saying what the exposed value is for. That is the
-<code>Warehouse::verify_anchor</code> and <code>tokio::task::spawn_blocking</code> shape, and it was <strong>verified to resolve</strong>
-the way this repository's <code>clippy.toml</code> header demands: the entry was added and clippy rejected the
-existing call sites by file and line - twenty-one diagnostics across eleven files, answered by
-eighteen expectations, because <code>#[expect]</code> is per item and three functions expose twice.</p>
-<p><strong>What changed is the DEFAULT, not the possibility.</strong> The exposures that were legitimate are still
-there and still legitimate - a constant-time compare of the deployment token, the bearer header a job
-is submitted with, the RFC 8693 subject token, a <code>PKCS#8</code> key handed to <code>ring</code>, an assertion handed to
-a broker, and the tests that read a minted credential in order to say whose it was. None of them
-reaches a log. What is new is that a twenty-second one cannot arrive without a diff a reviewer sees.</p>
-<p><strong>Three limits, and the first is the one to read.</strong> A lint is not a type: it reaches this workspace,
-an <code>#[allow]</code> walks past it, and clippy does not lint doctests at all - the three doctests in
-<code>sutura_domain::identity</code> that call the method are outside it. <code>#[expect]</code> is per ITEM rather than per
-call, so a function carrying one expectation may make two exposures; the reason text is what a
-reviewer reads, and <code>#[expect]</code> at least fails when the last one goes away. And the ban says nothing
-about what the exposed <code>&amp;str</code> is then <em>used</em> for - that is still review, which is why every reason
-here names the destination.</p>
 
 
 

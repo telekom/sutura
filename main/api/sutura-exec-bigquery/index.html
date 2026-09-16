@@ -873,6 +873,8 @@
       
         
       
+        
+      
     
     
     
@@ -1770,6 +1772,34 @@
     
   
     Caching an exchanged credential
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0032-the-iamcredentials-impersonation-hop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The iamcredentials impersonation hop
   
 
     
@@ -2929,6 +2959,30 @@ why none of them carries the offending text: whoever sees one has the file.</p>
 <p>Named because <code>Result&lt;usize, FixtureNotLoaded&lt;T::Error&gt;&gt;</code> is over the <code>type_complexity</code> threshold
 this workspace tightened, and for the reason <code>crate::Mapped</code> is named: the generic error is the
 point, and erasing it would lose which transport failed.</p>
+<h2 id="use-impersonateasaccount"><code>use ImpersonateAsAccount</code><a class="headerlink" href="#use-impersonateasaccount" title="Permanent link">&para;</a></h2>
+<p>The second hop, telekom/sutura#376's iamcredentials step: a federated access token in, a
+service-account access token out.</p>
+<p><strong>A second port and not a second <code>StsExchange</code> method</strong> - the two calls have different request
+and response shapes (RFC 8693 token exchange vs <code>{scope, lifetime}</code>) and different failure modes
+(STS <code>invalid_target</code> vs <code>iamcredentials</code>'s own <code>403</code> for "may not impersonate"). Everything this
+broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
+this port as <code>crate::wire::IamCredentialsOverHttp</code>, behind the same default-off <code>wire</code> feature
+<code>StsExchange</code>'s real implementor is.</p>
+<h2 id="use-noimpersonation"><code>use NoImpersonation</code><a class="headerlink" href="#use-noimpersonation" title="Permanent link">&para;</a></h2>
+<p>The impersonation port a broker holds when it was never wired to one.</p>
+<p><strong>The default for the same reason <code>SystemClock</code> is one for the clock parameter</strong>: a composition
+root that never calls <code>WorkloadIdentityBroker::impersonating_via</code> gets a broker whose TYPE says
+the hop cannot run, rather than a value that happens never to be invoked. Every test and every
+existing call site that declares no <code>impersonate</code> entry at all never reaches
+<code>ImpersonateAsAccount::impersonate</code> - <code>WorkloadIdentity::target_for</code> answers <code>None</code> for every
+subject, so <code>mint</code> never calls it.</p>
+<p><strong>A composition root can still reach it by mistake</strong>, declaring a source's <code>impersonate</code> map
+without ever calling <code>WorkloadIdentityBroker::impersonating_via</code> - the type system does not
+forbid attaching an <code>I</code> and a per-source map independently, since <code>WorkloadIdentityBroker::impersonating</code>
+(the per-source declaration) takes no <code>I</code> at all. So this is a REFUSAL, not an
+invariant asserted with <code>unreachable!</code>: a caller whose subject resolves a target here is told the
+composition is wrong, the same way <code>ExchangeUnusable::Provider</code> tells it about any other
+provider defect, rather than the process panicking on a request nobody malformed.</p>
 <h2 id="use-stscredential"><code>use StsCredential</code><a class="headerlink" href="#use-stscredential" title="Permanent link">&para;</a></h2>
 <p>One exchanged credential: a Google access token and the instant it stops being usable.</p>
 <p>The deadline is carried beside the token - the whole point of <code>docs/adr/0008</code>'s
@@ -3860,6 +3914,8 @@ call is pinned to as a backstop regardless of what a request supplies. <code>Sel
 composition root's one door in, and it takes the setting directly rather than a share of it.</p>
 <h3 id="use-unusablebound"><code>use UnusableBound</code><a class="headerlink" href="#use-unusablebound" title="Permanent link">&para;</a></h3>
 <p>Why a bound this adapter was handed is not usable.</p>
+<h3 id="use-iamcredentialsoverhttp"><code>use IamCredentialsOverHttp</code><a class="headerlink" href="#use-iamcredentialsoverhttp" title="Permanent link">&para;</a></h3>
+<p>An <code>ImpersonateAsAccount</code> that talks to Google's <code>iamcredentials</code> API over HTTP.</p>
 <h3 id="use-stsoverhttp"><code>use StsOverHttp</code><a class="headerlink" href="#use-stsoverhttp" title="Permanent link">&para;</a></h3>
 <p>An <code>StsExchange</code> that talks to Google STS over HTTP.</p>
 <h3 id="module-bounds">Module <code>bounds</code><a class="headerlink" href="#module-bounds" title="Permanent link">&para;</a></h3>

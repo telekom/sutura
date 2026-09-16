@@ -873,6 +873,8 @@
       
         
       
+        
+      
     
     
     
@@ -1770,6 +1772,34 @@
     
   
     Caching an exchanged credential
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0032-the-iamcredentials-impersonation-hop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The iamcredentials impersonation hop
   
 
     
@@ -4877,6 +4907,22 @@ no rendering surface (<code>Debug</code>, <code>Display</code>, <code>Self::as_s
 at the boundary that turns a wire value into this type, not at print time. There is no
 other way in: the field is private, there is no <code>Deserialize</code>, and <code>TryFrom&lt;String&gt;</code>
 delegates to the same constructor.</p>
+<h3 id="use-subjectkey"><code>use SubjectKey</code><a class="headerlink" href="#use-subjectkey" title="Permanent link">&para;</a></h3>
+<p>The verified identity a caller may be exchanged FOR, retained in full for the one place a
+lossy projection is an authorization decision.</p>
+<p><code>SubjectId</code> masks on the way in and deliberately has no raw access, and for ordinary
+rendering that is the whole control: the stable masked form is all a record ever needs. But
+deciding which declared service account a caller may impersonate is not rendering - it is an
+access-control read of "who is asking", and a map keyed on <code>SubjectId</code> collides every
+UNDECLARED caller that shares a declared subject's mask with the declared subject (for an
+opaque numeric <code>sub</code> the mask keeps a single character, a handful of equivalence classes for a
+whole tenant). So the impersonation map keys on THIS type, which holds the full verified <code>sub</code>
+so that two distinct subjects are two distinct keys, while <code>Debug</code>/<code>Display</code> render only the
+masked form to keep the raw identifier out of every log surface.</p>
+<p><strong>No <code>Deserialize</code></strong>, for the same reason <code>SubjectId</code> has none: a caller that states its own
+identity does not have one. The only door is <code>Self::parse</code>, reached at exactly the two places
+a verified identity legitimately enters the process - the settings boundary (a declared map
+key) and the transport's verification of the token's <code>sub</code> claim.</p>
 <h3 id="use-taskid"><code>use TaskId</code><a class="headerlink" href="#use-taskid" title="Permanent link">&para;</a></h3>
 <p>The identifier of the unit of work a question belongs to.</p>
 <p>The third position, and the one that answers "which job was this part of" rather than "who".
