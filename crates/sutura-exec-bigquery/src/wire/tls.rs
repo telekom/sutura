@@ -48,3 +48,23 @@ fn root_certs(loaded: LoadedAnchors) -> ureq::tls::RootCerts {
         .collect();
     ureq::tls::RootCerts::new_with_certs(&certificates)
 }
+
+/// Builds a fresh `ureq::Agent` with this crate's pins over the given TLS configuration - the one
+/// place the six pins are written, so every constructor (fixed and rotating) uses the same client.
+pub(super) fn agent_from_tls(timeout: std::time::Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
+    ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .https_only(true)
+            .max_redirects(0)
+            .timeout_global(Some(timeout))
+            .max_response_header_size(super::MAX_HEADER_BYTES)
+            .proxy(ureq::Proxy::try_from_env())
+            .tls_config(tls)
+            .build(),
+    )
+}
+
+/// A wire's rotating agent handle and (when a declaration exists) the poll handle that keeps it
+/// current - named for `type_complexity`, the same reason `wire.rs`'s `Wired`/`Grid` aliases are.
+pub(super) type OutboundAgent = (sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>);

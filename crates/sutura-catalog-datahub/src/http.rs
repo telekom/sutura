@@ -113,6 +113,24 @@ const CONNECT_MARGIN: Duration = Duration::from_secs(5);
 /// `sutura_exec_bigquery::wire::MAX_HEADER_BYTES` exists.
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 
+/// Builds a fresh `ureq::Agent` with this reader's pins over the given TLS configuration - the one
+/// place the pins are written, so the fixed and rotating constructors use the same client. Unlike
+/// `sutura-exec-bigquery`'s wire there is no `https_only(true)` here: this crate pursues a
+/// validated [`Endpoint`] (which already refuses a non-loopback plaintext host) rather than a
+/// compile-time `https://` constant, so the scheme pin lives in the parse, not in the agent.
+fn agent_from_tls(socket: Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
+    ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .timeout_global(Some(socket))
+            .max_response_header_size(MAX_HEADER_BYTES)
+            .proxy(ureq::Proxy::try_from_env())
+            .tls_config(tls)
+            .build(),
+    )
+}
+
 /// The recommended default request timeout, in seconds, for a composition root's settings default.
 ///
 /// Matches `server.request_timeout_seconds`'s own shipped default: a metadata read that outlives the
@@ -137,6 +155,11 @@ pub enum InvalidReadBounds {
     #[error("a {what} of zero would refuse every read rather than bounding one")]
     Zero { what: &'static str },
 }
+
+/// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
+/// current - named for `type_complexity`, the same reason `sutura-exec-bigquery`'s `Wired`/`Grid`
+/// aliases exist.
+type OutboundAgent = (sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>);
 
 /// What one [`HttpAspectReader::read`] call may spend: a request timeout and a response-size cap.
 ///
@@ -417,7 +440,7 @@ pub struct HttpAspectReader {
     property: String,
     token: Secret,
     bounds: ReadBounds,
-    agent: ureq::Agent,
+    agent: sutura_tls::Rotating<ureq::Agent>,
 }
 
 impl HttpAspectReader {
@@ -436,16 +459,31 @@ impl HttpAspectReader {
         bounds: ReadBounds,
         anchors: Option<sutura_tls::LoadedAnchors>,
     ) -> Self {
-        let agent = ureq::Agent::new_with_config(
-            ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .max_redirects(0)
-                .timeout_global(Some(Budget::socket(bounds.timeout())))
-                .max_response_header_size(MAX_HEADER_BYTES)
-                .proxy(ureq::Proxy::try_from_env())
-                .tls_config(super::tls_roots::config(anchors))
-                .build(),
-        );
+        Self::rotating(
+            endpoint,
+            property,
+            token,
+            bounds,
+            sutura_tls::Rotating::fixed(agent_from_tls(
+                Budget::socket(bounds.timeout()),
+                super::tls_roots::config(anchors),
+            )),
+        )
+    }
+
+    /// The rotation-lane constructor: holds the rotating agent handle a composition root built (via
+    /// [`Self::rotating_agent`]) and drove to re-read on [`sutura_tls::POLL_INTERVAL`]. The reader is
+    /// per-request, so the agent `current()` resolves to on the next `read` is the latest that loaded -
+    /// a replaced bundle (`security.outbound.transport_anchors`, `github.com/telekom/sutura#125`) is
+    /// adopted by the next read, no drain (per `docs/adr/0010`).
+    #[must_use]
+    pub const fn rotating(
+        endpoint: Endpoint,
+        property: String,
+        token: Secret,
+        bounds: ReadBounds,
+        agent: sutura_tls::Rotating<ureq::Agent>,
+    ) -> Self {
         Self {
             endpoint,
             property,
@@ -453,6 +491,37 @@ impl HttpAspectReader {
             bounds,
             agent,
         }
+    }
+
+    /// Builds the reader's rotating agent handle for a declared `security.outbound.transport_anchors`
+    /// set, and (when one is declared) the [`sutura_tls::Rotator`] the composition root drives on
+    /// [`sutura_tls::POLL_INTERVAL`]. `None` (no declaration) returns a fixed handle over `ureq`'s
+    /// compiled-in roots and no poll handle. Rebuilt over `RootCerts::Specific` from each freshly
+    /// loaded bundle - never a union, never a second external read.
+    ///
+    /// # Errors
+    ///
+    /// The declared bundle cannot be loaded at boot.
+    pub fn rotating_agent(
+        bounds: ReadBounds,
+        anchors: Option<sutura_tls::Anchors>,
+    ) -> Result<OutboundAgent, sutura_tls::LoadError> {
+        let Some(anchors) = anchors else {
+            return Ok((
+                sutura_tls::Rotating::fixed(agent_from_tls(
+                    Budget::socket(bounds.timeout()),
+                    super::tls_roots::config(None),
+                )),
+                None,
+            ));
+        };
+        let socket = Budget::socket(bounds.timeout());
+        let rebuild = move |loaded, _identity: Option<sutura_tls::LoadedIdentity>| {
+            Ok::<_, sutura_tls::LoadError>(agent_from_tls(socket, super::tls_roots::config(Some(loaded))))
+        };
+        let initial = agent_from_tls(socket, super::tls_roots::config(Some(sutura_tls::load_anchors(&anchors)?)));
+        let rotator = sutura_tls::Rotator::new(anchors, None, rebuild, initial);
+        Ok((rotator.rotating(), Some(rotator)))
     }
 
     #[expect(
@@ -483,6 +552,7 @@ impl HttpAspectReader {
         let url = format!("{}/openapi/v3/entity/{entity}?{query}&count=1000", self.endpoint.as_str());
         let mut response = self
             .agent
+            .current()
             .get(&url)
             .config()
             .timeout_global(Some(Budget::socket(left)))

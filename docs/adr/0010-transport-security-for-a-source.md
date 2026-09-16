@@ -294,3 +294,33 @@ after every one of these was written.
   `grep -l '^sutura-runtime = ' crates/*/Cargo.toml` names exactly the three. The point the sentence
   makes - transports and composition roots, never a data-system adapter - is unaffected by the count
   moving.
+
+## Second amendment, 2026-09-16: rotation is built, and the client side is *left-until-closed*, not drained
+
+Rule 3's pool drain is now tested against the reality of the code that exists, and reality wins:
+**there is no connection pool to drain.** `PostgresWarehouse` holds ONE connection, opened at connect
+and kept for the adapter's life; `connect_secured` resolves the declared pair at connect time and a
+live connection keeps the identity it was established under until it closes. Draining would close a
+live connection with nothing to retire *to* - the primitive rule 3 names would be built to serve a
+user that does not exist. So the Postgres swap is **left-until-closed and recorded as its own decision,
+not inherited as a drain** (the "stated, not inherited" rule applied to the swap: this consumer's
+choice is not rule 3's because the pool rule 3 was written for is unbuilt). When a pool lands, the
+drain primitive rule 3 argues for is its own future concern.
+
+The HTTP adapters have no drain question at all, which is what makes #125 item 3 tractable: a
+`ureq` agent is **per-request**, so the next request naturally adopts whatever the rotating handle's
+`current()` resolves to. BigQuery wire, the STS exchange, `iamcredentials` and the DataHub reader all
+hold that shape, so all four rotate by the next request, per `docs/adr/0010`'s own swap-is-the-code's
+mood.
+
+`github.com/telekom/sutura#125` item 3 lands it with **one shared `Rotating` handle in `sutura-tls`**
+(`sutura_tls::rotating`), reusing rule 3's POLL verbatim: re-read the declared material's bytes,
+compare to what was last examined, and only on a difference parse-and-rebuild; adopt the new material
+with one `info!` line on `Ok`, keep the old with **one** `error!` naming the source class on a load or
+rebuild refusal - so a malformed replacement is loud exactly once and then silent until it changes.
+`poll_once` is synchronous like the serving poller; *starting* the loop is the composition root's
+choice and the interval is the same constant as the serving side (`sutura-tls::POLL_INTERVAL`, 30 s),
+for the same "deployment shape, not a knob" reason. It rotates whatever was declared -
+`security.outbound.transport_anchors` for the HTTP adapters, the per-source `transport_*` for
+Postgres - and an absent declaration leaves `compiled-in` roots untouched. The DataHub reader is the
+FOURTH consumer (`telekom/sutura#768` made it read the declaration); it was never review-held.

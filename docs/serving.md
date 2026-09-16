@@ -1121,6 +1121,20 @@ The arrangement this expects is the one most clusters already run: an external c
 owns renewal and writes the files, and this process follows them. There is **no ACME client here**,
 and that is a judgement rather than a gap - see below.
 
+### Outbound trust material rotates the same way - one poll, per consumer's own swap
+
+The serving-side renewal above is the SAME poll the outbound side uses (`github.com/telekom/sutura#125`
+item 3, `docs/adr/0010`'s rule 3): the declared anchor bundle (or host store) and an optional client
+identity are re-read on the same interval, the bytes compared, and a replacement validated before it
+is adopted - the old material kept, with exactly one loud line naming the source class, when a new
+one does not load. A per-request `ureq` agent (the BigQuery wire, the STS exchange, `iamcredentials`
+and the DataHub reader) adopts the new bundle on the NEXT request - there is no drain question, because
+each request makes a fresh resolution. A Postgres source's connection keeps the client pair it was
+established under until it closes - **left until closed, not drained**, because there is no connection
+pool today and nothing to retire a live connection to. The interval is the same constant as the
+serving side's (`sutura-tls::POLL_INTERVAL`, 30 s), for the same reason: a deployment shape, not a
+knob. The boot log says once, per polled handle, what is polled and the interval.
+
 ### No ACME, and why
 
 `rustls-acme` would do TLS-ALPN-01 with automatic renewal, which sounds like exactly this

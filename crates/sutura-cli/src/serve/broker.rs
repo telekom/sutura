@@ -42,7 +42,7 @@ pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
     credential_cache: sutura_config::CredentialCacheSettings,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<ExchangingBroker, String> {
     use sutura_config::SourcePlacement;
     use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
@@ -121,8 +121,12 @@ pub(crate) fn build_broker(
     // `pinned` behaviour - `github.com/telekom/sutura#125`. The same declaration the job's own agent
     // reads: one boot-time read, shared by every `WireAgent` this composition root builds - the
     // second hop's own agent included, since `iamcredentials` and `sts` are reached with the same
-    // pins and the same bounds.
-    let agent = WireAgent::secured(JobBounds::of(deadline, ceiling), outbound.cloned());
+    // pins and the same bounds. A declared bundle becomes a rotating handle, so a replaced bundle is
+    // adopted by the next exchange.
+    let (agent, rotator) = WireAgent::rotating_agent(JobBounds::of(deadline, ceiling), outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (STS exchange)", rotator);
+    let agent = WireAgent::rotating(JobBounds::of(deadline, ceiling), agent);
     let exchange = StsOverHttp::new(agent.clone());
     let impersonation = IamCredentialsOverHttp::new(agent);
 

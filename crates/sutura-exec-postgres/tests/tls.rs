@@ -110,8 +110,13 @@ mod tls {
         let tls = client_config(&TlsAnchors::Bundle(tier.anchor), None).expect("the tier's certificate is a usable anchor");
         // A successful open IS the proof: the handshake verifies the chain against the declared
         // anchor, and `connect_secured` then runs `SET statement_timeout` over the session.
-        PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &config(tier.port), Some(tls))
-            .expect("a source verifying the tier's own chain connects and runs a statement");
+        PostgresWarehouse::connect_secured(
+            corpus::source(),
+            corpus::posture(),
+            &config(tier.port),
+            Some(sutura_tls::Rotating::fixed(tls)),
+        )
+        .expect("a source verifying the tier's own chain connects and runs a statement");
     }
 
     #[test]
@@ -122,8 +127,13 @@ mod tls {
         let identity = TlsIdentity::new(tier.client_certificate, tier.client_key);
         let tls = client_config(&TlsAnchors::Bundle(tier.anchor), Some(&identity))
             .expect("the tier's anchors and client identity build a mutual config");
-        PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &mutual_config(tier.port), Some(tls))
-            .expect("the mutual-only role accepts the client identity the tier signed");
+        PostgresWarehouse::connect_secured(
+            corpus::source(),
+            corpus::posture(),
+            &mutual_config(tier.port),
+            Some(sutura_tls::Rotating::fixed(tls)),
+        )
+        .expect("the mutual-only role accepts the client identity the tier signed");
     }
 
     #[test]
@@ -133,8 +143,12 @@ mod tls {
         };
         let tls = client_config(&TlsAnchors::Bundle(tier.anchor), None)
             .expect("the tier's anchor builds a verifier without a client identity");
-        let refused =
-            PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &mutual_config(tier.port), Some(tls));
+        let refused = PostgresWarehouse::connect_secured(
+            corpus::source(),
+            corpus::posture(),
+            &mutual_config(tier.port),
+            Some(sutura_tls::Rotating::fixed(tls)),
+        );
         let error = refused.expect_err("the mutual-only role must reject a client with no certificate");
         assert!(matches!(error, PostgresError::Connect { .. }), "{error}");
     }
@@ -151,7 +165,12 @@ mod tls {
         std::fs::write(&anchor, untrusted.cert.pem()).expect("the untrusted anchor writes");
         let tls = client_config(&TlsAnchors::Bundle(anchor.clone()), None)
             .expect("an unrelated certificate is still a parsable anchor");
-        let refused = PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &config(tier.port), Some(tls));
+        let refused = PostgresWarehouse::connect_secured(
+            corpus::source(),
+            corpus::posture(),
+            &config(tier.port),
+            Some(sutura_tls::Rotating::fixed(tls)),
+        );
         let _ignored = std::fs::remove_file(&anchor);
         let error = refused.expect_err("a chain the declared anchors do not name is refused");
         assert!(matches!(error, PostgresError::Connect { .. }), "{error}");

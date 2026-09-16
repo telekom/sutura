@@ -62,7 +62,12 @@ fn a_server_that_declines_tls_is_refused_rather_than_used_in_plaintext() {
         .password("unused")
         .connect_timeout(Duration::from_secs(5));
 
-    let refused = PostgresWarehouse::connect_secured(corpus::source(), corpus::posture(), &config, Some(tls));
+    let refused = PostgresWarehouse::connect_secured(
+        corpus::source(),
+        corpus::posture(),
+        &config,
+        Some(sutura_tls::Rotating::fixed(tls)),
+    );
     server.join().expect("the fake server thread does not panic");
     let _ignored = std::fs::remove_dir_all(&directory);
 

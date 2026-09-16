@@ -44,10 +44,10 @@ const SUBJECT: &str = "localhost";
 
 /// A scratch directory this test owns, removed when it ends - the same fixture shape
 /// `sutura_tls`'s own suite uses, reused rather than copied a third time in this workspace.
-struct Scratch(PathBuf);
+pub(super) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new(name: &str) -> Self {
+    pub(super) fn new(name: &str) -> Self {
         let path = std::env::temp_dir().join(format!("sutura-bq-outbound-tls-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&path).expect("a scratch directory is creatable");
         Self(path)
@@ -55,10 +55,16 @@ impl Scratch {
 
     /// Writes a declared PEM bundle of exactly one certificate and returns its path - what a
     /// composition root would read via `sutura_tls::load_anchors(&Anchors::Bundle(path))`.
-    fn bundle(&self, name: &str, certificate: &rcgen::Certificate) -> PathBuf {
-        let path = self.0.join(format!("{name}.pem"));
+    pub(super) fn bundle(&self, name: &str, certificate: &rcgen::Certificate) -> PathBuf {
+        let path = self.path(name);
         std::fs::write(&path, certificate.pem()).expect("a bundle writes");
         path
+    }
+
+    /// The absolute path a bundle named `name` would be written to - for the rotation cells that
+    /// REWRITE a bundle in place.
+    pub(super) fn path(&self, name: &str) -> PathBuf {
+        self.0.join(format!("{name}.pem"))
     }
 }
 
@@ -70,12 +76,12 @@ impl Drop for Scratch {
 
 /// A self-signed issuer and the leaf it signs for [`SUBJECT`], both freshly generated - a different
 /// pair every call, which is what lets a test declare one root and present a chain from another.
-struct Issued {
-    certificate: rcgen::Certificate,
+pub(super) struct Issued {
+    pub(super) certificate: rcgen::Certificate,
     key: rcgen::KeyPair,
 }
 
-fn issue() -> Issued {
+pub(super) fn issue() -> Issued {
     let generated = rcgen::generate_simple_self_signed([String::from(SUBJECT)]).expect("a self-signed pair generates");
     Issued {
         certificate: generated.cert,
@@ -85,7 +91,7 @@ fn issue() -> Issued {
 
 /// A `rustls::ServerConfig` presenting exactly this one certificate, no client authentication asked
 /// for - `security.outbound` carries no client identity, so nothing here needs to test one.
-fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
+pub(super) fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
     let chain: Vec<CertificateDer<'static>> = vec![issued.certificate.der().clone()];
     let key = PrivateKeyDer::try_from(issued.key.serialize_der()).expect("a generated key is a usable private key");
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -100,7 +106,7 @@ fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
 }
 
 /// Binds a loopback listener and returns it with the port a dial reaches it on.
-fn listener() -> (TcpListener, u16) {
+pub(super) fn listener() -> (TcpListener, u16) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener binds");
     let port = listener.local_addr().expect("a bound listener has a local address").port();
     (listener, port)
@@ -109,7 +115,7 @@ fn listener() -> (TcpListener, u16) {
 /// Accepts ONE connection, completes the TLS handshake and answers with just enough bytes for
 /// `ureq`'s own `.call()` to return - never a canned document a test then has to read, because the
 /// claim here is about the HANDSHAKE, not about a response body.
-fn serve_one(listener: TcpListener, config: Arc<rustls::ServerConfig>) -> std::thread::JoinHandle<()> {
+pub(super) fn serve_one(listener: TcpListener, config: Arc<rustls::ServerConfig>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let (stream, _) = listener.accept().expect("the client dials this listener");
         let mut connection = rustls::ServerConnection::new(config).expect("a server connection builds");
@@ -129,7 +135,7 @@ fn serve_one(listener: TcpListener, config: Arc<rustls::ServerConfig>) -> std::t
 /// The URL every cell dials: this crate's own [`WireAgent`], pointed at the loopback server rather
 /// than at `HOST` - which `WireAgent` itself never allows; what is dialed here is the `ureq::Agent`
 /// underneath it, reached through the crate-visible accessor.
-fn dial(agent: &WireAgent, port: u16) -> Result<(), Box<ureq::Error>> {
+pub(super) fn dial(agent: &WireAgent, port: u16) -> Result<(), Box<ureq::Error>> {
     agent
         .agent()
         .get(format!("https://{SUBJECT}:{port}/"))

@@ -70,6 +70,9 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 mod audit;
 mod commands;
 mod mcp;
+/// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s
+/// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
+mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
 /// and nesting keeps `serve::bigquery`/`serve::postgres` distinct from `sources::bigquery`/

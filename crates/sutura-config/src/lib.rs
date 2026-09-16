@@ -44,7 +44,7 @@
 //! principal" trivially true and worth nothing.
 //!
 //! That is a property of the runtime, so it is a property of every deployment this crate
-//! configures. An [`AccessToken`](security::AccessToken) authenticates *the deployment*: a caller
+//! configures. An [`AccessToken`] authenticates *the deployment*: a caller
 //! who presents it proves they hold a secret an operator configured, and nothing more. It does not
 //! say which caller, it cannot be scoped to a subset of the catalog, it does not reach the data
 //! system, and every query still runs with whatever access the process already had.

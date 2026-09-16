@@ -4099,6 +4099,8 @@ dependencies = [
  "rustls-native-certs",
  "rustls-pki-types",
  "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
