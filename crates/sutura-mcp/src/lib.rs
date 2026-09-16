@@ -90,7 +90,9 @@
 //!   is unreachable from here - an adapter never calls another adapter - so, over the pipe,
 //!   `Asking::PerRequest` is read but never produced. Behind this crate's own default-off `http`
 //!   feature, `http::service` is what produces one over a real request - the streamable-HTTP
-//!   transport - and PR4 is the composition root that chooses to mount it.
+//!   transport - and PR4 (`#758`) is the composition root that already mounts it, behind its own
+//!   optional `agent` feature and a settings switch; nothing this repository publishes turns that
+//!   feature on.
 //!
 //!   **The consequence for what a scope gates here is stated rather than left implicit:** the
 //!   capability set this surface offers is narrowable, and over standard input and output nothing

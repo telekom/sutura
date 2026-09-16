@@ -10,7 +10,9 @@ here is built* was the status when this was written and is corrected rather than
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist, and
 `sutura-exec-datafusion` executes a leg. What is still unbuilt is track 1 beyond the dialects that
 ship and a deployment holding two KINDS of data system. It decides a shape and an order; the code it
-led to is cited beside each amendment.
+led to is cited beside each amendment. **Read *Amendment, 2026-09-16* before citing the
+`feat/source-registry` bullet under *The order, by branch*** - it names an absence that has since
+become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
@@ -1059,3 +1061,44 @@ hand. Against three systems with grants it is decoration in its most literal for
 deployment is one data system. It is what this record recommends *until
 `feat/federation-decomposability` exists*, because the one thing worse than no federation is a
 federated answer nobody can tell is wrong.
+
+## Amendment, 2026-09-16: the absence *The order, by branch* named has landed
+
+**The `feat/source-registry` bullet cites `docs/architecture.md:595-600` for "the source-to-adapter
+selection ... records as deliberately absent."** Read at `origin/main` today, that line range holds
+push-down and federation prose - a different topic - and the absence itself is gone: it landed.
+This is the alarming direction a false citation can point, so it is settled with evidence rather
+than repointed.
+
+**What was true when this was written, and where it went.** `git log -S "deliberately absent" --
+docs/architecture.md` finds no commit ever adding or removing that exact phrase - the sentence was
+a paraphrase, not a quote, from the start. At `9928a012` (the commit that added this ADR),
+`docs/architecture.md:595-600` read: *"And absent in a way worth naming separately ... **no runtime
+selection of an adapter.** Which catalogue and which data system are decided at compile time in
+`sutura-cli`, not read from anywhere."* That is the absence this bullet meant, and it was accurate
+then.
+
+**What replaced it.** `crates/sutura-config/src/sources.rs` (908 lines) is a `sources:` tree parsed
+per deployment - kind, placement, transport and identity posture per alias - and its own module
+documentation says the change it made: *"It replaced a comparison against a hard-coded source
+NAME"*, where the composition root used to refuse any source not called `local`. `docs/architecture.md`
+itself was kept current: [What exists today](../architecture.md#what-exists-today) now says *"one
+thing that was absent here and is now half present ... a `SourceName` now selects a warehouse out
+of a registry rather than being compared for equality against the one adapter that was linked ...
+What it still will not do is answer a question spanning two data systems"* - landed for *which
+source*, still compile-time for *which kind*. [0009](0009-the-plan-from-one-source-to-many.md)'s own
+branch table agrees: its `feat/source-registry` row describes the refusals this registry raises at
+parse, past tense.
+
+**So the claim is false and only the citation was ever a paraphrase - both need correcting, and a
+line number is the wrong fix for either.** The bullet's factual clause is replaced by: *the
+source-to-adapter selection [What exists today](../architecture.md#what-exists-today) once recorded
+as absent has landed - a `SourceName` selects a warehouse out of a registry; which* kind *a source
+may be remains a compile-time choice.* A heading anchor rather than a line number, because
+`docs/architecture.md` has moved this passage at least once already and a line number rots on the
+next edit regardless of which way the claim points.
+
+**The ordering argument itself is untouched.** The bullet's job was to say *why*
+`feat/source-registry` bundles three assumptions into one branch; that reasoning does not depend on
+whether the absence it illustrated still holds, and nothing above is a claim that the branch order
+was wrong.
