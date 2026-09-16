@@ -339,6 +339,12 @@ identifier_newtype! {
     SourceName
 }
 
+identifier_newtype! {
+    /// A portable identifier a catalog author restricts a metric's audience to - `docs/adr/0028`.
+    /// Not a scope: catalog metadata, not the deployed authorization-server contract.
+    AudienceId
+}
+
 /// The aggregates a measure may use.
 ///
 /// A closed set, and the reason is the whole of

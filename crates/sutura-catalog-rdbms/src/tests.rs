@@ -4,6 +4,7 @@ use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
 use sutura_domain::definitions::{DefinitionDigest, NotDigestible};
 use sutura_domain::knowledge::KnowledgeCapabilities;
 use sutura_domain::model::{Grain, JoinType, MetricName, ModelName, SourceName};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog};
 use sutura_domain::query::{Query, RefusalReason};
 
@@ -81,7 +82,8 @@ fn a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question(
     assert!(pinned.definitions().metrics().is_empty());
 
     // A question about any metric is refused, because no metric is defined.
-    let compiled = sutura_semantic::compile(&question_about("revenue"), &pinned).expect("a refusal is not an error");
+    let compiled = sutura_semantic::compile(&question_about("revenue"), &ScopedView::everything(&pinned))
+        .expect("a refusal is not an error");
     match compiled {
         sutura_semantic::Compiled::Refused { reason } => {
             assert!(matches!(reason, RefusalReason::MetricUnknown { .. }), "{reason:?}");

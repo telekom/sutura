@@ -13,7 +13,7 @@ use super::{
     MAX_VERSION_LEN, NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
 use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
@@ -49,6 +49,7 @@ fn definitions(anchor: Option<Anchor>) -> Definitions {
         Vec::new(),
         anchor,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")

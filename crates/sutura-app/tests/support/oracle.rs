@@ -56,7 +56,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -300,6 +300,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         segment_region_and_family(),
         Some(anchor("62")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "How many subscription-months the period billed." A count of ROWS and not of subscriptions:
@@ -321,6 +322,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         vec![segment(), region(), product_family(), contract_term()],
         Some(anchor("62")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "Outgoing voice minutes." One aggregate over one column, no definitional filter, no join, no
@@ -336,6 +338,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
 
@@ -381,6 +384,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         vec![segment(), region(), product_family(), product_name(), contract_term()],
         Some(anchor("202121")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "How many subscriptions were active at the end of the month." `subscription_base` with one
@@ -403,6 +407,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         segment_region_and_family(),
         Some(anchor("59")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "What the average active subscription was worth in the month, in minor units." The mean of a
@@ -423,6 +428,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "How many subscriptions terminated inside the month." `count_if` and not a count of the
@@ -442,6 +448,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         segment_region_and_family(),
         Some(anchor("3")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     vec![
@@ -486,6 +493,7 @@ fn the_ratios() -> Vec<Metric> {
         segment_region_and_family(),
         Some(anchor("0.04838709677419355")),
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "Data volume per subscription, in gigabytes." A ratio with no definitional filter, which is the
@@ -509,6 +517,7 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "Recurring revenue per customer, in minor units, over active subscriptions." Per CUSTOMER and
@@ -533,6 +542,7 @@ fn the_ratios() -> Vec<Metric> {
         vec![segment()],
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
     // "How much recurring revenue the month carried for each subscription it lost, in minor units."
@@ -568,6 +578,7 @@ fn the_ratios() -> Vec<Metric> {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("the corpus declares each dimension once");
 
@@ -687,6 +698,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 dimensions,
                 metric.anchor().cloned(),
                 Description::default(),
+                Audience::Open,
             )
             // The dimensions came OUT of a keyed map, so a duplicated pair cannot be among them.
             .expect("a keyed map cannot yield a duplicate")

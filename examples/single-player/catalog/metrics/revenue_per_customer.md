@@ -17,6 +17,7 @@ dimensions:
     via: subscription_customer
     values: [business, consumer, wholesale]
     description: The commercial segment of the customer.
+audience: open
 ---
 Recurring revenue per customer, in minor units, over active subscriptions.
 

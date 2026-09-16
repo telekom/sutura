@@ -633,14 +633,24 @@ impl PrincipalChain {
 pub struct RequestContext {
     chain: PrincipalChain,
     assertion: Option<crate::identity::Secret>,
+    /// What a deployment mapped this caller's verified group claim onto - `docs/adr/0028`. Empty
+    /// for [`Subject::TheDeploymentItself`] and for every constructor below that does not call
+    /// [`Self::granting`]; nothing here interprets emptiness as "the whole catalog" - that reading
+    /// belongs to whoever chooses [`crate::catalog::GrantedAudiences`] vs a [`crate::pinned::view::ScopedView`]
+    /// built from [`Subject::TheDeploymentItself`], and it must keep the two distinct.
+    audiences: crate::catalog::GrantedAudiences,
 }
 
 impl RequestContext {
     /// A context carrying only the chain, for the caller that has no credential to present - the
     /// deployment's own identity, and every non-verified surface that reaches this value.
     #[inline]
-    pub const fn of(chain: PrincipalChain) -> Self {
-        Self { chain, assertion: None }
+    pub fn of(chain: PrincipalChain) -> Self {
+        Self {
+            chain,
+            assertion: None,
+            audiences: crate::catalog::GrantedAudiences::none(),
+        }
     }
 
     /// The same context, with the caller's own credential assertion the transport retained.
@@ -652,11 +662,27 @@ impl RequestContext {
     /// before it.
     #[inline]
     #[must_use]
-    pub const fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret) -> Self {
+    pub fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret) -> Self {
         Self {
             chain,
             assertion: Some(assertion),
+            audiences: crate::catalog::GrantedAudiences::none(),
         }
+    }
+
+    /// The same context, carrying the audiences a deployment's mapping granted this caller -
+    /// `docs/adr/0028`.
+    #[inline]
+    #[must_use]
+    pub fn granting(mut self, audiences: crate::catalog::GrantedAudiences) -> Self {
+        self.audiences = audiences;
+        self
+    }
+
+    /// What this caller was granted, for [`crate::pinned::view::ScopedView::granted_by`].
+    #[inline]
+    pub const fn audiences(&self) -> &crate::catalog::GrantedAudiences {
+        &self.audiences
     }
 
     #[inline]

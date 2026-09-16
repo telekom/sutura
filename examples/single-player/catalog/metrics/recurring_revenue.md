@@ -40,6 +40,7 @@ anchor:
     start: 2026-06-01
     end: 2026-07-01
   value: 202121
+audience: open
 ---
 Recurring revenue recognised in the month, in minor units, from active subscriptions
 only.

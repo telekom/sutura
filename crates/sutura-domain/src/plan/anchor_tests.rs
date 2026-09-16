@@ -18,7 +18,7 @@ use super::{
     PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model};
+use crate::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
@@ -79,6 +79,7 @@ fn bundle(anchor: Option<Anchor>, grains: BTreeSet<Grain>) -> PinnedDefinitions 
         Vec::new(),
         anchor,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     PinnedDefinitions::pin(
@@ -312,6 +313,7 @@ fn the_grain_comparison_names_the_absence_rather_than_carrying_a_variant_nothing
         Vec::new(),
         Some(anchor("1")),
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     assert!(

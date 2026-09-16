@@ -3,8 +3,13 @@
 //!
 //! The lookup never reaches a live catalog. That is what makes an answer independent of what a
 //! catalog says at the moment of asking, and it is a property of the argument this function takes
-//! rather than of anything it does: it is handed a [`PinnedDefinitions`] and has no way to read
-//! anything else.
+//! rather than of anything it does: it is handed a [`ScopedView`] and has no way to read anything
+//! else.
+//!
+//! **A metric outside the view is absent here, not merely undescribed** - `docs/adr/0028`. Resolving
+//! one reaches [`RefusalReason::MetricUnknown`] through the same branch a genuinely undeclared
+//! metric does, because both read through [`ScopedView::metric`]. Unlisted and unaskable are one
+//! mechanism for that reason: there is no second check here that could drift from the first.
 //!
 //! Nothing here builds SQL, and nothing here decides where a statement runs. What comes out is a set
 //! of references into the bundle, which the plan stage turns into something owned.
@@ -15,6 +20,7 @@ use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason};
 
 /// A dimension, and the join needed to reach it.
@@ -94,13 +100,13 @@ impl From<RefusalReason> for ResolveError {
 }
 
 /// Looks up everything a question names.
-pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Result<Resolution<'a>, ResolveError> {
-    let definitions = pinned.definitions();
-    let metric = definitions
-        .metric(query.metric())
-        .ok_or_else(|| RefusalReason::MetricUnknown {
-            metric: query.metric().clone(),
-        })?;
+pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>) -> Result<Resolution<'a>, ResolveError> {
+    // A metric outside the view is absent HERE, which is the whole mechanism: there is no second
+    // branch downstream that could disagree about which metrics exist.
+    let metric = view.metric(query.metric()).ok_or_else(|| RefusalReason::MetricUnknown {
+        metric: query.metric().clone(),
+    })?;
+    let definitions = view.pinned().definitions();
     let model = definitions
         .model(metric.model())
         .ok_or_else(|| BundleInconsistent::NoSuchModel {
@@ -152,7 +158,7 @@ pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Resul
         if !seen.insert(name) {
             return Err(RefusalReason::DuplicateDimension { dimension: name.clone() }.into());
         }
-        keys.push(resolve_dimension(pinned, metric, name)?);
+        keys.push(resolve_dimension(view.pinned(), metric, name)?);
     }
 
     // A separate `seen` set from the group-by keys: filtering on a dimension that is also grouped by
@@ -167,7 +173,7 @@ pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Resul
             }
             .into());
         }
-        let resolved = resolve_dimension(pinned, metric, filter.dimension())?;
+        let resolved = resolve_dimension(view.pinned(), metric, filter.dimension())?;
         if !resolved.dimension.is_filterable() {
             return Err(RefusalReason::DimensionNotFilterable {
                 metric: metric.name().clone(),

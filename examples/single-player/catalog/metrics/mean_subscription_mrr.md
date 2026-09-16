@@ -8,6 +8,7 @@ required_filters:
   - equals: { column: status, value: active }
 time_column: month
 grains: [month]
+audience: open
 ---
 What the average active subscription was worth in the month, in minor units.
 

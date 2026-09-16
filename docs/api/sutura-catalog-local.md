@@ -418,8 +418,66 @@ happened.
   `sutura_domain::pinned::NotValidated::AnchorNotExecuted` already uses: this variant says
   which document to open, and whoever renders it walks the chain for which character to look
   for. Reported per metric rather than per field because a metric document declares one anchor.
+- `Audience` - The `audience:` declaration is not a usable one - `docs/adr/0028`.
 
 #### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `audience`
+
+The on-disk shape of a metric's audience declaration - `docs/adr/0028-who-may-see-a-metric.md`.
+
+Its own file for the reason `document.rs`'s own header gives for `knowledge`: that file is
+already near `cargo xtask max-lines`'s thousand-line cap, and this is a separate concern from the
+fields around it - a document DECLARES who may see a metric, and nothing here decides who is
+asking.
+
+**Externally tagged, like `measure`.** `audience: open` is a bare scalar because
+`AudienceDoc::Open` is a unit variant; `audience: { restricted: [finance] }` names a non-empty
+list. No `#[serde(default)]` on the field this type parses into
+(`crate::document::MetricDoc::audience`) - a missing declaration is a parse error naming the
+metric, never a silent *open*, which is the property `docs/adr/0028` states as non-negotiable.
+
+#### `enum AudienceDoc`
+
+```rust
+pub enum AudienceDoc
+```
+
+What a document writes for a metric's audience.
+
+##### Variants
+
+- `Open`
+- `Restricted`
+
+##### Methods
+
+```rust
+pub fn into_domain(self) -> Result<Audience, InvalidAudienceDeclaration>
+```
+
+Into the domain type, parsing every identifier the restricted arm names.
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
+
+#### `enum InvalidAudienceDeclaration`
+
+```rust
+pub enum InvalidAudienceDeclaration
+```
+
+Why an audience declaration a document parsed cannot become the domain's `Audience`.
+
+##### Variants
+
+- `Identifier`
+- `Grant`
+
+##### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 

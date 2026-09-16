@@ -1,5 +1,6 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
+assertion_line: 36
 expression: pinned.definitions()
 ---
 models:
@@ -60,3 +61,4 @@ metrics:
         end: 2026-07-01
       value: "412345"
     description: "Net revenue in minor units, from active orders."
+    audience: Open

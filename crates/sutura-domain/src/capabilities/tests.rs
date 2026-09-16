@@ -16,7 +16,9 @@ use super::{
     DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities, UnfaithfulDeclaration, carried, recorded,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use crate::catalog::{
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+};
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use crate::model::{
@@ -180,6 +182,7 @@ fn metric(carrying: Carrying<'_>) -> Metric {
         asked_for(carrying, DefinitionKind::Anchors)
             .then(|| Anchor::new(june(), AnchorValue::parse("62").expect("a test anchor value is a value"))),
         prose(carrying, "revenue, in minor units"),
+        Audience::Open,
     )
     .expect("these fixture dimensions are distinct")
 }

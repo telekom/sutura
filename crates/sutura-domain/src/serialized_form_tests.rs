@@ -151,6 +151,7 @@ use crate::definitions::DefinitionDigest;
 use crate::expression::{DialectTag, SqlFragment};
 use crate::knowledge::{NoteBody, NoteName, Phrase};
 use crate::measure::{AggregatedColumn, Term};
+use crate::model::AudienceId;
 use crate::model::{
     Aggregate, ColumnName, DatasetName, DimensionName, MetricName, ModelName, ProjectName, QualifiedTable, RelationshipName,
     SourceName, TableName,
@@ -352,8 +353,8 @@ where
 
 /// **The property, asked of every parsed newtype whose serialized form the digest is taken over.**
 ///
-/// One row per type rather than a loop, because the rows are twenty-one different types and Rust has
-/// no way to put them in one collection. All **nine** `identifier_newtype!` expansions are here
+/// One row per type rather than a loop, because the rows are twenty-two different types and Rust has
+/// no way to put them in one collection. All **ten** `identifier_newtype!` expansions are here
 /// even though the macro's own note says one implementation cannot drift from itself: the row costs
 /// a line, and with it nothing rests on a reader knowing which types share a parser.
 #[test]
@@ -376,6 +377,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
     checked += survives("DimensionName", |raw| DimensionName::parse(raw).ok(), &all);
     checked += survives("RelationshipName", |raw| RelationshipName::parse(raw).ok(), &all);
     checked += survives("SourceName", |raw| SourceName::parse(raw).ok(), &all);
+    checked += survives("AudienceId", |raw| AudienceId::parse(raw).ok(), &all);
     checked += survives("DatasetName", |raw| DatasetName::parse(raw).ok(), &all);
     checked += survives("ProjectName", |raw| ProjectName::parse(raw).ok(), &all);
     checked += survives("QualifiedTable", |raw| QualifiedTable::parse(raw).ok(), &all);
@@ -392,7 +394,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
         "the generated space is not the one this test was measured on"
     );
     assert_eq!(
-        checked, 20_050,
+        checked, 20_154,
         "a different number of generated values parsed than this test was measured on, so some parser's accept set moved"
     );
 }

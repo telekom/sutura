@@ -233,6 +233,13 @@ pub enum SettingsError {
         #[source]
         cause: InvalidOutbound,
     },
+    /// `security.audience_mapping` names an audience that is not a usable identifier -
+    /// `docs/adr/0028`.
+    #[error("`security.audience_mapping` is not usable")]
+    AudienceMapping {
+        #[source]
+        cause: crate::audience::InvalidAudienceMapping,
+    },
     #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
     TlsMaterial {
         #[source]

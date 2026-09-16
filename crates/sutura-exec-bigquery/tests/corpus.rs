@@ -208,6 +208,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_domain::model::{InvalidIdentifier, SourceName, TableName};
+    use sutura_domain::pinned::view::ScopedView;
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::plan::Executable;
     use sutura_domain::query::Query;
@@ -781,7 +782,8 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let compiled = sutura_semantic::compile(&question, &pinned).expect("the bundle is consistent");
+            let compiled =
+                sutura_semantic::compile(&question, &ScopedView::everything(&pinned)).expect("the bundle is consistent");
             let plan = match compiled {
                 sutura_semantic::Compiled::Refused { reason } => {
                     // A compile-side refusal, decided above every adapter. The corpus carries ten of

@@ -30,6 +30,7 @@ anchor:
     start: 2026-06-01
     end: 2026-07-01
   value: "0.04838709677419355"
+audience: open
 ---
 What share of the month's subscriptions terminated inside it.
 

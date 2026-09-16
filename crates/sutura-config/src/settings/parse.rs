@@ -73,6 +73,8 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
     // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
     // PRESENT empty block is.
     let outbound = crate::settings::outbound::parse_outbound(raw.security.outbound.as_ref())?;
+    let audience_mapping = crate::audience::AudienceMapping::parse(raw.security.audience_mapping.clone())
+        .map_err(|cause| SettingsError::AudienceMapping { cause })?;
     Ok(SecuritySettings::new(
         token,
         termination,
@@ -81,6 +83,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
         metrics_token,
         credential_cache,
         outbound,
+        audience_mapping,
     ))
 }
 

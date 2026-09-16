@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Metric, Model, Relationship};
+use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
@@ -74,6 +74,7 @@ fn bundle_joined(anchor_range: TimeRange) -> PinnedDefinitions {
             AnchorValue::parse("197122").expect("a test anchor value is a value"),
         )),
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     let definitions =

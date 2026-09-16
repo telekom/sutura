@@ -101,6 +101,7 @@
 //! happened rather than implying the check was run.
 
 pub mod api;
+pub mod audience;
 pub mod catalog;
 pub mod credentials;
 pub mod environment;
@@ -121,6 +122,7 @@ mod raw;
 mod settings;
 
 pub use crate::api::ApiSettings;
+pub use crate::audience::{AudienceMapping, InvalidAudienceMapping};
 pub use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};

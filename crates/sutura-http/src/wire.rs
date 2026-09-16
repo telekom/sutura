@@ -21,6 +21,7 @@
 //! `sutura_domain::query` - and this is what keeps that true across a JSON parser.
 
 use sutura_domain::model::Grain;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
@@ -430,15 +431,20 @@ pub struct DimensionBody {
 }
 
 impl CatalogBody {
-    /// The reader's view of a pinned bundle, under the prose setting this deployment was started
-    /// with.
+    /// The reader's view of a caller-scoped catalog, under the prose setting this deployment was
+    /// started with.
+    ///
+    /// **Takes a [`ScopedView`], never a bare `&PinnedDefinitions`** - `docs/adr/0028`. A metric
+    /// outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
+    /// about which metrics exist; the provenance still names the whole bundle's version and digest,
+    /// because that is what `docs/adr/0028` says the digest continues to identify.
     ///
     /// **A named constructor rather than a `From`, and the argument is the reason.**
     /// `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
     /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
     /// function exists to close. A second argument cannot be left out.
     #[must_use]
-    pub fn of(pinned: &PinnedDefinitions, prose: sutura_config::CatalogProse) -> Self {
+    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`, which is what this line was: a question
         // asked of one variant reads every future spelling as the `else`, and on this setting the
         // `else` withholds prose nobody asked to withhold. `sutura-mcp`'s twin makes the same
@@ -448,10 +454,8 @@ impl CatalogBody {
             sutura_config::CatalogProse::Quoted => true,
             sutura_config::CatalogProse::Omitted => false,
         };
-        let metrics = pinned
-            .definitions()
+        let metrics = view
             .metrics()
-            .values()
             .map(|metric| MetricBody {
                 name: String::from(metric.name().as_str()),
                 description: quoted.then(|| String::from(metric.description())),
@@ -475,7 +479,7 @@ impl CatalogBody {
             })
             .collect();
         Self {
-            provenance: bundle_body(pinned),
+            provenance: bundle_body(view.pinned()),
             catalog_prose: prose.as_str(),
             metrics,
         }
@@ -487,6 +491,7 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse as _;
     use sutura_domain::model::{DimensionName, Grain, MetricName};
+    use sutura_domain::pinned::view::ScopedView;
     use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 
     use super::{CatalogBody, MalformedQuestion, Outcome, QuestionBody};
@@ -681,7 +686,7 @@ mod tests {
     #[test]
     fn the_catalog_view_lists_grains_coarsest_first_and_carries_the_digest() {
         let bundle = crate::testing::bundle();
-        let body = CatalogBody::of(&bundle, sutura_config::CatalogProse::Quoted);
+        let body = CatalogBody::of(&ScopedView::everything(&bundle), sutura_config::CatalogProse::Quoted);
         let rendered = serde_json::to_string(&body).expect("the catalog serializes");
         assert!(rendered.contains(r#""definition_version":"test-1""#), "{rendered}");
         // Month before day: the coarsest grain is the one an anchor is checked at, so listing it
@@ -715,8 +720,11 @@ mod tests {
     #[test]
     fn catalog_prose_omitted_omits_it_from_the_http_body() {
         let bundle = crate::testing::bundle();
-        let omitted =
-            serde_json::to_value(CatalogBody::of(&bundle, sutura_config::CatalogProse::Omitted)).expect("the catalog serializes");
+        let omitted = serde_json::to_value(CatalogBody::of(
+            &ScopedView::everything(&bundle),
+            sutura_config::CatalogProse::Omitted,
+        ))
+        .expect("the catalog serializes");
         let rendered = omitted.to_string();
         // No description reaches the caller, on the metric or on the dimension.
         assert!(!rendered.contains("Revenue, in minor units."), "{rendered}");
@@ -749,14 +757,20 @@ mod tests {
     fn the_injection_corpus_prose_stays_a_single_opaque_json_string_on_http() {
         for prose in sutura_app::untrusted::PROSE {
             let bundle = crate::testing::described_bundle(prose);
-            let quoted = serde_json::to_value(CatalogBody::of(&bundle, sutura_config::CatalogProse::Quoted))
-                .expect("the catalog serializes");
+            let quoted = serde_json::to_value(CatalogBody::of(
+                &ScopedView::everything(&bundle),
+                sutura_config::CatalogProse::Quoted,
+            ))
+            .expect("the catalog serializes");
             let seen = quoted["metrics"][0]["description"]
                 .as_str()
                 .expect("the description survives as one string field");
             assert_eq!(seen, *prose, "a corpus description did not survive the field boundary");
-            let omitted = serde_json::to_value(CatalogBody::of(&bundle, sutura_config::CatalogProse::Omitted))
-                .expect("the catalog serializes");
+            let omitted = serde_json::to_value(CatalogBody::of(
+                &ScopedView::everything(&bundle),
+                sutura_config::CatalogProse::Omitted,
+            ))
+            .expect("the catalog serializes");
             assert!(
                 omitted["metrics"][0]["description"].is_null(),
                 "a corpus description survived an omission: {omitted}"

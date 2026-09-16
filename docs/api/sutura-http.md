@@ -908,6 +908,23 @@ an adapter never calls another adapter, and that rule is what keeps this module 
 shape a second transport has to bend around. Which crate this code moves to when that surface
 acquires an inbound transport is an architecture decision, not a refactor.
 
+### `use Groups`
+
+The `groups` claim a verified token carried - `docs/adr/0028`'s input to a deployment's own
+group-to-audience mapping.
+
+**Not a scope, and not read by the capability gate**: this decides metadata visibility, never
+which operation a caller may invoke.
+
+A `BTreeSet<String>` rather than a closed vocabulary, deliberately: unlike a scope, a group name
+is the identity provider's own word and this deployment does not define the set. Comparison
+against a deployment's mapping is a plain string lookup for the same reason - the mapping's own
+keys are exactly this text, operator-authored to match whatever the provider calls a group.
+
+### `use InvalidGroup`
+
+Why a group claim value is not one.
+
 ### `use InvalidScope`
 
 Why a scope string is not one.
@@ -1275,6 +1292,72 @@ token for it would be refusing a caller for their provider's formatting.
 
 `Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
 
+#### `enum InvalidGroup`
+
+```rust
+pub enum InvalidGroup
+```
+
+Why a group claim value is not one.
+
+##### Variants
+
+- `TooLong`
+- `TooMany`
+- `NotPrintable` - A control or invisible character - the same class `sutura_domain::identity` refuses in a `sub` or an `act`, applied here because this value also reaches a lookup key comparison and, on a mapping miss, could reach a log.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct Groups`
+
+```rust
+pub struct Groups
+```
+
+The `groups` claim a verified token carried - `docs/adr/0028`'s input to a deployment's own
+group-to-audience mapping.
+
+**Not a scope, and not read by the capability gate**: this decides metadata visibility, never
+which operation a caller may invoke.
+
+A `BTreeSet<String>` rather than a closed vocabulary, deliberately: unlike a scope, a group name
+is the identity provider's own word and this deployment does not define the set. Comparison
+against a deployment's mapping is a plain string lookup for the same reason - the mapping's own
+keys are exactly this text, operator-authored to match whatever the provider calls a group.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many were claimed - the one thing safe to log.
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item> + '_
+```
+
+Every group claimed, for the deployment mapping to look up.
+
+```rust
+pub fn none() -> Self
+```
+
+No groups. What a token with no `groups` claim carried.
+
+```rust
+pub fn parse(claimed: Vec<String>) -> Result<Self, InvalidGroup>
+```
+
+Parses a token's `groups` claim: a JSON array of strings, per every mainstream issuer's
+convention (unlike `scope`, which RFC 6749 fixes as a single space-delimited string).
+
+##### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
 #### `struct VerifiedCaller`
 
 ```rust
@@ -1325,6 +1408,16 @@ pub const fn chain(&self) -> &PrincipalChain
 ```
 
 Who this call is attributed to.
+
+```rust
+pub const fn groups(&self) -> &Groups
+```
+
+What the token said this caller's group membership is - `docs/adr/0028`.
+
+Read by `crate::visibility`, which maps it through this deployment's own settings into a
+`sutura_domain::catalog::GrantedAudiences`. Never by the capability gate: a group decides
+metadata visibility and nothing about which operations this caller may invoke.
 
 ```rust
 pub const fn scopes(&self) -> &Scopes
@@ -2140,6 +2233,7 @@ and an error is not a place for credential material.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
 - `UnusableScope`
+- `UnusableGroups` - The `groups` claim is not usable as one - `docs/adr/0028`.
 - `WrongTokenType` - The token is of a class this deployment does not accept.
 
   **The refusal that closes cross-JWT substitution.** It carries the required type - a configured
@@ -3978,11 +4072,16 @@ honoured wherever the prose is carried, and the escaping stays where the delimit
 #### Methods
 
 ```rust
-pub fn of(pinned: &PinnedDefinitions, prose: sutura_config::CatalogProse) -> Self
+pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self
 ```
 
-The reader's view of a pinned bundle, under the prose setting this deployment was started
-with.
+The reader's view of a caller-scoped catalog, under the prose setting this deployment was
+started with.
+
+**Takes a `ScopedView`, never a bare `&PinnedDefinitions`** - `docs/adr/0028`. A metric
+outside the view is not in `metrics` below, so advertisement and invocation cannot disagree
+about which metrics exist; the provenance still names the whole bundle's version and digest,
+because that is what `docs/adr/0028` says the digest continues to identify.
 
 **A named constructor rather than a `From`, and the argument is the reason.**
 `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails

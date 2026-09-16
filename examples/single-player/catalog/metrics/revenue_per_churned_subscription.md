@@ -9,6 +9,7 @@ measure:
     zero_denominator: fails
 time_column: month
 grains: [month]
+audience: open
 ---
 How much recurring revenue the month carried for each subscription it lost, in minor units.
 

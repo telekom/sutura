@@ -207,6 +207,25 @@ guard un-skippable rather than merely conventional is on the domain side:
 `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 `agreeing_with` is the only thing that builds one.
 
+## `fn scoped_for`
+
+```rust
+pub fn scoped_for<'a>(pinned: &'a sutura_domain::pinned::PinnedDefinitions, context: &sutura_domain::identity::RequestContext) -> sutura_domain::pinned::view::ScopedView<'a>
+```
+
+The view a request context resolves against - `docs/adr/0028`.
+
+**Here, beside `Asked` and `crate::capability::Permitted`**, so no transport owns the
+decision: `answer` below reads it, and so does every route that renders a catalog through
+`Asked::context`.
+
+**Derived from the SUBJECT, not from whether the caller presented anything else.** A verified
+caller's granted set stays on `context` regardless of whether it maps to anything, so an empty
+grant and no verification at all must not read alike: `Subject::TheDeploymentItself` is the
+explicit single-player posture the ADR's surface table names - every non-verified surface reaches
+this value and always has - while `Subject::Verified` is a caller this deployment
+authenticated, whose mapped audiences decide what is visible even when that set is empty.
+
 ## `fn verify_anchors`
 
 ```rust
