@@ -233,6 +233,12 @@ impl Module {
         Self(String::from(segment.as_str()))
     }
 
+    /// `parent::child` - [`relocated_src`]'s answer when a file's real module is one level
+    /// deeper than its own path, because another file claimed it there with `#[path]`.
+    fn nested(parent: &Ident, child: &str) -> Self {
+        Self(format!("{}::{}", parent.as_str(), child))
+    }
+
     /// The prefix a test path under this module begins with: `model::qualified::`, or empty.
     pub(super) fn prefix(&self) -> String {
         if self.0.is_empty() {
@@ -291,12 +297,45 @@ pub(super) fn place(path: &str, read: &PostImage<'_>) -> Option<Place> {
     let within = rest
         .strip_prefix("src/")
         .filter(|inner| !matches!(*inner, "lib.rs" | "main.rs") && !inner.starts_with("bin/"))
-        .and_then(Module::of)
+        .and_then(|inner| relocated_src(dir, inner, read).or_else(|| Module::of(inner)))
         .unwrap_or_default();
     Some(Place {
         binary: Binary::Package(package),
         within,
     })
+}
+
+/// A `src/` file's module path when some OTHER file in the same crate claims it with `#[path]`,
+/// the direction [`Module::of`] cannot see because it reads only this file's OWN location.
+///
+/// `xtask/src/changes.rs` keeps `xtask/src/affected.rs` as its sibling rather than moving it
+/// under `changes/`, so the path-derived guess landed on `affected::` and a filter built from it
+/// matched nothing nextest ever compiled - the real path is `changes::affected::`. Checked against
+/// the crate root's DIRECT children only, one level, because that is the only shape this
+/// workspace uses; `declared_at` is the same textual match `tests/golden.rs`'s own relocation
+/// already relies on.
+fn relocated_src(dir: &str, inner: &str, read: &PostImage<'_>) -> Option<Module> {
+    let stem = inner.strip_suffix(".rs").filter(|s| !s.contains('/'))?;
+    let root = read(&in_dir(dir, "src/main.rs")).or_else(|| read(&in_dir(dir, "src/lib.rs")))?;
+    for line in root.lines() {
+        let Some(rest) = line.trim().strip_prefix("mod ") else {
+            continue;
+        };
+        let Some(name) = rest.strip_suffix(';').and_then(|n| Ident::parse(n.trim())) else {
+            continue;
+        };
+        let claims = [
+            in_dir(dir, &format!("src/{}.rs", name.as_str())),
+            in_dir(dir, &format!("src/{}/mod.rs", name.as_str())),
+        ]
+        .into_iter()
+        .filter_map(|candidate| read(&candidate))
+        .any(|text| declared_at(&text, inner).is_some_and(|found| found.as_str() == stem));
+        if claims {
+            return Some(Module::nested(&name, stem));
+        }
+    }
+    None
 }
 
 /// The target that includes a file deeper under `tests/`, and the module name it arrives as.
@@ -548,6 +587,27 @@ mod tests {
         assert_eq!(
             filterset(&files, &["crates/x/tests/golden/catalogs.rs"], &read),
             "(binary_id(=x::golden) & test(/^catalogs::(?:.*::)?sums(?:::|$)/))"
+        );
+    }
+
+    #[test]
+    fn a_src_file_relocated_by_path_is_keyed_by_the_declaration_that_claims_it() {
+        // `xtask/src/changes.rs` keeps `xtask/src/affected.rs` beside itself with `#[path]`
+        // rather than moving it under `changes/`, so `affected.rs`'s own path says `affected::`
+        // and the real module is `changes::affected::`. A filter built from the path-only guess
+        // matched no compiled test at all - `#[test]` in `affected.rs` sits under `changes`, not
+        // at the crate root - which is exactly the "no binary IDs matched this" a person can act
+        // on the least: the tool named a test correctly and nextest had never heard of it.
+        let files = vec![changed("crates/x/src/affected.rs", 1, &["#[test]", "fn sums() {}"])];
+        let read = tree(&[
+            ("crates/x/Cargo.toml", &manifest("x")),
+            ("crates/x/src/main.rs", "mod changes;\n"),
+            ("crates/x/src/changes.rs", "#[path = \"affected.rs\"]\nmod affected;\n"),
+            ("crates/x/src/affected.rs", "#[test]\nfn sums() {}\n"),
+        ]);
+        assert_eq!(
+            filterset(&files, &["crates/x/src/affected.rs"], &read),
+            "(package(=x) & test(/^changes::affected::(?:.*::)?sums(?:::|$)/))"
         );
     }
 
