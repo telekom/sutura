@@ -740,6 +740,37 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // `github.com/telekom/sutura#800` retired these and `github.com/telekom/sutura#802`
+        // ratchets them. Both presented leg 2 as an existing, selectable mode, which is the shape
+        // this table is for: the README text was true of the design and false of the build, and a
+        // correction in place alone would let whoever reads the older commit reinstate it.
+        name: "a multiplayer mode exists and is selectable per connection",
+        // TWO sentences, false for the same reason and registered separately. The second is the
+        // reselectable half of the first: even granting a mode existed, nothing carries the
+        // credential that would make choosing it meaningful.
+        //
+        // The ratchet matches an EXACT substring, not a paraphrase: a reworded version of either
+        // sentence would pass and nothing fires. That is deliberate - the phrase fragments here
+        // are ordinary English that appears in many correct sentences, so a shortened or shared
+        // substring would refuse text nobody meant to forbid.
+        wordings: &[
+            "There are 2 flavours of sutura:",
+            "Per connection the mode can be configured.",
+        ],
+        // The sentence that refutes it, stated today where the true limit is set out. It is the
+        // anchor rather than prose recalled: `docs/serving.md` says no source executes as the
+        // asking subject, so there is nothing to select.
+        evidence: &[Evidence {
+            path: "docs/serving.md",
+            holds: "no adapter in this build can carry a per-subject credential",
+        }],
+        instead: "single player is what ships and the only mode any connection runs; multiplayer \
+                  is the design target. No adapter in this build can carry a per-subject \
+                  credential, so no source executes as the asking subject and nothing selects it",
+        only: &[],
+        except: &[],
+    },
 ];
 
 /// `CONTRADICTED` rows a later commit deleted rather than re-anchored, kept only for their
