@@ -112,15 +112,22 @@ pub(super) fn open(
     // `PerSubjectCredential` - so this is the composition's whole refusal, and it was the one place in
     // this file where *prefer unrepresentable to checked* was not applied. Two variants exist today,
     // so the `==` was complete; a third would have fallen through it and been OPENED, where
-    // `deliverable_by`'s own two exhaustive matches force somebody to answer for it. Now a third
-    // posture is a compile error at this line, in both composition roots.
+    // `deliverable_by`'s own two exhaustive matches force somebody to answer for it, and so does
+    // every other match on `SourcePosture` inside `sutura-domain` - `as_str`,
+    // `what_decides_what_a_caller_sees`, `anchors_run_as`. A third variant does not compile: adding
+    // one fails with `error[E0004]` five times, all inside `sutura-domain`, before either composition
+    // root can even link against it - verified, not assumed. **That guarantee lives in the domain
+    // type, not in this line**: `serve`'s own `bigquery.rs` runs no local match on posture at all, so
+    // it is `deliverable_by` alone - the same function this file also calls - standing between it and
+    // a silently-opened third variant.
     //
-    // **And this guard is doing DOUBLE DUTY for a check this root does not have.**
-    // `crate::serve` runs `refuse_unverifiable_anchors` - a bundle declaring an anchor on a source
-    // with no identity to re-run it under does not boot - and `sutura-cli` has no equivalent. That is
-    // vacuous today only BECAUSE of the arm below: `AnchorIdentity::NoneDeclared` is reachable only
-    // for an `impersonation-at-source` source, and this refuses every one of those before an anchor
-    // is looked at. So the day a broker is attached here, that check has to arrive with it.
+    // **And this guard is doing DOUBLE DUTY for a check this composition root does not have.**
+    // The `serve` composition root (`crate::serve`) runs `refuse_unverifiable_anchors` - a bundle
+    // declaring an anchor on a source with no identity to re-run it under does not boot - and this
+    // root has no equivalent. That is vacuous today only BECAUSE of the arm below:
+    // `AnchorIdentity::NoneDeclared` is reachable only for an `impersonation-at-source` source, and
+    // this refuses every one of those before an anchor is looked at. So the day a broker is attached
+    // here, that check has to arrive with it.
     match *identity.posture() {
         sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
         sutura_domain::source::SourcePosture::ImpersonationAtSource => {
