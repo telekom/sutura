@@ -33,8 +33,9 @@
 //! PRODUCTION code that TOUCHES NO TEST LINE and CREATES NO FILE - because the whole point is to
 //! break the behaviour the cell claims, and a mutation that edits the test to fail (or a new file
 //! whose own test region no image at HEAD exists to compare against) proves nothing. A CREATED
-//! file is read from the patch's own bytes (a `--- /dev/null` file section), never from whether a
-//! reader happens to find the path at HEAD - a mutation may only edit code HEAD already carries.
+//! file is read from the patch's own bytes (a `--- /dev/null` file section, or a git rename/copy
+//! header's `to` path), never from whether a reader happens to find the path at HEAD - a mutation
+//! may only edit code HEAD already carries.
 //! The test-line rule is a PATH half and a TEXT half. The PATH half refuses a touch of a file that
 //! is all test at HEAD. The TEXT half decides a MIXED file (production + an inline
 //! `#[cfg(test)] mod tests`, the shape #761's inline cells need to patch their own file's
@@ -132,7 +133,8 @@ pub(super) enum Cause {
     /// The patch touches a file the repo classifies as test-bearing at HEAD (or one this diff
     /// itself added as a test file). A mutation edits PRODUCTION code only.
     TouchesTests { cell: String, path: String },
-    /// The patch's own bytes declare a `--- /dev/null` file section - the mutation would CREATE a
+    /// The patch's own bytes declare a `--- /dev/null` file section, or a git rename/copy header's
+    /// `to` path - the mutation would CREATE a
     /// file. `head_region_texts` only snapshots paths that exist at HEAD, so a new file's own
     /// `#[cfg(test)]` region is never text-compared; a mutation may only edit code HEAD already
     /// carries.
@@ -376,9 +378,11 @@ fn touches_test(touched: &[String], test_files: &[String], read: &PostImage<'_>)
     None
 }
 
-/// The `b/` path of every file `patch_text` CREATES, read from the patch's own bytes - a
-/// `--- /dev/null` line (the header-less shape too, matching how [`touched_paths`] already treats
-/// a header-less patch as evidence) followed by `+++ b/<path>`.
+/// The path of every file `patch_text` CREATES, read from the patch's own bytes - a `--- /dev/null`
+/// line (the header-less shape too, matching how [`touched_paths`] already treats a header-less
+/// patch as evidence) followed by `+++ b/<path>`, OR a git rename/copy header (`rename to <path>` /
+/// `copy to <path>`, with no `---`/`+++` lines at ~100% similarity) whose `to` path is a path HEAD
+/// does not carry.
 ///
 /// A TEXTUAL signal on the patch itself, not "does the reader find this path at HEAD": a patch
 /// touching a path a fixture's reader simply never populated (a malformed or context-mismatched
@@ -389,16 +393,31 @@ fn touches_test(touched: &[String], test_files: &[String], read: &PostImage<'_>)
 /// closed only by an accident: `restore`'s `git checkout HEAD -- <new>` fails for a path HEAD never
 /// had, so the run answered `RestoreFailed`, a cause whose wording ("leaks the mutation into the
 /// next cell") misdescribes what actually happened. Refusing here names the real limit and runs
-/// before any patch is applied, so a file-creating mutation never reaches `apply_git` at all.
+/// before any patch is applied, so a file-creating mutation never reaches `apply_git` at all - the
+/// rename/copy half is the same accident: `git apply --numstat` ACCEPTS a rename/copy header, the
+/// patch applies in the isolated worktree, and `git checkout HEAD -- <renamed>` fails exactly like
+/// the `--- /dev/null` case, so the run answered `RestoreFailed` there too.
 fn created_paths(patch_text: &str) -> Vec<String> {
     let lines: Vec<&str> = patch_text.lines().collect();
-    lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| **line == "--- /dev/null")
-        .filter_map(|(index, _)| lines.get(index + 1)?.strip_prefix("+++ b/"))
-        .map(String::from)
-        .collect()
+    let mut out: Vec<String> = Vec::new();
+    // A `--- /dev/null` file section names its created path via the `+++ b/<path>` that follows.
+    for (index, line) in lines.iter().enumerate() {
+        if *line == "--- /dev/null"
+            && let Some(path) = lines.get(index + 1).and_then(|next| next.strip_prefix("+++ b/"))
+        {
+            out.push(String::from(path));
+        }
+    }
+    // A git rename/copy header names its created path on the `rename to`/`copy to` line (bare, no
+    // `b/` prefix): both tell git to WRITE a path HEAD does not carry, so both are creations.
+    for line in &lines {
+        if let Some(path) = line.strip_prefix("rename to ") {
+            out.push(String::from(path));
+        } else if let Some(path) = line.strip_prefix("copy to ") {
+            out.push(String::from(path));
+        }
+    }
+    out
 }
 
 /// The test-region text of `path` as `read` sees it, or `None` when `read` has no such file.
@@ -501,8 +520,9 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> 
             causes.push(Cause::MissingPatch(cell.clone()));
             continue;
         };
-        // A mutation may only edit code HEAD already carries: a `--- /dev/null` file section would
-        // CREATE a file, and its own `#[cfg(test)]` region could never be text-compared below -
+        // A mutation may only edit code HEAD already carries: a `--- /dev/null` file section (or a
+        // git rename/copy header's `to` path) would CREATE a file, and its own `#[cfg(test)]`
+        // region could never be text-compared below -
         // checked from the patch's own bytes before any git subprocess runs, so a file-creating
         // patch never reaches `apply_git`.
         if let Some(created) = created_paths(&patch_text).into_iter().next() {

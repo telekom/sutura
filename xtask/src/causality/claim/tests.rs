@@ -432,6 +432,67 @@ fn a_patch_that_creates_a_file_is_refused() {
     );
 }
 
+// R5 NON-BLOCKING (finding 1) RED, real git: a git RENAME header (`similarity index` + `rename
+// from`/`rename to`, with no `---`/`+++` lines) also CREATES a path HEAD does not carry - `git
+// apply --numstat` accepts it, the patch applies in the isolated worktree, and the run answered
+// `RestoreFailed`, the exact accident `created_paths` exists to replace. `created_paths` now names
+// the `rename to` path as a `CreatesFile` cause before any apply.
+#[test]
+fn a_patch_that_renames_a_file_is_refused_as_creates_file() {
+    let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write(
+        "devco/claim-mutations/the_cell.patch",
+        concat!(
+            "diff --git a/crates/x/src/lib.rs b/crates/x/src/renamed.rs\n",
+            "similarity index 100%\n",
+            "rename from crates/x/src/lib.rs\n",
+            "rename to crates/x/src/renamed.rs\n",
+        ),
+    );
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[]);
+    assert!(
+        causes.contains(&Cause::CreatesFile {
+            cell: String::from("the_cell"),
+            path: String::from("crates/x/src/renamed.rs"),
+        }),
+        "{causes:?}"
+    );
+}
+
+// R5 NON-BLOCKING (finding 1) RED, real git: the COPY header twin of
+// `a_patch_that_renames_a_file_is_refused_as_creates_file` - `copy from`/`copy to` also names a
+// CREATED path HEAD does not carry, and `created_paths` must refuse it as `CreatesFile` before
+// any apply, not answer `RestoreFailed`.
+#[test]
+fn a_patch_that_copies_a_file_is_refused_as_creates_file() {
+    let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.write(
+        "devco/claim-mutations/the_cell.patch",
+        concat!(
+            "diff --git a/crates/x/src/lib.rs b/crates/x/src/copied.rs\n",
+            "similarity index 100%\n",
+            "copy from crates/x/src/lib.rs\n",
+            "copy to crates/x/src/copied.rs\n",
+        ),
+    );
+    repo.commit("patches");
+    let claim = Claim {
+        cells: vec![String::from("the_cell")],
+    };
+    let causes = super::validate(&repo.dir, &claim, &["the_cell"], &[]);
+    assert!(
+        causes.contains(&Cause::CreatesFile {
+            cell: String::from("the_cell"),
+            path: String::from("crates/x/src/copied.rs"),
+        }),
+        "{causes:?}"
+    );
+}
+
 // BLOCKING-2 green control: a MIXED file (production + an inline `#[cfg(test)] mod tests`) is a
 // legitimate mutation target in its PRODUCTION lines, so a patch touching line 1 (above the test
 // region) is ALLOWED - the shape #761's inline cells need to touch their own file. The old

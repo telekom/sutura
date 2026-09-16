@@ -1027,8 +1027,9 @@ mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isol
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
 mutation kills it. A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
 cell green refuses the whole arm. A created file is read from the patch's own bytes (a
-`--- /dev/null` file section), never from whether a path happens to be found at HEAD, because a
-new file's own test region has no HEAD image to text-compare - closing a gap once masked by the
+`--- /dev/null` file section, or a git rename/copy header's `to` path), never from whether a path
+happens to be found at HEAD, because a new file's own test region has no HEAD image to
+text-compare - closing a gap once masked by the
 accident that `git checkout HEAD -- <new>` fails afterward and reads as an unrelated restore
 failure. The test-line rule is a PATH half and a TEXT half. The PATH half reads git's
 own `--numstat` paths and refuses a touch of any file that is all test at HEAD (a `/tests/` target,
