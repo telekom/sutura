@@ -761,3 +761,18 @@ default-off `bigquery` feature of its own, and `docs/adr/0017`'s seventh amendme
 What is unchanged is the half that matters - `nix/shipped.nix` publishes both binaries with cargo's
 DEFAULT features, so no published artefact links the adapter, and `checks.shipped-features` reads
 `ureq`'s and `ring`'s absence off each shipped binary rather than off a manifest.
+
+## Third amendment, 2026-09-16: the base record's "both binaries" are one binary now
+
+`sutura-serve` folded into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2),
+after the base record and after this record's first two amendments - both of which predate the fold
+and are left as written. Two sentences above it do not:
+
+- *The connectors this has to carry* said `SharedServiceUser` "is the only one of these that SHIPS:
+  both binaries link it". `sutura-cli` is the one binary that ships now, and it links it.
+- *Metadata sources compose* said "the composition roots already name the adapters. `sutura-cli` and
+  `sutura-serve` each wire exactly one catalog today." One composition root wires it now.
+
+*Data: which mode a source is in, and which capability the adapter has* also said
+`sutura-exec-datafusion` "is the engine `sutura-cli` and `sutura-serve` both link" - same correction,
+same crate.

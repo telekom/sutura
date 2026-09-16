@@ -149,3 +149,10 @@ raw assertion bytes - so a cache at that seam could key only on the assertion's 
 conflates "what the caller presented" with "who the domain has already verified them to be" and
 loses the one value (`RequestContext::chain().subject()`) the rest of this record's key depends on.
 `mint` is the one place both exist together.
+
+## Amendment, 2026-09-16: `sutura-cli` wires the floor now
+
+*The floor's own limit is inherited, not repeated* said "`sutura-serve` wires
+`with_floor(request_timeout.seconds())`". `sutura-serve` folded into `sutura-cli`'s `serve` module
+(`github.com/telekom/sutura#685` step 2); the call site is `crates/sutura-cli/src/serve/broker.rs`
+now, and the claim about what it does and does not assert is unaffected.

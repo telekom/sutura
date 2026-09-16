@@ -273,3 +273,24 @@ authenticated.
   declaration, not named or scoped to BigQuery) for exactly this reuse: a JWKS/discovery fetcher, when
   built, reads it with no second mechanism. No hermetic cell is added against it here, since there is
   no client yet to point one at - that would be coverage for code that does not exist.
+
+## Amendment, 2026-09-16: `sutura-serve` named four sites that are `sutura-cli` now
+
+`sutura-serve` folded into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2),
+after every one of these was written.
+
+- `Postgres` is behind "`sutura-serve`'s and `sutura-cli`'s default-off `postgres` feature" - one
+  feature, one crate, `sutura-cli`'s.
+- "the composition-root wiring (`sutura-serve`, `sutura-cli`)" - one composition root.
+- "`sutura-serve`'s `main::outbound_anchors`" - `sutura-cli::serve::outbound_anchors`; there is no
+  `main` module carrying it.
+- `sutura-runtime`'s dependents were listed as "`sutura-app`, `sutura-mcp`, `sutura-cli`,
+  `sutura-http`, `sutura-serve`" - `sutura-app` was never a real one: its `Cargo.toml` names
+  `sutura-runtime` only in a comment (explaining a DIFFERENT crate's feature), never in a
+  `[dependencies]` entry, so the list was already off by one before the fold. Three crates depend on
+  it today: `sutura-cli`, `sutura-http`, `sutura-mcp`. `grep -l sutura-runtime crates/*/Cargo.toml`
+  is not a check a reader can run and get that number - it self-matches
+  `sutura-runtime/Cargo.toml`'s own package-name line and also counts `sutura-app`'s comment;
+  `grep -l '^sutura-runtime = ' crates/*/Cargo.toml` names exactly the three. The point the sentence
+  makes - transports and composition roots, never a data-system adapter - is unaffected by the count
+  moving.

@@ -255,3 +255,10 @@ arrives it shortens the budget the transport opens and changes nothing on the po
   the narrower, deterministic claim - a spent port deadline refuses through the real wire and
   credential before anything is sent - and this gap stays open until a fixture exists that is slow
   on purpose.
+
+## Amendment, 2026-09-16: `StsOverHttp` is wired by `sutura-cli` now
+
+*What holds it, and what does not*'s BigQuery row named `StsOverHttp` as "`sutura-serve`'s". It is
+`sutura_exec_bigquery::wire::StsOverHttp`, wired by the composition root - `sutura-serve` folded into
+`sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2) - and the claim that it does
+not read the port's `Deadline` at all is otherwise unaffected.
