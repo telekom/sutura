@@ -38,11 +38,13 @@ const INDEX_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// `datahub` service this `expect`s by name instead of returning - a tier somebody asked for
 /// and did not get is the exact overstated control this wave exists to refuse. And both writes
 /// assert `200` from the platform, so a tier that rejects the document never reports green.
+#[cfg(test)]
 pub(super) struct DatahubTier {
     pub(super) endpoint: String,
     agent: ureq::Agent,
 }
 
+#[cfg(test)]
 impl DatahubTier {
     /// The published loopback endpoint, or a panic naming the missing tier. `provisioned::here`
     /// has already panicked in the required direction inside the CI job; on a developer machine
