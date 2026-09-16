@@ -25,10 +25,9 @@
 //! own second-rounded `now` (the vendor's clock vs ours), so a strict `<= now + requested` bound
 //! refuses Google's own answer to the requested ceiling. The bound therefore carries an explicit,
 //! documented [`IMPERSONATED_LIFETIME_SKEW_SECONDS`] allowance on top of the requested lifetime;
-//! an `expireTime` up to `now + requested + skew` is accepted (the granted deadline still READS the
-//! response's `expireTime`, never the bound), anything beyond it is still refused, and an absent
-//! one is still refused.
-
+//! an `expireTime` up to `now + requested + skew` is accepted (the granted deadline is still
+//! clamped to `now + requested`, never this bound), anything beyond it is still refused, and an
+//! absent one is still refused.
 use sutura_domain::identity::{Expiry, Secret};
 
 use crate::sts::{ImpersonateAsAccount, StsCredential};
@@ -42,8 +41,8 @@ const HOST: &str = "https://iamcredentials.googleapis.com/v1";
 /// `iamcredentials` stamps `expireTime` from its own clock, up to a second-rounding fraction past
 /// this adapter's `now + requested`; the bound stays a mechanism (an `expireTime` beyond
 /// `now + requested + SKEW` is refused, an absent one is refused), but this explicit window keeps
-/// the vendor's own answer to the requested ceiling from tripping it. The granted deadline is still
-/// the response's `expireTime`, never this bound.
+/// the vendor's own answer to the requested ceiling from tripping it. The allowance governs the
+/// REFUSAL alone: the granted deadline is still clamped to `now + requested`, never this bound.
 const IMPERSONATED_LIFETIME_SKEW_SECONDS: u64 = 60;
 
 /// The request body, as `generateAccessToken`'s own document describes it.
@@ -397,7 +396,11 @@ fn parse_answer(
     Ok(StsCredential::of(
         Secret::new(response.access_token),
         Expiry::At {
-            unix_seconds: expire_time,
+            // The granted deadline never exceeds what was requested: the skew allowance governs the
+            // refusal alone, and the deadline is the EARLIER of the endpoint's `expireTime` and this
+            // adapter's `now + requested`. A broker and cache that reason from a deadline LATER than
+            // the truth can serve a dead token, so the clamp is `min`, not the vendor's own stamp.
+            unix_seconds: expire_time.min(requested_until),
         },
     ))
 }
@@ -531,8 +534,8 @@ mod tests {
         // second-rounded `now + requested`, so a strict `expireTime > requested_until` bound refuses
         // Google's own answer to the requested ceiling. The bound stays a mechanism with a documented
         // skew allowance: an `expireTime` inside `now + requested + SKEW` is accepted (the granted
-        // deadline still READS that `expireTime`), one beyond it is refused, an absent one is refused
-        // elsewhere (`NoLifetime`). This cell pins both edges of that window.
+        // deadline is still clamped to `now + requested`), one beyond it is refused, an absent one
+        // is refused elsewhere (`NoLifetime`). This cell pins both edges of that window.
         const SKEW: u64 = super::IMPERSONATED_LIFETIME_SKEW_SECONDS;
         let now = 3_999_884_400u64;
         // inside: now + 3600 + 30 - past the strict second-rounding bound, inside the 60s window.
@@ -543,7 +546,9 @@ mod tests {
         let beyond = expire_time_unix(beyond_ts).expect("a well-formed expireTime parses");
         assert!(
             inside - (now + 3_600) < SKEW && beyond - (now + 3_600) > SKEW,
-            "the fixture must straddle the allowance: inside by {inside}, beyond by {beyond}, now {now}"
+            "the fixture must straddle the allowance: inside by {}, beyond by {}, now {now}",
+            inside - (now + 3_600),
+            beyond - (now + 3_600)
         );
 
         let granted = parse_answer(
@@ -556,8 +561,15 @@ mod tests {
         .expect("an expireTime inside the clock-skew allowance is granted");
         assert_eq!(
             granted.not_after(),
+            Expiry::At {
+                unix_seconds: now + 3_600
+            },
+            "even inside the allowance, the granted deadline is clamped to the requested lifetime"
+        );
+        assert_ne!(
+            granted.not_after(),
             Expiry::At { unix_seconds: inside },
-            "even inside the allowance, the granted deadline is the response's expireTime, not the bound"
+            "the granted deadline must not read the vendor's later expireTime"
         );
 
         let failure = parse_answer(
