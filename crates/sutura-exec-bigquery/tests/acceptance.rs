@@ -820,7 +820,7 @@ mod tests {
         let connection = fixture.connection;
         let bounds = bounds();
 
-        // The running composition, exactly as `sutura-serve`'s `broker::build_broker` and
+        // The running composition, exactly as `sutura-cli`'s `serve::broker::build_broker` and
         // `build_bigquery` compose it: one pinned agent and bounds behind both the exchange and the
         // wire, the broker exchanging each principal's own token into the leg, and the adapter opened
         // under the `impersonation-at-source` posture that accepts a subject token as the job's bearer.

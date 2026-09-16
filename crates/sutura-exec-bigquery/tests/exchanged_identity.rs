@@ -13,7 +13,7 @@
 //! it be cited as impersonation - *never label static-credential acceptance as proof of different
 //! authorized rows*. Nothing here holds a principal's key. Each leg presents a bearer that came out
 //! of an RFC 8693 exchange at Google's Security Token Service, through the composition
-//! `sutura-serve` ships: `WorkloadIdentityBroker` over `StsOverHttp`, into a `BigQueryWarehouse`
+//! `sutura serve` ships: `WorkloadIdentityBroker` over `StsOverHttp`, into a `BigQueryWarehouse`
 //! opened `impersonation-at-source`.
 //!
 //! # The observable, and why the identity rather than the rows
@@ -647,7 +647,7 @@ mod tests {
         // twice produces two equal answers, which the last assertion in this test already refuses.
 
         let bounds = bounds();
-        // The running composition, exactly as `sutura-serve`'s `broker::build_broker` and
+        // The running composition, exactly as `sutura-cli`'s `serve::broker::build_broker` and
         // `build_bigquery` assemble it: one pinned agent behind the exchange and the wire, the
         // broker exchanging each subject's own token, and the adapter opened under the posture that
         // accepts the exchanged token as the job's bearer. **No principal's key is anywhere in

@@ -186,7 +186,7 @@ mod tests {
             .arg(example.join("data"))
             // **REMOVED, not merely unset by convention**, and `SUTURA_CONFIG_DIR` below for the same
             // reason. This command reads the deployment's settings tree since #121, so a developer's
-            // exported `SUTURA_CONFIG_DIR` - the one an operator running `sutura-serve` on the same
+            // exported `SUTURA_CONFIG_DIR` - the one an operator running `sutura serve` on the same
             // machine has - reached this child and turned six passing tests red on "two answers to
             // one question", and `SUTURA_ENVIRONMENT=production` turned them red on an access token.
             // Found by review. `env_remove` because `std::env::set_var` is `unsafe` in this edition

@@ -56,7 +56,7 @@ who is asking, `security.identity: multi-user` makes the operator's acknowledgme
 the catalog is DataHub (`sutura-catalog-datahub`) with its certified metric arriving from the
 deployment-defined `sutura` structured property (issue #202). It is not a directory of markdown that
 `examples/single-player` can share, and **no binary in this repository can open its catalog yet** - the
-crate is a `sutura-app` dev-dependency and `sutura-serve` refuses `catalog.kind: datahub` by name - so
+crate is a `sutura-app` dev-dependency and `sutura` refuses `catalog.kind: datahub` by name - so
 its README documents the shape and names the runnable part: the recorded-fixture example test in
 `crates/sutura-catalog-datahub/tests/multi_player.rs`, which CI runs with no network, and the parts
 (two callers seeing two row sets, a provisioned DataHub read path, a served composition) that still
@@ -104,7 +104,7 @@ under *Per-worktree instances, and why a port cannot be a constant* in
 
 ## Serving a catalog
 
-The single-player catalog is also an input to `sutura-serve`, the second binary, and that
+The single-player catalog is also an input to `sutura serve`, the served surface, and that
 surface has a threat model the command line does not: a token is required beyond loopback and
 it authenticates the deployment rather than the caller, a refusal carries an error status AND a
 machine-readable `code` AND a sentence, and the service refuses to start in a posture nobody chose.

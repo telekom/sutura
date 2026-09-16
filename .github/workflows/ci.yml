@@ -1647,7 +1647,7 @@ jobs:
           rm -f "$RUNNER_TEMP/bq-key.json"
 
   # The one cell that needs a REAL identity provider rather than the mock -
-  # `crates/sutura-serve/tests/served.rs`'s `#[ignore]`d
+  # `crates/sutura-cli/tests/served/keycloak_test.rs`'s `#[ignore]`d
   # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
   # Its own job for the same reason `bigquery-acceptance` gets one: attributable failure, and the
   # rest of CI does not wait on a JVM boot.
@@ -1658,8 +1658,9 @@ jobs:
   # event that selects the identity category, with no repository-membership condition. The COST
   # decision is the one this leg still carries: a JVM boot on every push or pull request that
   # selects the `identity` category (`xtask/src/affected.rs`'s `IDENTITY_PATHS`, which now names
-  # `crates/sutura-serve/` and `nix/keycloak-tier` beside the inbound transport) - accepted rather
-  # than deferred, because an `#[ignore]`d cell with no venue proves nothing.
+  # `crates/sutura-cli/src/serve/`, `crates/sutura-cli/tests/served` and `nix/keycloak-tier` beside
+  # the inbound transport) - accepted rather than deferred, because an `#[ignore]`d cell with no
+  # venue proves nothing.
   keycloak-served-test:
     needs: [ci]
     # No fork/push distinction, unlike bigquery-acceptance: no secret is read below, so there is

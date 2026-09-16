@@ -210,7 +210,7 @@ pub const SERVICES: &[Service] = &[
     },
     Service {
         // The local chat demo, and the ONE service whose container holds two processes: the
-        // `sutura-serve` binary against the example corpus, and the chat client that calls it.
+        // `sutura serve` subcommand against the example corpus, and the chat client that calls it.
         //
         // OFF unless asked for, and the reason is not cost but SCOPE: it needs a language model -
         // hosted with an operator's key, or local - which no other service in this tier needs, so

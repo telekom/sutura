@@ -34,7 +34,7 @@ use axum::Router;
 ///
 /// The structural half lives in `xtask::boundaries::ungoverned`, which refuses a
 /// `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and a wildcard `.route` anywhere in
-/// `sutura-http` or `sutura-serve` except inside [`Self::mount`] - a backstop for a mount primitive
+/// `sutura-http` or `sutura-cli` except inside [`Self::mount`] - a backstop for a mount primitive
 /// written with no `Ungoverned` in sight at all, not for what this type already holds.
 #[cfg(feature = "agent")]
 #[derive(Clone, Debug)]

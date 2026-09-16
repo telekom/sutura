@@ -23,7 +23,7 @@
 //!   doctest: `cargo test --doc` is **exit 0 with no diagnostic** and `cargo doc` over the same
 //!   crate is **exit 101**.
 //! * It reaches no binary-only member at all - `cargo test --doc -p xtask` answers
-//!   `error: no library targets found in package`, and so do `sutura-cli` and `sutura-serve`.
+//!   `error: no library targets found in package`, and so does `sutura-cli`.
 //!
 //! `check-api-docs` documents library packages for their pages and each metadata-derived
 //! binary-only target for its links. An explicit binary selector reaches multiple targets and

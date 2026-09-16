@@ -14,7 +14,7 @@
 //!
 //! # The source mapping this test exercises, and why the data is `files`-backed
 //!
-//! `open_one_datahub_catalog` (`sutura-serve/src/catalog.rs`) fixes the `dataPlatform` -> source
+//! `open_one_datahub_catalog` (`crates/sutura-cli/src/serve/catalog.rs`) fixes the `dataPlatform` -> source
 //! alias mapping to the single literal `"bigquery"`, answered by the CATALOG's OWN declared name -
 //! the same convention `sutura_catalog_datahub::fixture::over_fixture_source` uses. So this
 //! deployment's `sources:` entry is named IDENTICALLY to its `catalogs:` entry (`"metrics"`, below),
@@ -50,7 +50,7 @@
 //!
 //! # RED/GREEN
 //!
-//! The mutation this cell is meant to catch: revert `sutura-serve/src/catalog.rs`'s `Datahub` arm to
+//! The mutation this cell is meant to catch: revert `crates/sutura-cli/src/serve/catalog.rs`'s `Datahub` arm to
 //! the unconditional refusal it replaced - RED, the deployment never boots, `refused_to_start`'s
 //! shape rather than this file's. GREEN is this file as written. Verified by this branch's lane and
 //! independently by the PR review's mutations (M1/M4/M6 red, base green).
@@ -229,7 +229,7 @@ mod tests {
     /// only the CATALOG half of #742's limit; the STS/job seam (`broker.rs:101`) stays
     /// review-held - handing the STS agent `None` still passes the whole suite.
     ///
-    /// **RED/GREEN.** Removing the `outbound` threading from `sutura-serve/src/catalog.rs` (or
+    /// **RED/GREEN.** Removing the `outbound` threading from `crates/sutura-cli/src/serve/catalog.rs` (or
     /// dropping the `.tls_config(..)` arm from the reader) makes the boot handshake refuse the
     /// leaf, `refused_to_start` fires, and this test goes red. GREEN is boot + the same certified
     /// answer the plaintext sibling asserts.

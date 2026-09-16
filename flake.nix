@@ -893,7 +893,7 @@
             # JVM running. The parens make this `exec` replace only the subshell; the outer shell and
             # its trap survive to run `sutura-keycloak-tier stop` once the subshell exits.
             (
-              exec cargo nextest run --cargo-profile ci -p sutura-serve --all-features \
+              exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
                 --run-ignored only -E 'test(the_wave_one_path_answers_a_verified_caller_under_the_shared_key)'
             )
           '');

@@ -73,8 +73,8 @@ adding a check rather than a sentence.
 everything else is an adapter, nothing depends on an adapter, and a port trait arrives with its
 first implementor. `-semantic` query→plan · `-sql` plan→statement per dialect · `-app` service and
 driving port · `-catalog-*` metadata · `-exec-*` data systems · `-http`/`-mcp` transports ·
-`-config` settings and startup refusals · `-runtime` process globals · `-cli`/`-serve` composition
-roots · `xtask` gates. `just` with no argument lists every task.
+`-config` settings and startup refusals · `-runtime` process globals · `-cli` composition root ·
+`xtask` gates. `just` with no argument lists every task.
 
 ## Incremental discovery
 

@@ -1150,7 +1150,7 @@ request it says it builds and reads the answer it says it reads*, over documents
 service's.
 
 So: one live statement is not a registered data system, and the `data_systems:` axis of the
-golden matrix still gains no entry. `sutura-serve` DOES link this adapter and dispatch
+golden matrix still gains no entry. `sutura` DOES link this adapter and dispatch
 `kind: bigquery` behind its default-off `bigquery` feature; the sentence that used to stand here
 said it linked none, which `docs/adr/0017`'s second amendment had already spent.
 

@@ -257,7 +257,7 @@ pub(crate) struct Cells {
     /// STATED AND NOT EVIDENCE, rather than refused, and the difference was measured. Routing
     /// these to [`Self::unresolved`] - which is what `github.com/telekom/sutura#400`'s remedy 3
     /// asks for - turns `crate::examples` RED on the healthy tree: eight cells in
-    /// `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-serve/src/tests.rs` are
+    /// `crates/sutura-cli/src/sources/bigquery.rs` and `crates/sutura-cli/src/serve/tests/bigquery.rs` are
     /// written under `#[cfg(feature = "bigquery")]` and `#[cfg(not(feature = "bigquery"))]`, and
     /// the remedy for a legitimate feature-gated test cannot be to delete it. So the answer is the
     /// one that is fail-closed for the CLAIM instead of for the file: the cell is not a run this
@@ -349,7 +349,7 @@ fn decides_a_run_unevaluably(opening: &str) -> bool {
 /// or a `#[cfg(feature = "..")] impl` holds tests whose own block is clean, and this reads them as
 /// running. Live in this tree rather than theoretical -
 /// `git grep -n '#\[cfg(' -- 'crates/**/*.rs'` beside `git grep -n '#\[test\]'` finds the shapes,
-/// and `crates/sutura-serve/tests/served.rs` gates a whole `mod tests` on `#[cfg(unix)]`. Held by
+/// and `crates/sutura-cli/tests/served.rs` gates a whole `mod tests` on `#[cfg(unix)]`. Held by
 /// review, and stated because the arm above reads stronger than it is: closing it needs the cfg
 /// item's brace range, which is `regions::item_end`'s instrument aimed one level out.
 pub(crate) fn cells(text: &str, code: &str) -> Cells {

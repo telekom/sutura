@@ -2,7 +2,7 @@
 //!
 //! **`#[cfg(feature = "http")]` only** - `telekom/sutura#378` PR3, `docs/adr/0023`. Nothing served
 //! links this today: [`crate::http::service`] builds a value a composition root's own router can
-//! `axum::Router::nest_service` behind its existing layers, so `sutura-serve`'s leg 1
+//! `axum::Router::nest_service` behind its existing layers, so `sutura-cli`'s leg 1
 //! (`sutura_http::inbound`) and `sutura_http::capability::establish_asked` run in front of it
 //! exactly as they run in front of every other route on that surface - PR4's job. This crate carries
 //! no dependency on `axum` outside its own `#[cfg(test)]` tests: `StreamableHttpService` is a bare

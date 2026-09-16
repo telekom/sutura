@@ -8,7 +8,7 @@
 //! place.
 //!
 //! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
-//! declares that constant and is non-optional in both shipped binaries. What that does NOT make it
+//! declares that constant and is non-optional in the shipped binary. What that does NOT make it
 //! is two-identity: every adapter a release links declares
 //! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
 //! under one operating-system identity and

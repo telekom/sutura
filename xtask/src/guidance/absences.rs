@@ -143,7 +143,7 @@ const ABSENCES: &[Absence] = &[
     // `#370` row E's first item - "`MetricAspect::expression()` has no consumer" - is narrowed,
     // not withdrawn. Issue #202's second PR moved the crate's fake server and page builders into a
     // `pub` `test_support` module under `src/` (an integration test binary cannot see another
-    // crate's `tests/`, so a fake shared with `sutura-serve` has to cross the dependency edge,
+    // crate's `tests/`, so a fake shared with `sutura-cli` has to cross the dependency edge,
     // which only the library can). `test_support::metric_page()` reads `certified.expression()`
     // and `certified.dialect()`, so "no consumer" is false; what remains true, and held here, is
     // the narrower read-path claim in `document.rs`'s accessor docs. #202's own audit named
@@ -159,7 +159,7 @@ const ABSENCES: &[Absence] = &[
                 "crates/sutura-app/src/**/*.rs",
                 "crates/sutura-catalog-datahub/src/lib.rs",
                 "crates/sutura-catalog-datahub/src/http.rs",
-                "crates/sutura-serve/src/**/*.rs",
+                "crates/sutura-cli/src/serve/**/*.rs",
             ],
             holds: "expression()",
             means: "a read-path consumer reads `MetricAspect::expression()` - the promotion-candidate half, whose conversion into a `Measure` #202 leaves undecided",

@@ -2,7 +2,7 @@
 
 **The deployment shape this example documents is not servable in this repository yet.** No binary
 here links `sutura-catalog-datahub` - its only dependant is `sutura-app`, as a dev-dependency - and
-`sutura-serve` refuses `catalog.kind: datahub` by name. So this page is the shape a deployment would
+`sutura` refuses `catalog.kind: datahub` by name. So this page is the shape a deployment would
 configure, and the proof the build gives about it, told in that order; the *What runs here and now*
 section below says exactly where the proof stops.
 
@@ -98,7 +98,7 @@ request.
 **What that test proves is: a bundle loads, certifies its metric, and a question about it compiles
 to a plan.** It stops at the plan - nothing here reaches a warehouse, a surface or a settings file,
 and no binary in this repository can open this catalog (`catalog.kind: datahub` is refused by
-`sutura-serve`, and the crate has no other composition root). What the fixture **cannot** prove, and
+`sutura`, and the crate has no other composition root). What the fixture **cannot** prove, and
 what the example therefore says explicitly rather than pretending:
 
 - **A served deployment** needs a composition root that links `sutura-catalog-datahub`; none exists

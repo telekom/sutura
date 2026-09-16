@@ -31,8 +31,8 @@ use crate::sources::OpenedWith;
 /// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
 ///
 /// **The same three layers `crate::serve`'s own alias names, through the same public constructors**,
-/// which is what "one composition per adapter" amounts to across two binaries that may not depend on
-/// each other: a fix to the credential path lands in `sutura-exec-bigquery` and both roots get it.
+/// which is what "one composition per adapter" amounts to across two composition roots that may not
+/// depend on each other: a fix to the credential path lands in `sutura-exec-bigquery` and both roots get it.
 /// `docs/adr/0018` is the record for the inner two.
 #[cfg(feature = "bigquery")]
 pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<

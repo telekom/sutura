@@ -45,7 +45,7 @@ behind this crate's default-off `http` feature, with a personal access token as 
 module header states what is measured against a live `DataHub` and what is not - only the
 `metric` entity's wire shape is, today. The recorded fixture source in `fixture` and the two
 test doubles (`tests::Stub`, the acceptance suite's `Composed`) remain what every other test in
-this crate reads against. **A composition root now serves it, behind `sutura-serve`'s default-off
+this crate reads against. **A composition root now serves it, behind `sutura-cli`'s default-off
 `datahub` feature:** that feature links this crate (with `http`) and opens `catalog.kind: datahub`,
 reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
 is still not is a live-`DataHub` read path in CI and the rest of the wire mapping - the fixed

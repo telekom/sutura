@@ -10,7 +10,7 @@ takes no catalog: it is unparsed text handed straight to the data system, so the
 that resembles `single-player/`'s models and metrics. What changes is `examples/single-player`'s own
 served deployment, plus `tools.run_sql.enabled: true` and a role grant. The runnable proof is
 `crates/sutura-cli/tests/served.rs`'s `a_postgres_source_answers_a_raw_sql_statement_from_the_served_binary`,
-which starts the real `sutura-serve` binary against the provisioned Postgres tier and asks the
+which starts the real `sutura serve` command against the provisioned Postgres tier and asks the
 question below over `POST /v1/sql/run` - the request and the response shown here are the value that
 test asserts the binary returned, not a transcript kept in step by hand. (The body is pretty-printed
 for this page; the binary itself answers compact JSON.)
@@ -103,7 +103,7 @@ just dev-endpoint postgres     # host:port, for the settings file above
 ```
 
 Load `examples/single-player/data/*.csv` into the database the settings file names - one table per
-file, named after the file - point `sutura-serve --features postgres` at the settings above, and ask:
+file, named after the file - point `sutura serve` (built with `--features postgres`) at the settings above, and ask:
 
 ```bash
 curl -s -X POST http://127.0.0.1:<port>/v1/sql/run \

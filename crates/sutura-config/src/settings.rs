@@ -44,7 +44,7 @@ pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 
 /// The variable that points at the configuration directory a load layers files from.
 ///
-/// **One name, because two binaries read it and neither may own it** - exported for the same reason
+/// **One name, because both `sutura query`/`sutura mcp` and `sutura serve` read it and neither may own it** - exported for the same reason
 /// [`ENVIRONMENT_VARIABLE`] is, so a startup message, a command's `--help` and the documentation
 /// cannot disagree about a name none of them owns.
 pub const CONFIG_DIR_VARIABLE: &str = "SUTURA_CONFIG_DIR";

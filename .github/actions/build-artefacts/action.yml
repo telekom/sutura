@@ -235,9 +235,8 @@ runs:
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
         mkdir -p dist
         # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
-        # target. The two binaries are not two views of one inventory: they link different
-        # crates - `axum`, `tokio` and the whole transport are in the server and in nothing
-        # else - so a single document would be true of neither.
+        # target, generically: a second shipped binary would link its own crates, not share this
+        # one's inventory, so a single document could never be true of both.
         for bin in $BINARIES; do
           if [ "$bin" = sutura ]; then key="$TARGET"; else key="${bin#sutura-}-${TARGET}"; fi
           gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar

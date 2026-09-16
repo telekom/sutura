@@ -3,7 +3,7 @@
 The wave-one identity-aware E2E, as one worked path: a **`datahub` catalog** carries the certified
 metric's definition, a **real Keycloak issuer**'s token says who is asking, and the deployment
 answers from a **real BigQuery project**, under one shared credential - over HTTP, on the composed
-`sutura-serve` binary. This is a settings template and one worked question, not a directory of
+`sutura serve` binary. This is a settings template and one worked question, not a directory of
 markdown: `base.yaml`, one `question.yaml`, one expected refusal, and a README where every command
 is a `just` task.
 

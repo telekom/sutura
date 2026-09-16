@@ -189,7 +189,7 @@ fn body_matches(body: &str, lint: &str) -> bool {
 /// #702 fixed a masking bug in the comment blanker this rule's own scan runs on top of (a `//`
 /// inside a string literal), which had been hiding part of the tree from this rule too, not only
 /// from the threshold-lint one. Fixing it surfaced five collisions this rule had never actually
-/// scanned before: one (`production_warehouse`, in `crates/sutura-serve/src/tests.rs`) was a
+/// scanned before: one (`production_warehouse`, in `crates/sutura-cli/src/serve/tests.rs`) was a
 /// genuine redundant clause and was dropped at the source; the other four are recorded below.
 const ALLOWED: &[&str] = &[
     // Different variables, opposite verdicts: `with` must contain the full sentence while

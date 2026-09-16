@@ -2122,8 +2122,8 @@ recorded rather than quietly applied, because *a classification with no producti
 what a reader would otherwise still plan against.
 
 And it is on the answer path of a published build, not merely in library code:
-`sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so `sutura` and `sutura-serve`
-execute a leg. What the defaulted-`false` constant still holds is the OTHER direction - an
+`sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so `sutura` executes a leg. What
+the defaulted-`false` constant still holds is the OTHER direction - an
 adapter with no leg venue refuses rather than half-answering.
 `.agents/skills/sutura/query-surface` carries that state.
 

@@ -18,9 +18,9 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # mapping, and a port with no implementor - three dependencies, no network, no outbound stack. With
 # it on, `ureq` and its rustls closure are compiled for whatever target is building, and two of the
 # four release triples are musl. **No SHIPPED artifact links either half**, which is a narrower
-# statement than the one that stood here and is the true one: `sutura-serve` and `sutura-cli` each
-# declare this crate `optional` behind a `bigquery` feature of their own that turns `wire` on, and
-# neither feature is in a default build or in a release derivation. `sutura-http` reaches the broker
+# statement than the one that stood here and is the true one: `sutura-cli` declares this crate
+# `optional` behind its `bigquery` feature, which turns `wire` on for both of its composition
+# roots, and the feature is not in a default build or in a release derivation. `sutura-http` reaches the broker
 # as a DEV-dependency, which propagates to nothing. And what those two roots refuse by name is no
 # longer `kind: bigquery` - it is the `impersonation-at-source` posture, with the shared one served.
 #

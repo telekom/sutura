@@ -1,6 +1,6 @@
 //! Wave one of the identity-aware E2E (`just e2e-datahub-bigquery`): `DataHub` carries the certified
 //! metric's definition, a REAL Keycloak issuer's token says who is asking, and the certified
-//! question executes over HTTP `/v1/query`, on the composed `sutura-serve` binary, against a REAL
+//! question executes over HTTP `/v1/query`, on the composed `sutura serve` binary, against a REAL
 //! `BigQuery` project - the same `orders`/`customers` corpus `served/datahub.rs` certifies against,
 //! loaded fresh into that project by this file rather than by a developer's own fixture.
 //!
@@ -91,7 +91,7 @@ mod tests {
 
     /// The catalog's declared name, reused verbatim as the `sources:` entry's name - the served
     /// `datahub` arm fixes the `bigquery` dataPlatform→source mapping to the CATALOG's OWN name
-    /// (`crates/sutura-serve/src/catalog.rs`), so a source under any other name is unreachable by
+    /// (`crates/sutura-cli/src/serve/catalog.rs`), so a source under any other name is unreachable by
     /// the harvested models. The same identity `served/datahub.rs` uses.
     const CATALOG: &str = "metrics";
 
@@ -405,7 +405,7 @@ mod tests {
         // One boot, three asks. The Keycloak fixture mints both subjects and writes the key set the
         // `inbound` block names; the datahub fake serves the recorded corpus twice - once for the
         // engine-open load and once inside `LocalService::start_composed`, which loads the catalog it
-        // serves rather than trusting the bundle it was handed (`crates/sutura-serve/src/main.rs`
+        // serves rather than trusting the bundle it was handed (`crates/sutura-cli/src/serve.rs`
         // says so), the same six connections `served/datahub.rs`'s cell accounts for.
         // The keycloak fixture writes its fetched key set into `derived_beside(&config_path(CASE))`
         // - the SAME directory this file's `DataDir` owns - so the data directory is prepared FIRST

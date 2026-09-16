@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Wired in serve, not proven live** | The port, the exchanging broker and the serve composition are built: `sutura-serve`'s `bigquery` build attaches the broker, so an impersonating source is openable as the asker. **No exchanged token has ever run against a real STS and no deployment answers as an asker** - the two-grant acceptance leg cannot run without a project |
+| **Leg 2** - a source executing as them | **Wired in serve, not proven live** | The port, the exchanging broker and the serve composition are built: `sutura serve`'s `bigquery` build attaches the broker, so an impersonating source is openable as the asker. **No exchanged token has ever run against a real STS and no deployment answers as an asker** - the two-grant acceptance leg cannot run without a project |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -69,7 +69,7 @@ proof of impersonation.
   already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
   this query may take* - lives in the broker adapter, the component that has the configured query
   timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential already inside the
-  floor rather than presenting it. The `sutura-serve` composition wires the floor from
+  floor rather than presenting it. The `sutura serve` composition wires the floor from
   `server.request_timeout_seconds`.
 - **The broker's clock is a port, not an ambient read**, and the reason is a measured one: while it
   was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027 expiry against the
@@ -152,7 +152,7 @@ impersonating source gets nothing and the question is refused rather than answer
 configuration, and it is the reason `RequestContext` carries an assertion at all. Two maps by
 source, so one plan reading a shared source and an impersonating one is served by one broker; one
 `Expiry` for the whole answer, the earliest across everything minted, and a floor wired from the
-query timeout. `sutura-serve`'s `bigquery` build composes it for a deployment with an impersonating
+query timeout. `sutura serve`'s `bigquery` build composes it for a deployment with an impersonating
 source, carrying both shapes.
 
 **It also caches, off by default** (`docs/adr/0031`, `security.credential_cache.enabled`) - a
@@ -179,7 +179,7 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   one, otherwise the source's own, never both, which is what keeps two concurrent subjects apart at
   that seam. The expiry guard stays on the source's own credential, because a subject's token was
   already checked by the broker that minted it.
-- **`sutura-serve` attaches the exchanging broker** to a served `bigquery` source with a declared
+- **`sutura serve` attaches the exchanging broker** to a served `bigquery` source with a declared
   `workload_identity`, so an impersonating source is no longer refused by name - it is opened and
   answers as the asker. The `sutura` command (`mcp`/`query`) still refuses by name, because it
   attaches only `StaticCredentialBroker`; the two roots are separate binaries and the CLI's

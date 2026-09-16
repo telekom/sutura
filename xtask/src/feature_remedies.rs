@@ -53,8 +53,8 @@
 //!
 //! # Three limits, next to the claim
 //!
-//! **The crate is the file's own, not the crate the sentence names.** `sutura-serve`'s message says
-//! "Build `sutura-serve`", and resolving that name instead would be a second lookup for no gain
+//! **The crate is the file's own, not the crate the sentence names.** `sutura-cli`'s message says
+//! "Build `sutura-cli`", and resolving that name instead would be a second lookup for no gain
 //! today - both messages sit in the crate they name. A message directing a reader to ANOTHER
 //! crate's feature resolves against the wrong manifest, and would be a false verdict in either
 //! direction. Nothing in the tree does that; if something does, this comment is what a reviewer is

@@ -647,7 +647,7 @@ mod tests {
 
     /// A root that builds one bound and hands it to every taker this gate keys on.
     ///
-    /// All three, which no real root does - `sutura-serve` composes the HTTP state and `sutura-cli`
+    /// All three, which no real root does - `serve.rs` composes the HTTP state and `mcp.rs`
     /// the agent surface. It has to be all three here so that renaming ONE of them below leaves the
     /// other two matched, and the failure therefore names the needle under test rather than
     /// whichever happens to sort first.

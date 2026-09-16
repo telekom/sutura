@@ -74,7 +74,7 @@ measured blind to it.**
 said *nothing published answers a two-source question* and was cited as an invariant, so it is
 rewritten here rather than deleted - what it was protecting is the list of limits, not the sentence.
 `sutura-exec-datafusion` declares `EXECUTES_LEGS` and is
-non-optional in both shipped binaries, so a `sutura-serve` with one `files` entry per data system
+non-optional in the shipped binary, so `sutura serve` with one `files` entry per data system
 answers a two-source question - measured on the composed binary by
 `a_served_deployment_answers_a_question_spanning_two_sources`
 (`crates/sutura-cli/tests/served.rs`), which pins the grouped figures, their sum against the
@@ -154,13 +154,13 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   mapping measured against a live instance, the `dataset`/`semanticModel` mappings read from this
   record's own schema table and refusing an unexpected shape by name rather than guessing (the
   reader's own module header carries that limit). **A composition root now serves it**, behind
-  `sutura-serve`'s default-off `datahub` feature: the crate is linked with `http`, `catalog.kind:
+  `sutura-cli`'s default-off `datahub` feature: the crate is linked with `http`, `catalog.kind:
   datahub` is opened, and the entry's token file is read once at boot and carried as the bearer on
   every request. The crate's only OTHER dependant is `sutura-app`, as a dev-dependency. **Do not
   read the reader's existence as availability, and do not read the declaration as availability
   either:** what is proved is that the adapter decides correctly against a fake reader, that the new
   reader maps the wire correctly against a real local server over the fixture's own corpus, and that
-  `sutura-serve --features datahub` serves the loopback fake end to end - not that any deployment
+  `sutura --features datahub` serves the loopback fake end to end - not that any deployment
   can point at a `DataHub` instance today.
 - **The provisioned DataHub tier proves the VENUE and the PLATFORM's half, and not a read path.**
   `just dev-up-datahub` stands up DataHub 1.7.0 behind a compose profile - upstream's own

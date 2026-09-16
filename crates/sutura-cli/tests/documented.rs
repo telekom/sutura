@@ -101,8 +101,9 @@ mod tests {
 
     /// The shipped binary this page installs and then runs, as a release asset names it.
     ///
-    /// Named because a release publishes `sutura-serve` at the same four triples, so the triple
-    /// alone does not say which binary a reader downloaded.
+    /// Named because a release USED TO publish `sutura-serve` at the same four triples, so the
+    /// triple alone did not say which binary a reader downloaded. `named_assets` still tells the
+    /// two apart, defensively, though the fold left only one to name.
     const CLI: &str = "sutura";
 
     /// Every step the install fence has to carry, and what its absence would cost a reader.
@@ -741,9 +742,9 @@ mod tests {
     /// **Both halves, and the binary is why.** This returned the triple alone first, folding
     /// `sutura-serve-<triple>` in with `sutura-<triple>` - and review defeated it in one edit:
     /// swap every asset name on the page to `sutura-serve-*` and the suite stayed green over a
-    /// page that installs the HTTP SERVER and then runs `sutura catalog` on it. A release
-    /// publishes both binaries at all four triples, so the triple was never the half that says
-    /// which one a reader downloads.
+    /// page that installs the HTTP SERVER and then runs `sutura catalog` on it. A release used to
+    /// publish both binaries at all four triples, so the triple was never the half that said which
+    /// one a reader downloads - and the split still stands guard now that only one ships.
     ///
     /// The split is on the characters a file name cannot hold, so a name inside a table cell, a
     /// backtick span or a shell quote is read the same way.
@@ -833,8 +834,8 @@ mod tests {
 
         // The page names an artefact OF THE BINARY IT GOES ON TO RUN. First, because it is the
         // whole defect: without one, the only way to run anything the page prints is to build the
-        // tree. Scoped to `sutura` because a release publishes `sutura-serve` at the same four
-        // triples, and a page that downloads the server and then runs `sutura catalog` on it is
+        // tree. Scoped to `sutura` because a release used to publish `sutura-serve` at the same
+        // four triples, and a page that downloads the server and then runs `sutura catalog` on it is
         // the mutation review defeated the first version of this test with.
         let named = named_assets(&text);
         let ours: Vec<String> = named

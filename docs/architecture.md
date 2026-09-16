@@ -197,7 +197,7 @@ reading the credential file, because the transport's host is a compile-time cons
 to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
 `just bigquery-acceptance`. So this is a composition that is tested and a path that is not - which is
 what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
-code. No published artefact carries the feature: `nix/shipped.nix` builds both binaries with cargo's
+code. No published artefact carries the feature: `nix/shipped.nix` builds the shipped binary with cargo's
 default features, because `--features bigquery` compiles `ring` from C and assembly and two of the
 four release triples are musl. On a build without it, a `kind: bigquery` source is a refusal naming
 the feature; `sutura doctor` prints which of the two builds you are holding.
@@ -286,7 +286,7 @@ question, `SourceNotConfigured` from an anchor.
 system is, never that the files there hold what the bundle certifies. The only thing that checks
 content is an ANCHOR, and `verify_anchors` walks the metrics that declare one - so a bundle of
 unanchored metrics is answered under its real digest out of whatever directory the entry points at.
-That is true of `sutura-serve` too and always was; #121 is the change that makes it the documented
+That is true of `sutura serve` too and always was; #121 is the change that makes it the documented
 command-line workflow.
 
 **What it costs to add a fourth adapter.** A `Warehouse` or `SemanticCatalog` implementation, one line
@@ -475,7 +475,7 @@ is on the list.
 fragment rather than a script, no control or invisible characters - and pinned under the definition
 digest exactly as written. Nothing published compiles it: the compile in `sutura_sql::expression`
 has no production caller, and a catalog adapter may not reach that crate
-(`cargo xtask check-boundaries`), because both shipped binaries link the local catalog and a SQL
+(`cargo xtask check-boundaries`), because the shipped binary links the local catalog and a SQL
 generator in its tree is one in the network binary's. Every adapter this workspace ships leaves
 `Warehouse::EXECUTES_AUTHORED_SQL` at `false`, so `verify_and_validate` refuses a bundle carrying an
 authored metric before serving, naming it. The compile belongs to the first adapter that executes
@@ -681,7 +681,7 @@ its test suite compiles nothing heavy and runs in well under a second, which is 
 inner loop. And every lint and test entry point passes `--all-features`, so an adapter placed behind
 a feature is inspected from the day it lands rather than from the day somebody remembers the flag.
 That habit was adopted while no crate declared a `[features]` table at all, which is when it is
-cheapest to adopt; it is load-bearing now, because `sutura-config`, `sutura-http` and `sutura-serve`
+cheapest to adopt; it is load-bearing now, because `sutura-config`, `sutura-http` and `sutura-cli`
 each declare `tls` - see [Serving over HTTP](serving.md#tls) - and code behind a flag nothing passed
 would be linted and tested by nothing. [Contributing](contributing.md) has the commands.
 
@@ -772,7 +772,7 @@ into this bullet on this branch and spent before it merged**: the engine declare
 history is kept beside it.
 
 And one thing that was absent here and is now half present, because the two ports are what the layout
-is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one
+is *for*: **runtime selection of a data system.** `sutura serve` reads a `sources:` tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a `SourceName`
 now *selects* a warehouse out of a registry rather than being compared for equality against the one
 adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` reads

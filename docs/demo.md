@@ -18,7 +18,7 @@ authority on what may be cited where.
 
 | Process         | What it is                                                                                   |
 | --------------- | -------------------------------------------------------------------------------------------- |
-| `sutura-serve`  | The shipped HTTP server, over `examples/single-player` - the same binary a release publishes |
+| `sutura serve`  | The shipped HTTP server, over `examples/single-player` - the same binary a release publishes |
 | The chat client | Open WebUI v0.11.3, pointed at a language model you configure                                |
 
 The client is registered against the server through Open WebUI's **native OpenAPI connection** -
