@@ -2878,7 +2878,7 @@ and, as importantly, what it does not: nothing served mounts it yet.
 The streamable-HTTP transport, as a plain <code>tower_service::Service</code> a composition root mounts.</p>
 <p><strong><code>#[cfg(feature = "http")]</code> only</strong> - <code>telekom/sutura#378</code> PR3, <code>docs/adr/0023</code>. Nothing served
 links this today: <code>crate::http::service</code> builds a value a composition root's own router can
-<code>axum::Router::nest_service</code> behind its existing layers, so <code>sutura-serve</code>'s leg 1
+<code>axum::Router::nest_service</code> behind its existing layers, so <code>sutura-cli</code>'s leg 1
 (<code>sutura_http::inbound</code>) and <code>sutura_http::capability::establish_asked</code> run in front of it
 exactly as they run in front of every other route on that surface - PR4's job. This crate carries
 no dependency on <code>axum</code> outside its own <code>#[cfg(test)]</code> tests: <code>StreamableHttpService</code> is a bare

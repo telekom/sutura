@@ -3254,7 +3254,7 @@ reading the credential file, because the transport's host is a compile-time cons
 to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
 <code>just bigquery-acceptance</code>. So this is a composition that is tested and a path that is not - which is
 what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
-code. No published artefact carries the feature: <code>nix/shipped.nix</code> builds both binaries with cargo's
+code. No published artefact carries the feature: <code>nix/shipped.nix</code> builds the shipped binary with cargo's
 default features, because <code>--features bigquery</code> compiles <code>ring</code> from C and assembly and two of the
 four release triples are musl. On a build without it, a <code>kind: bigquery</code> source is a refusal naming
 the feature; <code>sutura doctor</code> prints which of the two builds you are holding.</p>
@@ -3331,7 +3331,7 @@ question, <code>SourceNotConfigured</code> from an anchor.</p>
 system is, never that the files there hold what the bundle certifies. The only thing that checks
 content is an ANCHOR, and <code>verify_anchors</code> walks the metrics that declare one - so a bundle of
 unanchored metrics is answered under its real digest out of whatever directory the entry points at.
-That is true of <code>sutura-serve</code> too and always was; #121 is the change that makes it the documented
+That is true of <code>sutura serve</code> too and always was; #121 is the change that makes it the documented
 command-line workflow.</p>
 <p><strong>What it costs to add a fourth adapter.</strong> A <code>Warehouse</code> or <code>SemanticCatalog</code> implementation, one line
 in the workspace manifest, one line in the composition root - and, in the test suite, one <code>impl</code> of
@@ -3491,7 +3491,7 @@ is on the list.</p>
 fragment rather than a script, no control or invisible characters - and pinned under the definition
 digest exactly as written. Nothing published compiles it: the compile in <code>sutura_sql::expression</code>
 has no production caller, and a catalog adapter may not reach that crate
-(<code>cargo xtask check-boundaries</code>), because both shipped binaries link the local catalog and a SQL
+(<code>cargo xtask check-boundaries</code>), because the shipped binary links the local catalog and a SQL
 generator in its tree is one in the network binary's. Every adapter this workspace ships leaves
 <code>Warehouse::EXECUTES_AUTHORED_SQL</code> at <code>false</code>, so <code>verify_and_validate</code> refuses a bundle carrying an
 authored metric before serving, naming it. The compile belongs to the first adapter that executes
@@ -3696,7 +3696,7 @@ its test suite compiles nothing heavy and runs in well under a second, which is 
 inner loop. And every lint and test entry point passes <code>--all-features</code>, so an adapter placed behind
 a feature is inspected from the day it lands rather than from the day somebody remembers the flag.
 That habit was adopted while no crate declared a <code>[features]</code> table at all, which is when it is
-cheapest to adopt; it is load-bearing now, because <code>sutura-config</code>, <code>sutura-http</code> and <code>sutura-serve</code>
+cheapest to adopt; it is load-bearing now, because <code>sutura-config</code>, <code>sutura-http</code> and <code>sutura-cli</code>
 each declare <code>tls</code> - see <a href="../serving/#tls">Serving over HTTP</a> - and code behind a flag nothing passed
 would be linted and tested by nothing. <a href="../contributing/">Contributing</a> has the commands.</p>
 <h2 id="what-ships">What ships<a class="headerlink" href="#what-ships" title="Permanent link">&para;</a></h2>
@@ -3788,7 +3788,7 @@ into this bullet on this branch and spent before it merged</strong>: the engine 
 <code>Warehouse::EXECUTES_LEGS</code> now. The list is the shape this page goes stale in, which is why the
 history is kept beside it.</p>
 <p>And one thing that was absent here and is now half present, because the two ports are what the layout
-is <em>for</em>: <strong>runtime selection of a data system.</strong> <code>sutura-serve</code> reads a <code>sources:</code> tree, opens one
+is <em>for</em>: <strong>runtime selection of a data system.</strong> <code>sutura serve</code> reads a <code>sources:</code> tree, opens one
 adapter per source the catalog names, and hands each the posture its entry declared - so a <code>SourceName</code>
 now <em>selects</em> a warehouse out of a registry rather than being compared for equality against the one
 adapter that was linked, and a source with no entry is a startup refusal naming it. <code>sutura-cli</code> reads

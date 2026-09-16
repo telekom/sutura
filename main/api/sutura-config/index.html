@@ -3279,7 +3279,7 @@ are questions only the TLS implementation can answer, so they are answered once,
 for one mistake, and the weaker one would be the reassuring one.</p>
 <h2 id="use-config_dir_variable"><code>use CONFIG_DIR_VARIABLE</code><a class="headerlink" href="#use-config_dir_variable" title="Permanent link">&para;</a></h2>
 <p>The variable that points at the configuration directory a load layers files from.</p>
-<p><strong>One name, because two binaries read it and neither may own it</strong> - exported for the same reason
+<p><strong>One name, because both <code>sutura query</code>/<code>sutura mcp</code> and <code>sutura serve</code> read it and neither may own it</strong> - exported for the same reason
 <code>ENVIRONMENT_VARIABLE</code> is, so a startup message, a command's <code>--help</code> and the documentation
 cannot disagree about a name none of them owns.</p>
 <h2 id="use-configlayers"><code>use ConfigLayers</code><a class="headerlink" href="#use-configlayers" title="Permanent link">&para;</a></h2>
@@ -3583,7 +3583,8 @@ that exists in a record rather than in a linked crate is still a word an operato
 <li><code>Markdown</code> - A directory of markdown documents with YAML frontmatter, read by <code>sutura-catalog-local</code>.</li>
 </ul>
 <p>The only kind either composition root can OPEN in this build: the markdown adapter is
-  linked by <code>sutura-serve</code> and is what <code>sutura-cli</code> puts behind its directory argument.
+  linked by <code>sutura serve</code> and is what <code>sutura query</code>/<code>sutura mcp</code> put behind its directory
+  argument.
 - <code>Datahub</code> - A metadata service, read through the adapter <code>docs/adr/0016</code> specifies and #114 builds.</p>
 <p><strong>A declarable kind that no binary this repository ships can open yet, and that is
   deliberate.</strong> The vocabulary of kinds is the vocabulary of adapters <em>this repository has</em>
@@ -5613,7 +5614,7 @@ legitimate one.</p>
 <p><strong>A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
   oversight.</strong> The vocabulary of kinds is the vocabulary of adapters <em>this repository has</em>, and
   <code>sutura-exec-bigquery</code> exists; what does not exist is a composition root that links it, so
-  <code>sutura-serve</code> refuses this kind by name. The alternative was to leave the word out, which
+  <code>sutura</code> refuses this kind by name. The alternative was to leave the word out, which
   would refuse the same deployment with <code>kind</code> does not name a data system this build can open -
   a message that sends an operator looking for a typo instead of telling them the truth.</p>
 <p>It is here now rather than with the impersonation step because the billing project has to be
@@ -6020,7 +6021,7 @@ from a configuration file, and a <code>bool</code> defaulted to <code>true</code
 <p><code>Plaintext</code> is a named choice, not the absence of a setting. A source that names no TLS
 <code>transport_mode</code> is refused at load; an operator who wants no TLS writes
 <code>transport_mode: plaintext</code>, and the startup log prints it. That ordering is what lets
-<code>sutura-serve</code> keep #124's fail-closed refusal for a <strong>non-loopback host with no TLS</strong> while the
+<code>sutura serve</code> keep #124's fail-closed refusal for a <strong>non-loopback host with no TLS</strong> while the
 unix-socket tier keeps working: a socket or loopback host may declare <code>plaintext</code>, and any host a
 network can reach it from must not.</p>
 <p><strong>The keys an operator writes are FLAT, not a nested <code>transport:</code> block.</strong> The schema holds

@@ -2709,7 +2709,7 @@ behind this crate's default-off <code>http</code> feature, with a personal acces
 module header states what is measured against a live <code>DataHub</code> and what is not - only the
 <code>metric</code> entity's wire shape is, today. The recorded fixture source in <code>fixture</code> and the two
 test doubles (<code>tests::Stub</code>, the acceptance suite's <code>Composed</code>) remain what every other test in
-this crate reads against. <strong>A composition root now serves it, behind <code>sutura-serve</code>'s default-off
+this crate reads against. <strong>A composition root now serves it, behind <code>sutura-cli</code>'s default-off
 <code>datahub</code> feature:</strong> that feature links this crate (with <code>http</code>) and opens <code>catalog.kind: datahub</code>,
 reading the entry's token file once at boot and carrying its PAT as the bearer on every request. What
 is still not is a live-<code>DataHub</code> read path in CI and the rest of the wire mapping - the fixed
