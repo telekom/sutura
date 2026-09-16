@@ -28,11 +28,21 @@ use sutura_domain::warehouse::RowSet;
 
 /// Why a body is not a question.
 ///
-/// **Owned by `sutura-domain::question`, not by this transport.** HTTP's and MCP's field sets and
-/// typed refusals were identical - kept equal only by review - so the parse moved inward of both;
-/// this alias is what every existing reference to `crate::wire::MalformedQuestion` in this crate
-/// keeps meaning.
-pub type MalformedQuestion = sutura_domain::question::MalformedQuestion;
+/// **Mostly owned by `sutura-domain::question`, not by this transport.** HTTP's and MCP's field
+/// sets and typed refusals were identical - kept equal only by review - so the parse moved inward
+/// of both; [`Self::Question`] is what every existing reference to the domain's own
+/// `MalformedQuestion` in this crate now wraps.
+///
+/// **No longer a bare alias**, since `telekom/sutura#778`: a relative `range` needs a failure mode
+/// the domain does not have and must not gain - [`Self::Range`] wraps
+/// `sutura_runtime::relative_range::RangeResolutionError`, the resolver both transports share.
+#[derive(Debug, thiserror::Error)]
+pub enum MalformedQuestion {
+    #[error(transparent)]
+    Question(#[from] sutura_domain::question::MalformedQuestion),
+    #[error(transparent)]
+    Range(#[from] sutura_runtime::relative_range::RangeResolutionError),
+}
 
 /// Which status a refusal comes back as. Its own file because that is eleven judgements with a
 /// reason each, and they belong beside one another rather than scattered through this one.
@@ -66,17 +76,39 @@ pub struct QuestionBody {
     filters: Vec<FilterBody>,
 }
 
-/// A half-open period: `start` is included, `end` is not.
+/// A half-open period: `start` is included, `end` is not. Either an absolute period
+/// (`start`/`end`) or a period relative to today (`last`) - never both, never neither.
 ///
 /// Half-open at every grain and in every dialect, which is what makes a month
 /// `[2026-06-01, 2026-07-01)` rather than a last day that differs per month.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RangeBody {
+    /// The first day included, as `YYYY-MM-DD`. Mutually exclusive with `last`.
     #[schema(example = "2026-06-01")]
-    start: String,
+    start: Option<String>,
+    /// The first day NOT included, as `YYYY-MM-DD`. Mutually exclusive with `last`.
     #[schema(example = "2026-07-01")]
-    end: String,
+    end: Option<String>,
+    /// A period ending today (or yesterday, unless `include_current`), resolved against this
+    /// deployment's own clock. Mutually exclusive with `start`/`end`.
+    last: Option<LastBody>,
+}
+
+/// A count of calendar periods before today, resolved at request time rather than authored as
+/// dates - `telekom/sutura#778`.
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LastBody {
+    /// How many `unit`s back. Must not be zero.
+    #[schema(example = 1)]
+    count: u32,
+    /// One of `day`, `week`, `month`, `quarter` or `year`.
+    #[schema(example = "month")]
+    unit: String,
+    /// Whether today's own, possibly partial, period is included.
+    #[serde(default)]
+    include_current: bool,
 }
 
 /// One equality filter.
@@ -92,26 +124,35 @@ pub struct FilterBody {
 impl TryFrom<QuestionBody> for Query {
     type Error = MalformedQuestion;
 
-    /// Extracts this transport's own wire fields as plain strings and hands them to
-    /// `sutura_domain::question::parse_query` - the one place a caller's raw question becomes a
-    /// certified [`Query`], shared with `sutura-mcp`'s own `AskArgs`. Nothing transport-specific
-    /// happens here beyond the extraction: no field is renamed, widened or defaulted on the way
-    /// through.
+    /// Resolves `range` against the shipping wall clock, then hands the two ISO dates - and every
+    /// other field, unchanged - to `sutura_domain::question::parse_query`. Production's only clock;
+    /// [`query_of`] is what a test substitutes a fixed one into.
     fn try_from(body: QuestionBody) -> Result<Self, Self::Error> {
-        let filters: Vec<RawFilter<'_>> = body
-            .filters
-            .iter()
-            .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
-            .collect();
-        sutura_domain::question::parse_query(
-            &body.metric,
-            &body.grain,
-            &body.range.start,
-            &body.range.end,
-            &body.dimensions,
-            &filters,
-        )
+        query_of(body, &sutura_runtime::relative_range::SystemClock)
     }
+}
+
+/// The whole of [`TryFrom::try_from`], generic in the clock so a test can fix "today" without
+/// resolving against the day it happens to run on.
+fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::WallClock) -> Result<Query, MalformedQuestion> {
+    let filters: Vec<RawFilter<'_>> = body
+        .filters
+        .iter()
+        .map(|filter| RawFilter::new(&filter.dimension, &filter.value))
+        .collect();
+    let last = body
+        .range
+        .last
+        .map(|last| sutura_runtime::relative_range::LastWire::new(last.count, last.unit, last.include_current));
+    let (start, end) = sutura_runtime::relative_range::resolve_range(clock, body.range.start, body.range.end, last)?;
+    Ok(sutura_domain::question::parse_query(
+        &body.metric,
+        &body.grain,
+        &start,
+        &end,
+        &body.dimensions,
+        &filters,
+    )?)
 }
 
 // ---------------------------------------------------------------- responses ----
@@ -519,6 +560,8 @@ mod tests {
 
     #[test]
     fn a_filter_value_a_catalog_could_not_declare_is_a_400_that_does_not_echo_it() {
+        use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
+
         // Two shapes of hostile value, and the same answer for both: the field, the index, and none
         // of the caller's text. The parse error underneath carries the value - it exists for a
         // catalog author - and this is the boundary that drops it, because a 400 body reaches a log,
@@ -535,7 +578,13 @@ mod tests {
                     "filters":[{{"dimension":"region","value":"{value}"}}]}}"#
             );
             let error = parse(&raw).expect_err("a value a catalog could not declare is not a value");
-            assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+            assert!(
+                matches!(
+                    error,
+                    MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+                ),
+                "{error:?}"
+            );
             let rendered = format!("{error} {error:?}");
             assert!(!rendered.contains("nor"), "{rendered}");
             assert!(!rendered.contains("SYSTEM"), "{rendered}");
@@ -548,7 +597,13 @@ mod tests {
                 "filters":[{{"dimension":"region","value":"{long}"}}]}}"#
         ))
         .expect_err("a ten-kilobyte value is not a value");
-        assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                MalformedQuestion::Question(SharedMalformedQuestion::FilterValue { index: 0 })
+            ),
+            "{error:?}"
+        );
         assert!(!format!("{error} {error:?}").contains("xxxx"), "the value is not echoed");
     }
 
@@ -598,15 +653,20 @@ mod tests {
 
     #[test]
     fn a_malformed_field_names_the_field_it_was() {
+        use sutura_domain::question::MalformedQuestion as SharedMalformedQuestion;
+
         // A caller fixing a request needs to know which field, and a serde message does not say.
         let error = parse(r#"{"metric":"revenue","grain":"fortnight","range":{"start":"2026-06-01","end":"2026-07-01"}}"#)
             .expect_err("`fortnight` is not a grain");
-        assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
+        assert!(
+            matches!(error, MalformedQuestion::Question(SharedMalformedQuestion::Grain)),
+            "{error:?}"
+        );
         assert!(error.to_string().contains("quarter"), "{error}");
 
         let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"nope","end":"2026-07-01"}}"#)
             .expect_err("`nope` is not a date");
-        let MalformedQuestion::Date { field, .. } = error else {
+        let MalformedQuestion::Question(SharedMalformedQuestion::Date { field, .. }) = error else {
             panic!("expected a date failure, got {error:?}");
         };
         assert_eq!(field, "start");
@@ -616,19 +676,82 @@ mod tests {
                              "dimensions":["region","not a name"]}"#,
         )
         .expect_err("`not a name` is not an identifier");
-        let MalformedQuestion::Dimension { index, .. } = error else {
+        let MalformedQuestion::Question(SharedMalformedQuestion::Dimension { index, .. }) = error else {
             panic!("expected a dimension failure, got {error:?}");
         };
         assert_eq!(index, 1);
     }
 
     #[test]
-    fn a_range_with_no_end_does_not_deserialize_at_all() {
-        // The bound the type provides rather than the service: there is no unbounded form to send.
-        let error =
-            serde_json::from_str::<QuestionBody>(r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01"}}"#)
-                .expect_err("a range with no end is not a range");
-        assert!(error.to_string().contains("end"), "{error}");
+    fn a_range_with_no_end_and_no_last_is_ambiguous() {
+        // `start` with no `end` deserializes now - both are `Option` so a relative range can omit
+        // them - and is refused one step later, by `range_choice`, rather than by serde.
+        let error = parse(r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01"}}"#)
+            .expect_err("a range with no end and no `last` is neither shape");
+        assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
+        assert!(error.to_string().contains("range"), "{error}");
+    }
+
+    #[test]
+    fn a_range_naming_both_start_end_and_last_is_ambiguous() {
+        let error = parse(
+            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01",
+                             "last":{"count":1,"unit":"month"}}}"#,
+        )
+        .expect_err("both shapes at once is ambiguous");
+        assert!(matches!(error, MalformedQuestion::Range(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_relative_range_resolves_against_a_fixed_clock() {
+        use sutura_domain::calendar::Date;
+
+        struct FixedClock(Date);
+        impl sutura_runtime::relative_range::WallClock for FixedClock {
+            fn today(&self) -> Result<Date, sutura_runtime::relative_range::ClockUnavailable> {
+                Ok(self.0)
+            }
+        }
+
+        let clock = FixedClock(Date::parse("2026-09-16").expect("a real date"));
+        let excluding_today = body(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
+        let query = super::query_of(excluding_today, &clock).expect("a fixed clock resolves a relative range");
+        assert_eq!(query.range().start().to_iso(), "2026-08-01");
+        assert_eq!(query.range().end().to_iso(), "2026-09-01");
+
+        let including_today = body(
+            r#"{"metric":"revenue","grain":"month",
+                "range":{"last":{"count":1,"unit":"month","include_current":true}}}"#,
+        );
+        let query = super::query_of(including_today, &clock).expect("include_current changes the resolved range");
+        assert_eq!(query.range().start().to_iso(), "2026-09-01");
+        assert_eq!(query.range().end().to_iso(), "2026-09-17");
+    }
+
+    /// The refusal proof for an unreadable clock - a predicate exercised with no test of its
+    /// refusal is the standard hole this repository watches for.
+    #[test]
+    fn an_unreadable_clock_is_an_internal_failure_not_a_malformed_question() {
+        use sutura_domain::calendar::Date;
+
+        struct BrokenClock;
+        impl sutura_runtime::relative_range::WallClock for BrokenClock {
+            fn today(&self) -> Result<Date, sutura_runtime::relative_range::ClockUnavailable> {
+                Err(sutura_runtime::relative_range::ClockUnavailable::NotADate {
+                    cause: Date::from_days_since_epoch(i32::MAX).expect_err("i32::MAX is not a date"),
+                })
+            }
+        }
+
+        let question = body(r#"{"metric":"revenue","grain":"month","range":{"last":{"count":1,"unit":"month"}}}"#);
+        let error = super::query_of(question, &BrokenClock).expect_err("the clock never answers");
+        assert!(
+            matches!(
+                error,
+                MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(_))
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]

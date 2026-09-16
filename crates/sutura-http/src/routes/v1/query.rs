@@ -239,8 +239,17 @@ pub(crate) async fn ask(
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
-    let query = Query::try_from(body).map_err(|cause| Failure::NotAQuestion {
-        detail: crate::problem::Detail::of(&cause),
+    let query = Query::try_from(body).map_err(|cause| match cause {
+        // The caller asked nothing wrong here; this deployment's own clock could not be read.
+        // `Failure::Internal` carries no detail for the same reason every other internal defect
+        // does not: what broke is ours to fix, not the caller's business.
+        crate::wire::MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(clock_cause)) => {
+            tracing::error!(error = %clock_cause, "this deployment's clock could not be read");
+            Failure::Internal
+        }
+        other => Failure::NotAQuestion {
+            detail: crate::problem::Detail::of(&other),
+        },
     })?;
 
     // WHICH question, onto the span, so every subsequent line of this request carries it.

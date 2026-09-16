@@ -23,23 +23,62 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       ],
       "type": "object"
     },
-    "RangeArgs": {
+    "LastArgs": {
       "additionalProperties": false,
-      "description": "A half-open period: `start` is included, `end` is not.\n\nHalf-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a\nlast day that differs per month. Both dates are ISO `YYYY-MM-DD`.",
+      "description": "A count of calendar periods before today, resolved at request time rather than authored as\ndates - `telekom/sutura#778`.",
       "properties": {
-        "end": {
-          "description": "The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`.",
-          "type": "string"
+        "count": {
+          "description": "How many `unit`s back. Must not be zero.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
-        "start": {
-          "description": "The first day included, as `YYYY-MM-DD` - for example `2026-06-01`.",
+        "include_current": {
+          "default": false,
+          "description": "Whether today's own, possibly partial, period is included.",
+          "type": "boolean"
+        },
+        "unit": {
+          "description": "One of `day`, `week`, `month`, `quarter` or `year`.",
           "type": "string"
         }
       },
       "required": [
-        "start",
-        "end"
+        "count",
+        "unit"
       ],
+      "type": "object"
+    },
+    "RangeArgs": {
+      "additionalProperties": false,
+      "description": "A half-open period: `start` is included, `end` is not. Either an absolute period\n(`start`/`end`) or a period relative to today (`last`) - never both, never neither.\n\nHalf-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a\nlast day that differs per month. Both dates are ISO `YYYY-MM-DD`.",
+      "properties": {
+        "end": {
+          "description": "The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`. Mutually exclusive\nwith `last`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastArgs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A period ending today (or yesterday, unless `include_current`), resolved against this\ndeployment's own clock. Mutually exclusive with `start`/`end`."
+        },
+        "start": {
+          "description": "The first day included, as `YYYY-MM-DD` - for example `2026-06-01`. Mutually exclusive\nwith `last`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     }
   },
