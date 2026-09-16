@@ -47,7 +47,10 @@ EXIT 3 IS "I MEASURED NOTHING" and is neither a pass nor a violation - the base 
 build, or the base run named no failure, which a harness move and a changed public signature a
 kept-at-HEAD test file calls both reach legitimately. A green CI step over exit 3 is not
 evidence: say which substitute you used - a mutation run, or the gate scoped per commit - and
-paste the verdict line, never the step's colour. Delete this section only if no test changed. -->
+paste the verdict line, never the step's colour. A test PINNING behaviour the base tree already
+provides can never redden on base: declare it with a `Claim-Cell: <test-fn-name>` trailer and a
+committed killing mutation at `devco/claim-mutations/<test-fn-name>.patch`, and paste the gate's
+`ok - claim cells: N declared, N killed` line. Delete this section only if no test changed. -->
 
 -
 

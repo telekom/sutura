@@ -93,6 +93,7 @@ use crate::repo;
 // keep true, and this module's own header is about what one such disagreement already cost.
 pub(crate) mod attributes;
 mod base;
+mod claim;
 mod coverage;
 mod diff;
 mod features;
@@ -546,6 +547,25 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {
+                    // A COMMIT MAY DECLARE A CLAIM CELL, and the trailer is a CLAIM this CHECKS
+                    // rather than a permission that replaces the check. A claim cell is an added
+                    // test that PINNS behaviour the base tree already provides, so the base run is
+                    // green and the only honest proof is a mutation: break the behaviour, one cell
+                    // at a time, and require the test to redden. The declaration is a bijection
+                    // with the diff's added tests, each cell needs a committed killing mutation at
+                    // `devco/claim-mutations/<test-fn-name>.patch`, and the whole arm takes the
+                    // place of the normal proof - the declared set is what may pass, and nothing
+                    // undeclared rides along. `claim` carries the conditions, the patched runs and
+                    // what an accepted arm does and does not prove.
+                    //
+                    // After feature-activation and relocation and nowhere before, for the same
+                    // reason both were: a manifest in the diff or a conflicting trailer is a
+                    // narrower, earlier-established answer and a claim-cell here would shadow it.
+                    // A claim-cell diff is `Relocation::Unclaimed` - the two trailers are mutually
+                    // exclusive, and the range reads one carrier.
+                    if let Some(claim) = claim::Claim::of(&worktree::messages(&root, &at)) {
+                        return claim::run(&root, &scoped, &separable.test_files, &claim);
+                    }
                     let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
                     // WHAT A GREEN BASE RUN WOULD MEAN, decided from the partition before either
                     // run rather than read off the run. `reverted` owns the argument; the point of
