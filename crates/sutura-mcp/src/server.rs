@@ -528,47 +528,99 @@ fn run_sql_statement(request: CallToolRequestParams) -> Result<RawStatement, Err
     RawStatement::try_from(args).map_err(|error| invalid_statement(&error))
 }
 
-/// A malformed `run_sql` call, as a JSON-RPC error.
+/// A message built for `ErrorData::invalid_params`, and the only value [`RenderedCause::into_error_data`]
+/// may turn into one.
 ///
-/// The one permitted caller of the banned constructor for this failure.
-/// `MalformedStatement::Statement`'s cause, `sutura_domain::raw::InvalidRawStatement`, carries
-/// none of the text it measured - `Empty`, `TooLong { len, limit }`, `EmbeddedNul` name only the
-/// shape of the failure. `NotAnObject`'s cause, `serde_json::Error`, is different: its own
-/// `Display` for an unrecognized field does echo the caller-chosen key verbatim, bidi controls
-/// included (confirmed against a standalone reproduction pinned to this workspace's
-/// `serde_json`/`thiserror` versions, not run in-crate). What stops it reaching the message below
-/// is `Display` on a `thiserror` enum printing only the variant's own literal - `error.to_string()`
-/// never walks the `#[source]` chain, so that key never enters what this returns.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the renderers are the one permitted path into this constructor, and this one is the \
-              raw statement's: the domain error it renders carries the shape of the failure and \
-              none of the statement it measured"
-)]
+/// **The limit, stated beside the claim.** [`rmcp::ErrorData`] is foreign, so this cannot sit in a
+/// *field* the way `sutura_http::problem::Detail` sits in `Failure::NotAQuestion` - there is no
+/// `ErrorData` field to hold it. What this buys instead is module privacy plus one call site: the
+/// tuple field is private and [`Self::of`]/[`Self::outer_only`] are its only constructors, so no code
+/// outside this module can mint one from an ad hoc string, and [`Self::into_error_data`] is the only
+/// function that calls `ErrorData::invalid_params`, so neither renderer below reaches a peer without
+/// going through it. It does **not** stop a *new* call to `ErrorData::invalid_params` written
+/// elsewhere in this module with its own string - that is weaker than `Detail`'s field type, which
+/// makes exactly that a compile error everywhere in the crate that builds a `Failure`.
+pub struct RenderedCause(String);
+
+impl RenderedCause {
+    /// Walks `error`'s `#[source]` chain onto one line.
+    ///
+    /// Safe here because `sutura_domain::question::MalformedQuestion`'s own note guarantees no
+    /// variant, and no link of any variant's cause chain, carries the caller's own text - the same
+    /// guarantee [`invalid`] relied on before this type existed.
+    fn of(error: &(dyn core::error::Error + 'static)) -> Self {
+        let mut message = error.to_string();
+        for cause in cause_chain(error) {
+            message.push_str(": ");
+            message.push_str(&cause);
+        }
+        Self(message)
+    }
+
+    /// The outer sentence only, with no walk.
+    ///
+    /// `MalformedStatement::Statement`'s cause, `sutura_domain::raw::InvalidRawStatement`, carries
+    /// none of the text it measured - `Empty`, `TooLong { len, limit }`, `EmbeddedNul` name only the
+    /// shape of the failure. `MalformedStatement::NotAnObject`'s cause is different: its
+    /// `#[source]` is a `serde_json::Error` whose own `Display` for an unrecognized field does echo
+    /// the caller-chosen key verbatim, bidi controls included (confirmed against a standalone
+    /// reproduction pinned to this workspace's `serde_json`/`thiserror` versions, not run in-crate),
+    /// so walking it the way [`Self::of`] does would leak that key into a peer's context. `Display`
+    /// on this `thiserror` enum prints only the fixed `#[error(...)]` sentence and never reaches
+    /// that source - the property this relies on and does not itself enforce.
+    fn outer_only(error: &MalformedStatement) -> Self {
+        Self(error.to_string())
+    }
+
+    /// The one call to `ErrorData::invalid_params` a rendered cause may reach.
+    ///
+    /// `clippy.toml`'s `disallowed-methods` ban on `rmcp::ErrorData::invalid_params` names this as
+    /// the one permitted call site: both renderers reach the constructor only through here, so an
+    /// exposure added anywhere else in this workspace is a visible diff under `-D warnings`, the
+    /// same property `Secret::expose_secret` relies on. That ban is a second, independent
+    /// mechanism from this type's own privacy - see the struct's own doc for the limit that makes
+    /// it worth keeping rather than redundant: the ban catches a new *direct* call to
+    /// `invalid_params` anywhere in the crate, which nothing about this type's privacy does.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one call this crate makes to the banned constructor - both renderers reach it \
+                  only through `RenderedCause::of`/`RenderedCause::outer_only` and this method, so a \
+                  second direct call written elsewhere is a visible diff under -D warnings"
+    )]
+    fn into_error_data(self) -> ErrorData {
+        ErrorData::invalid_params(self.0, None)
+    }
+}
+
+/// # `RenderedCause`'s tuple field is private, so nothing outside this module can mint one
+///
+/// ```compile_fail
+/// let _ = sutura_mcp::server::RenderedCause(String::from("leaked"));
+/// ```
+///
+/// The compiling twin, so the failure above is provably about the private field and not about the
+/// type being unreachable or a typo in the snippet - the type is genuinely public, only its
+/// constructor is not:
+///
+/// ```
+/// use sutura_mcp::server::RenderedCause;
+/// fn takes_a_rendered_cause(_: &RenderedCause) {}
+/// ```
+mod compile_fail_tuple_field_is_private {}
+
+/// A malformed `run_sql` call, as a JSON-RPC error. See [`RenderedCause::outer_only`] for why this
+/// must not walk the cause chain.
 fn invalid_statement(error: &MalformedStatement) -> ErrorData {
-    ErrorData::invalid_params(error.to_string(), None)
+    RenderedCause::outer_only(error).into_error_data()
 }
 
 /// A malformed question, as a JSON-RPC error naming what was wrong.
 ///
 /// The chain is walked into the message because `Display` on a `thiserror` enum prints the outermost
-/// sentence only, and here the inner one is the half that names the field or the character set. That
-/// is safe for exactly the reason `sutura_domain::question::MalformedQuestion`'s own note gives: no
-/// variant, and no link of any variant's cause chain, carries the caller's own text.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the renderers are the one permitted path into this constructor, and this one is the \
-              certified question's: every variant and every link of the cause chain it walks was \
-              written by us to name the field and the rule, so the chain walk renders nothing the \
-              caller chose"
-)]
+/// sentence only, and here the inner one is the half that names the field or the character set. See
+/// [`RenderedCause::of`] for why that walk is safe.
 fn invalid(error: &MalformedQuestion) -> ErrorData {
-    let mut message = error.to_string();
-    for cause in cause_chain(error) {
-        message.push_str(": ");
-        message.push_str(&cause);
-    }
-    ErrorData::invalid_params(message, None)
+    RenderedCause::of(error).into_error_data()
 }
 
 /// The pinned bundle, as a tool result.

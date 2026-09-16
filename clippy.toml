@@ -90,23 +90,30 @@ disallowed-methods = [
   # an expectation like any other, and the reason it gives says it is a test.
   { path = "sutura_domain::identity::Secret::expose_secret", reason = "the one call that lets credential material out; every exposure carries an #[expect] naming what it is for, so a new one is a visible diff" },
   # The constructor that lets a caller's own text into the message an MCP client renders as an
-  # error, on the one channel a caller cannot read as either an answer or a refusal. What replaces
-  # a direct call is this crate's two renderers, `sutura_mcp::server::invalid` and
-  # `sutura_mcp::server::invalid_statement`, each of which holds an `#[expect]` naming why it is
-  # allowed - so a new exposure is a diff a reviewer sees, the `Secret::expose_secret` shape above.
-  # There is no list of permitted call sites in this file, for that entry's own reason.
+  # error, on the one channel a caller cannot read as either an answer or a refusal. #783 gave this
+  # crate a privacy-sealed newtype, `sutura_mcp::server::RenderedCause`, that sits between each
+  # renderer's chain walk and this constructor - so what replaces a direct call is now ONE method,
+  # `RenderedCause::into_error_data`, which holds the `#[expect]` naming why it is allowed. Neither
+  # renderer (`invalid`, `invalid_statement`) calls this constructor itself any more. There is no
+  # list of permitted call sites in this file, for that entry's own reason.
   #
   # **The claim is a visible diff, not an impossibility, and the difference is the type.** The
   # guard on the HTTP surface is a newtype of ours; `ErrorData` is rmcp's, so nothing in the type
   # system refuses the call. The lint reaches only what this workspace compiles: a call written in
-  # another crate, or one an `#[allow]` covers, still builds.
+  # another crate, or one an `#[allow]` covers, still builds. Nor is this ban redundant with
+  # `RenderedCause`'s own privacy - measured on #783: a brand-new direct call to this constructor
+  # written elsewhere in `sutura-mcp`, with its result kept read, compiles clean under `cargo check`
+  # and under `cargo clippy -D warnings` WITHOUT this entry. The two mechanisms cover different
+  # halves: the type narrows what a caller of the two renderers can construct; this ban is what
+  # catches a fresh, unrelated call to the constructor itself.
   #
-  # VERIFIED TO RESOLVE the way this file's header requires: with both `#[expect]`s below removed,
-  # `just lint` rejected both renderer calls in `sutura-mcp` by file and line. Both the definition
-  # path (`rmcp::model::ErrorData::invalid_params`) and the re-export this crate actually imports
-  # (`rmcp::ErrorData::invalid_params`) resolved and rejected identically - measured, not assumed -
-  # so the choice below is the re-export, matching `use rmcp::{ErrorData, ...}` in `server.rs`.
-  { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::invalid or sutura_mcp::server::invalid_statement, the two renderers that hold an #[expect]" },
+  # VERIFIED TO RESOLVE the way this file's header requires: with the `#[expect]` on
+  # `RenderedCause::into_error_data` removed, `just lint` rejected that one call by file and line.
+  # Both the definition path (`rmcp::model::ErrorData::invalid_params`) and the re-export this crate
+  # actually imports (`rmcp::ErrorData::invalid_params`) resolved and rejected identically - measured
+  # on #782, not assumed - so the choice below is the re-export, matching `use rmcp::{ErrorData,
+  # ...}` in `server.rs`.
+  { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
 ]
 
 disallowed-types = [
