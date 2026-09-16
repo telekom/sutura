@@ -30,7 +30,7 @@ command is written here because a bare figure in prose is one nobody can re-chec
 | Measured                                                                                                          | Value                                                                                                                                                                                                                                                                               |
 | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | occurrences of `broker`, case-insensitive, in the agent surface's composition root `crates/sutura-cli/src/mcp.rs` | **0**. `git cat-file blob origin/main:crates/sutura-cli/src/mcp.rs \| grep -c -i broker` over a file `grep -c ''` reports at 471 lines                                                                                                                                              |
-| `crates/sutura-mcp/src/lib.rs:212`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
+| `crates/sutura-mcp/src/lib.rs:214`                                                                                | `pub async fn serve_stdio<S>(service, permitted, prose, admission, reply)` - **no parameter a principal could arrive through**                                                                                                                                                      |
 | what that function opens                                                                                          | `rmcp::transport::stdio()` - the process's own pipes                                                                                                                                                                                                                                |
 | `crates/sutura-mcp/Cargo.toml` first-party dependencies                                                           | `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`. **No adapter and no broker**                                                                                                                                                                                      |
 | the chain the agent surface establishes                                                                           | `crates/sutura-mcp/src/principal.rs`: `pub(crate) const fn established() -> RequestContext` returning `RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))` - **a `const fn` with no inputs**, which is the honest shape for a transport that authenticates nobody |
@@ -465,14 +465,24 @@ binding was correct *because* the value was empty under the pipe. `context` is n
 be ignored - it is threaded through `asked` unconditionally - but the pipe still supplies nothing to
 read: `Asking`'s other arm, `TheProcessOwner`, never inspects `context` at all (`:315-318`), and
 `crate::serve_stdio` - the only thing this crate serves - always builds `TheProcessOwner`
-(`crates/sutura-mcp/src/lib.rs:220-223`). `PerRequest` is produced only behind this crate's own
-default-off `http` feature, by a module (`crate::http`, `#378` PR3) that no composition root mounts
-yet (`lib.rs:84-93`). So the fact that changed is *which arm of a match statement ignores the
-context*, not *whether anything served today does*.
+(`crates/sutura-mcp/src/lib.rs:222-225`). `PerRequest` is produced behind this crate's own
+default-off `http` feature, by a module (`crate::http`, `#378` PR3) that a composition root
+already mounts: `sutura-cli` wires it behind its own optional `agent` feature and a settings
+switch (`crates/sutura-cli/src/serve/agent.rs:62-73`, `serve.rs:336-341,350-353`), and
+`crates/sutura-cli/tests/served/agent.rs:104-134` starts the composed binary and exercises it end
+to end over a real socket. That landed at `#758`, an ancestor of this amendment's own merge base -
+a day before this dateline, not after it. What is still true, and distinct from that: no
+*published* artefact carries it. `nix/shipped.nix`'s cross-built binaries take no `features`
+argument (`crossPackages`, `:347-353`), so what ships is default-features; `agent` reaches only
+`allFeatures` and its `allFeaturesProbes` (`:173`, `:449`), which are exposed under `packages`,
+never `checks` (`:705`). So the fact that changed is *which arm of a match statement ignores the
+context* - and now a composed, tested binary reads it, behind a feature this repository never
+turns on for anything it publishes.
 
 **The limit this ADR already states, restated so this amendment does not overclaim it:** *What this
 decision does NOT cover* above already says leg 1 is built on HTTP and leg 2 - a source executing as
 the caller - has never run against a real token service, on any surface. Reading `context` on the
 agent transport is neither: it is the same type-level plumbing this record priced, now built and
-still unreached by anything served, and it moves nothing about per-subject execution. AGENTS.md's
-own line holds unchanged: leg 1 is built, leg 2 is not, on anything published.
+mounted by a composed, tested binary behind an optional feature - reachable by nothing this
+repository publishes - and it moves nothing about per-subject execution. AGENTS.md's own line
+holds unchanged: leg 1 is built, leg 2 is not, on anything published.
