@@ -35,10 +35,12 @@
 //! - **A registered data system.** The `data_systems:` axis of
 //!   `crates/sutura-app/tests/adapters/adapters.rs` still gains no entry, and that registry's own rule is
 //!   why: a cell in it runs inside `just test`, and this one cannot - the nix sandbox has no network.
-//! - **That a SHIPPED binary would do any of this.** The branch below this one gives the adapter a
-//!   composition root, so *nothing links the crate* has stopped being true - but it is behind a
-//!   default-off feature and no published artifact turns it on, so what this leg exercises is still
-//!   the adapter and not a deployment. `.agents/skills/sutura/crate-map` is the authority on that distinction.
+//! - **That this SUITE runs against a shipped binary.** The branch below this one gives the
+//!   adapter a composition root, and `github.com/telekom/sutura#685` step 5 puts it behind every
+//!   published binary's `--features bigquery` on purpose - but this leg still talks to the
+//!   recorded fixture through `sutura-exec-bigquery`'s own test binary, not the shipped one, so
+//!   what it exercises is still the adapter and not a deployment. `.agents/skills/sutura/crate-map`
+//!   is the authority on that distinction.
 //!
 //! # What its first real run FOUND, which is the point of having it - and what closed it
 //!

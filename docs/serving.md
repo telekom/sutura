@@ -14,11 +14,11 @@ would have put them in every `sutura compile`. `github.com/telekom/sutura#685` s
 anyway: the cost lands once, in what a `cargo build` produces, and `doctor`, `compile` and `query`
 still run one process each and start no listener.
 
-**What the published binary does not carry** is in-process TLS, the BigQuery adapter, the Postgres
-adapter and the DataHub adapter. Each is a default-off feature, each costs an outbound rustls
-closure on two statically linked triples, and each is a **startup refusal that names the feature**
-rather than a silent degradation - so asking for one on a published binary stops the process rather
-than serving something weaker than asked for. A deployment that needs one builds from source;
+**The published binary carries in-process TLS, the BigQuery adapter, the Postgres adapter and the
+DataHub adapter**, since `github.com/telekom/sutura#685` step 5 - each is off by default only in a
+*source* build without `--features`, and each of those is still a **startup refusal that names the
+feature** rather than a silent degradation - so asking for one on a build without it stops the
+process rather than serving something weaker than asked for.
 [Terminating it in this process](#terminating-it-in-this-process) and the `bigquery` source notes
 below say which command.
 
@@ -377,11 +377,14 @@ bound that surface exactly as they bound this one.
 A second, default-off transport for the same agent surface exists behind `sutura-mcp`'s own `http`
 feature: the streamable-HTTP transport `docs/adr/0023` decided on. Since `telekom/sutura#378` PR4
 `sutura serve` mounts it at `/mcp`, behind this surface's leg 1 and `establish_asked` -
-which is why it only ever serves where a caller can be verified. It is OFF by default at both gates:
+which is why it only ever serves where a caller can be verified. It is off by default at two
+gates, and every published binary has already cleared the first one:
 
 - **Build time (`sutura-cli`'s `agent` feature).** A build without the feature cannot reference
   `sutura_mcp::http` at all, so the route is compiled out of the artefact; setting
   `server.agent_surface.enabled` against such a build is a startup refusal naming the feature.
+  Every published binary carries `agent` since `github.com/telekom/sutura#685` step 5; a source
+  build without `--features agent` is the one still gated here.
 - **Deployment time (`server.agent_surface.enabled`, default `false`).** Even a build with the
   feature linked stays off until an operator sets the key, and setting it without also declaring
   `security.inbound` is a startup refusal (`AgentSurfaceWithoutInboundIdentity`) - `/mcp` is never
@@ -826,17 +829,14 @@ model's `source:` names.**
 The job's DEADLINE is not a key here: it is filled from `server.request_timeout_seconds`, because a
 job that outlives the request it is answering is billed for a result nobody is waiting for.
 
-**Three things about which builds can serve this**, and the first is the one to check before writing
+**Two things about which builds can serve this**, and the first is the one to check before writing
 the block above:
 
-- **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the feature
-  refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
-  outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
-  decision a reviewer can see in a manifest line.
-- **No published artifact opens it, and that is now a FEATURE decision rather than a packaging one.**
-  A release publishes `sutura`, and it publishes it with cargo's default features - so `bigquery`
-  is off in every published tarball and image. Opening a dataset means building from source with
-  `--features bigquery`.
+- **`sutura serve` opens it only when built with `--features bigquery`.** A binary without the
+  feature refuses the source at startup, naming the feature - a source build with the feature off
+  is the only one that still refuses. Every published artefact carries it: `github.com/telekom/
+  sutura#685` step 5 ships the `bigquery` adapter (and `postgres`, `tls`, `datahub`) in every
+  release tarball and image, so opening a dataset needs no separate build any more.
 - **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
   source and a `bigquery` source is refused at startup, naming both entries - the registry a process
   holds is generic in one adapter type, and the alternative is a source nothing opened.
@@ -857,11 +857,11 @@ start, and there is no fallback.
 
 ### A `postgres` source, least authority, and its channel
 
-Postgres is behind the default-off `postgres` feature on `sutura`, including its `serve`
-subcommand. A default build refuses the entry by name and tells the operator which feature is
-absent; current published artifacts leave it off. A source build enables it explicitly with
-`--features postgres`, the same shape as `--features bigquery` above; no `just` task and no nix
-package builds it, and release packaging chooses the default set.
+Postgres is behind the `postgres` feature on `sutura`, including its `serve` subcommand. A build
+without it refuses the entry by name and tells the operator which feature is absent; every
+published artefact carries it, the same shape as `bigquery` above, since `github.com/telekom/
+sutura#685` step 5. A source build without `--features postgres` (or none at all) is the one that
+still needs to ask for it explicitly.
 
 One remote, server-verified source is declared like this:
 
@@ -1059,18 +1059,19 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 ### Terminating it in this process
 
 For the deployment where nothing sits in front. It needs **a build that has a TLS listener in it**,
-which neither the default build nor the published binary is:
+which every published binary is, since `github.com/telekom/sutura#685` step 5 - the plain `cargo
+build`/`cargo run` this repository's own commands use is the one that is not:
 
 ```bash
 cargo run -p sutura-cli --features tls -- serve
 ```
 
-The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
-artifact that will never present a certificate is cost with no return - a cost paid four times over
-on the shipped triples, two of which are statically linked. With the feature off the dependency is
-absent from the build rather than merely unused, and asking for `in-process` termination is a startup
-refusal that names the feature - so the two cannot disagree, and a published binary handed this
-configuration stops rather than serving cleartext.
+The feature is off by default in a source build because most deployments do not use it, and a TLS
+stack compiled into an artifact that will never present a certificate is cost with no return. With
+the feature off the dependency is absent from the build rather than merely unused, and asking for
+`in-process` termination is a startup refusal that names the feature - so the two cannot disagree,
+and a source build without `--features tls` handed this configuration stops rather than serving
+cleartext.
 
 Then:
 

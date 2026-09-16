@@ -43,12 +43,12 @@ source build. The unsuffixed image tags at `ghcr.io/telekom/sutura` are this com
 [verifying a release](verifying-a-release.md) is the tag table, and [serving over HTTP](serving.md) is the shape for the server, whose tags are the `-serve` ones.
 [Building from source](#building-from-source) is at the bottom of this page.
 
-**Both published binaries carry cargo's default features**, which for this one means it links no
-data-system adapter at all - `sutura doctor`'s `data systems` line reads
-`none - this build reads files, and pushes down to nothing`. That is not a hole in this tutorial.
-Reading files is the whole of what this build does and it is enough for every command below, up to
-and including a certified answer with its anchors re-executed. `just shipped` is what asserts it,
-out of the shipped binary's own embedded dependency list rather than out of a manifest.
+**The published binary carries every optional adapter**, since `github.com/telekom/sutura#685`
+step 5 - `sutura doctor`'s `data systems` line reads `bigquery, over the wire`, and reaching a
+Postgres or DataHub source needs no separate build either. Nothing below relies on that, though:
+reading local files is enough for every command in this tutorial, up to and including a certified
+answer with its anchors re-executed. `just shipped` is what asserts what a release carries, out of
+the shipped binary's own embedded dependency list rather than out of a manifest.
 
 ## Install it
 
@@ -356,12 +356,11 @@ have nothing to do with the question:
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.
 
-`kind: bigquery` and `kind: postgres` are the two network kinds, and each needs a build carrying its
-default-off feature - the published binaries deliberately link neither, which
-`checks.shipped-features` reads out of each released binary rather than out of a manifest. (That is
-an artifact decision, not a build-time saving.) [Building from source](#building-from-source) is how
-to get one. The BigQuery block below is the cloud variant; the Postgres declaration, verified and
-mutual TLS modes, and least-authority role grants are in [Serving](serving.md#a-postgres-source-least-authority-and-its-channel).
+`kind: bigquery` and `kind: postgres` are the two network kinds, and the published binary carries
+both, which `checks.shipped-features` reads out of each released binary's embedded dependency list
+rather than out of a manifest. Nothing to build for either. The BigQuery block below is the cloud
+variant; the Postgres declaration, verified and mutual TLS modes, and least-authority role grants
+are in [Serving](serving.md#a-postgres-source-least-authority-and-its-channel).
 
 **The `security:` block above is still required** - the snippet below replaces the `sources:` block
 and nothing else. Any non-empty `sources:` with no `security.identity` is refused at startup, naming
@@ -512,8 +511,8 @@ the answer cannot drift from the files.
 
 **This is the contributor's route, and it is the second half of this page rather than the first for
 a reason.** Everything above runs on a published artefact, which is what a reader who wants an
-answer should be holding. You want a source build for one of two things: a change to this
-repository, or a feature no published binary carries.
+answer should be holding. A source build is for a change to this repository - the published binary
+already carries every optional adapter, so wanting one of them is no longer a reason to build.
 
 A clone and the toolchain the repository pins are what this needs -
 [Contributing](contributing.md) is the setup, and `just` with no argument lists every task. Every
@@ -530,18 +529,13 @@ No feature flag and nothing to install for that: the engine is compiled into the
 the CSVs itself, so `query` works in a plain `cargo run`. A data system's driver is a development
 dependency here - present to prove the SQL we render actually runs, not to answer your questions.
 
-A build that can open a BigQuery dataset is the one thing above that a published binary cannot do,
-and it is a feature away:
+A source build can also carry FEWER adapters than the published binary, over `--features`:
 
 ```bash
 cargo build --release -p sutura-cli --features bigquery
 ```
 
-`sutura doctor` on the result says `bigquery, over the wire` where a published artefact says `none`,
-which is how somebody holding a binary finds out which of the two they have.
-
-A Postgres database is the same shape, over `--features postgres`:
-
-```bash
-cargo build --release -p sutura-cli --features postgres
-```
+builds a binary that can open BigQuery and nothing else network-shaped; plain `cargo build --release
+-p sutura-cli` builds one that opens no data system at all, same as this repository's own `cargo run`
+above. `sutura doctor` says which adapters a given binary was built with, which is how you tell one
+build from another - published or not.
