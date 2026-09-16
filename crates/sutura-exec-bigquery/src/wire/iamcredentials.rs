@@ -17,8 +17,17 @@
 //! control) can cap token lifetime below the requested ceiling, and a broker and cache that reason
 //! from a deadline LATER than the truth can serve a dead token. So the expiry is
 //! `min(now + requested seconds, <the response's expireTime>)`, and an `expireTime` that would
-//! GRANT MORE than was requested, or is absent, is refused rather than trusted - the same posture
+//! grant MORE than was requested, or is absent, is refused rather than trusted - the same posture
 //! `wire::StsOverHttp` holds for a missing `expires_in`.
+//!
+//! **The refusal is bounded but not to the second.** `iamcredentials` answers an `expireTime`
+//! stamped by its own clock, which reads a fraction past `now + requested` against this adapter's
+//! own second-rounded `now` (the vendor's clock vs ours), so a strict `<= now + requested` bound
+//! refuses Google's own answer to the requested ceiling. The bound therefore carries an explicit,
+//! documented [`IMPERSONATED_LIFETIME_SKEW_SECONDS`] allowance on top of the requested lifetime;
+//! an `expireTime` up to `now + requested + skew` is accepted (the granted deadline still READS the
+//! response's `expireTime`, never the bound), anything beyond it is still refused, and an absent
+//! one is still refused.
 
 use sutura_domain::identity::{Expiry, Secret};
 
@@ -27,6 +36,15 @@ use crate::wire::{CallDeadline, WireAgent};
 
 /// The API this module speaks to.
 const HOST: &str = "https://iamcredentials.googleapis.com/v1";
+
+/// The clock-skew allowance added to the requested lifetime before the `expireTime` bound bites.
+///
+/// `iamcredentials` stamps `expireTime` from its own clock, up to a second-rounding fraction past
+/// this adapter's `now + requested`; the bound stays a mechanism (an `expireTime` beyond
+/// `now + requested + SKEW` is refused, an absent one is refused), but this explicit window keeps
+/// the vendor's own answer to the requested ceiling from tripping it. The granted deadline is still
+/// the response's `expireTime`, never this bound.
+const IMPERSONATED_LIFETIME_SKEW_SECONDS: u64 = 60;
 
 /// The request body, as `generateAccessToken`'s own document describes it.
 #[derive(serde::Serialize)]
@@ -264,9 +282,10 @@ pub enum IamCredentialsError {
     /// adapter reads - never an invented deadline, the same posture `StsError::NoLifetime` holds.
     #[error("the impersonation endpoint's answer carried no usable expiry (expireTime)")]
     NoLifetime,
-    /// The `expireTime` grants MORE life than the lifetime this request asked for - a vendor
-    /// answering outside what was asked, refused rather than trusted with a longer-than-requested
-    /// credential.
+    /// The `expireTime` grants MORE life than this request asked for, beyond the documented
+    /// clock-skew allowance ([`IMPERSONATED_LIFETIME_SKEW_SECONDS`]) - a vendor answering outside
+    /// what was asked, refused rather than trusted with a longer-than-requested credential. An
+    /// `expireTime` inside the allowance is accepted; the granted deadline still reads it.
     #[error("the impersonation endpoint granted a longer lifetime than was requested")]
     ExceedsRequestedLifetime,
 }
@@ -366,8 +385,13 @@ fn parse_answer(
         return Err(IamCredentialsError::NoAccessToken);
     }
     let requested_until = now.saturating_add(requested_seconds);
+    // The requested ceiling plus the documented clock-skew window: `iamcredentials` stamps
+    // `expireTime` from its own clock a fraction past this adapter's second-rounded `now + requested`,
+    // so a strict `expireTime > requested_until` bound refuses the vendor's own answer. Anything
+    // beyond the allowance is still refused, and an absent `expireTime` still is (`NoLifetime`).
+    let bound = requested_until.saturating_add(IMPERSONATED_LIFETIME_SKEW_SECONDS);
     let expire_time = expire_time_unix(&response.expire_time).ok_or(IamCredentialsError::NoLifetime)?;
-    if expire_time > requested_until {
+    if expire_time > bound {
         return Err(IamCredentialsError::ExceedsRequestedLifetime);
     }
     Ok(StsCredential::of(
@@ -498,6 +522,52 @@ mod tests {
             "target-sa@acme-analytics.iam.gserviceaccount.com",
         )
         .expect_err("an expireTime beyond the requested lifetime is refused");
+        assert!(matches!(failure, super::IamCredentialsError::ExceedsRequestedLifetime));
+    }
+
+    #[test]
+    fn an_expire_time_inside_the_clock_skew_allowance_is_accepted_beyond_it_refused() {
+        // The vendor's `expireTime` (its own clock) can sit a fraction past this adapter's
+        // second-rounded `now + requested`, so a strict `expireTime > requested_until` bound refuses
+        // Google's own answer to the requested ceiling. The bound stays a mechanism with a documented
+        // skew allowance: an `expireTime` inside `now + requested + SKEW` is accepted (the granted
+        // deadline still READS that `expireTime`), one beyond it is refused, an absent one is refused
+        // elsewhere (`NoLifetime`). This cell pins both edges of that window.
+        const SKEW: u64 = super::IMPERSONATED_LIFETIME_SKEW_SECONDS;
+        let now = 3_999_884_400u64;
+        // inside: now + 3600 + 30 - past the strict second-rounding bound, inside the 60s window.
+        let inside_ts = "2096-10-01T00:00:30.000Z";
+        let inside = expire_time_unix(inside_ts).expect("a well-formed expireTime parses");
+        // beyond: inside + 40 - past even the allowance (now + 3600 + 100).
+        let beyond_ts = "2096-10-01T00:01:10.000Z";
+        let beyond = expire_time_unix(beyond_ts).expect("a well-formed expireTime parses");
+        assert!(
+            inside - (now + 3_600) < SKEW && beyond - (now + 3_600) > SKEW,
+            "the fixture must straddle the allowance: inside by {inside}, beyond by {beyond}, now {now}"
+        );
+
+        let granted = parse_answer(
+            200,
+            &format!(r#"{{"accessToken":"the-sa-token","expireTime":"{inside_ts}"}}"#),
+            now,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect("an expireTime inside the clock-skew allowance is granted");
+        assert_eq!(
+            granted.not_after(),
+            Expiry::At { unix_seconds: inside },
+            "even inside the allowance, the granted deadline is the response's expireTime, not the bound"
+        );
+
+        let failure = parse_answer(
+            200,
+            &format!(r#"{{"accessToken":"the-sa-token","expireTime":"{beyond_ts}"}}"#),
+            now,
+            3_600,
+            "target-sa@acme-analytics.iam.gserviceaccount.com",
+        )
+        .expect_err("an expireTime beyond the skew allowance is still refused");
         assert!(matches!(failure, super::IamCredentialsError::ExceedsRequestedLifetime));
     }
 
