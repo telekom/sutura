@@ -301,7 +301,7 @@ impl axum::response::IntoResponse for Outcome {
     fn into_response(self) -> axum::response::Response {
         let outcome = match &self.body {
             OutcomeBody::Answer { rows, .. } => crate::metrics::QuestionOutcome::answered(rows.len()),
-            OutcomeBody::Refusal { .. } => crate::metrics::QuestionOutcome::refused(),
+            OutcomeBody::Refusal { reason } => crate::metrics::QuestionOutcome::refused(reason.code()),
         };
         let mut response = match self.retry_after_seconds {
             Some(seconds) => (

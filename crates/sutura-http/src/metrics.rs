@@ -48,13 +48,17 @@ mod buckets {
 
 /// The closed set of `code` labels for `sutura_questions_total`.
 ///
-/// Every label is a literal here or exactly `Failure::code`'s vocabulary. The registry APIs accept
+/// Every label is a literal here or exactly `Failure::code`'s vocabulary, with one exception:
+/// `budget_exhausted` is pulled out of the domain's `RefusalReason::code` vocabulary rather than
+/// left inside the generic `refused` bucket - see [`QuestionOutcome::refused`] for why a spend
+/// refusal is the one `RefusalReason` this series counts as itself. The registry APIs accept
 /// [`Label`] rather than text and pre-register this whole set, so an observation outside it cannot
 /// create a series. `every_failure_code_is_a_label` has the exhaustive match that makes a new
 /// `Failure` variant require an explicit decision here.
 pub(crate) const QUESTION_CODES: &[Label] = &[
     ANSWER,
     label("at_capacity"),
+    BUDGET_EXHAUSTED,
     label("identity_unavailable"),
     label("insufficient_scope"),
     label("internal"),
@@ -69,6 +73,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
 ];
 
 const ANSWER: Label = label("answer");
+const BUDGET_EXHAUSTED: Label = label("budget_exhausted");
 const REFUSED: Label = label("refused");
 const UNAUTHORIZED: Label = label("unauthorized");
 
@@ -107,9 +112,21 @@ impl QuestionOutcome {
         }
     }
 
-    pub(crate) const fn refused() -> Self {
+    /// `code` is [`crate::wire::RefusalBody::code`] - the domain's own `RefusalReason::code`,
+    /// read back off the rendered wire body rather than re-derived from the reason, so this
+    /// series cannot name a code the wire body disagrees with.
+    ///
+    /// Every code but `budget_exhausted` counts under the generic `refused` bucket, unchanged
+    /// from before this distinction existed: a series per `RefusalReason` variant is not this
+    /// registry's job (`QUESTION_CODES`'s own doc), and spend is the one refusal a deployment
+    /// needs to watch approach rather than merely discover once it fires - see `docs/adr/0030`.
+    pub(crate) fn refused(code: &'static str) -> Self {
         Self {
-            code: REFUSED,
+            code: if code == "budget_exhausted" {
+                BUDGET_EXHAUSTED
+            } else {
+                REFUSED
+            },
             rows: None,
         }
     }
@@ -348,5 +365,25 @@ mod tests {
         metrics.completed_question(Some(QuestionOutcome::answered(usize::MAX)), std::time::Duration::ZERO);
         let rendered = builder.build().render();
         assert!(rendered.contains("sutura_answer_rows_count 1"), "{rendered}");
+    }
+
+    /// A spend refusal counts as `budget_exhausted`, distinct from every other refusal, which
+    /// still counts as the generic `refused` bucket.
+    ///
+    /// Two different codes reaching two different series is the discrimination itself - a counter
+    /// that simply moved on any refusal would pass a test that only checked the budget case.
+    #[test]
+    fn a_budget_refusal_is_counted_apart_from_other_refusals() {
+        let mut builder = RegistryBuilder::default();
+        let metrics = Metrics::install(&mut builder);
+        metrics.completed_question(Some(QuestionOutcome::refused("budget_exhausted")), std::time::Duration::ZERO);
+        metrics.completed_question(Some(QuestionOutcome::refused("metric_unknown")), std::time::Duration::ZERO);
+        metrics.completed_question(Some(QuestionOutcome::refused("metric_unknown")), std::time::Duration::ZERO);
+        let rendered = builder.build().render();
+        assert!(
+            rendered.contains("sutura_questions_total{code=\"budget_exhausted\"} 1"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("sutura_questions_total{code=\"refused\"} 2"), "{rendered}");
     }
 }

@@ -72,6 +72,7 @@ fn question_total(exposition: &str) -> u64 {
 const EXPECTED_EXPOSITION: &str = r#"# TYPE sutura_questions_total counter
 sutura_questions_total{code="answer"} 0
 sutura_questions_total{code="at_capacity"} 0
+sutura_questions_total{code="budget_exhausted"} 0
 sutura_questions_total{code="identity_unavailable"} 0
 sutura_questions_total{code="insufficient_scope"} 0
 sutura_questions_total{code="internal"} 0
