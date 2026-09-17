@@ -1334,8 +1334,8 @@ verified caller, or restricted to a non-empty `AudienceGrant`.
 
 ### `use AudienceGrant`
 
-Parsed rather than a bare `BTreeSet<AudienceId>`, so `InvalidAudienceGrant::Empty` is
-refused once, at assembly.
+One or more audience identifiers a restricted metric is visible to. Parsed rather than a bare
+`BTreeSet<AudienceId>`, so `InvalidAudienceGrant::Empty` is refused once, at assembly.
 
 ### `use GrantedAudiences`
 
@@ -4457,8 +4457,8 @@ Parses a name, rejecting anything that is not one.
 pub struct AudienceId
 ```
 
-`docs/adr/0028`. Not a scope: catalog metadata, not the deployed authorization-server
- contract.
+A portable identifier a catalog author restricts a metric's audience to - `docs/adr/0028`.
+ Not a scope: catalog metadata, not the deployed authorization-server contract.
 
 Construct it with `parse`. There is no other way in: the field is private and
 `Deserialize` is routed through the same constructor, so a value that is not a legal
@@ -5628,29 +5628,33 @@ fn _read(pinned: &PinnedDefinitions) -> usize {
 pub const fn everything(pinned: &'a PinnedDefinitions) -> Self
 ```
 
-For the surfaces `docs/adr/0028` names as retaining the whole bundle. Public, so not
-sealed against misuse; what it buys is that nothing downstream renders a catalog from a
-bare `&PinnedDefinitions`.
+Every metric, unfiltered - for the surfaces `docs/adr/0028` names as retaining the whole
+bundle. Public, so not sealed against misuse; what it buys is that nothing downstream
+renders a catalog from a bare `&PinnedDefinitions`.
 
 ```rust
 pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences) -> Self
 ```
 
+A caller mapped to this set.
+
 ```rust
 pub fn metric(&self, name: &MetricName) -> Option<&'a Metric>
 ```
 
-Absent, not undescribed, when this caller may not see it.
+One metric, if declared AND this caller may see it - absent, not undescribed.
 
 ```rust
 pub fn metrics(&self) -> impl Iterator<Item> + '_
 ```
 
+Every metric this caller may see.
+
 ```rust
 pub const fn pinned(&self) -> &'a PinnedDefinitions
 ```
 
-For provenance, which is always the whole bundle's digest.
+The bundle this view borrows from - for provenance, which is the whole bundle's digest.
 
 ##### Implements
 
