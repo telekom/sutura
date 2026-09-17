@@ -114,6 +114,7 @@ async fn a_tool_call_with_no_established_caller_is_refused_and_never_answered_as
         CatalogProse::Quoted,
         super::admission(""),
         super::reply(""),
+        testing::instructions(),
     );
     let context = hand_built_context(1, a_peer().await, None);
     let error = surface
@@ -152,6 +153,7 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
         CatalogProse::Quoted,
         super::admission(""),
         super::reply(""),
+        testing::instructions(),
     );
     let peer = a_peer().await;
 
@@ -224,6 +226,7 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
         CatalogProse::Quoted,
         super::admission(""),
         super::reply(""),
+        testing::instructions(),
     );
     let peer = a_peer().await;
     // The raw door only exists under a grant that names it - bob is granted every capability, which

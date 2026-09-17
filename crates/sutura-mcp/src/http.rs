@@ -118,13 +118,16 @@ pub fn config() -> StreamableHttpServerConfig {
 /// `service_factory` is called by the SDK ONCE PER REQUEST under [`config`]'s stateless mode (see
 /// the module documentation) - never once per process and never once per session - so each call
 /// clones the shared `service`/`admission` handles rather than allocating a second data-system
-/// connection or a second permit set.
+/// connection or a second permit set. `instructions` is cloned the same way, and for the same
+/// reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
+/// on the `initialize` that reads it back.
 #[must_use]
 pub fn service<S>(
     surface: Arc<S>,
     prose: CatalogProse,
     admission: Admission,
     reply: RequestTimeout,
+    instructions: Arc<str>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
 where
     S: Surface + Send + Sync + 'static,
@@ -137,6 +140,7 @@ where
                 prose,
                 admission.clone(),
                 reply,
+                Arc::clone(&instructions),
             ))
         },
         Arc::new(LocalSessionManager::default()),
@@ -306,6 +310,7 @@ mod tests {
             CatalogProse::Quoted,
             admission(),
             reply(),
+            testing::instructions(),
         );
 
         let catalog_only = subject_asked(
@@ -345,6 +350,7 @@ mod tests {
             CatalogProse::Quoted,
             admission(),
             reply(),
+            testing::instructions(),
         );
         let app = router_with_no_established_caller(transport);
         drop(post(app.clone(), initialize(1)).await);
@@ -392,6 +398,7 @@ mod tests {
             CatalogProse::Quoted,
             admission(),
             reply(),
+            testing::instructions(),
         );
         let foreign_session_id = "a-session-id-this-request-never-opened";
 

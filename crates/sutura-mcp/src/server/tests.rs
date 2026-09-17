@@ -82,6 +82,7 @@ where
             prose,
             admission,
             reply,
+            testing::instructions(),
         ),
         server_side,
     );
