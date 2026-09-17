@@ -2395,3 +2395,32 @@ assert!(refused.is_err());
 ##### Implements
 
 `AccessTokens`, `Debug`
+
+### Module `document`
+
+The two documents this adapter exchanges with the endpoint, and the code that builds and reads
+them.
+
+**Split out of `wire.rs` when that file crossed 1000 lines**, and the cut is at a real seam rather
+than at a line count: everything here is about the SHAPE of a request and an answer, and nothing
+here opens a socket, holds a credential or reads a clock. That is also what makes it the half a
+test can exercise - `super::tests` asserts on the SERIALIZED body and over answer documents, which
+is the whole of what this repository can prove without a project.
+
+Every decision these types carry is argued in `wire.rs`'s own header, which is the one place to
+read them together; what is written here is why each field is the way it is.
+
+#### `fn deserializes`
+
+```rust
+pub fn deserializes(text: &str) -> Result<(), serde_json::Error>
+```
+
+Whether the endpoint's raw reply deserializes into `QueryAnswer`, with the value discarded.
+
+**`pub`, and the only reason.** This reply is a data SYSTEM's response - foreign bytes on their
+way to an agent, not a file an operator placed or a caller's own payload - and the
+`bigquery_reply` fuzz target drives it from outside this crate. Widening `QueryAnswer` itself
+to reach that target would publish a type this crate's own newtype rule keeps field-private
+(`cargo xtask check-boundaries`'s `api_shape` half refuses a `pub` field on a `pub` struct); this
+wrapper reaches the identical `parse` call without needing to.
