@@ -73,7 +73,13 @@ pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
 pub(crate) use postgres::settings as postgres_settings;
 #[cfg(feature = "postgres")]
 pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
-pub(crate) use two_source::{LOOKUP_SOURCE, derived_catalog, settings_spanning_two_sources};
+// `derived_catalog` is its own line, `#[cfg(feature = "postgres")]`: `two_kind` above is its only
+// reader through THIS re-export (`two_source.rs` calls it directly, not through `harness::`), and
+// a default build without that feature never instantiates that module - `-D unused-imports` on a
+// default-features build is what caught the re-export doing nothing there.
+#[cfg(feature = "postgres")]
+pub(crate) use two_source::derived_catalog;
+pub(crate) use two_source::{LOOKUP_SOURCE, settings_spanning_two_sources};
 
 use core::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
