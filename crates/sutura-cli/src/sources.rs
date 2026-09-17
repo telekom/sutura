@@ -812,6 +812,7 @@ mod tests {
             1 << 30,
             sutura_domain::warehouse::deadline::Deadline::opened_at(std::time::Instant::now(), timeout().budget()),
             &sutura_app::SpendLedger::no_budget(),
+            sutura_domain::plan::RowCeiling::DEFAULT,
         )
         .expect("a declared source answers rather than failing")
         .into_outcome();

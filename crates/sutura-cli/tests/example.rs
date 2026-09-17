@@ -331,8 +331,12 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let compiled =
-                compile(&question, &ScopedView::everything(&pinned)).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+            let compiled = compile(
+                &question,
+                &ScopedView::everything(&pinned),
+                sutura_domain::plan::RowCeiling::DEFAULT,
+            )
+            .unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match compiled {
                 Compiled::Refused { ref reason } => {
@@ -524,6 +528,7 @@ mod tests {
                 1 << 30,
                 deadline(),
                 &sutura_app::SpendLedger::no_budget(),
+                sutura_domain::plan::RowCeiling::DEFAULT,
             );
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match answered.map(sutura_app::Answered::into_outcome) {

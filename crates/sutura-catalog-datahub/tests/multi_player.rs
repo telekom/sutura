@@ -108,8 +108,12 @@ mod tests {
         let pinned = over_fixture_source(source(), version)
             .load()
             .expect("the recorded catalog loads");
-        let compiled = compile(&june_revenue(), &sutura_domain::pinned::view::ScopedView::everything(&pinned))
-            .expect("the example question compiles");
+        let compiled = compile(
+            &june_revenue(),
+            &sutura_domain::pinned::view::ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .expect("the example question compiles");
         match compiled {
             Compiled::Planned { ref plan } => {
                 assert_eq!(plan.metric().as_str(), "revenue");

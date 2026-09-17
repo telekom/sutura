@@ -212,6 +212,7 @@ fn fact_sum_over_a_local_join() -> LegPlan {
         terms: vec![term(Aggregate::Sum, "mrr_cents", 0)],
         bindings: definitional_bindings(),
         range: june(),
+        top: None,
     }
 }
 
@@ -231,6 +232,7 @@ fn fact_decomposed_average() -> LegPlan {
         terms: vec![term(Aggregate::Sum, "mrr_cents", 0), term(Aggregate::Count, "mrr_cents", 1)],
         bindings: definitional_bindings(),
         range: june(),
+        top: None,
     }
 }
 
@@ -251,6 +253,7 @@ fn fact_distinct_keys() -> LegPlan {
         terms: Vec::new(),
         bindings: definitional_bindings(),
         range: june(),
+        top: None,
     }
 }
 

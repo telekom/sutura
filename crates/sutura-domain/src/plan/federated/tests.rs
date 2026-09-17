@@ -7,10 +7,16 @@ use crate::plan::{
     AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, PlanBindings,
     PlanBucket, PlanColumn, ResultLabel, StatementTables,
 };
+use crate::query::{Top, TopBy, TopDirection, TopN};
 use crate::warehouse::{Real, RowSet, Value};
 
 mod fixtures;
 use fixtures::*;
+
+/// Case 2's own ranking cells, split out for this file's own `max-lines` reason - see the
+/// module's own header.
+#[cfg(test)]
+mod ranking;
 
 #[test]
 fn joins_two_legs_and_reaggregates_by_remote_key() {
@@ -657,6 +663,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range: range(),
+        top: None,
     };
     let plan = FederatedPlan::new(
         metric("revenue"),

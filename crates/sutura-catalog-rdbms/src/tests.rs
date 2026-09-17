@@ -82,8 +82,12 @@ fn a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question(
     assert!(pinned.definitions().metrics().is_empty());
 
     // A question about any metric is refused, because no metric is defined.
-    let compiled = sutura_semantic::compile(&question_about("revenue"), &ScopedView::everything(&pinned))
-        .expect("a refusal is not an error");
+    let compiled = sutura_semantic::compile(
+        &question_about("revenue"),
+        &ScopedView::everything(&pinned),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .expect("a refusal is not an error");
     match compiled {
         sutura_semantic::Compiled::Refused { reason } => {
             assert!(matches!(reason, RefusalReason::MetricUnknown { .. }), "{reason:?}");

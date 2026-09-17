@@ -81,6 +81,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
         )
         .expect("the fact fixture binds its one bound in placeholder order"),
         range: range(),
+        top: None,
     }
 }
 

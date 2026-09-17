@@ -616,6 +616,7 @@ mod tests {
             1 << 30,
             test_deadline(),
             &crate::spend::SpendLedger::no_budget(),
+            sutura_domain::plan::RowCeiling::DEFAULT,
         )
         .expect("the composed bundle answers")
         .into_outcome();

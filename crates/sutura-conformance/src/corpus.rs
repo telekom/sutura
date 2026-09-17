@@ -371,6 +371,7 @@ pub fn leg_case() -> LegCase {
             )],
             bindings: range_bindings(),
             range: range(),
+            top: None,
         },
         expected: case.expected,
     }

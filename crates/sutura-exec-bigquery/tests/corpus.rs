@@ -784,8 +784,12 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let compiled =
-                sutura_semantic::compile(&question, &ScopedView::everything(&pinned)).expect("the bundle is consistent");
+            let compiled = sutura_semantic::compile(
+                &question,
+                &ScopedView::everything(&pinned),
+                sutura_domain::plan::RowCeiling::DEFAULT,
+            )
+            .expect("the bundle is consistent");
             let plan = match compiled {
                 sutura_semantic::Compiled::Refused { reason } => {
                     // A compile-side refusal, decided above every adapter. The corpus carries ten of

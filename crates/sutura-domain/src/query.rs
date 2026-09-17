@@ -566,20 +566,22 @@ pub enum RefusalReason {
     /// replica computed, the same meaning for every caller, safe in a log - and enough for a
     /// transport to answer `Retry-After` with a fact rather than a guess.
     BudgetExhausted { reset_after_seconds: u64 },
-    /// `top` was asked on a plan that spans two sources.
+    /// A federated `top` was ranked over a combined set the row ceiling had already cut, so the
+    /// ranking is over an arbitrary slice rather than over the dimension.
     ///
-    /// **Honest scope, not the missing capability.** `docs/adr/0007`'s combiner orders and limits
-    /// *after* the join, above the port; the splitter's fact and lookup legs carry no `top` field
-    /// at all, so nothing here would apply it even if it compiled. `github.com/telekom/sutura#828`
-    /// is where a wider federated engine is filed; this is the refusal until whichever of that or a
-    /// smaller combiner-side change lands.
+    /// **Case 2 only - `github.com/telekom/sutura#777`.** Every answer key on the fact leg with a
+    /// LEFT join (case 1) pushes the order and the limit all the way down to the fact leg, which
+    /// returns `top.n()` rows exactly and never reaches this refusal at all. This fires only when a
+    /// lookup-side key or an inner join forces the rank to be taken *after* the legs are combined -
+    /// and the combined set, before that rank is applied, already hit [`crate::plan::RowCeiling`].
+    /// The top ten of an arbitrary ten thousand wears the shape of a right answer and is not one,
+    /// which is the failure this repository refuses everywhere else it can be reached.
     ///
-    /// **Carries nothing.** There is no source, no leg count and no measure to name: every
-    /// two-source plan is refused the same way regardless of which two sources or which measure,
-    /// so a payload here would only ever repeat what
-    /// [`PlanSpansTooManySources`](RefusalReason::PlanSpansTooManySources) already carries for a
-    /// question this one is narrower than.
-    TopNotFederated,
+    /// **Carries the ceiling that fired, so the message can name it and point at the deployment's
+    /// operator - the one who can raise [`crate::plan::RowCeiling`], which is a configured value and
+    /// not [`crate::plan::MAX_ROWS`] the compiled constant. Naming a compiled constant here would be
+    /// advice nobody addressed could act on.**
+    TopOverUncertifiedRows { ceiling: u32 },
 }
 
 impl RefusalReason {
@@ -621,7 +623,7 @@ impl RefusalReason {
             Self::LegsDecideIdentityDifferently { .. } => "legs_decide_identity_differently",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::BudgetExhausted { .. } => "budget_exhausted",
-            Self::TopNotFederated => "top_not_federated",
+            Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",
         }
     }
 }
@@ -830,7 +832,7 @@ mod tests {
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
-            RefusalReason::TopNotFederated,
+            RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
         ]
     }
 

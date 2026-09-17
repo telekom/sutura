@@ -365,7 +365,13 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
         };
         let pinned = load(Path::new(&root))?;
         let question = read_question(Path::new(&question_path))?;
-        match sutura_semantic::compile(&question, &ScopedView::everything(&pinned)).map_err(|e| render(&e))? {
+        match sutura_semantic::compile(
+            &question,
+            &ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .map_err(|e| render(&e))?
+        {
             Compiled::Refused { reason } => {
                 println!("{}", render_refusal(&reason)?);
             }

@@ -12,13 +12,13 @@
 //! question without `top` already gets. Without that second key, two rows tied on the first one
 //! come back in an order nothing pins, and two executors disagree about which `n`th row survives.
 
-use crate::plan::MAX_ROWS;
+use crate::plan::RowCeiling;
 
 /// A caller-chosen order and row limit on a question's own result.
 ///
-/// `n` is checked against [`crate::plan::MAX_ROWS`] where the question is resolved, not here: this
-/// type carries only what the caller asked for, and a bound that depends on the deployment does
-/// not belong on a value the caller alone constructs.
+/// `n` is checked against [`crate::plan::RowCeiling`] where the question is resolved, not here:
+/// this type carries only what the caller asked for, and a bound that depends on the deployment
+/// does not belong on a value the caller alone constructs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Top {
@@ -92,17 +92,14 @@ impl TopN {
         self.0
     }
 
-    /// Whether this request asks for more rows than the deployment will certify.
+    /// Whether this request asks for more rows than `ceiling` certifies.
     ///
-    /// Reads [`crate::plan::MAX_ROWS`] directly rather than taking a bound as an argument: today
-    /// that constant is the one ceiling this deployment has, the same one
-    /// [`crate::query::RefusalReason::ResultTooLarge`] already reports for an unbounded question
-    /// that came back too wide. Making the ceiling operator-configurable is future work - see
-    /// `github.com/telekom/sutura#777`'s own record of the decision - and this is the one call
-    /// site that would read a configured value instead.
+    /// Takes the ceiling rather than reading [`crate::plan::MAX_ROWS`] directly, so a deployment
+    /// that configured [`crate::plan::RowCeiling`] is compared against its own number rather than
+    /// the compiled default - `github.com/telekom/sutura#777`'s own record of the decision.
     #[inline]
-    pub const fn exceeds_the_row_cap(self) -> bool {
-        self.0 > MAX_ROWS
+    pub const fn exceeds_the_row_cap(self, ceiling: RowCeiling) -> bool {
+        self.0 > ceiling.get()
     }
 }
 
@@ -135,7 +132,7 @@ mod tests {
     /// produces.
     #[test]
     fn a_top_n_round_trips_through_its_on_disk_shape() {
-        for n in [1_u32, 3, super::MAX_ROWS, super::MAX_ROWS + 1, u32::MAX] {
+        for n in [1_u32, 3, crate::plan::MAX_ROWS, crate::plan::MAX_ROWS + 1, u32::MAX] {
             let parsed = TopN::parse(n).expect("a positive count is a row count");
             let value = serde_json::to_value(parsed).expect("a TopN serializes");
             let back: TopN = serde_json::from_value(value).expect("a TopN's own serialized form deserializes");
@@ -145,15 +142,24 @@ mod tests {
 
     #[test]
     fn only_a_count_past_the_row_cap_exceeds_it() {
+        let ceiling = crate::plan::RowCeiling::DEFAULT;
         assert!(
-            !TopN::parse(super::MAX_ROWS)
+            !TopN::parse(ceiling.get())
                 .expect("the cap itself is a row count")
-                .exceeds_the_row_cap()
+                .exceeds_the_row_cap(ceiling)
         );
         assert!(
-            TopN::parse(super::MAX_ROWS + 1)
+            TopN::parse(ceiling.get() + 1)
                 .expect("one past the cap is still a row count")
-                .exceeds_the_row_cap()
+                .exceeds_the_row_cap(ceiling)
         );
+    }
+
+    #[test]
+    fn a_configured_ceiling_is_compared_against_rather_than_the_compiled_default() {
+        // A count within the compiled default but past a NARROWER configured ceiling exceeds it -
+        // the whole point of `RowCeiling` being an argument rather than a constant read in place.
+        let narrower = crate::plan::RowCeiling::parse(5).expect("five is a row count");
+        assert!(TopN::parse(10).expect("ten is a row count").exceeds_the_row_cap(narrower));
     }
 }

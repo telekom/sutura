@@ -34,6 +34,7 @@ fn a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a bound is a refusal, not an error")
     .into_outcome();
@@ -86,6 +87,7 @@ fn a_federated_answer_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a bound is a refusal, not an error")
     .into_outcome();
@@ -129,6 +131,7 @@ fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a source refusal is a refusal, not an error")
     .into_outcome();
@@ -216,6 +219,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
         terms,
         bindings: PlanBindings::none(),
         range: june(),
+        top: None,
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source,
@@ -272,6 +276,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a link type mismatch is a refusal, not an error")
     .into_outcome();
@@ -297,6 +302,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a link type mismatch is a refusal, not an error")
     .into_outcome();

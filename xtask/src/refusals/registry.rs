@@ -21,7 +21,9 @@ const QUERY: Subject = Subject {
     name: "RefusalReason",
     declared_in: DECLARED_IN,
     allow_file: ALLOW_FILE,
-    // 23: `github.com/telekom/sutura#777` added `TopNotFederated`.
+    // 23: `github.com/telekom/sutura#777` added `TopNotFederated`, then replaced it with
+    // `TopOverUncertifiedRows` once the two-case rule made the blanket refusal's arm unreachable -
+    // a straight substitution, so the count is unchanged.
     variants: variants(23),
 };
 

@@ -128,7 +128,7 @@ as a refusal a caller would retry.
 ## `fn compile`
 
 ```rust
-pub fn compile(query: &sutura_domain::query::Query, view: &sutura_domain::pinned::view::ScopedView<'_>) -> Result<Compiled, CompileFailure>
+pub fn compile(query: &sutura_domain::query::Query, view: &sutura_domain::pinned::view::ScopedView<'_>, row_ceiling: sutura_domain::plan::RowCeiling) -> Result<Compiled, CompileFailure>
 ```
 
 Resolves and plans. It does not render.
@@ -156,7 +156,7 @@ use sutura_domain::query::Query;
 use sutura_semantic::{BundleInconsistent, compile};
 
 fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
-    compile(query, &ScopedView::everything(pinned)).err()
+    compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
 }
 ```
 
@@ -169,7 +169,7 @@ use sutura_domain::query::Query;
 use sutura_semantic::{CompileFailure, compile};
 
 fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
-    compile(query, &ScopedView::everything(pinned)).err()
+    compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
 }
 ```
 

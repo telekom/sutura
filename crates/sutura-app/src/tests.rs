@@ -17,12 +17,14 @@ use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Metric, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
-use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, NotValidated};
+use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::pinned::{
+    AnchorCheck, Contribution, ContributionManifest, DefinitionVersion, NotExecutedReason, NotValidated, PinnedDefinitions,
+};
 use sutura_domain::plan::MAX_ROWS;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::Value;
+use sutura_domain::warehouse::{RowSet, Value};
 
 use sutura_domain::identity::{
     CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture, PrincipalChain,
@@ -33,10 +35,7 @@ use super::tests_support::{
     AdapterFailure, CountingBroker, DryRunOutcome, FixedBroker, FixedWarehouse, MonoPreflightWarehouse, RefusingSourceWarehouse,
     TransientlyBrokenWarehouse,
 };
-use super::{
-    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, SpendLedger, Warehouses,
-    exceeds_row_cap, verify_anchors, verify_and_validate,
-};
+use super::{ServiceError, SpendLedger, Warehouses, exceeds_row_cap, verify_anchors, verify_and_validate};
 
 /// Bare `answer`, pinned to a 1 GiB working set, no spend ceiling - not imported as `super::answer`.
 fn answer<W, B>(
@@ -59,6 +58,7 @@ where
         1 << 30,
         test_deadline(),
         &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
 }
 

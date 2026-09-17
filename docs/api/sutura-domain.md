@@ -2461,6 +2461,41 @@ True for anything reaching a `Descent::AsGroupingKey`, which is `CountDistinct` 
 is the cost Decision 2 accepts rather than refuses, so it is a quantity to report and not a
 condition to fail on.
 
+```rust
+pub fn ranking(&self) -> Ranking
+```
+
+The order a `top` pushed all the way down to a fact leg ranks by - `github.com/telekom/sutura#777`'s
+case 1: every answer key on the fact leg, a LEFT join. The fact leg's own aggregate is then
+the answer's aggregate, so ranking it exactly ranks the answer, and this is the same divide
+tree `above` describes, restated over the leg's own term POSITIONS - the order
+`Self::carried` visits them in - rather than over `Carried` values, so the rendering side
+needs nothing from `Federation` beyond what the leg's own `crate::plan::leg::LegTerm` list
+already carries.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum Ranking`
+
+```rust
+pub enum Ranking
+```
+
+`Federation::ranking`'s tree: the same shape `Above` describes, over term positions.
+
+**Why a position and not a `Carried`.** A leg's own `crate::plan::leg::LegTerm` list is built
+by zipping `Federation::carried` with the labels a splitter names them under, in the same
+order this walks `Above` in - so a position here IS the leg's own term index, and a generator
+rendering the leg's already-built term expressions needs no second copy of the classification to
+know which one a leaf refers to.
+
+#### Variants
+
+- `Term` - The leg's own term at this position, unmodified.
+- `Quotient` - Two of those, divided once - the same guard `Above::Quotient` carries.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -5684,6 +5719,58 @@ its own type rather than a `QueryPlan` with three fields made optional - `leg` s
 why. `Executable` is what the port takes, so an adapter's match over what it can be handed is
 exhaustive.
 
+### `struct RowCeiling`
+
+```rust
+pub struct RowCeiling
+```
+
+How many rows a `top` answer is certified over, before it is refused.
+
+**A configured value, defaulting to `MAX_ROWS` - `github.com/telekom/sutura#777`.** Unlike
+`MAX_ROWS` itself, which stays the compiled constant for an ordinary question, this is the
+ceiling `RefusalReason::ResultTooLarge` and
+`RefusalReason::TopOverUncertifiedRows`
+name to a caller for a `top` question - which is the one place a message telling the caller to
+*"ask your operator to raise this"* has to be true rather than aspirational. A deployment
+configures one in its settings; absent, `Self::DEFAULT` is what every deployment already got.
+
+**The limit, next to the claim.** Nothing here makes the ORDINARY row cap configurable - a
+question with no `top` is still refused against the compiled `MAX_ROWS`. Only the two `top`
+refusals this type feeds read a configured value.
+
+#### Methods
+
+```rust
+pub const fn get(self) -> u32
+```
+
+```rust
+pub const fn parse(rows: u32) -> Result<Self, InvalidRowCeiling>
+```
+
+Parses an operator-chosen ceiling, refusing zero for `InvalidRowCeiling::Zero`'s reason.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidRowCeiling`
+
+```rust
+pub enum InvalidRowCeiling
+```
+
+Why a row ceiling did not parse.
+
+#### Variants
+
+- `Zero` - A zero ceiling reads as "unlimited" to whoever wrote it, not "refuse every `top`".
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct PlanColumn`
 
 ```rust
@@ -6673,6 +6760,21 @@ fn _dispatch(executable: Executable<'_>) -> &'static str {
 }
 ```
 
+### `use FactTop`
+
+A `top` pushed all the way down to a fact leg: `github.com/telekom/sutura#777`'s case 1.
+
+**Present only when it is exact.** Every answer key on the fact leg and a LEFT join together
+mean the fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop
+one, and no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own
+rows by `ranking` and keeping `top`'s own count is exactly the
+answer's own top rows, not an approximation of them. `sutura_semantic::plan::federated_plan` is
+the one place that decides the case and constructs this; nothing else may.
+
+`ranking` and not the `Federation` it came from, so a renderer
+needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
+position is enough.
+
 ### `use LegPlan`
 
 One source's share of a federated question.
@@ -6834,6 +6936,7 @@ fn _checked(
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range,
+        top: None,
     })
 }
 ```
@@ -7224,10 +7327,50 @@ the scheme rather than data on the plan: there is no argument for a caller to sp
 for the two legs to disagree about, and the constructor requires both legs to project it.
 
 ```rust
+pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
+```
+
+Case 2's rank - `github.com/telekom/sutura#777`: `Self::combine` already sorted `combined`
+ascending by its own key cells, nulls last; this re-sorts it by `top`'s own criterion,
+stably, so two rows tied on that criterion keep the key order they already have, and then
+keeps `top.n()` of them.
+
+**The column position, not a label lookup.** `Self::combine`'s own doc states the answer's
+column order - every key, then the bucket, then the measure - so `TopBy::Metric` is the
+last column and `TopBy::Period` the one before it, by construction rather than by name.
+That is a property of every `FederatedPlan`'s own combined answer rather than of one
+instance's fields, which is why this takes no `&self`: it is associated with the type
+whose contract it reads, not with a value of it.
+
+**Nulls sort last regardless of `TopDirection`**, the same contract
+`sutura_sql::generate`'s own `ordered_nulls_last` states for the rendered path: a null means
+there was nothing to rank, and that sorts after every value either way.
+
+```rust
 pub fn sources(&self) -> impl Iterator<Item> + '_
 ```
 
 Every data system this plan reads from, in execution order.
+
+```rust
+pub const fn top(&self) -> Option<Top>
+```
+
+Case 2's `top`, if this plan carries one. See `Self::with_top`.
+
+```rust
+pub const fn with_top(self, top: Top) -> Self
+```
+
+Attaches case 2's `top` - `github.com/telekom/sutura#777` - so
+`combine`'s caller knows the answer still needs ranking and truncating
+after the legs are joined.
+
+A builder rather than a constructor argument, for
+`QueryPlan::with_top`'s reason: every existing caller of
+`Self::new` keeps its argument list, and a plan built without it is byte-for-byte one
+built before this field existed. Case 1 never calls this: its `top` lives on the fact leg
+instead, because it is exact there and would only be redundant here.
 
 ##### Implements
 
@@ -7825,8 +7968,49 @@ metric name; and a one-hop dimension join does not start from it, so no joins. S
 key list, group by the key list. So the distinct-key leg is a `LegPlan::Fact` whose `terms` are
 empty, and it needs no variant of its own.
 
-**No leg carries a row cap.** A leg is not an answer, and `MAX_ROWS`
-caps one answer's rows; `sutura_sql::generate_leg` emits no `LIMIT` for the same reason.
+**No leg carries a row cap, with one exception.** A leg is not an answer, and
+`MAX_ROWS` caps one answer's rows; `sutura_sql::generate_leg` emits no
+`LIMIT` for a leg with no `FactTop`. The exception is `github.com/telekom/sutura#777`'s case
+1: when a `top` pushes all the way down to the fact leg (every answer key on it, a LEFT join),
+the leg's OWN limit is the answer's own bound - `top.n()`, never `MAX_ROWS` - because the
+fact leg's rows already are the answer's rows in that shape. See `FactTop`.
+
+#### `struct FactTop`
+
+```rust
+pub struct FactTop
+```
+
+A `top` pushed all the way down to a fact leg: `github.com/telekom/sutura#777`'s case 1.
+
+**Present only when it is exact.** Every answer key on the fact leg and a LEFT join together
+mean the fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop
+one, and no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own
+rows by `ranking` and keeping `top`'s own count is exactly the
+answer's own top rows, not an approximation of them. `sutura_semantic::plan::federated_plan` is
+the one place that decides the case and constructs this; nothing else may.
+
+`ranking` and not the `Federation` it came from, so a renderer
+needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
+position is enough.
+
+##### Methods
+
+```rust
+pub const fn new(top: Top, ranking: Ranking) -> Self
+```
+
+```rust
+pub const fn ranking(&self) -> &Ranking
+```
+
+```rust
+pub const fn top(&self) -> Top
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 #### `struct LegTerm`
 
@@ -8064,6 +8248,7 @@ fn _checked(
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range,
+        top: None,
     })
 }
 ```
@@ -8110,6 +8295,13 @@ fn _checked(
   splitter and is deliberately not a field here.
 
 ##### Methods
+
+```rust
+pub const fn fact_top(&self) -> Option<&FactTop>
+```
+
+The case-1 `top` pushed down to this leg, if any. `None` for a `Lookup` leg
+and for a `Fact` leg case 1 does not apply to.
 
 ```rust
 pub fn filters(&self) -> &[PlanFilter]
@@ -8869,19 +9061,20 @@ somebody else's input.
   `DeadlineExceeded` carries its budget: a number this
   replica computed, the same meaning for every caller, safe in a log - and enough for a
   transport to answer `Retry-After` with a fact rather than a guess.
-- `TopNotFederated` - `top` was asked on a plan that spans two sources.
+- `TopOverUncertifiedRows` - A federated `top` was ranked over a combined set the row ceiling had already cut, so the ranking is over an arbitrary slice rather than over the dimension.
 
-  **Honest scope, not the missing capability.** `docs/adr/0007`'s combiner orders and limits
-  *after* the join, above the port; the splitter's fact and lookup legs carry no `top` field
-  at all, so nothing here would apply it even if it compiled. `github.com/telekom/sutura#828`
-  is where a wider federated engine is filed; this is the refusal until whichever of that or a
-  smaller combiner-side change lands.
+  **Case 2 only - `github.com/telekom/sutura#777`.** Every answer key on the fact leg with a
+  LEFT join (case 1) pushes the order and the limit all the way down to the fact leg, which
+  returns `top.n()` rows exactly and never reaches this refusal at all. This fires only when a
+  lookup-side key or an inner join forces the rank to be taken *after* the legs are combined -
+  and the combined set, before that rank is applied, already hit `crate::plan::RowCeiling`.
+  The top ten of an arbitrary ten thousand wears the shape of a right answer and is not one,
+  which is the failure this repository refuses everywhere else it can be reached.
 
-  **Carries nothing.** There is no source, no leg count and no measure to name: every
-  two-source plan is refused the same way regardless of which two sources or which measure,
-  so a payload here would only ever repeat what
-  `PlanSpansTooManySources` already carries for a
-  question this one is narrower than.
+  **Carries the ceiling that fired, so the message can name it and point at the deployment's
+  operator - the one who can raise `crate::plan::RowCeiling`, which is a configured value and
+  not `crate::plan::MAX_ROWS` the compiled constant. Naming a compiled constant here would be
+  advice nobody addressed could act on.**
 
 #### Methods
 
@@ -8989,9 +9182,9 @@ Why a `top.n` did not parse.
 
 A caller-chosen order and row limit on a question's own result.
 
-`n` is checked against `crate::plan::MAX_ROWS` where the question is resolved, not here: this
-type carries only what the caller asked for, and a bound that depends on the deployment does
-not belong on a value the caller alone constructs.
+`n` is checked against `crate::plan::RowCeiling` where the question is resolved, not here:
+this type carries only what the caller asked for, and a bound that depends on the deployment
+does not belong on a value the caller alone constructs.
 
 ### `use TopBy`
 
@@ -9213,9 +9406,9 @@ pub struct Top
 
 A caller-chosen order and row limit on a question's own result.
 
-`n` is checked against `crate::plan::MAX_ROWS` where the question is resolved, not here: this
-type carries only what the caller asked for, and a bound that depends on the deployment does
-not belong on a value the caller alone constructs.
+`n` is checked against `crate::plan::RowCeiling` where the question is resolved, not here:
+this type carries only what the caller asked for, and a bound that depends on the deployment
+does not belong on a value the caller alone constructs.
 
 ##### Methods
 
@@ -9284,17 +9477,14 @@ A positive row count. Zero asks for nothing, which is not what a caller who wrot
 ##### Methods
 
 ```rust
-pub const fn exceeds_the_row_cap(self) -> bool
+pub const fn exceeds_the_row_cap(self, ceiling: RowCeiling) -> bool
 ```
 
-Whether this request asks for more rows than the deployment will certify.
+Whether this request asks for more rows than `ceiling` certifies.
 
-Reads `crate::plan::MAX_ROWS` directly rather than taking a bound as an argument: today
-that constant is the one ceiling this deployment has, the same one
-`crate::query::RefusalReason::ResultTooLarge` already reports for an unbounded question
-that came back too wide. Making the ceiling operator-configurable is future work - see
-`github.com/telekom/sutura#777`'s own record of the decision - and this is the one call
-site that would read a configured value instead.
+Takes the ceiling rather than reading `crate::plan::MAX_ROWS` directly, so a deployment
+that configured `crate::plan::RowCeiling` is compared against its own number rather than
+the compiled default - `github.com/telekom/sutura#777`'s own record of the decision.
 
 ```rust
 pub const fn get(self) -> u32

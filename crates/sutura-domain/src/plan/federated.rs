@@ -63,7 +63,8 @@ use crate::model::{Aggregate, MetricName, SourceName};
 use crate::plan::PlanBucket;
 use crate::plan::ResultLabel;
 use crate::plan::leg::LegPlan;
-use crate::warehouse::{RowSet, Value};
+use crate::query::{Top, TopBy, TopDirection};
+use crate::warehouse::{MalformedRowSet, RowSet, Value};
 
 pub use failure::{FederatedAnswerRefusal, FederatedFailure};
 pub use label::{InternalLabel, labels};
@@ -107,6 +108,12 @@ pub struct FederatedPlan {
     /// lookup keys from the lookup result, and the two never overlap because a dimension belongs to
     /// exactly one leg.
     keys: Vec<AnswerKey>,
+    /// Case 2's `top` - `github.com/telekom/sutura#777`: a lookup-side key or an inner join forces
+    /// the rank to be taken above the combine rather than pushed to the fact leg, so this is `None`
+    /// whenever [`LegPlan::fact_top`] already carries it (case 1, or no `top` at all) and `Some`
+    /// exactly when the answer's own rows still need ranking and truncating after
+    /// [`combine`](Self::combine) returns them.
+    top: Option<Top>,
 }
 
 /// Which leg's result an answer key is read from.
@@ -274,7 +281,30 @@ impl FederatedPlan {
             include_unmatched,
             federation,
             keys,
+            top: None,
         })
+    }
+
+    /// Attaches case 2's `top` - `github.com/telekom/sutura#777` - so
+    /// [`combine`](Self::combine)'s caller knows the answer still needs ranking and truncating
+    /// after the legs are joined.
+    ///
+    /// A builder rather than a constructor argument, for
+    /// [`QueryPlan::with_top`](crate::plan::QueryPlan::with_top)'s reason: every existing caller of
+    /// [`Self::new`] keeps its argument list, and a plan built without it is byte-for-byte one
+    /// built before this field existed. Case 1 never calls this: its `top` lives on the fact leg
+    /// instead, because it is exact there and would only be redundant here.
+    #[inline]
+    #[must_use]
+    pub const fn with_top(mut self, top: Top) -> Self {
+        self.top = Some(top);
+        self
+    }
+
+    /// Case 2's `top`, if this plan carries one. See [`Self::with_top`].
+    #[inline]
+    pub const fn top(&self) -> Option<Top> {
+        self.top
     }
 
     /// Every leg, in execution order: the fact leg, then the lookup leg.
@@ -632,6 +662,40 @@ impl FederatedPlan {
         RowSet::new(columns, rows).map_err(|_malformed| FederatedFailure::MalformedRow { side: "answer" })
     }
 
+    /// Case 2's rank - `github.com/telekom/sutura#777`: [`Self::combine`] already sorted `combined`
+    /// ascending by its own key cells, nulls last; this re-sorts it by `top`'s own criterion,
+    /// stably, so two rows tied on that criterion keep the key order they already have, and then
+    /// keeps `top.n()` of them.
+    ///
+    /// **The column position, not a label lookup.** [`Self::combine`]'s own doc states the answer's
+    /// column order - every key, then the bucket, then the measure - so [`TopBy::Metric`] is the
+    /// last column and [`TopBy::Period`] the one before it, by construction rather than by name.
+    /// That is a property of every [`FederatedPlan`]'s own combined answer rather than of one
+    /// instance's fields, which is why this takes no `&self`: it is associated with the type
+    /// whose contract it reads, not with a value of it.
+    ///
+    /// **Nulls sort last regardless of [`TopDirection`]**, the same contract
+    /// `sutura_sql::generate`'s own `ordered_nulls_last` states for the rendered path: a null means
+    /// there was nothing to rank, and that sorts after every value either way.
+    pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet> {
+        let columns = combined.columns().to_vec();
+        let mut rows = combined.rows().to_vec();
+        // Measure is the last column, bucket the one before it - see this method's own doc.
+        let primary = match top.by() {
+            TopBy::Metric => columns.len().saturating_sub(1),
+            TopBy::Period => columns.len().saturating_sub(2),
+        };
+        let desc = matches!(top.direction(), TopDirection::Desc);
+        rows.sort_by(|a, b| {
+            let (Some(a_cell), Some(b_cell)) = (a.get(primary), b.get(primary)) else {
+                return std::cmp::Ordering::Equal;
+            };
+            rank_order(a_cell, b_cell, desc)
+        });
+        rows.truncate(usize::try_from(top.n().get()).unwrap_or(usize::MAX));
+        RowSet::new(columns, rows)
+    }
+
     /// Project every joined fact row into answer groups, counting the working set as it goes.
     ///
     /// This is the join and the grouping, kept out of [`FederatedPlan::combine`] so one function does
@@ -910,6 +974,22 @@ fn compare_cells(a: &Value, b: &Value) -> std::cmp::Ordering {
         (Value::Text(x), Value::Text(y)) => x.cmp(y),
         // The sole same-rank pair not caught above is Null/Null, and different ranks returned early.
         _ => Equal,
+    }
+}
+
+/// [`FederatedPlan::rank`]'s own comparator: a `top` orders by VALUE in the requested direction,
+/// but a null still sorts last regardless of it - the same split
+/// `sutura_sql::generate::top::ordering` keeps between the primary key (which `desc` reverses) and
+/// `NULLS LAST` (which it does not).
+fn rank_order(a: &Value, b: &Value, desc: bool) -> std::cmp::Ordering {
+    match (matches!(a, Value::Null), matches!(b, Value::Null)) {
+        (true, true) => std::cmp::Ordering::Equal,
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        (false, false) => {
+            let order = compare_cells(a, b);
+            if desc { order.reverse() } else { order }
+        }
     }
 }
 

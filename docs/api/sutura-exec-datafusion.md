@@ -131,6 +131,7 @@ map" send a reader to three different places.
   unbounded. Written as a branch rather than an assertion because the SQL path refuses the
   same shape, and an adapter that quietly ran it unfiltered would disagree with the other one
   about an unbounded scan.
+- `RankingExceedsTerms`
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 
   **An `Err` and never a refusal, and the direction is the point.** Nothing about the question

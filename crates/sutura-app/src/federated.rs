@@ -28,12 +28,12 @@
 
 use std::time::Instant;
 
-use sutura_domain::identity::{Agreed, CredentialBroker, RequestContext, SourceSet};
+use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{FederatedAnswerRefusal, FederatedFailure, FederatedPlan};
+use sutura_domain::plan::{FactTop, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, RowCeiling};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
-use sutura_domain::source::ExecutedAs;
+use sutura_domain::source::{ExecutedAs, UniformlyExecuted};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
 
@@ -85,7 +85,9 @@ pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
 /// identities via [`ExecutedAs::and`]. The combiner applies the working-set ceiling, and the answer
-/// carries the usual row cap.
+/// carries the usual row cap - unless the plan carries case 2's `top`
+/// (`github.com/telekom/sutura#777`), in which case `row_ceiling` bounds the combined set BEFORE it
+/// is ranked, and the row cap below never runs for this answer at all.
 pub(crate) fn answer_federated<W, B>(
     pinned: &PinnedDefinitions,
     plan: &FederatedPlan,
@@ -95,6 +97,7 @@ pub(crate) fn answer_federated<W, B>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
+    row_ceiling: RowCeiling,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -266,6 +269,17 @@ where
             None => return Err(ServiceError::Federated { cause }),
         },
     };
+    // A `top` of either case still needs ranking HERE, after the combine - `github.com/telekom/sutura#777`.
+    // `FederatedPlan::combine` sorts its own output ascending by key cell UNCONDITIONALLY (its own
+    // contract for a question with no `top`), which un-ranks case 1's fact leg exactly as it would
+    // case 2's join: the fact leg returning `top.n()` rows already in ranked order is not enough,
+    // because nothing downstream of it preserves that order through the combine. So both cases
+    // reach `FederatedPlan::rank` - case 1 is exact already and only needs re-sorting, case 2 needs
+    // the ceiling check first because its own row count was never bounded by a leg.
+    let top = plan.top().or_else(|| plan.fact().fact_top().map(FactTop::top));
+    if let Some(top) = top {
+        return ranked_answer::<W, B>(plan, &combined, row_ceiling, top, &credentials, pinned, executed_as);
+    }
     if exceeds_row_cap(combined.rows().len(), sutura_domain::plan::MAX_ROWS) {
         return Ok(Answered::under(
             &credentials,
@@ -294,6 +308,62 @@ where
         ToolOutcome::Answer {
             provenance: pinned.provenance(executed_as),
             rows: combined,
+        },
+    ))
+}
+
+/// Either case's `top`, applied to an already-combined answer - split out of [`answer_federated`]
+/// for `cargo xtask max-lines`'s per-function cap.
+///
+/// Case 2 only: the set BEFORE ranking, not after - the top ten of an arbitrary `row_ceiling` rows
+/// is not the top ten of the dimension, so this is refused before it is ranked rather than answered
+/// with a caveat. Case 1's own leg already bounded the combined set to `top.n()` rows, so
+/// `plan.top()` being `None` (case 1) skips a check a leg pushdown already made unreachable.
+/// `top.n()` is checked against this same ceiling at resolve time
+/// (`sutura_semantic::resolve`) regardless of case, so a `top.n()` this large could not have
+/// compiled at all - this is strictly about the WIDTH of the group-by beneath it, which `top.n()`
+/// says nothing about.
+fn ranked_answer<W, B>(
+    plan: &FederatedPlan,
+    combined: &RowSet,
+    row_ceiling: RowCeiling,
+    top: sutura_domain::query::Top,
+    credentials: &BoundToTheRequest,
+    pinned: &PinnedDefinitions,
+    executed_as: UniformlyExecuted,
+) -> Answering<W, B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), row_ceiling.get()) {
+        return Ok(Answered::under(
+            credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::TopOverUncertifiedRows {
+                    ceiling: row_ceiling.get(),
+                },
+            },
+        ));
+    }
+    let ranked = FederatedPlan::rank(combined, top).map_err(|_malformed| ServiceError::Federated {
+        cause: FederatedFailure::MalformedRow { side: "answer" },
+    })?;
+    if let Some(limit_bytes) = exceeds_response_bound(&ranked) {
+        return Ok(Answered::under(
+            credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Encoded { limit_bytes },
+                },
+            },
+        ));
+    }
+    Ok(Answered::under(
+        credentials,
+        ToolOutcome::Answer {
+            provenance: pinned.provenance(executed_as),
+            rows: ranked,
         },
     ))
 }

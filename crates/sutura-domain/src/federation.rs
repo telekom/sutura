@@ -353,6 +353,59 @@ impl Federation {
     pub fn pulls_up_rows(&self) -> bool {
         self.carried().iter().any(|carried| carried.is_pulled_up())
     }
+
+    /// The order a `top` pushed all the way down to a fact leg ranks by - `github.com/telekom/sutura#777`'s
+    /// case 1: every answer key on the fact leg, a LEFT join. The fact leg's own aggregate is then
+    /// the answer's aggregate, so ranking it exactly ranks the answer, and this is the same divide
+    /// tree [`above`](Self::above) describes, restated over the leg's own term POSITIONS - the order
+    /// [`Self::carried`] visits them in - rather than over [`Carried`] values, so the rendering side
+    /// needs nothing from `Federation` beyond what the leg's own [`crate::plan::leg::LegTerm`] list
+    /// already carries.
+    pub fn ranking(&self) -> Ranking {
+        let mut cursor = 0;
+        ranking_of(&self.above, &mut cursor)
+    }
+}
+
+/// [`Federation::ranking`]'s tree: the same shape [`Above`] describes, over term positions.
+///
+/// **Why a position and not a [`Carried`].** A leg's own [`crate::plan::leg::LegTerm`] list is built
+/// by zipping [`Federation::carried`] with the labels a splitter names them under, in the same
+/// order this walks [`Above`] in - so a position here IS the leg's own term index, and a generator
+/// rendering the leg's already-built term expressions needs no second copy of the classification to
+/// know which one a leaf refers to.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum Ranking {
+    /// The leg's own term at this position, unmodified.
+    Term(usize),
+    /// Two of those, divided once - the same guard [`Above::Quotient`] carries.
+    Quotient {
+        numerator: Box<Self>,
+        denominator: Box<Self>,
+        zero_denominator: ZeroDenominator,
+    },
+}
+
+/// Walks [`Above`] in [`Federation::carried`]'s own order, turning each leaf into the position it
+/// occupies in that order - the same cursor pairing `sutura_domain::plan::federated`'s own
+/// `apply_above` walks to compute a VALUE, here read the other way to compute a POSITION instead.
+fn ranking_of(above: &Above, cursor: &mut usize) -> Ranking {
+    match *above {
+        Above::Total(_) => {
+            let position = *cursor;
+            *cursor = cursor.saturating_add(1);
+            Ranking::Term(position)
+        }
+        Above::Quotient {
+            ref numerator,
+            ref denominator,
+            zero_denominator,
+        } => Ranking::Quotient {
+            numerator: Box::new(ranking_of(numerator, cursor)),
+            denominator: Box::new(ranking_of(denominator, cursor)),
+            zero_denominator,
+        },
+    }
 }
 
 /// How one term descends.

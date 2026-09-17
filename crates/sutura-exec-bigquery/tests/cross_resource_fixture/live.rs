@@ -91,8 +91,12 @@ fn plan(pinned: &PinnedDefinitions) -> Result<Box<QueryPlan>, Failed> {
         "../../../../examples/single-player/questions/recurring-revenue-by-segment.yaml"
     ))
     .map_err(|cause| Failed::during(Operation::Query, cause))?;
-    match sutura_semantic::compile(&question, &ScopedView::everything(pinned))
-        .map_err(|cause| Failed::during(Operation::Query, cause))?
+    match sutura_semantic::compile(
+        &question,
+        &ScopedView::everything(pinned),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    )
+    .map_err(|cause| Failed::during(Operation::Query, cause))?
     {
         sutura_semantic::Compiled::Planned { plan } if plan.source() == &source() && !plan.joins().is_empty() => Ok(plan),
         _ => Err(Failed::Query),
