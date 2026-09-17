@@ -1,0 +1,25 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sutura.fullname" . }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      {{- if .Values.security.metricsToken.secretName }}
+      # `/metrics` is gated by `security.metrics_token`, never `security.access_token`
+      # (`docs/adr/0015` Decision 1) - the SAME Secret and key this chart injects as
+      # `SUTURA__SECURITY__METRICS_TOKEN`, so the scrape credential and the deployment's own
+      # never drift onto different values.
+      bearerTokenSecret:
+        name: {{ .Values.security.metricsToken.secretName }}
+        key: {{ .Values.security.metricsToken.secretKey }}
+      {{- end }}
+{{- end }}
