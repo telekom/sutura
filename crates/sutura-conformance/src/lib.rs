@@ -52,7 +52,7 @@
 //!   never called, so *held to the same test bodies* is a statement about two methods and not about
 //!   `Warehouse`. Three of those five carry guarantees of their own in
 //!   `.agents/skills/sutura/invariants`, held by other mechanisms.
-//! - **That the corpus is exhaustive.** It is seven questions over one table; [`corpus`] names the
+//! - **That the corpus is exhaustive.** It is eight questions over one table; [`corpus`] names the
 //!   federated cases that still belong to another suite.
 //! - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
 //!   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
