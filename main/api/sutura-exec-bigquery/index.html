@@ -4437,6 +4437,28 @@ missing pin rather than a typo in the example.</p>
 </span></code></pre></div>
 <h5 id="implements_35">Implements<a class="headerlink" href="#implements_35" title="Permanent link">&para;</a></h5>
 <p><code>AccessTokens</code>, <code>Debug</code></p>
+<h3 id="module-document">Module <code>document</code><a class="headerlink" href="#module-document" title="Permanent link">&para;</a></h3>
+<p>The two documents this adapter exchanges with the endpoint, and the code that builds and reads
+them.</p>
+<p><strong>Split out of <code>wire.rs</code> when that file crossed 1000 lines</strong>, and the cut is at a real seam rather
+than at a line count: everything here is about the SHAPE of a request and an answer, and nothing
+here opens a socket, holds a credential or reads a clock. That is also what makes it the half a
+test can exercise - <code>super::tests</code> asserts on the SERIALIZED body and over answer documents, which
+is the whole of what this repository can prove without a project.</p>
+<p>Every decision these types carry is argued in <code>wire.rs</code>'s own header, which is the one place to
+read them together; what is written here is why each field is the way it is.</p>
+<h4 id="fn-decode_answer"><code>fn decode_answer</code><a class="headerlink" href="#fn-decode_answer" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-107-1"><a id="__codelineno-107-1" name="__codelineno-107-1" href="#__codelineno-107-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decode_answer</span><span class="p">(</span><span class="n">text</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">transport</span><span class="p">::</span><span class="n">JobRows</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">wire</span><span class="p">::</span><span class="n">WireError</span><span class="o">&lt;</span><span class="n">core</span><span class="p">::</span><span class="n">convert</span><span class="p">::</span><span class="n">Infallible</span><span class="o">&gt;&gt;</span>
+</span></code></pre></div>
+<p>Decode a <code>jobs.query</code> reply from its transport text - the pure half of
+<code>crate::wire::BigQueryWire::run_job</code>, reached without a socket or a credential.</p>
+<p>This is exactly what <code>submit</code> feeds the answer through once the HTTP round trip is done:
+<code>serde_json</code> into <code>QueryAnswer</code> (no <code>deny_unknown_fields</code>, because the document is the
+service's own and will grow fields) and then <code>complete</code> runs the shape checks that turn it
+into a typed <code>JobRows</code>. The seam exists so a harness can fuzz the foreign decode - the first
+untrusted document this adapter reads - without standing up the transport. <code>Infallible</code> is the
+frozen error the shape checks cannot produce; the real call sites substitute the credential
+source's own error via the same generic <code>complete</code>.</p>
 
 
 
