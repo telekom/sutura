@@ -199,6 +199,14 @@ fn run_cargo_metadata(manifest: Option<&std::path::Path>, extra: &[&str]) -> Res
     command.args(["metadata", "--format-version", "1", "--locked"]);
     if let Some(manifest) = manifest {
         command.arg("--manifest-path").arg(manifest);
+        // A satellite manifest's own Cargo.lock names crates the ROOT vendor directory never
+        // vendors (`libfuzzer-sys`, for `fuzz/`'s), so the network-isolated nix sandbox bakes a
+        // second one and hands us its path here - `flake.nix`'s `fuzzVendorDir` comment carries
+        // the reason two separate directories rather than one merged registry. Unset everywhere
+        // else, so a developer's shell keeps resolving over the network exactly as it does today.
+        if let Ok(vendor) = std::env::var("SUTURA_SATELLITE_CARGO_VENDOR_DIR") {
+            command.env("CARGO_HOME", vendor);
+        }
     }
     let output = command
         .args(extra)
