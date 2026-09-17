@@ -3889,6 +3889,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-postgres",
+ "tower",
  "tracing",
  "ureq",
 ]
