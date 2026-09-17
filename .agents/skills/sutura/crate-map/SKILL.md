@@ -9,7 +9,7 @@ description: The rules a crate is subject to by its prefix, why a data-system dr
 convention is the contract rather than the count** - crates may be merged later, and a rule written
 against the prefix survives that where a table of names would not.
 
-**`sutura-tls` carries no `-domain`/`-exec-`/`-catalog-`/`-http`/`-config`/`-runtime`/`-cli`/`-serve`
+**`sutura-tls` carries no `-domain`/`-exec-`/`-catalog-`/`-http`/`-config`/`-runtime`/`-cli`
 prefix, and that is the point rather than an omission.** It holds exactly the bundle-or-system-store
 read and the client-identity read a TLS source channel needs (`load_anchors`, `load_identity`), with
 no dependency on a crypto provider, a network client, or `sutura-config` - not an adapter (it opens no
@@ -74,7 +74,7 @@ script, so the two cannot drift.
 
 **A SERVED Postgres source is the other half of that, and it does not contradict it.** Since
 `telekom/sutura#124`/`#125` landed as one change, `sutura-exec-postgres` is also an optional,
-default-off `postgres` dependency of both composition roots: the corpus path reaches it as a
+default-off `postgres` dependency of the composition root: the corpus path reaches it as a
 dev-dependency, and a deployment that writes `kind: postgres` pays the link only when it asks for
 the feature.
 

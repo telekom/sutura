@@ -449,10 +449,11 @@ mod tests {
     /// and what this hands back is the pair a reviewer has to be able to break: build a second
     /// bound instead of cloning this one and the test below goes green on the defect.
     ///
-    /// Two states rather than an HTTP surface and an agent surface, because no crate in this
-    /// workspace links both transports - `sutura-http` and `sutura-mcp` may not reach each other,
-    /// and the two composition roots each link one. Two states are two independent TAKERS of the
-    /// bound, which is the property under test; the transport they belong to is not.
+    /// Two states rather than an HTTP surface and an agent surface, because this crate cannot
+    /// depend on `sutura-mcp` - `sutura-http` and `sutura-mcp` are adapters of the same class, and
+    /// a normal dependency between them is what `cargo xtask check-boundaries` refuses, even though
+    /// `sutura-cli`, the one composition root, links both. Two states are two independent TAKERS of
+    /// the bound, which is the property under test; the transport they belong to is not.
     ///
     /// One service behind both, for the same reason a dual-transport root would share one: the
     /// resource the bound is about is the process's blocking pool and data system, not the router.
