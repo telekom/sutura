@@ -116,6 +116,15 @@ mod refused;
 #[path = "served/corpus.rs"]
 mod corpus;
 
+// The served two-KIND cell (`telekom/sutura#112`): `files` and `postgres` open together, each
+// answering its own question - see its own header for what that proves and what it does not.
+// `cfg(feature = "postgres")` for the same reason `corpus` above carries it.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "postgres")]
+#[path = "served/two_kind.rs"]
+mod two_kind;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {

@@ -34,6 +34,10 @@
 #[cfg(feature = "postgres")]
 #[path = "harness/postgres.rs"]
 mod postgres;
+// The mixed-kind (`files` + `postgres`) settings builder - its own module, needing both.
+#[cfg(feature = "postgres")]
+#[path = "harness/two_kind.rs"]
+mod two_kind;
 // No feature gate, unlike `postgres` above: this fixture pulls in no optional adapter crate, only
 // `sutura_dev::provisioned` and `serde_json`, both already unconditional dependencies of this test
 // binary - see `served/harness/keycloak.rs`'s own header for why it is reached by its own `just`
@@ -47,6 +51,11 @@ mod postgres;
 pub(crate) mod keycloak;
 #[path = "harness/reading.rs"]
 pub(crate) mod reading;
+// The two-`files`-sources settings builder and its catalog derivation, split out by the same
+// `max-lines` reason as every sibling above - and reused by `two_kind` below, which derives a
+// catalog the same way for a different pair of kinds.
+#[path = "harness/two_source.rs"]
+mod two_source;
 // The agent-surface settings builder and the `Served::mcp` request, split out for the same
 // `max-lines` reason as the three siblings above; `#[cfg(feature = "agent")]` on the declaration so
 // a build without the feature parses none of it.
@@ -62,6 +71,9 @@ pub(crate) use keycloak::subject_of as keycloak_subject_of;
 pub(crate) use postgres::raw_sql_settings as postgres_raw_sql_settings;
 #[cfg(feature = "postgres")]
 pub(crate) use postgres::settings as postgres_settings;
+#[cfg(feature = "postgres")]
+pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
+pub(crate) use two_source::{LOOKUP_SOURCE, derived_catalog, settings_spanning_two_sources};
 
 use core::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
@@ -220,9 +232,6 @@ pub(crate) fn deployment(example: &Path, server: &str, security: &str) -> String
 /// The one data system every other deployment in this file declares.
 pub(crate) const LOCAL_SOURCE: &str = "local";
 
-/// The SECOND data system, which only the two-source deployment declares.
-pub(crate) const LOOKUP_SOURCE: &str = "geo";
-
 /// One `sources:` entry, indented for the block.
 ///
 /// A helper rather than a second format string, so a `files` entry's shape is written once and the
@@ -266,78 +275,6 @@ pub(crate) fn settings_over(catalog: &Path, data: &Path, server: &str, security:
         catalog.display(),
         data.display(),
     )
-}
-
-/// **The two-source deployment: the example's own catalog with ONE line rewritten, and two `files`
-/// entries over the one data directory.**
-///
-/// The rewrite puts the `customers` model on [`LOOKUP_SOURCE`], which is the whole difference - it
-/// is the same one-line derivation `crates/sutura-app/tests/differential/federated.rs` makes, and
-/// it is derived rather than committed for that file's reason: a second-source topology is one
-/// deployment's, not something a single-source quickstart can state.
-///
-/// **The two sources share a data directory, and the isolation is real anyway.** `open_files` builds
-/// one adapter per declared `files` entry and attaches only that entry's models' tables, so neither
-/// engine has the other's table registered and a join across them has to happen above the port or
-/// not at all. What is under test is that behaviour of the composition root, so pointing both at
-/// one directory removes a variable rather than adding one - two directories would differ in what
-/// was copied as well as in what was attached.
-///
-/// A `Rewrite` that found nothing PANICS: a derivation that silently stopped applying would leave
-/// this deployment single-source and the test below green over a whole-plan answer.
-pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
-    let example = example_root();
-    let data = example.join("data");
-    let catalog = derived_catalog(case, &example.join("catalog"));
-    let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), files_source(LOOKUP_SOURCE, &data));
-    settings_over(
-        &catalog,
-        &data,
-        LOOPBACK,
-        &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
-        &sources,
-    )
-}
-
-/// The example catalog, copied, with the dimension model moved to the second data system.
-///
-/// Copied rather than edited in place for the obvious reason and one less obvious: this suite runs
-/// beside every other gate in one checkout, so a test that rewrote a committed document would
-/// change what a concurrent run reads.
-pub(crate) fn derived_catalog(case: &str, from: &Path) -> PathBuf {
-    let root = derived_beside(&config_path(case));
-    drop(std::fs::remove_dir_all(&root));
-    copied(from, &root);
-    let model = root.join("models").join("customers.md");
-    let text = std::fs::read_to_string(&model).expect("the derived catalog carries the dimension model");
-    let moved = text.replace(&format!("source: {LOCAL_SOURCE}"), &format!("source: {LOOKUP_SOURCE}"));
-    assert_ne!(
-        moved,
-        text,
-        "{} no longer declares `source: {LOCAL_SOURCE}`, so this deployment is not two-source and \
-         the question below would be answered whole",
-        model.display()
-    );
-    std::fs::write(&model, moved).expect("the derived model document is writable");
-    root
-}
-
-/// One directory tree, copied.
-///
-/// `std::fs` has no recursive copy and this suite has no dev-dependency that does; the catalog is
-/// two levels of markdown, so a six-line walk is cheaper than a crate.
-fn copied(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).expect("the derived catalog directory is creatable");
-    let entries = std::fs::read_dir(from).unwrap_or_else(|cause| panic!("{} is not readable: {cause}", from.display()));
-    for entry in entries {
-        let entry = entry.expect("a directory entry is readable");
-        let target = to.join(entry.file_name());
-        if entry.path().is_dir() {
-            copied(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), &target).expect("a catalog document is copyable");
-        }
-    }
 }
 
 /// The one question this file asserts a two-source number for.
