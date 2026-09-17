@@ -2,7 +2,7 @@
 //!
 //! # Why this crate has its own wire type
 //!
-//! `sutura-http` already holds one - `QuestionBody`, with the same five fields. Sharing the STRUCT
+//! `sutura-http` already holds one - `QuestionBody`, with the same six fields. Sharing the STRUCT
 //! would mean this adapter depending on that one, and *an adapter never calls another adapter* is
 //! the rule the whole layout rests on: a shape owned by one transport is a shape every other
 //! transport has to reach through it. [`CatalogContent`] is the same story against
@@ -85,7 +85,7 @@ pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 
 /// One governed question, as a tool call carries it.
 ///
-/// The five fields are the whole input surface of this deployment. There is no field for SQL, a
+/// The six fields are the whole input surface of this deployment. There is no field for SQL, a
 /// table, a filter expression or a row-id list, and an argument naming one is a parse error rather
 /// than a key that gets ignored.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -104,6 +104,23 @@ pub struct AskArgs {
     /// Equality filters, each on a dimension the metric declares as filterable.
     #[serde(default)]
     filters: Vec<FilterArgs>,
+    /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
+    /// every group - `github.com/telekom/sutura#777`.
+    top: Option<TopArgs>,
+}
+
+/// A `top` clause: rank by `by`, in `direction`, keep the first `n`.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopArgs {
+    /// How many groups to return. Must be positive, and no more than this deployment will
+    /// certify - a larger count is the same refusal an unbounded question over that many groups
+    /// already gets.
+    n: u32,
+    /// `metric` ranks by the question's own measure; `period` ranks by the time bucket.
+    by: String,
+    /// `desc` for the largest first, `asc` for the smallest.
+    direction: String,
 }
 
 /// A half-open period: `start` is included, `end` is not. Either an absolute period
@@ -168,7 +185,7 @@ pub enum MalformedQuestion {
     },
     /// Every other way a question can be malformed: which field, and none of the caller's own value
     /// at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note.
-    /// Shared with `sutura-http`, which parses the same five fields into the same domain types and
+    /// Shared with `sutura-http`, which parses the same six fields into the same domain types and
     /// would otherwise carry its own copy of this whole vocabulary.
     #[error(transparent)]
     Question(#[from] sutura_domain::question::MalformedQuestion),
@@ -203,7 +220,11 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
         .last
         .map(|last| sutura_runtime::relative_range::LastWire::new(last.count, last.unit, last.include_current));
     let (start, end) = sutura_runtime::relative_range::resolve_range(clock, args.range.start, args.range.end, last)?;
-    let query = sutura_domain::question::parse_query(&args.metric, &args.grain, &start, &end, &args.dimensions, &filters)?;
+    let top = args
+        .top
+        .as_ref()
+        .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
+    let query = sutura_domain::question::parse_query(&args.metric, &args.grain, &start, &end, &args.dimensions, &filters, top)?;
     Ok(query)
 }
 

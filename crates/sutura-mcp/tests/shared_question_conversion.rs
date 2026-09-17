@@ -92,6 +92,9 @@ mod tests {
             SharedMalformedQuestion::Dimension { .. } => "dimension",
             SharedMalformedQuestion::FilterDimension { .. } => "filter_dimension",
             SharedMalformedQuestion::FilterValue { .. } => "filter_value",
+            SharedMalformedQuestion::TopN { .. } => "top_n",
+            SharedMalformedQuestion::TopBy => "top_by",
+            SharedMalformedQuestion::TopDirection => "top_direction",
         }
     }
 

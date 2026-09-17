@@ -1,7 +1,7 @@
 //! Parsing a caller's raw question fields into a certified [`crate::query::Query`].
 //!
 //! **The one conversion two transports used to duplicate.** `sutura-http`'s `QuestionBody` and
-//! `sutura-mcp`'s `AskArgs` carry the same five fields, for the reason every wire shape here does:
+//! `sutura-mcp`'s `AskArgs` carry the same six fields, for the reason every wire shape here does:
 //! they are both the whole of what a caller may ask, extracted as plain strings so a parse failure
 //! can name the field rather than quote a deserializer. Before this module existed, each transport
 //! re-derived [`crate::query::Query`] from those fields with its own copy of this logic, its own
@@ -13,13 +13,14 @@
 //! / `schemars::JsonSchema` wire struct itself, and the one extra failure a transport's own
 //! deserialization step can produce before this function is ever reached - MCP's arguments object
 //! failing to deserialize as an object at all, which HTTP's extractor rejects earlier in its own
-//! stack and which therefore has no analogue here. [`parse_query`] takes the five fields already
-//! extracted, as borrowed strings, so it carries no serde of its own and no framework.
+//! stack and which therefore has no analogue here. [`parse_query`] takes the six fields already
+//! extracted, as borrowed strings and one optional [`RawTop`], so it carries no serde of its own
+//! and no framework.
 
 use crate::calendar::{Date, InvalidDate, InvalidTimeRange, TimeRange};
 use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, Grain, InvalidIdentifier, MetricName};
-use crate::query::{Filter, Query};
+use crate::query::{Filter, InvalidTopN, Query, Top, TopBy, TopDirection, TopN};
 
 /// One filter, before parsing: a caller's raw dimension name and value, borrowed out of whichever
 /// wire struct a transport deserialized.
@@ -38,6 +39,22 @@ impl<'a> RawFilter<'a> {
     #[inline]
     pub const fn new(dimension: &'a str, value: &'a str) -> Self {
         Self { dimension, value }
+    }
+}
+
+/// A `top` clause, before parsing: a caller's raw row count, ranking key and direction, borrowed
+/// out of whichever wire struct a transport deserialized.
+#[derive(Debug, Clone, Copy)]
+pub struct RawTop<'a> {
+    n: u32,
+    by: &'a str,
+    direction: &'a str,
+}
+
+impl<'a> RawTop<'a> {
+    #[inline]
+    pub const fn new(n: u32, by: &'a str, direction: &'a str) -> Self {
+        Self { n, by, direction }
     }
 }
 
@@ -118,6 +135,17 @@ pub enum MalformedQuestion {
     /// earlier.
     #[error("`filters[{index}].value` is not a value this catalog could declare")]
     FilterValue { index: usize },
+    #[error("`top.n` is not a positive row count")]
+    TopN {
+        #[source]
+        cause: InvalidTopN,
+    },
+    /// Carries no field, for [`Self::Grain`]'s own reason: the accepted set is fixed and finite.
+    #[error("`top.by` is not one of: metric, period")]
+    TopBy,
+    /// Carries no field, for [`Self::Grain`]'s own reason: the accepted set is fixed and finite.
+    #[error("`top.direction` is not one of: desc, asc")]
+    TopDirection,
 }
 
 /// Parses a caller's raw question fields into a [`Query`].
@@ -134,6 +162,7 @@ pub fn parse_query(
     range_end: &str,
     dimensions: &[String],
     filters: &[RawFilter<'_>],
+    top: Option<RawTop<'_>>,
 ) -> Result<Query, MalformedQuestion> {
     let metric = MetricName::parse(metric).map_err(|cause| MalformedQuestion::Metric { cause })?;
     let grain = grain_of(grain)?;
@@ -159,7 +188,26 @@ pub fn parse_query(
         let value = DimensionValue::parse(raw.value).map_err(|_| MalformedQuestion::FilterValue { index })?;
         parsed_filters.push(Filter::new(dimension, value));
     }
-    Ok(Query::new(metric, grain, range, parsed_dimensions, parsed_filters))
+    let query = Query::new(metric, grain, range, parsed_dimensions, parsed_filters);
+    match top {
+        None => Ok(query),
+        Some(raw) => Ok(query.with_top(top_of(raw)?)),
+    }
+}
+
+fn top_of(raw: RawTop<'_>) -> Result<Top, MalformedQuestion> {
+    let n = TopN::parse(raw.n).map_err(|cause| MalformedQuestion::TopN { cause })?;
+    let by = match raw.by {
+        "metric" => TopBy::Metric,
+        "period" => TopBy::Period,
+        _other => return Err(MalformedQuestion::TopBy),
+    };
+    let direction = match raw.direction {
+        "desc" => TopDirection::Desc,
+        "asc" => TopDirection::Asc,
+        _other => return Err(MalformedQuestion::TopDirection),
+    };
+    Ok(Top::new(n, by, direction))
 }
 
 /// The grain, from its name.
@@ -197,6 +245,7 @@ mod tests {
             "2026-07-01",
             &[String::from("region")],
             &[RawFilter::new("region", "north")],
+            None,
         )
         .expect("a well formed question is a query");
         assert_eq!(query.metric(), &MetricName::parse("revenue").expect("a test metric"));
@@ -210,15 +259,15 @@ mod tests {
 
     #[test]
     fn an_unknown_grain_names_the_field_and_the_accepted_set() {
-        let error =
-            parse_query("revenue", "fortnight", "2026-06-01", "2026-07-01", &[], &[]).expect_err("`fortnight` is not a grain");
+        let error = parse_query("revenue", "fortnight", "2026-06-01", "2026-07-01", &[], &[], None)
+            .expect_err("`fortnight` is not a grain");
         assert!(matches!(error, MalformedQuestion::Grain), "{error:?}");
         assert!(error.to_string().contains("quarter"), "{error}");
     }
 
     #[test]
     fn a_malformed_date_names_which_end_of_the_range() {
-        let error = parse_query("revenue", "month", "nope", "2026-07-01", &[], &[]).expect_err("`nope` is not a date");
+        let error = parse_query("revenue", "month", "nope", "2026-07-01", &[], &[], None).expect_err("`nope` is not a date");
         let MalformedQuestion::Date { field, .. } = error else {
             panic!("{error:?} is not a Date error");
         };
@@ -227,7 +276,7 @@ mod tests {
 
     #[test]
     fn a_reversed_range_is_refused_rather_than_reordered() {
-        let error = parse_query("revenue", "month", "2026-07-01", "2026-06-01", &[], &[])
+        let error = parse_query("revenue", "month", "2026-07-01", "2026-06-01", &[], &[], None)
             .expect_err("an end before its start is not a period");
         assert!(matches!(error, MalformedQuestion::Range { .. }), "{error:?}");
     }
@@ -241,9 +290,71 @@ mod tests {
             "2026-07-01",
             &[],
             &[RawFilter::new("region", "line one\nline two")],
+            None,
         )
         .expect_err("a multi-line value is not one this catalog could declare");
         assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
         assert!(!error.to_string().contains("line one"), "{error}");
+    }
+
+    #[test]
+    fn a_well_formed_top_attaches_to_the_query() {
+        let query = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[],
+            Some(super::RawTop::new(10, "metric", "desc")),
+        )
+        .expect("a well formed top is a top");
+        let top = query.top().expect("top was attached");
+        assert_eq!(top.n().get(), 10);
+    }
+
+    #[test]
+    fn a_zero_top_n_names_the_field() {
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[],
+            Some(super::RawTop::new(0, "metric", "desc")),
+        )
+        .expect_err("zero rows is not a row count");
+        assert!(matches!(error, MalformedQuestion::TopN { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn an_unknown_top_by_names_the_accepted_set() {
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[],
+            Some(super::RawTop::new(10, "revenue", "desc")),
+        )
+        .expect_err("`revenue` is not `metric` or `period`");
+        assert!(matches!(error, MalformedQuestion::TopBy), "{error:?}");
+    }
+
+    #[test]
+    fn an_unknown_top_direction_names_the_accepted_set() {
+        let error = parse_query(
+            "revenue",
+            "month",
+            "2026-06-01",
+            "2026-07-01",
+            &[],
+            &[],
+            Some(super::RawTop::new(10, "metric", "sideways")),
+        )
+        .expect_err("`sideways` is not `desc` or `asc`");
+        assert!(matches!(error, MalformedQuestion::TopDirection), "{error:?}");
     }
 }

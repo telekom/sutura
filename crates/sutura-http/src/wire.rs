@@ -75,6 +75,26 @@ pub struct QuestionBody {
     /// Equality filters, each on a dimension the metric declares as filterable.
     #[serde(default)]
     filters: Vec<FilterBody>,
+    /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
+    /// every group.
+    top: Option<TopBody>,
+}
+
+/// A `top` clause: rank by `by`, in `direction`, keep the first `n`.
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TopBody {
+    /// How many groups to return. Must be positive, and no more than this deployment will
+    /// certify - a larger count is the same refusal an unbounded question over that many groups
+    /// already gets.
+    #[schema(example = 10)]
+    n: u32,
+    /// `metric` ranks by the question's own measure; `period` ranks by the time bucket.
+    #[schema(example = "metric")]
+    by: String,
+    /// `desc` for the largest first, `asc` for the smallest.
+    #[schema(example = "desc")]
+    direction: String,
 }
 
 /// A half-open period: `start` is included, `end` is not. Either an absolute period
@@ -146,6 +166,10 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
         .last
         .map(|last| sutura_runtime::relative_range::LastWire::new(last.count, last.unit, last.include_current));
     let (start, end) = sutura_runtime::relative_range::resolve_range(clock, body.range.start, body.range.end, last)?;
+    let top = body
+        .top
+        .as_ref()
+        .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
     Ok(sutura_domain::question::parse_query(
         &body.metric,
         &body.grain,
@@ -153,6 +177,7 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
         &end,
         &body.dimensions,
         &filters,
+        top,
     )?)
 }
 

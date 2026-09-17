@@ -21,7 +21,7 @@ use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
 
 /// A dimension, and the join needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
@@ -57,6 +57,7 @@ pub(crate) struct Resolution<'a> {
     pub(crate) range: TimeRange,
     pub(crate) keys: Vec<ResolvedDimension<'a>>,
     pub(crate) filters: Vec<ResolvedFilter<'a>>,
+    pub(crate) top: Option<Top>,
 }
 
 /// Why resolution did not produce a resolution.
@@ -152,6 +153,23 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>) -> Result<Resolu
         .into());
     }
 
+    // `top.n` asks for a caller-chosen number of rows rather than every group, but it is still
+    // bounded by the same cap an unbounded question is refused against: a larger `n` takes that
+    // existing refusal rather than a silent clamp to whatever this deployment will certify.
+    // Checked here, before anything is looked up, for the reason the range check above gives - a
+    // question that is both too wide and misspells a dimension is refused for the reason that is
+    // about cost.
+    if let Some(top) = query.top()
+        && top.n().exceeds_the_row_cap()
+    {
+        return Err(RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows {
+                limit: sutura_domain::plan::MAX_ROWS,
+            },
+        }
+        .into());
+    }
+
     let mut seen: BTreeSet<&DimensionName> = BTreeSet::new();
     let mut keys = Vec::with_capacity(query.dimensions().len());
     for name in query.dimensions() {
@@ -201,6 +219,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>) -> Result<Resolu
         range: query.range(),
         keys,
         filters,
+        top: query.top(),
     })
 }
 

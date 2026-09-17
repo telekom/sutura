@@ -93,6 +93,7 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
+        RefusalReason::TopNotFederated,
     ]
 }
 
@@ -145,7 +146,8 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::CredentialUnavailable { .. }
             | RefusalReason::LegsDecideIdentityDifferently { .. }
             | RefusalReason::DeadlineExceeded { .. }
-            | RefusalReason::BudgetExhausted { .. } => {}
+            | RefusalReason::BudgetExhausted { .. }
+            | RefusalReason::TopNotFederated => {}
         }
         assert_eq!(
             key,

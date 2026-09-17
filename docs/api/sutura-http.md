@@ -3906,6 +3906,18 @@ A question, as it arrives.
 
 `ComposeSchema`, `Debug`, `Deserialize<'de>`, `ToSchema`
 
+### `struct TopBody`
+
+```rust
+pub struct TopBody
+```
+
+A `top` clause: rank by `by`, in `direction`, keep the first `n`.
+
+#### Implements
+
+`ComposeSchema`, `Debug`, `Deserialize<'de>`, `ToSchema`
+
 ### `struct RangeBody`
 
 ```rust

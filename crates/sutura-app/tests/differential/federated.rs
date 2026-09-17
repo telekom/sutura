@@ -198,6 +198,35 @@ fn two_relationships_on_one_remote_source_have_no_single_federation_link() {
     assert_eq!(source.as_str(), LOOKUP_SOURCE);
 }
 
+/// `github.com/telekom/sutura#777`'s honest scope: `top` is refused above a federated plan, and
+/// the same question single-source still plans - so the refusal is about the SHAPE spanning two
+/// sources, not about `top` itself.
+#[test]
+fn top_on_a_federated_plan_is_refused_and_the_mono_question_still_plans() {
+    let corpus = derived();
+    let one = bundle(&corpus.one_source);
+    let two = bundle(&corpus.two_source);
+    let asked: Query = serde_norway::from_str(
+        "metric: recurring_revenue\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
+         dimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
+    )
+    .expect("a top question is a question");
+
+    let mono = compile(&asked, &ScopedView::everything(&one)).expect("the mono question compiles");
+    assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
+
+    let federated = compile(&asked, &ScopedView::everything(&two)).expect("a refusal is not a compile error");
+    assert!(
+        matches!(
+            federated,
+            Compiled::Refused {
+                reason: RefusalReason::TopNotFederated
+            }
+        ),
+        "expected TopNotFederated, got {federated:?}"
+    );
+}
+
 /// The one-source side: the ENGINE, over every table the bundle names.
 ///
 /// The bundle and the registry come back together because a `Validated` bundle is only obtainable

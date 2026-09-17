@@ -172,6 +172,7 @@ examples:
           value: business
         - dimension: region
           value: north
+      top: ~
     body: "Two filters and nothing to group by: this asks for one number rather than a breakdown.\n\nBoth values are spelled the way the definitions declare them - `business` rather than `B2B`,\n`north` rather than `North`. The glossary entries for those phrases exist for exactly this: a filter\nis compared against the declared list, and a near miss is declined without the value being repeated\nback for comparison.\n\nA filter does not have to appear in the group-by list. Filtering on `region` while grouping by\nnothing is a total for one region; filtering on it while grouping by `segment` would be a total per\nsegment inside that region."
   churn_rate_over_the_half_year:
     name: churn_rate_over_the_half_year
@@ -186,6 +187,7 @@ examples:
         end: 2026-07-01
       dimensions: []
       filters: []
+      top: ~
     body: "A question about a trend is one question covering the whole trend, not six questions covering a\nmonth each.\n\nThe grain decides the shape of the answer: `month` over six months returns six rows, one per month.\n`churn_rate` declares no other grain, so there is no finer version of this question - a weekly churn\nrate is not a narrower cut of the same number, it is a number nobody certified, and asking for one\nis declined with `GrainNotSupported`.\n\nNothing to group by here. Adding `segment` would answer a different and equally reasonable question,\nwhich is worth confirming before choosing between them."
   revenue_by_segment_in_june:
     name: revenue_by_segment_in_june
@@ -201,4 +203,5 @@ examples:
       dimensions:
         - segment
       filters: []
+      top: ~
     body: "The plainest shape there is: one metric, one period with both ends given, one dimension to break it\ndown by.\n\nNote what the period is. June 2026 is `2026-06-01` up to but not including `2026-07-01`, because a\nperiod here is half-open - the end is the first day that is NOT counted. A range of `2026-06-01` to\n`2026-06-30` quietly leaves the last day of the month out, and nothing about the answer would say\nso.\n\nThe result is one row per segment, in minor units, and the caveat on the metric is the reason that\nmatters before quoting it."

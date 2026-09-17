@@ -78,9 +78,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         // a nested exhaustive match for the sentence, so a bound with no number cannot be described
         // using the other one's.
         RefusalReason::ResultTooLarge { bound } => match bound {
-            ResultBound::Rows { limit } => {
-                format!("the answer would have been more than {limit} rows; ask a narrower question")
-            }
+            ResultBound::Rows { limit } => format!(
+                "the answer would have been more than {limit} rows; ask a narrower question, or add \
+                 `top: {{ n, by, direction }}` to ask for exactly the rows you want ranked by the \
+                 metric or the period - {limit} is this build's own compiled bound and not one you \
+                 or the caller can raise; report it to whoever operates this deployment if it is \
+                 consistently too small"
+            ),
             // No figure: the bound is the data system's and this deployment is not told it, so
             // there is nothing to divide a range by. What an agent needs instead is that the
             // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
@@ -202,6 +206,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              window, this question's own estimate is over the ceiling by itself: waiting will never \
              help that case, and narrowing the question is the only remedy."
         ),
+        // Written for an agent: `top` itself is not what is missing, the combiner above the two
+        // legs is - so the sentence says what has no capability yet rather than what the question
+        // got wrong.
+        RefusalReason::TopNotFederated => String::from(
+            "this question asks for an ordered, bounded result and spans two data systems; `top` \
+             is not yet applied above the join that combines them. Retrying it unchanged will be \
+             refused again: ask the same metric without the dimension on the second data system, \
+             where `top` still applies.",
+        ),
     };
     (code, detail)
 }
@@ -280,6 +293,7 @@ mod tests {
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
+            RefusalReason::TopNotFederated,
         ]
     }
 
@@ -338,6 +352,30 @@ mod tests {
             detail.contains("5 dimensions were asked for") && detail.contains("at most 4 are allowed"),
             "{detail}"
         );
+    }
+
+    #[test]
+    fn a_row_cap_refusal_points_at_top_and_at_the_deployments_operator() {
+        // The pointer `github.com/telekom/sutura#777` adds: the caller cannot raise the row cap,
+        // but `top` bounds the same question without hitting it, and an operator is who could move
+        // the compiled bound itself.
+        let (_, detail) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: 10_000 },
+        });
+        assert!(detail.contains("top:"), "{detail}");
+        assert!(detail.contains("operates this deployment"), "{detail}");
+        assert!(
+            !detail.contains("raise") || detail.contains("not one you"),
+            "the sentence must not promise the caller can raise the bound: {detail}"
+        );
+    }
+
+    #[test]
+    fn a_federated_top_names_the_missing_capability_and_the_narrower_question() {
+        let (code, detail) = refused(&RefusalReason::TopNotFederated);
+        assert_eq!(code, "top_not_federated");
+        assert!(detail.contains("top"), "{detail}");
+        assert!(detail.contains("second data system"), "{detail}");
     }
 
     #[test]

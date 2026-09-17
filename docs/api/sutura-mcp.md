@@ -673,7 +673,7 @@ field changes a snapshot and the test fails until somebody re-accepts it. That p
 in the diff, which is the whole mechanism - `deny_unknown_fields` stops an *undeclared* field from
 being answered, and this stops a *declared* one from arriving unreviewed.
 
-Beside it, `tests::the_question_tool_takes_exactly_the_five_fields_a_question_has` asserts the
+Beside it, `tests::the_question_tool_takes_exactly_the_six_fields_a_question_has` asserts the
 property rather than the bytes: a field named `sql`, `table`, `where`, `predicate` or `rows` is not
 merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
 one cannot.
@@ -732,7 +732,7 @@ The tool's arguments and its result, and the conversions to and from the domain.
 
 # Why this crate has its own wire type
 
-`sutura-http` already holds one - `QuestionBody`, with the same five fields. Sharing the STRUCT
+`sutura-http` already holds one - `QuestionBody`, with the same six fields. Sharing the STRUCT
 would mean this adapter depending on that one, and *an adapter never calls another adapter* is
 the rule the whole layout rests on: a shape owned by one transport is a shape every other
 transport has to reach through it. `CatalogContent` is the same story against
@@ -794,9 +794,21 @@ pub struct AskArgs
 
 One governed question, as a tool call carries it.
 
-The five fields are the whole input surface of this deployment. There is no field for SQL, a
+The six fields are the whole input surface of this deployment. There is no field for SQL, a
 table, a filter expression or a row-id list, and an argument naming one is a parse error rather
 than a key that gets ignored.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+### `struct TopArgs`
+
+```rust
+pub struct TopArgs
+```
+
+A `top` clause: rank by `by`, in `direction`, keep the first `n`.
 
 #### Implements
 
@@ -860,7 +872,7 @@ Why an arguments object is not a question.
   before `TryFrom<QuestionBody> for Query` is ever reached, so `sutura-http`'s own
   `MalformedQuestion` has no arm for this case and does not need one. MCP's own
   `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
-- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same six fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
 - `Range` - A relative `range` needs a failure mode the domain does not have and must not gain - see `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole purpose with.
 
 #### Implements

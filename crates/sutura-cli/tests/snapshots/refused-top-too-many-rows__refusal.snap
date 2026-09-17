@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+ResultTooLarge:
+  bound:
+    Rows:
+      limit: 10000

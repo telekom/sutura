@@ -1,0 +1,8 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: reason
+---
+ResultTooLarge:
+  bound:
+    Rows:
+      limit: 10000

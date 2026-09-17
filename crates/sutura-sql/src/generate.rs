@@ -472,28 +472,33 @@ fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, Genera
     Ok(table.to_string())
 }
 
-/// `expr`, ordered ascending, with nulls placed last.
+/// `expr`, nulls placed last, ascending unless `desc`.
 ///
 /// **Why explicit, and why `NULLS LAST`:** a bare `ORDER BY` leaves null placement to the target,
 /// and the four dialects disagree about it - the engine orders nulls last, `BigQuery` orders them
-/// first. So the same metric was answering in a different order depending on which data system
-/// handled it, and no golden caught it, because a golden pins one dialect's text and both sides
-/// spell a bare `ORDER BY` identically - only two data systems EXECUTING it could disagree. Naming
-/// `NULLS LAST` states the intent and makes every target converge on the engine's own order: the
-/// layer renders the keyword for the target whose default is the other way and omits it where it is
-/// already the default (`DuckDB`, Postgres, `ClickHouse`), which is behaviour, not text, converging.
-///
-/// Rendered through the layer's own [`Ordered`] node, which `engine::ordered` unwraps rather than
-/// re-wrapping - `Expr(Expression::Ordered)` is how the uniform `NULLS LAST` reaches every dialect.
-fn ordered_nulls_last(expr: Expr) -> Expr {
+/// first, and no golden caught that until two data systems actually EXECUTED the same bare
+/// `ORDER BY` and disagreed. Naming `NULLS LAST` makes every target converge on the engine's own
+/// order: the layer renders the keyword for the target whose default is the other way and omits it
+/// where it already is one (`DuckDB`, Postgres, `ClickHouse`) - behaviour, not text, converging.
+/// Nulls last regardless of `desc`, because a null means there was nothing to rank and that sorts
+/// after every value either way. Rendered through the layer's own [`Ordered`] node, which
+/// `engine::ordered` unwraps rather than re-wrapping.
+fn ordered(expr: Expr, desc: bool) -> Expr {
     Expr(Expression::Ordered(Box::new(Ordered {
         this: expr.into_inner(),
-        desc: false,
+        desc,
         nulls_first: Some(false),
         explicit_asc: false,
         with_fill: None,
     })))
 }
+
+fn ordered_nulls_last(expr: Expr) -> Expr {
+    ordered(expr, false)
+}
+
+/// `top: { n, by, direction }` - `github.com/telekom/sutura#777`.
+mod top;
 
 /// The statement, as this dialect writes it.
 ///
@@ -524,8 +529,9 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         grouping.push(column(key.column()));
     }
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
-    grouping.push(bucket_expr);
-    projection.push(aliased(measure_expression(plan.measure(), dialect), plan.measure_label())?);
+    grouping.push(bucket_expr.clone());
+    let measure_expr = measure_expression(plan.measure(), dialect);
+    projection.push(aliased(measure_expr.clone(), plan.measure_label())?);
     let statement = joined(
         builder::select(projection).from(&table_path(plan.table(), dialect)?),
         plan.joins(),
@@ -544,7 +550,17 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     };
     let where_clause = clauses.fold(first, Expr::and);
 
-    let ordering: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
+    // `top` replaces both the ordering and the limit - see `top::ordering` for the tie-break
+    // argument - with the caller's own count rather than one past the row cap, since a `top`
+    // answer is bounded by construction and there is nothing to detect.
+    let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
+    let (ordering, limit) = match plan.top() {
+        Some(requested) => (
+            top::ordering(requested, measure_expr, bucket_expr, tiebreak),
+            usize::try_from(requested.n().get()).unwrap_or(usize::MAX),
+        ),
+        None => (tiebreak, usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
+    };
     let ast = statement
         .where_(where_clause)
         .group_by(grouping)
@@ -553,7 +569,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         // nothing to do with the change under review. Each ascending, nulls last - `ordered_nulls_last`
         // carries why the placement is stated rather than left to each target's default.
         .order_by(ordering)
-        .limit(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX))
+        .limit(limit)
         .build();
 
     Ok(GeneratedQuery::new(

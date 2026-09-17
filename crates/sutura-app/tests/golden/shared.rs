@@ -119,6 +119,10 @@ pub(crate) const PROVOKED: &[(&str, &str)] = &[
     ("refused-duplicate-dimension", "DuplicateDimension"),
     ("refused-too-many-dimensions", "TooManyDimensions"),
     ("refused-range-too-long", "TimeRangeTooLong"),
+    // `top.n` past the row cap - decided in `sutura-semantic::resolve`, before a plan exists, so
+    // unlike the OTHER `ResultTooLarge` cause (a data system's own reply, see this table's own
+    // note above) nothing runs for this one either.
+    ("refused-top-too-many-rows", "ResultTooLarge"),
 ];
 
 /// A parameter's value as text, for comparing against what a question or a leg carried.
