@@ -58,8 +58,15 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// A string rather than a probe: the honest runtime proof is `MIMALLOC_VERBOSE=1`, which makes
 /// mimalloc itself announce its version and options on stderr. This line only says what was
 /// compiled in.
+///
+/// THE MAJOR SERIES, NOT THE PATCH LEVEL. The version lives in two places already
+/// (`VENDOR.md`'s drift-hazard paragraph: `nix/mimalloc.nix`'s `mimallocVersion` and the
+/// vendored `c_src` tree) and nothing compares either of those against a string here. Writing
+/// `3.5.3` would be a third copy that goes stale on the next patch bump with nothing to notice -
+/// which is exactly how this line came to say `2.x` while shipping 3.5.0 through 3.5.3. `3.x`
+/// cannot drift on a patch release, so it is the only number safe to hold by recall.
 const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
-    "mimalloc 2.x (secure)"
+    "mimalloc 3.x (secure)"
 } else {
     "system"
 };
@@ -540,5 +547,18 @@ mod tests {
             .find(|c| c.name == "mcp")
             .expect("mcp is listed in every build");
         assert_eq!(mcp.args, "<catalog-dir> [data-dir]");
+    }
+
+    /// The allocator this crate LINKS on Linux is the major series `doctor` REPORTS. `ALLOCATOR`
+    /// and `ALLOCATOR_NAME` are two constants naming the same fact, so nothing but this test
+    /// compares them - which is how `ALLOCATOR_NAME` said `2.x` while every Linux build had
+    /// linked v3 since `VENDOR.md`'s first mimalloc entry.
+    ///
+    /// Linux-only, same as the constant: on any other host `ALLOCATOR_NAME` is `"system"` and
+    /// this crate does not link mimalloc at all, so there is nothing here to assert.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn allocator_name_reports_the_series_mimalloc_links() {
+        assert_eq!(super::ALLOCATOR_NAME, "mimalloc 3.x (secure)");
     }
 }
