@@ -1,0 +1,1 @@
+{"kind":"bigquery#queryResponse","jobComplete":false,"errors":[{"reason":"invalidQuery","message":"Syntax error near line 1"}]}

@@ -142,7 +142,7 @@ use crate::wire::credential::{AccessTokens, QuotaProject};
 pub mod bounds;
 mod budget;
 pub mod credential;
-mod document;
+pub mod document;
 mod iamcredentials;
 mod sts;
 mod tables;
@@ -159,7 +159,7 @@ mod tests;
 use crate::wire::budget::{call_body, configured_budget_seconds, remaining_of_the_ports_deadline};
 #[cfg(feature = "fixtures")]
 use crate::wire::document::applied;
-use crate::wire::document::{QueryAnswer, QueryBody, complete, estimated_bytes, refusal, url};
+use crate::wire::document::{QueryAnswer, QueryBody, complete, estimated_bytes, parse, refusal, url};
 
 /// The API this module speaks to. A compile-time constant: there is no configuration key for it, so
 /// no deployment can choose which service receives the credential. What a deployment CAN choose is
@@ -852,7 +852,7 @@ where
         if !status.is_success() {
             return Err(refusal(status.as_u16(), &text));
         }
-        serde_json::from_str(&text).map_err(|cause| WireError::NotADocument { cause })
+        parse(&text).map_err(|cause| WireError::NotADocument { cause })
     }
 
     /// What a dry run may conclude: *the endpoint accepted this statement*, and its own estimate of

@@ -1,0 +1,1 @@
+{"kind":"bigquery#queryResponse","schema":{"fields":[{"name":"segment","type":"STRING"},{"name":"total","type":"INTEGER"}]},"jobReference":{"projectId":"example-project","jobId":"job_example000000000000000000"},"totalRows":"2","rows":[{"f":[{"v":"gold"},{"v":"4"}]},{"f":[{"v":"silver"},{"v":"7"}]}],"totalBytesProcessed":"1024","jobComplete":true,"cacheHit":false}

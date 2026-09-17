@@ -1,0 +1,1 @@
+{"kind":"bigquery#queryResponse","schema":{"fields":[{"name":"a","type":"STRING"},{"name":"b","type":"RECORD"}]},"totalRows":"1","rows":[{"f":[{"v":null},{"v":{"nested":"value"}}]}],"jobComplete":true}

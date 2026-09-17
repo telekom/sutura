@@ -1,0 +1,1 @@
+{"kind":"bigquery#queryResponse","jobReference":{"projectId":"example-project","jobId":"job_example000000000000000001"},"jobComplete":false}

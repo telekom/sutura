@@ -128,6 +128,27 @@ pub(super) struct QueryAnswer {
     total_bytes_processed: Option<String>,
 }
 
+/// Deserializes the endpoint's raw HTTP body into [`QueryAnswer`].
+///
+/// The exact call [`super::BigQueryWire::submit`] makes on the wire. `pub(super)`, same as
+/// [`QueryAnswer`]: this crate's own [`deserializes`] is the one seam widened past that, and it
+/// goes through this function rather than a second call to `serde_json::from_str`.
+pub(super) fn parse(text: &str) -> Result<QueryAnswer, serde_json::Error> {
+    serde_json::from_str(text)
+}
+
+/// Whether the endpoint's raw reply deserializes into [`QueryAnswer`], with the value discarded.
+///
+/// **`pub`, and the only reason.** This reply is a data SYSTEM's response - foreign bytes on their
+/// way to an agent, not a file an operator placed or a caller's own payload - and the
+/// `bigquery_reply` fuzz target drives it from outside this crate. Widening [`QueryAnswer`] itself
+/// to reach that target would publish a type this crate's own newtype rule keeps field-private
+/// (`cargo xtask check-boundaries`'s `api_shape` half refuses a `pub` field on a `pub` struct); this
+/// wrapper reaches the identical [`parse`] call without needing to.
+pub fn deserializes(text: &str) -> Result<(), serde_json::Error> {
+    parse(text).map(|_| ())
+}
+
 /// The columns the statement projected.
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
