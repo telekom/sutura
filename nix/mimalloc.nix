@@ -65,6 +65,24 @@ let
       # Matches cc-rs, which sets it for the same reason: a timestamp in the archive
       # would make the output differ between builds.
       env.ZERO_AR_DATE = "1";
+      # GUARD-PAGE SAMPLING (MI_GUARDED) IS COMPILED IN, DORMANT BY DEFAULT. Its own gate in
+      # `include/mimalloc/types.h` needs `MI_DEBUG && !defined(NDEBUG)`, which this release
+      # build never has, so `-DMI_GUARDED=1` below OVERRIDES that gate rather than satisfying
+      # it - the same override `build.rs` makes. Upstream's own design is that guarded mode
+      # with no ACTIVE guard page costs close to nothing next to plain release mode, which is
+      # why it ships compiled in rather than as a separate build: the expensive part is a
+      # guarded allocation itself (at least one extra page, ~8 KiB, plus OS protection calls),
+      # so it is sampled rather than universal. `-DMI_DEFAULT_GUARDED_SAMPLE_RATE=0` is written
+      # explicitly even though it is upstream's own current default, because dormant-by-default
+      # is the whole point of shipping this compiled in - a future upstream flip of that
+      # default must not silently arm guard pages in a production binary that never asked for
+      # them. Arming is a RUNTIME choice per deployment: `MIMALLOC_GUARDED_SAMPLE_RATE=4000`
+      # (1 in N allocations in the `guarded_min`..`guarded_max` range gets a guard page),
+      # observable afterwards via `MIMALLOC_VERBOSE=1`'s `guarded mode: enabled, rate=N` line.
+      # BOTH build paths must carry `MI_GUARDED=1` and the same default rate - this file's `cc`
+      # invocation and `build.rs`'s `MI_SECURE` define - or the two link paths disagree on
+      # allocator security behaviour, the same hazard `VENDOR.md`'s version-drift paragraph
+      # names, extended to compile-time posture.
       buildPhase = ''
         runHook preBuild
         $CC -O${optLevel} -ffunction-sections -fdata-sections -fPIC \
@@ -72,6 +90,7 @@ let
           -Wall -Wextra -Wno-error=date-time \
           -ftls-model=initial-exec \
           -DMI_SECURE=4 -DMI_PADDING_CHECK_BYTES=1 \
+          -DMI_GUARDED=1 -DMI_DEFAULT_GUARDED_SAMPLE_RATE=0 \
           -DMI_DEBUG=0 -DMI_BUILD_RELEASE -DNDEBUG \
           ${pkgs.lib.optionalString isMusl "-DMI_LIBC_MUSL=1"} \
           ${pkgs.lib.optionalString isAarch64 "-march=armv8.3-a"} \
