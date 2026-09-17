@@ -107,6 +107,15 @@ mod agent;
 #[path = "served/refused.rs"]
 mod refused;
 
+// The golden corpus, over HTTP - `github.com/telekom/sutura#124`. `cfg(feature = "postgres")`
+// because the one cell here needs the provisioned tier, the same reason `harness/postgres.rs` is
+// gated; `cfg(unix)` for the same reason every case spawning `Served` carries it.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "postgres")]
+#[path = "served/corpus.rs"]
+mod corpus;
+
 #[cfg(unix)]
 #[cfg(test)]
 mod tests {
