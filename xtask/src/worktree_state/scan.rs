@@ -150,9 +150,11 @@ pub(super) const MUST_READ: &[&str] = &[
     "xtask/src/worktree_state/scan.rs",
     "dev/src/scope.rs",
     "nix/run-gate.sh",
-    // The tier arm, which is the one that carries a real subject: this file holds the only
-    // worktree-keyed path in the tree that a service actually listens on.
-    "nix/postgres-tier.nix",
+    // The tier arm, which is the one that carries a real subject: this script holds the only
+    // worktree-keyed path in the tree that a service actually listens on. It used to be inline
+    // in `nix/postgres-tier.nix` itself; moved out to `nix/postgres-tier-provision.sh` to keep
+    // that `.nix` file under the line cap, and the anchor moved with it.
+    "nix/postgres-tier-provision.sh",
 ];
 
 /// Which language's rules a repo-relative path is subject to, or `None` for out of scope.
@@ -633,7 +635,7 @@ pg="${TMPDIR:-/tmp}/sutura-$key-pg"
         assert_eq!(language_of("nix/cargo-env.nix"), None);
         assert_eq!(language_of("nix/shipped.nix"), None);
         // And the arm is anchored, so a scope that loses it refuses rather than shrinking.
-        assert!(super::MUST_READ.contains(&"nix/postgres-tier.nix"));
+        assert!(super::MUST_READ.contains(&"nix/postgres-tier-provision.sh"));
     }
 
     #[test]

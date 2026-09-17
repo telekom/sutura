@@ -1,5 +1,6 @@
-//! The architecture-boundary gate. EIGHT halves - four about which way dependencies point, two
-//! about the driving port, and two about what the crossing looks like:
+//! The architecture-boundary gate. NINE halves - four about which way dependencies point, one
+//! about the application specifically, two about the driving port, and two about what the
+//! crossing looks like:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -9,6 +10,11 @@
 //!   gate green
 //! * no adapter reaches an adapter of its own kind ([`adapter_classes`], and `adapters` for the
 //!   definition, which is the whole of the work in that rule)
+//! * `sutura-app` reaches no data-system adapter over a normal edge ([`no_adapter_in_application`],
+//!   and `application`) - a THIRD shape, one named crate against a class rather than a denylist
+//!   entry or an intra-class comparison, added at `telekom/sutura#112` because neither sibling
+//!   rule above could see this edge at all: `FORBIDDEN_EDGES` has no row naming `sutura-app`, and
+//!   `sutura-app` joins none of `adapters`'s classes
 //! * a driving port is not declared by one of its callers ([`declared_ports`], and `ports`) - the
 //!   one half that reads which crate declares a TRAIT rather than which crate depends on which
 //! * a caller of that port reaches the answer path THROUGH it ([`answer_through_the_port`], and
@@ -47,6 +53,7 @@
 mod adapters;
 mod answer_path;
 mod api_shape;
+mod application;
 mod edges;
 mod harness;
 mod ports;
@@ -63,15 +70,65 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let edges = forbidden_edges();
     let packs = harness_reaches_no_adapter();
     let classes = adapter_classes();
+    let application = no_adapter_in_application();
     let declared = declared_ports();
     let through = answer_through_the_port();
     let surface = typed_surface();
     let mounts = ungoverned::check();
-    let halves = [direction, edges, packs, classes, declared, through, surface, mounts];
+    let halves = [
+        direction,
+        edges,
+        packs,
+        classes,
+        application,
+        declared,
+        through,
+        surface,
+        mounts,
+    ];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
     } else {
         Verdict::Fail
+    }
+}
+
+/// A third shape of dependency-direction rule: one named crate against a class, rather than a
+/// [`FORBIDDEN_EDGES`] row (two named crates) or [`adapter_classes`] (a class against itself).
+/// `application`'s own header is the argument for why this could not be either sibling.
+fn no_adapter_in_application() -> Verdict {
+    // `--all-features`, for [`adapter_classes`]'s exact reason: the claim is about a NORMAL edge,
+    // and a dependency moved behind a feature is still a dependency this walk must see resolved.
+    let meta = match crate::cargo_metadata(&["--all-features"]) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            return Verdict::Fail;
+        }
+    };
+    match application::check(&meta) {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} reaches no data-system adapter over a normal edge \
+                 ({} crate(s) in its normal tree)",
+                application::APPLICATION,
+                report.tree_size
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - the application reaches a data-system adapter:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            application::explain();
+            Verdict::Fail
+        }
     }
 }
 

@@ -16,7 +16,7 @@ use super::{
     Phrase, Referent,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use crate::catalog::{Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
     Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, SourceName, TableName,
@@ -99,6 +99,7 @@ pub(super) fn definitions() -> Definitions {
         vec![segment, product_name],
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("these fixture dimensions are distinct");
     let minutes = Metric::new(
@@ -111,6 +112,7 @@ pub(super) fn definitions() -> Definitions {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![revenue, minutes]).expect("the test bundle is consistent")

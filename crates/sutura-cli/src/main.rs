@@ -319,11 +319,13 @@ fn doctor() {
     println!("  target       : {}", std::env::consts::ARCH);
     println!("  allocator    : {ALLOCATOR_NAME}");
     println!("  engine       : datafusion (arrow, in process)");
-    // **A `cfg!` and not a probe, and it says what was LINKED rather than what is reachable.** A
-    // published artefact is built with cargo's default features, so this line reads `none` there;
-    // a source build passing `--features bigquery` is the only one that can open a dataset, and
-    // `sutura doctor` is where somebody holding a binary finds out which they have. It is the
-    // command the release workflow smoke-tests, which is why it is worth being exact here.
+    // **A `cfg!` and not a probe, and it says what was LINKED rather than what is reachable.**
+    // Since `github.com/telekom/sutura#685` step 5 the published artefact ships every optional
+    // feature (`nix/shipped.nix`'s `features` field on the `sutura` entry), so this line reads
+    // `bigquery, over the wire` there too; a build with the feature off - most narrowly, a plain
+    // `cargo build -p sutura-cli` with none passed - is the one that reads `none`. `sutura doctor`
+    // is where somebody holding a binary finds out which they have. It is the command the release
+    // workflow smoke-tests, which is why it is worth being exact here.
     println!(
         "  data systems : {}",
         if cfg!(feature = "bigquery") {

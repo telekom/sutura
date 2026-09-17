@@ -324,7 +324,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 holds: "SourceKind::Files",
             },
             Evidence {
-                path: "crates/sutura-cli/src/serve.rs",
+                path: "crates/sutura-cli/src/serve/kind.rs",
                 holds: "SourceKind::Files",
             },
         ],

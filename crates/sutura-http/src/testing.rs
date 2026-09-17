@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
 };
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
@@ -48,7 +48,7 @@ pub(crate) fn metric_name() -> MetricName {
     MetricName::parse("revenue").expect("a test metric is a metric")
 }
 
-fn description(raw: &str) -> Description {
+pub(super) fn description(raw: &str) -> Description {
     Description::parse(raw).expect("a test description is a description")
 }
 
@@ -56,7 +56,7 @@ fn declared_value(raw: &str) -> DimensionValue {
     DimensionValue::parse(raw).expect("a test value is a value")
 }
 
-fn column(raw: &str) -> ColumnName {
+pub(super) fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
 }
 
@@ -69,7 +69,7 @@ fn june() -> TimeRange {
 }
 
 /// The anchor every bundle below is certified with: one range, one parsed value.
-fn anchor(value: &str) -> Anchor {
+pub(super) fn anchor(value: &str) -> Anchor {
     Anchor::new(june(), AnchorValue::parse(value).expect("a test anchor value is a value"))
 }
 
@@ -80,10 +80,9 @@ pub(crate) fn bundle() -> PinnedDefinitions {
 
 /// The same bundle with no anchor, so it validates against a data system that answers nothing.
 ///
-/// **Only for tests about what happens AFTER startup.** A bundle with no anchor validates against
-/// any warehouse at all - see the module documentation - which is exactly why it is not the default
-/// fixture: it makes the readiness gate look like it worked when nothing had been executed. Here it
-/// is what lets a service start over a warehouse that then fails every question.
+/// **Only for tests about what happens AFTER startup.** Not the default fixture - see the module
+/// documentation for why - but what lets a service start over a warehouse that then fails every
+/// question.
 pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
     pinned(None)
 }
@@ -107,8 +106,7 @@ pub(crate) fn deadline() -> Deadline {
 ///
 /// For the corpus tests: `sutura_app::untrusted::PROSE` goes through a REAL
 /// [`sutura_domain::catalog::Description`] rather than straight into a wire type, so what the test
-/// walks is prose a catalog could actually hold - a description the domain refuses is not an input
-/// this surface can ever be handed.
+/// walks is prose a catalog could actually hold.
 pub(crate) fn described_bundle(prose: &str) -> PinnedDefinitions {
     pinned_described(Some(anchor(ANCHORED_VALUE)), prose, prose)
 }
@@ -145,6 +143,7 @@ fn pinned_described(anchor: Option<Anchor>, prose: &str, dimension_prose: &str) 
         vec![region],
         anchor,
         description(prose),
+        Audience::Open,
     )
     .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
@@ -196,10 +195,9 @@ pub(crate) fn catalog_of(bundle: PinnedDefinitions) -> FixedCatalog {
 
 /// The audit sink every fixture here starts a service with: the real writer.
 ///
-/// **The real one and not a fake, on purpose.** `LocalService::start` requires a sink, so every
-/// fixture has to name one, and naming the shipped writer means the assertions in `crate::harness`
-/// that read the log are reading what a deployment would actually get. A fake here would have made
-/// those tests pass against a channel nothing ships.
+/// **The real one and not a fake, on purpose.** Naming the shipped writer means the assertions in
+/// `crate::harness` that read the log are reading what a deployment would actually get; a fake here
+/// would have made those tests pass against a channel nothing ships.
 pub(crate) fn sink() -> sutura_runtime::TracingAuditSink {
     sutura_runtime::TracingAuditSink::new()
 }
@@ -355,11 +353,11 @@ impl Warehouse for FailingWarehouse {
 #[derive(Debug, thiserror::Error)]
 #[error("the data system would not return the whole result at once")]
 pub(crate) struct WouldNotReturnAtOnce;
-
 /// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
 mod deadline;
 pub(crate) use deadline::WarehouseThatOutranItsDeadline;
-
+mod federation; // `telekom/sutura#112`'s fixture, split out: this file is at the `max-lines` cap.
+pub(crate) use federation::two_source_fake_warehouse;
 /// A data system that will not return the whole result at once.
 ///
 /// **The instrument for the second half of `result_too_large`, reached past a `dry_run` that
@@ -783,6 +781,7 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
         vec![region],
         None,
         description("Revenue, in minor units."),
+        Audience::Open,
     )
     .expect("one dimension cannot duplicate another");
     let definitions =

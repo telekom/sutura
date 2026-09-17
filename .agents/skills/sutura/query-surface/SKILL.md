@@ -86,20 +86,28 @@ join keys, remote filters, the whole reduction table above the legs, a zero deno
 subgroup, and the `MeasureDoesNotFederate` refusal.
 **Four limits, and the first two are the ones that get overstated:**
 (1) **not two identities** - every adapter a release links is `NoPlaceForASubject` and
-`deliverable_by` refuses `impersonation-at-source` against it in both composition roots, so every
+`deliverable_by` refuses `impersonation-at-source` against it in every composition root, so every
 `files` source is `shared-service-user` and both legs of a shipped answer run under one
 operating-system identity. **Which is also why the mixed-posture refusal fires for nothing today:**
 `ExecutedAs::uniform` refuses an answer whose legs decide identity two different ways, and no
 published build can reach a source of each kind - the only `PerSubjectCredential` adapter is
 `sutura-exec-bigquery`, which leaves `EXECUTES_LEGS` at its default and is therefore refused as
-`FederationNotExecutable` before the postures are compared. It is the guard for #112's
-heterogeneous registry, landed first; (2) **no golden reaches the engine's leg path** - it emits no SQL, so
-`tests/golden/legs.rs` pins rendered legs for four dialects and none of them is what a release
-executes, and the conformance cell plus the differential are the whole of that path's evidence;
-(3) **one KIND per deployment** - `Warehouses<W>` is generic in one `W` and `one_kind` refuses a
-mixed catalog at startup, so *two sources* means two entries of the same kind; (4) `sutura-cli`
-still opens one adapter for one source and refuses a multi-source catalog, pointing at the served
-surface.
+`FederationNotExecutable` before the postures are compared. #112's heterogeneous registry landed
+without changing this: `sutura-exec-bigquery`'s constant is untouched, so a shipped mix still
+cannot put two postures on one federated answer; (2) **no golden reaches the engine's leg path** -
+it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for four dialects and none of them is
+what a release executes, and the conformance cell plus the differential are the whole of that
+path's evidence; (3) **one deployment still cannot get two genuinely different POSTURES onto one
+federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
+a closed enum over the adapters a build LINKED, erasing a heterogeneous `Warehouses<AnyWarehouse>`
+the way `sutura_app::warehouses`'s own header named as the remedy; `one_kind` is retired, and
+`crate::serve::kind::group_by_kind`/`open_mixed` open each declared kind through the SAME per-kind
+function the single-kind path always used and merge the results. What is still true: the leg gate
+that used to read one `W::EXECUTES_LEGS` for the whole build now reads
+`Warehouse::executes_legs()` per LEG instead, because an enum cannot give a truthful type-level
+constant to every variant it wraps; (4) `sutura-cli`'s OTHER root - the plain `sutura query`
+command, `crates/sutura-cli/src/sources.rs` - still opens one adapter for one source and refuses a
+multi-source catalog outright; `#112`'s enum is `sutura serve`'s, not that command's.
 
 **A fifth, about the refusal rather than the answer, and it is `telekom/sutura#338`.**
 `FederationNotExecutable` means one thing now - this build's adapter type does not declare

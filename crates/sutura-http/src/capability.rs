@@ -198,12 +198,21 @@ pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
 /// documentation. Where an absent value IS a refusal is the agent surface: a mount only happens
 /// behind a declared inbound identity, and the outer `require_verified_caller` layer installed
 /// there refuses an unverified caller before this ever runs.
-pub(crate) async fn establish_asked(mut request: Request, next: Next) -> Response {
+pub(crate) async fn establish_asked(
+    State(state): State<crate::state::ServiceState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     let (context, permitted) = request.extensions().get::<VerifiedCaller>().map_or_else(
         || (crate::principal::established(), Permitted::every_capability()),
         |caller| {
+            let granted = state
+                .settings()
+                .security()
+                .audience_mapping()
+                .granted_for(caller.groups().iter());
             (
-                crate::principal::of_verified(caller),
+                crate::principal::of_verified(caller).granting(sutura_domain::catalog::GrantedAudiences::of(granted)),
                 Permitted::granted_by(caller.scopes().iter()),
             )
         },

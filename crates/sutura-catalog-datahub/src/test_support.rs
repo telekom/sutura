@@ -233,19 +233,29 @@ pub fn dataset_page() -> serde_json::Value {
 }
 
 /// One `semanticModel` page, over the one relationship the certified fixture metric's dimension
-/// reaches `customers` through.
+/// reaches `customers` through. Served in the shape a REAL `DataHub` carries - the relationship
+/// nested inside the `semanticModel` entity's own `semanticModelInfo.value.relationships[]`, not as
+/// a top-level aspect (GMS drops that on write; measured against the docker tier, 2026-09-16) - so
+/// the fake and the live tier serve one content over two transports, and
+/// `HttpAspectReader::read_relationships` walks both identically.
 #[must_use]
 pub fn relationship_page() -> serde_json::Value {
     serde_json::json!({
         "entities": [
             {
-                "semanticModelRelationship": { "value": {
+                "urn": "urn:li:semanticModel:(urn:li:dataPlatform:bigquery,PROD,orders_to_customer)",
+                "semanticModelInfo": { "value": {
                     "name": "orders_to_customer",
-                    "from": "urn:li:dataset:(urn:li:dataPlatform:bigquery,orders,PROD)",
-                    "fromColumns": ["customer_id"],
-                    "to": "urn:li:dataset:(urn:li:dataPlatform:bigquery,customers,PROD)",
-                    "toColumns": ["customer_id"],
-                    "cardinality": "N_ONE",
+                    "relationships": [
+                        {
+                            "name": "orders_to_customer",
+                            "from": "urn:li:dataset:(urn:li:dataPlatform:bigquery,orders,PROD)",
+                            "fromColumns": ["customer_id"],
+                            "to": "urn:li:dataset:(urn:li:dataPlatform:bigquery,customers,PROD)",
+                            "toColumns": ["customer_id"],
+                            "cardinality": "N_ONE",
+                        },
+                    ],
                 } },
             },
         ]

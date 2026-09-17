@@ -154,6 +154,12 @@
             # anchored.
             || (builtins.match "nix(/.*)?" rel != null)
             || (builtins.match "docs/crap\\.md" rel != null)
+            # Keep `charts/` WHOLESALE, for the reason every arm above states in its own
+            # words: any directory a build or a test reads has to be named here, and #149's
+            # chart is neither Cargo input nor documentation - it is a `helm template` input
+            # a later check will build a derivation over. Absent, `charts/` exists in git and
+            # in the dev shell, and is an empty directory to every filtered-src derivation.
+            || (builtins.match "charts(/.*)?" rel != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -286,6 +292,11 @@
         # check would pass having read a fraction of the tree. `nix/reuse.nix` carries the rest,
         # including what the check cannot catch.
         licensing = import ./nix/reuse.nix { inherit pkgs; src = ./.; };
+
+        # The chart's own gate (#149 branch 1): `helm` and `kubeconform`, pinned, over
+        # `charts/sutura`. `wholeTree` for `reuse`'s reason - this reads no Cargo input, and
+        # crane's own `src` above drops anything outside its filter's arms.
+        chart = import ./nix/helm-chart.nix { inherit pkgs; src = wholeTree; };
 
         # The two profiles we ship.
         #
@@ -487,7 +498,12 @@
             INSTA_UPDATE = "no";
           }) // {
             # The disposable demo's fake-child contract is stdlib-only and runs from the same
-            # unfiltered source tree as the Rust tests, before the tier is provisioned.
+            # unfiltered source tree as the Rust tests, before the tier is provisioned. One
+            # exception: `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` runs the real
+            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` and
+            # whatever it pulls in before the `cargoNextest` build below does - cargo's own cache
+            # makes that a scheduling change, not a second build, but it moves real wall time ahead
+            # of `preCheck` rather than eliminating it.
             nativeCheckInputs = [ postgresTier.tier pkgs.git pkgs.python3 ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
@@ -592,6 +608,11 @@
           # and is not collected. It fails loudly rather than silently, which is why this is a note
           # and not a bug report, but the shape is worth knowing before writing an example here.
           reuse = licensing.check;
+
+          # `helm lint`, the refusal render, and `kubeconform` against the pinned schemas -
+          # `nix/helm-chart.nix` carries the derivation, the tool pins and what each leg does
+          # and does not catch.
+          helm-chart = chart.check;
 
           # The committed API reference pages under `docs/api/` are GENERATED from the library
           # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
@@ -742,8 +763,9 @@
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
-            # Armed BEFORE `start`, and only for a tier THIS invocation starts -
-            # `apps.e2e-datahub-bigquery`'s own pattern, ported for `github.com/telekom/sutura#804`.
+            # Armed BEFORE `start`, ordering from `github.com/telekom/sutura#804`, and only for
+            # a tier THIS invocation starts - the conditional `stop`, borrowed from `apps.e2e-
+            # datahub-bigquery`'s own pattern.
             # A trap armed only after `start` returns leaves the window during `start` unprotected:
             # a JVM that binds a port then fails provisioning is left running with nothing to tear
             # it down. And an unconditional `stop` on every exit path turns a passing run red the
@@ -882,20 +904,37 @@
               mode="$*"
             fi
             case "$mode" in
-              "--datahub fake") ;;
+              "--datahub fake")
+                export SUTURA_E2E_DATAHUB_MODE=fake ;;
               "--datahub tier")
-                echo "e2e-datahub-bigquery: --datahub tier is the hosted job (PR 2), which runs the real docker DataHub tier."
-                echo "e2e-datahub-bigquery: Absent from PR 1 - refusing."
-                exit 1 ;;
-              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake (PR 1) or --datahub tier (PR 2)"; exit 2 ;;
+                export SUTURA_E2E_DATAHUB_MODE=tier
+                echo "e2e-datahub-bigquery: --datahub tier - the REAL docker DataHub tier, not the recorded fake."
+                echo "e2e-datahub-bigquery: brings up the 5-container platform, provisions the certified metric under"
+                echo "e2e-datahub-bigquery: the deployment's structured property, has the tier mint its own PAT"
+                echo "e2e-datahub-bigquery: (never committed), and points the served binary's HTTP AspectReader at it."
+                echo "e2e-datahub-bigquery: Fail-not-skip."
+                cargo run -q -p xtask -- dev-up --with datahub
+                # Headless GMS exposes no /auth/* token surface, so the TIER mints its own PAT offline
+                # with its own signing key. Written into a generated token_file (never committed - it
+                # is under the ignored discovery dir) and exported by path, exactly as the just task
+                # does, so `tests/served/e2e.rs`'s `adopt_minted_pat` passes it to the served binary.
+                DATAHUB_TOKEN_FILE="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+                cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$DATAHUB_TOKEN_FILE"
+                export SUTURA_DATAHUB_TOKEN_FILE="$DATAHUB_TOKEN_FILE"
+                ;;
+              *) echo "e2e-datahub-bigquery: unknown carrier '$mode' - use --datahub fake or --datahub tier"; exit 2 ;;
             esac
 
             ${cargoLinkEnv}
             ${cargoWarmStart}
+            # Armed BEFORE `start`, same as `apps.keycloak-served-test` (#804): a `start` that
+            # binds a port or writes state and THEN fails exits under `set -euo pipefail` before
+            # a trap armed after it ever exists, leaving the JVM running with nothing to tear it
+            # down (#816).
             rc=0
             sutura-keycloak-tier status >/dev/null 2>&1 || rc=$?
-            sutura-keycloak-tier start
             if [ "$rc" = 1 ]; then trap 'sutura-keycloak-tier stop' EXIT; fi
+            sutura-keycloak-tier start
             # `exec` inside a SUBSHELL, not the outer script, for the same reason `apps.keycloak-
             # served-test` documents it: `check-warm-start` requires a live `exec cargo ` line, but
             # exec'ing the outer shell would replace it before the `trap` above fires, leaving the

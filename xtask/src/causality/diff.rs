@@ -58,7 +58,9 @@ pub(crate) struct RemovedLine {
 /// puts commits this branch never made into the diff, and every consumer downstream then treats
 /// them as the change under test.
 pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> {
-    let out = Command::new("git")
+    let mut command = Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    let out = command
         .args(["diff", "--unified=0", "--no-color", base.as_str(), "--"])
         .output()
         .ok()?;

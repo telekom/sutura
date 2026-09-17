@@ -98,7 +98,7 @@ use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Audience, Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
@@ -416,6 +416,11 @@ impl<R: AspectReader> DataHubCatalog<R> {
             dimensions,
             anchor,
             description,
+            // This adapter reads a DataHub property that carries no audience metadata yet, so
+            // every metric it produces is open - the pre-`docs/adr/0028` behaviour, preserved
+            // rather than invented. A restricted DataHub-sourced metric needs a property this
+            // adapter does not read today.
+            Audience::Open,
         )
         .map_err(|cause| DataHubError::Inconsistent { cause })
     }

@@ -239,8 +239,17 @@ pub(crate) async fn ask(
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
-    let query = Query::try_from(body).map_err(|cause| Failure::NotAQuestion {
-        detail: crate::problem::Detail::of(&cause),
+    let query = Query::try_from(body).map_err(|cause| match cause {
+        // The caller asked nothing wrong here; this deployment's own clock could not be read.
+        // `Failure::Internal` carries no detail for the same reason every other internal defect
+        // does not: what broke is ours to fix, not the caller's business.
+        crate::wire::MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(clock_cause)) => {
+            tracing::error!(error = %clock_cause, "this deployment's clock could not be read");
+            Failure::Internal
+        }
+        other => Failure::NotAQuestion {
+            detail: crate::problem::Detail::of(&other),
+        },
     })?;
 
     // WHICH question, onto the span, so every subsequent line of this request carries it.
@@ -440,10 +449,11 @@ mod tests {
     /// and what this hands back is the pair a reviewer has to be able to break: build a second
     /// bound instead of cloning this one and the test below goes green on the defect.
     ///
-    /// Two states rather than an HTTP surface and an agent surface, because no crate in this
-    /// workspace links both transports - `sutura-http` and `sutura-mcp` may not reach each other,
-    /// and the two composition roots each link one. Two states are two independent TAKERS of the
-    /// bound, which is the property under test; the transport they belong to is not.
+    /// Two states rather than an HTTP surface and an agent surface, because this crate cannot
+    /// depend on `sutura-mcp` - `sutura-http` and `sutura-mcp` are adapters of the same class, and
+    /// a normal dependency between them is what `cargo xtask check-boundaries` refuses, even though
+    /// `sutura-cli`, the one composition root, links both. Two states are two independent TAKERS of
+    /// the bound, which is the property under test; the transport they belong to is not.
     ///
     /// One service behind both, for the same reason a dual-transport root would share one: the
     /// resource the bound is about is the process's blocking pool and data system, not the router.

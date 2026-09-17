@@ -207,6 +207,25 @@ guard un-skippable rather than merely conventional is on the domain side:
 `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 `agreeing_with` is the only thing that builds one.
 
+## `fn scoped_for`
+
+```rust
+pub fn scoped_for<'a>(pinned: &'a sutura_domain::pinned::PinnedDefinitions, context: &sutura_domain::identity::RequestContext) -> sutura_domain::pinned::view::ScopedView<'a>
+```
+
+The view a request context resolves against - `docs/adr/0028`.
+
+**Here, beside `Asked` and `crate::capability::Permitted`**, so no transport owns the
+decision: `answer` below reads it, and so does every route that renders a catalog through
+`Asked::context`.
+
+**Derived from the SUBJECT, not from whether the caller presented anything else.** A verified
+caller's granted set stays on `context` regardless of whether it maps to anything, so an empty
+grant and no verification at all must not read alike: `Subject::TheDeploymentItself` is the
+explicit single-player posture the ADR's surface table names - every non-verified surface reaches
+this value and always has - while `Subject::Verified` is a caller this deployment
+authenticated, whose mapped audiences decide what is visible even when that set is empty.
+
 ## `fn verify_anchors`
 
 ```rust
@@ -1165,17 +1184,20 @@ follow from that rather than being added:
   bundle spanning two configured sources verifies rather than reporting every anchor on the second
   one as a source mismatch.
 
-# The limit, and it is the reason step ten exists
+# The limit, and what a caller does about it
 
-**Every entry is the same adapter type.** `Warehouses<W>` is generic in one `W`, so a deployment
-can hold two file sources over two directories, or two databases behind one adapter - and cannot
-hold a file engine and a `BigQuery` adapter at once. Federating across *different* data systems
-needs a closed enum over the registered adapter types or dynamic dispatch, and which of those is a
-decision with a record rather than a change to this file: `Warehouse` carries a required associated
-constant, so it is not object-safe, and that was decided where the constant is declared.
+**Every entry of ONE `Warehouses<W>` is the same adapter type.** `Warehouse` carries a required
+associated constant (`IMPERSONATION`), so it is not object-safe and `dyn Warehouse` is
+unavailable - a heterogeneous set has to be a closed enum over the registered adapter types,
+decided where that constant is declared. This crate still holds no adapter type, by the same
+`[dependencies]` this header always described: `Warehouses::into_mapped` is generic in TWO
+adapter types and imports neither, so a composition root builds the concrete registry each
+source's own posture check needs and then erases it into whichever closed enum that root
+declares over the adapters it linked - one normal edge outward, never one in.
 
-What this shape does buy today is the whole of what the boot checks need: more than one source
-configured, each declaring its own posture, and an answer that says which posture produced it.
+What this shape buys is the whole of what the boot checks need: more than one source configured,
+of more than one kind if the caller's own enum covers it, each declaring its own posture, and an
+answer that says which posture produced it.
 
 ### `struct Warehouses`
 
@@ -1237,6 +1259,36 @@ The data system a plan naming `source` runs on, if this process opened one.
 asking: the query path answers `RefusalReason::SourceUnavailable`, and the anchor pass records
 `NotExecutedReason::SourceNotConfigured` against the metric. Deciding here would make one of
 those two the other's wording.
+
+```rust
+pub fn into_mapped<U, F>(self, wrap: F) -> Warehouses<U>
+```
+
+Every adapter, wrapped by `wrap` into a second registry over a second type.
+
+**Adapter-agnostic, and that is the whole reason it belongs here rather than at a
+composition root.** A build that links more than one kind erases each source's own adapter
+behind a closed enum it declares - `sutura_app::warehouses`'s own header names the enum as
+the remedy for the limit this file states - and that enum lives OUTSIDE this crate, one
+normal edge away, because "which adapters a process holds is a property of the BUILD". This
+method is what lets a root build the concrete registry it already knows how to build (one
+call per source, one `deliverable_by` check against that source's own constant) and THEN
+erase it, rather than threading the enum through every step that constructs an adapter.
+
+Total rather than fallible: `self`'s keys are already distinct by construction (every entry
+passed through `Self::of` or `Self::and`, both of which refuse a collision), and `wrap`
+changes no key - so the second registry cannot collide either.
+
+```rust
+pub fn merge(self, other: Self) -> Result<Self, SourceAlreadyOpen>
+```
+
+Every entry of `other`, added to `self` - `Self::and`'s whole-registry sibling.
+
+A composition root that opened more than one KIND builds one registry per kind (each still
+concrete, so `deliverable_by` still checks a real adapter constant) and erases each into the
+SAME closed enum before reaching here - this is the step that turns "several registries of
+one erased type" into the one registry a heterogeneous build serves.
 
 ```rust
 pub fn of(one: W) -> Self

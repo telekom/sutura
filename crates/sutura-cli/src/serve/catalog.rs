@@ -97,7 +97,7 @@ where
         .iter()
         .map(|catalog| catalog.load().map_err(|cause| flatten(&cause)))
         .collect::<Result<Vec<_>, String>>()?;
-    assemble::assemble(&bundles).map_err(|cause| cause.to_string())
+    assemble::assemble(&bundles).map_err(|cause| flatten(&cause))
 }
 
 /// Opens one declared markdown catalog.
@@ -249,4 +249,49 @@ fn flatten(error: &dyn core::error::Error) -> String {
         cursor = cause.source();
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_each;
+    use sutura_catalog_local::LocalCatalog;
+    use sutura_domain::model::SourceName;
+    use sutura_domain::pinned::DefinitionVersion;
+
+    /// A scratch directory of this test's own, cleared on the way in - same shape
+    /// `sutura_catalog_local::tests::scratch` uses, since `tempfile` is not a dependency here either.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sutura-cli-catalog-{name}-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+        dir
+    }
+
+    /// `LocalCatalog::capabilities` declares `MetadataCapabilities::everything()` regardless of a
+    /// given directory's content, so a directory holding one model and no relationships composes
+    /// to a `CompositionError::Unfaithful` naming `DefinitionKind::Relationships` - the kind
+    /// `UnfaithfulDeclaration::Unprovided` already carries as a field. Before this fix,
+    /// `cause.to_string()` rendered only `CompositionError::Unfaithful`'s own message, which does not
+    /// interpolate that field, and the kind was reachable only by walking the `#[source]` chain.
+    #[test]
+    fn a_composition_refusal_names_the_kind_it_already_carries() {
+        let root = scratch("unfaithful");
+        std::fs::write(
+            root.join("model.md"),
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents]\n---\n\
+             Orders, one row per order.\n",
+        )
+        .expect("a document is writable");
+        let catalog = LocalCatalog::new(
+            SourceName::parse("test").expect("a test name is a name"),
+            root.clone(),
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        );
+        let message = load_each(&[catalog]).expect_err("one model with no relationships is not everything");
+        drop(std::fs::remove_dir_all(&root));
+        assert!(
+            message.contains("relationships"),
+            "the flattened message should name the undersupplied kind: {message}"
+        );
+    }
 }

@@ -460,7 +460,7 @@ fn declaring(alias: &str, body: &str, posture: &str) -> sutura_config::SourceReg
 /// under test.
 #[cfg(test)]
 fn bundle_naming(source: &str) -> PinnedDefinitions {
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
+    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName};
 
@@ -485,6 +485,7 @@ fn bundle_naming(source: &str) -> PinnedDefinitions {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     pin(Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent"))

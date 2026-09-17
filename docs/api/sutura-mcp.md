@@ -187,7 +187,7 @@ throw away the only description of the fault that exists.
 ## `fn serve_stdio`
 
 ```rust
-pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout) -> Result<(), NotServed>
+pub async fn serve_stdio<S>(service: std::sync::Arc<S>, permitted: sutura_app::Permitted, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>) -> Result<(), NotServed>
 ```
 
 Serves the agent surface over standard input and output, until the client disconnects.
@@ -232,6 +232,12 @@ startup.
 bounds how large one answer may get, the admission bound is how many answers may be being
 produced, and the reply deadline is how long one peer waits for one of them. None of the three
 cancels a question already inside the pool - see `server` and #160.
+
+**`instructions` is the fourth required value, and it is what a peer's `initialize` result
+carries as `instructions` - `telekom/sutura#776`.** It has to be rendered before this call, by
+`sutura_app::prompt::render` over the settings and the pinned bundle this `service` answers
+from, because this crate performs no catalog I/O of its own; the composition root that already
+read both is `sutura`'s `mcp` subcommand.
 
 Returns when the peer closes or is cancelled.
 
@@ -354,7 +360,7 @@ re-resolved per request out of each request's `Asked`, never out of a session.
 ### `fn service`
 
 ```rust
-pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
+pub fn service<S>(surface: std::sync::Arc<S>, prose: sutura_app::prompt::CatalogProse, admission: sutura_runtime::Admission, reply: sutura_config::RequestTimeout, instructions: std::sync::Arc<str>) -> rmcp::transport::StreamableHttpService<crate::AgentSurface<S>, rmcp::transport::streamable_http_server::session::local::LocalSessionManager>
 ```
 
 Builds the streamable-HTTP transport over one `Surface`, as a plain `tower_service::Service`
@@ -369,7 +375,9 @@ the two are not interchangeable.
 `service_factory` is called by the SDK ONCE PER REQUEST under `config`'s stateless mode (see
 the module documentation) - never once per process and never once per session - so each call
 clones the shared `service`/`admission` handles rather than allocating a second data-system
-connection or a second permit set.
+connection or a second permit set. `instructions` is cloned the same way, and for the same
+reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
+on the `initialize` that reads it back.
 
 ## Module `server`
 
@@ -560,7 +568,7 @@ port has to outlive the future that started the call.
 #### Methods
 
 ```rust
-pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout) -> Self
+pub const fn new(service: Arc<S>, asking: Asking, prose: sutura_app::prompt::CatalogProse, admission: Admission, reply: RequestTimeout, instructions: Arc<str>) -> Self
 ```
 
 Wraps a service, and states what the peer may do and how catalog prose is treated.
@@ -594,6 +602,13 @@ rather than a misplaced one** - `telekom/sutura#339`. It is
 no counterpart here a peer that got an execution slot waited for as long as the data system
 took. The module documentation carries why this key rather than one of this transport's own,
 and what the deadline does not stop.
+
+**`instructions` is required and is the fifth, for the same reason as the rest: only a
+composition root has read the settings and the pinned bundle both** - `sutura`'s `mcp`
+subcommand and `sutura-cli`'s `serve::agent::mount` each render it with
+`sutura_app::prompt::render`, the same call `sutura prompt` makes, over the same bundle
+this `service` answers from. No default here, and deliberately: a sentence this crate hard-
+coded could never have named a tool, a metric or a refusal that this deployment actually has.
 
 #### Implements
 
@@ -793,10 +808,24 @@ than a key that gets ignored.
 pub struct RangeArgs
 ```
 
-A half-open period: `start` is included, `end` is not.
+A half-open period: `start` is included, `end` is not. Either an absolute period
+(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
 
 Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
 last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+### `struct LastArgs`
+
+```rust
+pub struct LastArgs
+```
+
+A count of calendar periods before today, resolved at request time rather than authored as
+dates - `telekom/sutura#778`.
 
 #### Implements
 
@@ -832,6 +861,7 @@ Why an arguments object is not a question.
   `MalformedQuestion` has no arm for this case and does not need one. MCP's own
   `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
 - `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- `Range` - A relative `range` needs a failure mode the domain does not have and must not gain - see `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole purpose with.
 
 #### Implements
 

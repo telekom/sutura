@@ -27,6 +27,7 @@ anchor:
     start: 2026-06-01
     end: 2026-07-01
   value: 3
+audience: open
 ---
 How many subscriptions terminated inside the month.
 

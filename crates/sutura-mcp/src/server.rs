@@ -196,20 +196,6 @@ use crate::wire::{
     AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, OutcomeContent, RawContent, RunSqlArgs,
 };
 
-/// What a cooperative client is told about this server, beyond its tools.
-///
-/// **Advisory, and it is not where correctness lives.** A gateway of the shape this product runs
-/// behind ignores everything but tools, so a client that never reads this must still be answered
-/// correctly - and is, because every rule is on the other side of the port.
-const INSTRUCTIONS: &str = "Ask this server for numbers rather than for data. \
-     List the catalog first to learn what is measured, then ask one governed question about one \
-     certified metric; a question outside what the catalog declares comes back as a refusal naming \
-     the reason, which is an answer and not a fault. \
-     Every answer carries the definition version and digest that produced it - quote them when you \
-     report the number. \
-     The tools you are shown are the tools you may call: a tool absent from the list is one this \
-     deployment will refuse, so do not guess a name.";
-
 /// The agent-facing surface over one [`Surface`].
 ///
 /// Holds the service behind an `Arc` because a tool call is answered on the blocking pool, so the
@@ -239,6 +225,20 @@ pub struct AgentSurface<S> {
     /// was the state that existed, and the fix is that it is no longer representable. It bounds the
     /// WAIT and not the question - see the module documentation.
     reply: RequestTimeout,
+    /// What a cooperative client is told at `initialize` - `sutura prompt`'s own rendered document,
+    /// from [`sutura_app::prompt::render`], not a fixed sentence: `telekom/sutura#776`, replacing a
+    /// six-line const that never named a tool, a metric or a refusal from THIS bundle.
+    ///
+    /// **Still advisory, and that has not changed.** A gateway of the shape this product runs behind
+    /// ignores everything but tools, so a client that never reads this must still be answered
+    /// correctly - and is, because every rule is on the other side of the port.
+    ///
+    /// `Arc<str>` and not `String`: under [`crate::http::service`]'s stateless mode a fresh
+    /// `AgentSurface` is built per REQUEST, not per connection (see that module's own doc comment),
+    /// so a `String` here would copy the whole rendered document - which grows with every metric and
+    /// example the pinned bundle carries - on every call, not only the `initialize` this field
+    /// answers. A clone here is a refcount bump, the same reason `admission` is held behind an `Arc`.
+    instructions: Arc<str>,
 }
 
 impl<S> AgentSurface<S> {
@@ -273,6 +273,13 @@ impl<S> AgentSurface<S> {
     /// no counterpart here a peer that got an execution slot waited for as long as the data system
     /// took. The module documentation carries why this key rather than one of this transport's own,
     /// and what the deadline does not stop.
+    ///
+    /// **`instructions` is required and is the fifth, for the same reason as the rest: only a
+    /// composition root has read the settings and the pinned bundle both** - `sutura`'s `mcp`
+    /// subcommand and `sutura-cli`'s `serve::agent::mount` each render it with
+    /// [`sutura_app::prompt::render`], the same call `sutura prompt` makes, over the same bundle
+    /// this `service` answers from. No default here, and deliberately: a sentence this crate hard-
+    /// coded could never have named a tool, a metric or a refusal that this deployment actually has.
     #[must_use]
     pub const fn new(
         service: Arc<S>,
@@ -280,6 +287,7 @@ impl<S> AgentSurface<S> {
         prose: sutura_app::prompt::CatalogProse,
         admission: Admission,
         reply: RequestTimeout,
+        instructions: Arc<str>,
     ) -> Self {
         Self {
             service,
@@ -287,6 +295,7 @@ impl<S> AgentSurface<S> {
             prose,
             admission,
             reply,
+            instructions,
         }
     }
 
@@ -344,7 +353,7 @@ where
         // the SDK. `env!` here expands in this crate.
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")))
-            .with_instructions(INSTRUCTIONS)
+            .with_instructions(self.instructions.to_string())
     }
 
     /// The tools this peer may invoke, and no cursor: the set is bounded by
@@ -512,7 +521,16 @@ fn question(request: CallToolRequestParams) -> Result<Query, ErrorData> {
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
-    Query::try_from(args).map_err(|error| invalid(&error))
+    match Query::try_from(args) {
+        Ok(query) => Ok(query),
+        // The caller asked nothing wrong here; this deployment's own clock could not be read.
+        // `invalid()` renders every other arm as the caller's mistake, which this is not.
+        Err(MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(cause))) => {
+            tracing::error!(error = %cause, "this deployment's clock could not be read");
+            Err(ErrorData::internal_error("this process could not read the time", None))
+        }
+        Err(error) => Err(invalid(&error)),
+    }
 }
 
 /// The arguments, parsed into a bounded raw statement.

@@ -27,6 +27,8 @@
 //! variable - and because there is no field for it here, `SUTURA__ENVIRONMENT=production` is an
 //! unknown-field error rather than a setting that silently does nothing.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 /// The whole tree, as read.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -334,6 +336,11 @@ pub(crate) struct RawSecurity {
     /// `crate::security::OutboundAnchors`.
     #[serde(default)]
     pub(crate) outbound: Option<RawOutbound>,
+    /// `docs/adr/0028`'s deployment mapping: a verified `groups` claim value to the audience
+    /// identifiers it grants. Absent is the empty map, which is the safe direction here - see
+    /// `crate::audience::AudienceMapping`.
+    #[serde(default)]
+    pub(crate) audience_mapping: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// `security.outbound` as read - one field today, and a block of its own rather than a flat key on

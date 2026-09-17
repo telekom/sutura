@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
@@ -50,6 +50,15 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
+
+/// A fixture for [`crate::AgentSurface`]'s `instructions` field.
+///
+/// None of this crate's own tests assert on `initialize`'s `instructions` content - that document
+/// is `sutura_app::prompt::render`'s claim, pinned by that crate's own snapshots - so every fixture
+/// here needs only *a* value, not the rendered one.
+pub(crate) fn instructions() -> Arc<str> {
+    Arc::from("test fixture instructions")
+}
 
 pub(crate) fn source() -> SourceName {
     SourceName::parse("local").expect("a test source is a source")
@@ -112,6 +121,7 @@ pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> Pin
             AnchorValue::parse(ANCHORED_VALUE.to_string()).expect("a test anchor value is a value"),
         )),
         description(metric_prose),
+        Audience::Open,
     )
     .expect("one dimension cannot duplicate another");
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");

@@ -8,8 +8,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES,
-    MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES,
+    MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -112,6 +112,7 @@ fn declaring(name: &str, dimensions: Vec<Dimension>) -> Result<Metric, Inconsist
         dimensions,
         None,
         Description::default(),
+        Audience::Open,
     )
 }
 
@@ -188,6 +189,7 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     assert_eq!(
@@ -212,6 +214,7 @@ fn a_metric_with_no_grain_is_refused_because_no_question_could_resolve() {
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     assert_eq!(
@@ -753,6 +756,7 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
                 Vec::new(),
                 None,
                 filler.clone(),
+                Audience::Open,
             )
             .expect("no dimensions to duplicate")
         })
@@ -780,6 +784,7 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
                 Vec::new(),
                 None,
                 filler.clone(),
+                Audience::Open,
             )
             .expect("no dimensions to duplicate")
         })

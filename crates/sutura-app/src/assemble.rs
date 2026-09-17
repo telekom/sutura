@@ -439,7 +439,7 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model, Relationship};
+    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model, Relationship};
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -495,6 +495,7 @@ mod tests {
             Vec::new(),
             None,
             Description::default(),
+            Audience::Open,
         )
         .expect("no dimensions to duplicate");
         let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the certified content holds together");

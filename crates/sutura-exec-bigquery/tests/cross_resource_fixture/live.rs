@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::catalog::{Definitions, Description, Model};
 use sutura_domain::model::{DatasetName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::plan::{Executable, QueryPlan};
 use sutura_domain::query::Query;
@@ -90,7 +91,9 @@ fn plan(pinned: &PinnedDefinitions) -> Result<Box<QueryPlan>, Failed> {
         "../../../../examples/single-player/questions/recurring-revenue-by-segment.yaml"
     ))
     .map_err(|cause| Failed::during(Operation::Query, cause))?;
-    match sutura_semantic::compile(&question, pinned).map_err(|cause| Failed::during(Operation::Query, cause))? {
+    match sutura_semantic::compile(&question, &ScopedView::everything(pinned))
+        .map_err(|cause| Failed::during(Operation::Query, cause))?
+    {
         sutura_semantic::Compiled::Planned { plan } if plan.source() == &source() && !plan.joins().is_empty() => Ok(plan),
         _ => Err(Failed::Query),
     }

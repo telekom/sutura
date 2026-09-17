@@ -346,6 +346,61 @@ class DemoBehavior(unittest.TestCase):
             self.assertNotIn("load", docker_args)
             self.assertNotIn("test-key", result.stdout + result.stderr)
 
+    def test_dev_down_only_demo_scopes_the_docker_teardown_it_issues(self) -> None:
+        """The CLI DISPATCH, not the pure `teardown::plan`/`scoped_down_args` functions their own
+        unit tests already cover: this runs the real `xtask dev-down --only demo` binary against a
+        docker stub that only logs its argv, and reads back the exact `docker compose ... down`
+        invocation the CLI issued.
+
+        Proves the arguments a real docker call would have received - scoped to the `demo` service,
+        with no `--volumes` - never the whole-project `down --volumes --remove-orphans` teardown.rs's
+        own tests hold for a bare `dev-down`. Does NOT prove a neighbour's container or volume
+        survives: the stub has no container semantics, so there is no second container here for a
+        teardown to spare."""
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bin = pathlib.Path(directory) / "bin"
+            fake_bin.mkdir()
+            docker_log = pathlib.Path(directory) / "docker.log"
+            (fake_bin / "docker").write_text(
+                f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {docker_log}\n", encoding="utf-8"
+            )
+            (fake_bin / "docker").chmod(0o755)
+            result = subprocess.run(
+                [
+                    "cargo",
+                    "run",
+                    "-q",
+                    "-p",
+                    "xtask",
+                    "--",
+                    "dev-down",
+                    "--only",
+                    "demo",
+                ],
+                cwd=ROOT,
+                env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = [
+                line.split()
+                for line in docker_log.read_text(encoding="utf-8").splitlines()
+                if "down" in line.split()
+            ]
+            self.assertEqual(len(calls), 1, calls)
+            teardown_call = calls[0]
+            self.assertEqual(
+                teardown_call[-2:],
+                ["down", "demo"],
+                "the CLI must issue the scoped teardown - a service name after `down`, never the "
+                f"whole-project `--volumes --remove-orphans` form: {teardown_call}",
+            )
+            self.assertNotIn("--volumes", teardown_call)
+            self.assertIn("--profile", teardown_call)
+
     def _run_healthcheck(
         self,
         model_mode: str,

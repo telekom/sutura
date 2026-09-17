@@ -1,0 +1,18 @@
+{{/*
+The settings directory `SUTURA_CONFIG_DIR` points at: `base.yaml`, then
+`<environment>.yaml`, layered by `sutura-config` on top of the binary's embedded defaults -
+`crates/sutura-config/src/settings.rs`'s `Sources::with_directory`. Values are copied
+verbatim; this chart parses none of them.
+*/}}
+{{- include "sutura.requireOffHostPosture" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sutura.fullname" . }}-config
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+data:
+  base.yaml: |
+    {{- toYaml .Values.config.base | nindent 4 }}
+  {{ .Values.environment }}.yaml: |
+    {{- toYaml .Values.config.environment | nindent 4 }}

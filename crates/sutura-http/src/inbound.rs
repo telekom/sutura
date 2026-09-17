@@ -100,7 +100,7 @@ pub mod gate;
 pub mod keys;
 pub mod token;
 
-pub use crate::inbound::caller::{InvalidScope, Scopes, VerifiedCaller};
+pub use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 pub use crate::inbound::gate::{InboundGate, InboundNotUsable, require_verified_caller};
 pub use crate::inbound::keys::{
     FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE,

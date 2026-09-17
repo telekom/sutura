@@ -6,6 +6,7 @@ authored_sql:
   portable: MAX(amount_cents) - MIN(amount_cents)
 time_column: ordered_at
 grains: [day, month]
+audience: open
 ---
 The distance between the largest and smallest order value in the period.
 

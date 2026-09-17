@@ -280,7 +280,8 @@ mod tests {
     #[test]
     fn a_relationship_with_more_than_one_column_per_side_is_refused() {
         let mut multi_column = relationship_page();
-        multi_column["entities"][0]["semanticModelRelationship"]["value"]["fromColumns"] = serde_json::json!(["a", "b"]);
+        multi_column["entities"][0]["semanticModelInfo"]["value"]["relationships"][0]["fromColumns"] =
+            serde_json::json!(["a", "b"]);
         // The dataset page is first in read order and must be well-formed so the read REACHES the
         // relationship page this cell is actually about.
         let server = FakeServer::start(vec![Scripted::ok(&dataset_page()), Scripted::ok(&multi_column)]);

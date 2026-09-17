@@ -516,6 +516,7 @@ impl<W, S, B> core::fmt::Debug for LocalService<W, S, B> {
 mod tests {
     use sutura_domain::model::Grain;
     use sutura_domain::pinned::NotValidated;
+    use sutura_domain::pinned::view::ScopedView;
     use sutura_domain::query::Query;
 
     use super::{LocalService, ServiceNotStarted, Surface as _};
@@ -607,7 +608,7 @@ mod tests {
         verify_and_validate(pinned.clone(), &Warehouses::of(AuthoredWarehouse::new(source(), shared())))
             .expect("the declaring fake passes startup because this bundle has no anchors");
         let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
-        let error = sutura_semantic::compile(&question, &pinned)
+        let error = sutura_semantic::compile(&question, &ScopedView::everything(&pinned))
             .expect_err("an authored computation has no representation in the semantic plan");
         match error {
             sutura_semantic::CompileFailure::AuthoredSqlNotPlanned { metric: failed } => assert_eq!(failed, metric()),

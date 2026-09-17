@@ -6,6 +6,7 @@ measure:
   simple: { aggregate: sum, column: voice_min }
 time_column: usage_date
 grains: [day, month]
+audience: open
 ---
 Outgoing voice minutes.
 

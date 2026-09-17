@@ -199,7 +199,7 @@ impl Scan {
                         }
                     }
                     Declared::Runs(name) => {
-                        let one = AddedTest::at(&at, name);
+                        let one = AddedTest::at(&file.path, &at, name);
                         if !runnable.contains(&one) {
                             runnable.push(one);
                         }
@@ -332,7 +332,7 @@ fn is_ignored(lines: &[&str], index: usize) -> bool {
 /// the second of the two the issue carries: the test module of a file that ALSO carries an
 /// implementation change. `plan` holds such a file back, so these two appear under `not measured:`
 /// in the verdict instead of becoming the verdict.
-fn function_name(line: &str) -> Option<Ident> {
+pub(super) fn function_name(line: &str) -> Option<Ident> {
     let declared = line.split_whitespace().skip_while(|word| *word != "fn").nth(1)?;
     Ident::parse(declared.split(['(', '<', ':']).next()?)
 }

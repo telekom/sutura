@@ -555,7 +555,8 @@ jobs:
           label: closure-free gate graph
           run: |-
             set -eu
-            nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt
+            nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt \
+              .#checks.x86_64-linux.helm-chart
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file
@@ -565,6 +566,13 @@ jobs:
       - name: Licensing
         if: ${{ !cancelled() }}
         run: nix build .#checks.x86_64-linux.reuse -L
+
+      # `charts/sutura` is one directory, not a classification category (#149 branch 1) - same
+      # closure-free reasoning as `Licensing`, cheaper to always run than to teach the classifier
+      # a fourth axis for it.
+      - name: Chart
+        if: ${{ !cancelled() }}
+        run: nix build .#checks.x86_64-linux.helm-chart -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
@@ -1726,6 +1734,118 @@ jobs:
           set -eu
           nix run .#keycloak-served-test -- --no-capture
 
+  # The wave-one E2E over the REAL docker DataHub tier (`--datahub tier`) - the same one cell
+  # `just e2e-datahub-bigquery` runs against the loopback fake locally, pointed at the provisioned
+  # platform instead. Its own job for the same reason `bigquery-acceptance` and `keycloak-served-
+  # test` get one: attributable failure, and nothing else should wait on a Keycloak JVM, a DataHub
+  # stack (5 containers, 3 JVMs) and a real BigQuery round-trip.
+  #
+  # ONE job, not two. The wave is a single cell that boots one deployment and asks three things;
+  # splitting the DataHub leg from the BigQuery leg would boot the same deployment twice for no
+  # extra evidence and pay the DataHub stack twice. One job keeps the cost to one payment and the
+  # acceptance scan (below) to one credential mechanism - the `svc_suturua_bq_ci` key is the only
+  # secret this job places, identically to `bigquery-acceptance`.
+  #
+  # Gates on the union of the three categories whose paths can break it - `data_source_bigquery`
+  # (the source), `identity` (the Keycloak-tier issuer) and `catalog_datahub` (the reader/the
+  # tier's provisioning) - OR'd, since a diff touching any one of them must re-run this leg. It
+  # carries `bigquery-acceptance`'s fork event exception, because it reaches the `bq-test`
+  # environment secret exactly the way that job does.
+  #
+  # **The most expensive single job this wave adds, said next to the ask:** one Keycloak JVM + one
+  # DataHub stack + one BigQuery dataset round-trip, under `concurrency: group:
+  # e2e-datahub-bigquery-${{ vars.SUTURA_BQ_DATASET }}` so it queues behind rather than races
+  # `bigquery-acceptance` on the shared dataset.
+  e2e-datahub-bigquery:
+    needs: [ci]
+    if: (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.identity == 'true' || needs.ci.outputs.catalog_datahub == 'true')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    # The environment is the mechanism, not decoration: GitHub withholds an environment's secrets
+    # from a fork's `pull_request` run, which is the exposure `docs/adr/0017` refused CI over - the
+    # same reasoning as `bigquery-acceptance`, and it is what lets this job present the shared
+    # BigQuery key to the wave.
+    environment: bq-test
+    concurrency:
+      group: e2e-datahub-bigquery-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # The one secret this job places, written through `env` into a file under `$RUNNER_TEMP` -
+      # OUTSIDE the checkout, the same three reasons and the same shape as `bigquery-acceptance`
+      # (a key inside the tree is one `git add .` from a public leak; the secret sweep scans the
+      # working tree and does not honour `.gitignore`; `$RUNNER_TEMP` is discarded with the
+      # runner). `printenv` and never `${{ }}` in a shell body; `umask 077` first.
+      - name: Place the credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+          echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
+
+      # Mask the two resource names, the same channel and the same shape as `bigquery-acceptance`:
+      # workflow logs on this public repository are public, and a failing BigQuery leg would
+      # otherwise print a project id, a dataset and a table name into a log anybody can read.
+      - name: Mask the resource names
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+        run: |
+          set -eu
+          python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
+            2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment defines no $name - it names a resource this leg has to be pointed at" >&2
+              exit 1
+            fi
+            printf '::add-mask::%s\n' "$(printenv "$name")"
+          done
+          echo "two resource names masked for the rest of this job"
+
+      # The real leg, over the real docker DataHub tier. `nix run .#e2e-datahub-bigquery -- --datahub tier`
+      # starts the Keycloak tier AND the DataHub stack (`xtask dev-up --with datahub`), provisions
+      # the certified metric under the deployment's structured property, mints a real PAT (never
+      # committed) and points the served binary's HTTP AspectReader at the tier - fail-not-skip on
+      # every step, so the shared-key leg cannot report green over a tier that never answered.
+      - name: Wave-one tier leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+        run: |
+          set -eu
+          nix run .#e2e-datahub-bigquery -- --datahub tier
+
+      # Always, so a cancelled or failed run does not leave a key on a runner that some other job
+      # on the same machine could read.
+      - name: Remove the credential
+        if: always()
+        run: |
+          set -eu
+          rm -f "$RUNNER_TEMP/bq-key.json"
+
   # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
   # It performs no build and no test; it reads every category-gated leg's result and fails when a
   # leg that should have run was skipped. A required check that never RUNS stays Pending forever
@@ -1758,7 +1878,7 @@ jobs:
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, bigquery-acceptance, keycloak-served-test]
+    needs: [ci, bigquery-acceptance, keycloak-served-test, e2e-datahub-bigquery]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1769,6 +1889,10 @@ jobs:
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
+          EDH_RESULT: ${{ needs.e2e-datahub-bigquery.result }}
+          # The wave-one leg is the union of the three categories that can break it, so it must run
+          # when any of them is selected (or the diff falls open to `core`, which flips them all).
+          EDH_SELECTED: ${{ needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.identity == 'true' || needs.ci.outputs.catalog_datahub == 'true' }}
           EVENT: ${{ github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.repo.full_name }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -1779,18 +1903,20 @@ jobs:
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if`, top of the file). That skip propagates to every leg
-          # that `needs: [ci]` here - bigquery-acceptance and keycloak-served-test included - so a
-          # skipped `ci` means the release belt intentionally skipped together, and the aggregate
-          # is validly green. Every other non-`success` `ci` is a real failure, and the two checks
-          # below are untouched: a selected-but-skipped leg still fails, whatever `ci` reported.
+          # that `needs: [ci]` here - bigquery-acceptance, keycloak-served-test and e2e-datahub-
+          # bigquery included - so a skipped `ci` means the release belt intentionally skipped
+          # together, and the aggregate is validly green. Every other non-`success` `ci` is a real
+          # failure, and the checks below are untouched: a selected-but-skipped leg still fails,
+          # whatever `ci` reported.
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"
           fi
-          # Whether this event can physically run bigquery-acceptance: an in-repo PR not opened by
-          # Dependabot, or a push (both carry the secret); a fork PR, the merge queue and a
-          # Dependabot PR cannot - GitHub withholds repository and environment secrets from a
-          # Dependabot-triggered `pull_request` run, in a separate store this workflow never sees -
-          # so a skip in any of the three is the event, not a filter bug.
+          # Whether this event can physically run the secret-carrying legs (bigquery-acceptance and
+          # e2e-datahub-bigquery): an in-repo PR not opened by Dependabot, or a push (both carry the
+          # secret); a fork PR, the merge queue and a Dependabot PR cannot - GitHub withholds
+          # repository and environment secrets from a Dependabot-triggered `pull_request` run, in a
+          # separate store this workflow never sees - so a skip in any of the three is the event,
+          # not a filter bug.
           if [ "$EVENT" = "push" ] || { [ "$EVENT" = "pull_request" ] && [ "$PR_HEAD" = "$REPO" ] && [ "$PR_AUTHOR" != "dependabot[bot]" ]; }; then
             can_run_bq=true
           else
@@ -1806,7 +1932,7 @@ jobs:
               *) fail "bigquery-acceptance reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
-          # `keycloak-served-test` reads no secret, so unlike bigquery-acceptance it carries no
+          # `keycloak-served-test` reads no secret, so unlike the BigQuery legs it carries no
           # event exception: every event that selects `identity` must run it.
           if [ "$KC_SELECTED" = "true" ]; then
             if [ "$KC_RESULT" != "success" ]; then
@@ -1816,6 +1942,20 @@ jobs:
             case "$KC_RESULT" in
               skipped|success) ;;
               *) fail "keycloak-served-test reported '$KC_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # `e2e-datahub-bigquery` reads the `bq-test` secret, so it carries the same fork event
+          # exception as `bigquery-acceptance`: a fork/queue/Dependabot skip is the event, not a
+          # filter bug, and the leg is not required there; anywhere it CAN run, a selected-but-
+          # skipped leg must fail.
+          if [ "$EDH_SELECTED" = "true" ] && [ "$can_run_bq" = "true" ]; then
+            if [ "$EDH_RESULT" != "success" ]; then
+              fail "e2e-datahub-bigquery must run (data_source_bigquery/identity/catalog_datahub category selected) but reported '$EDH_RESULT'"
+            fi
+          else
+            case "$EDH_RESULT" in
+              skipped|success) ;;
+              *) fail "e2e-datahub-bigquery reported '$EDH_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

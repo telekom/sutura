@@ -132,6 +132,11 @@ sutura-catalog-local = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }
+# `crate::serve::kind::AnyWarehouseError` - the closed-enum error erasing whichever adapter this
+# build linked, `#[error(transparent)]` per variant. `telekom/sutura#112`'s enum is the first thing
+# in this crate that needed a typed error of its own rather than the `Result<_, String>` this root
+# is exempt into everywhere else.
+thiserror = { workspace = true }
 # `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the shared bundle-or-
 # system-store read, resolved ONCE in `crate::sources::resolve_outbound_anchors` regardless of which
 # adapter feature is on, the same way `sutura-config` itself is unconditional: a declaration is read

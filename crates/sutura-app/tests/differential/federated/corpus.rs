@@ -125,8 +125,8 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/revenue_per_churned_subscription.md",
         Edit::Rewrite {
-            find: "time_column: month\ngrains: [month]\n---",
-            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---",
+            find: "time_column: month\ngrains: [month]\naudience: open\n---",
+            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---",
         },
     ),
     // The same zero denominator under `yields_null`, which is the case that produces an ANSWER
@@ -135,7 +135,7 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/revenue_per_churn_or_null.md",
         Edit::Added(
-            "---\nkind: metric\nname: revenue_per_churn_or_null\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: mrr_cents }\n    denominator: { count_if: churned_in_month }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nWhat the month carried for each subscription it lost, or nothing where it lost none.\n\n`revenue_per_churned_subscription` under the other zero-denominator word. Both belong to this\nderived catalog rather than to the shared corpus: what they are for is a subgroup whose\ndenominator is zero while its neighbours are not, which only a grouped ratio can have, and only\na remote grouping key makes the guard run above two legs.\n",
+            "---\nkind: metric\nname: revenue_per_churn_or_null\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: mrr_cents }\n    denominator: { count_if: churned_in_month }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nWhat the month carried for each subscription it lost, or nothing where it lost none.\n\n`revenue_per_churned_subscription` under the other zero-denominator word. Both belong to this\nderived catalog rather than to the shared corpus: what they are for is a subgroup whose\ndenominator is zero while its neighbours are not, which only a grouped ratio can have, and only\na remote grouping key makes the guard run above two legs.\n",
         ),
     ),
     // **A federated AVERAGE, which is the classic wrong number.** `Descent::of(Avg)` decomposes it
@@ -146,8 +146,8 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/mean_subscription_mrr.md",
         Edit::Rewrite {
-            find: "time_column: month\ngrains: [month]\n---",
-            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---",
+            find: "time_column: month\ngrains: [month]\naudience: open\n---",
+            with: "time_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---",
         },
     ),
     // `Reduction::Greatest` and `Reduction::Least`, the two arms of the combine's reduction table
@@ -157,13 +157,13 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/largest_subscription_mrr.md",
         Edit::Added(
-            "---\nkind: metric\nname: largest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: max, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nThe largest recurring amount any one subscription carried in the period.\n\nHere for the combine's reduction table: a maximum pushed into a leg is re-taken above it, and no\nmetric in the shared corpus declares one.\n",
+            "---\nkind: metric\nname: largest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: max, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nThe largest recurring amount any one subscription carried in the period.\n\nHere for the combine's reduction table: a maximum pushed into a leg is re-taken above it, and no\nmetric in the shared corpus declares one.\n",
         ),
     ),
     (
         "metrics/smallest_subscription_mrr.md",
         Edit::Added(
-            "---\nkind: metric\nname: smallest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: min, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nThe smallest recurring amount any one subscription carried in the period.\n\nThe other end of `largest_subscription_mrr`, for the other arm of the same table.\n",
+            "---\nkind: metric\nname: smallest_subscription_mrr\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: min, column: mrr_cents }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nThe smallest recurring amount any one subscription carried in the period.\n\nThe other end of `largest_subscription_mrr`, for the other arm of the same table.\n",
         ),
     ),
     // A distinct value that genuinely SPANS join keys: several customers subscribe to one product,
@@ -176,7 +176,7 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
     (
         "metrics/products_in_use.md",
         Edit::Added(
-            "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation above two legs can recover the count. A two-source question\nover it is refused rather than answered, and the refusal is the assertion.\n",
+            "---\nkind: metric\nname: products_in_use\nmodel: subscriptions\nmeasure:\n  simple: { aggregate: count_distinct, column: product_key }\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\naudience: open\n---\nHow many distinct products the period had subscriptions to.\n\nHere because the distinct value spans the join key: one product is subscribed to by several\ncustomers, so no re-aggregation above two legs can recover the count. A two-source question\nover it is refused rather than answered, and the refusal is the assertion.\n",
         ),
     ),
 ];

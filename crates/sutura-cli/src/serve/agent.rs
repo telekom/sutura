@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use sutura_app::prompt::CatalogProse;
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::PinnedDefinitions;
@@ -39,35 +38,30 @@ impl Surface for Serving {
     }
 }
 
-/// The agent-surface prose, from the deployment's prompt declaration.
-///
-/// The same two-way mapping `sutura_app::prompt::CatalogProse` and
-/// `sutura_config::prompt::CatalogProse` hold equal in `sutura-cli`'s own composition root; copied
-/// here rather than shared because the two roots are different crates and `sutura-cli`'s conversion
-/// is `pub(crate)` there.
-const fn catalog_prose(configured: sutura_config::prompt::CatalogProse) -> CatalogProse {
-    match configured {
-        sutura_config::prompt::CatalogProse::Quoted => CatalogProse::Quoted,
-        sutura_config::prompt::CatalogProse::Omitted => CatalogProse::Omitted,
-    }
-}
-
 /// The mounted streamable-HTTP transport over the serving surface, ready for
 /// [`sutura_http::ServiceState::with_agent_surface`].
 ///
 /// `sutura_mcp::http::service` is always `Asking::PerRequest` and needs the server's execution
 /// bound and per-request deadline; the bound is the process's own `Admission`, shared with the HTTP
 /// surface, so both transports answer under one permit set and one deadline.
-#[must_use]
+///
+/// **Fallible since `telekom/sutura#776`**, for the reason [`crate::commands::agent_instructions`]
+/// already states: an operator-configured `prompt.instructions_file` that cannot be read is a
+/// startup refusal naming the path, not a served surface that silently omitted the operator's own
+/// section. Reads the bundle off `service` before erasing it, so what this renders the prompt over
+/// is the exact bundle `Surface::answer` computes against - never a second catalog load that could
+/// drift from it.
 pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
-) -> sutura_http::AgentMount {
-    sutura_http::AgentMount::new(sutura_mcp::http::service(
+) -> Result<sutura_http::AgentMount, String> {
+    let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
+    Ok(sutura_http::AgentMount::new(sutura_mcp::http::service(
         Arc::new(Serving(service)),
-        catalog_prose(settings.prompt().catalog_prose()),
+        crate::commands::catalog_prose(settings.prompt().catalog_prose()),
         admission,
         settings.server().request_timeout(),
-    ))
+        Arc::from(instructions),
+    )))
 }

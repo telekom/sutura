@@ -11,5 +11,6 @@ dimensions:
     column: segment
     values: [geschäftskunde]
     description: Ein Umlaut, damit die Grenze zwischen Zeichen und Byte belegt ist.
+audience: open
 ---
 Ein Text mit ä, ö, ü damit ein Zeichenindex kein Byteindex ist.

@@ -53,8 +53,8 @@ use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, Workloa
 use crate::inbound::gate::InboundGate;
 use crate::surface::LocalService;
 use crate::testing::{
-    Answered, accepted_by, an_issuer, asked, bundle, catalog_of, declared_inbound, direct_overlay, serving, settings_with, sink,
-    source,
+    Answered, accepted_by, an_issuer, asked, bundle, call, catalog_of, declared_inbound, direct_overlay, every_scope, request,
+    serving, settings_with, sink, source,
 };
 
 // ------------------------------------------------------------------- the fakes ----
@@ -573,4 +573,197 @@ async fn a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_bef
         handed.try_recv().is_err(),
         "a refused subject must not reach the data system at all"
     );
+}
+
+// -------------------------------------------------------- metric visibility ----
+
+/// A metric only a caller granted `finance` may see - `docs/adr/0028`.
+fn finance_metric_name() -> sutura_domain::model::MetricName {
+    sutura_domain::model::MetricName::parse("finance_only").expect("a test metric is a metric")
+}
+
+/// [`crate::testing::bundle`], plus a second metric restricted to the `finance` audience.
+///
+/// One bundle, two verified callers, two different catalogs: `revenue` stays open so every caller
+/// can still ask the ordinary question, and `finance_only` is what tells the two callers apart.
+/// Inlined here rather than in `crate::testing` - only this module's tests need it, and a fixture
+/// with no test of its own is a file `just causality` cannot hold at HEAD against a reverted base.
+fn bundle_with_a_restricted_metric() -> sutura_domain::pinned::PinnedDefinitions {
+    use sutura_domain::catalog::{Audience, AudienceGrant, Definitions, Metric, Model};
+    use sutura_domain::knowledge::Knowledge;
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::{Aggregate, AudienceId, Grain, ModelName, TableName};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+
+    let column = |raw: &str| sutura_domain::model::ColumnName::parse(raw).expect("a test column is a column");
+    let description = |raw: &str| sutura_domain::catalog::Description::parse(raw).expect("a test description");
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        std::collections::BTreeSet::from([column("amount_cents"), column("order_date"), column("region")]),
+        description("Orders, one row per order."),
+    );
+    let revenue = Metric::new(
+        crate::testing::metric_name(),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        std::collections::BTreeSet::from([Grain::Day, Grain::Month]),
+        Vec::new(),
+        Some(sutura_domain::catalog::Anchor::new(
+            sutura_domain::calendar::TimeRange::new(
+                sutura_domain::calendar::Date::parse("2026-06-01").expect("a test date"),
+                sutura_domain::calendar::Date::parse("2026-07-01").expect("a test date"),
+            )
+            .expect("a test range"),
+            sutura_domain::catalog::AnchorValue::parse(crate::testing::ANCHORED_VALUE).expect("a test anchor value"),
+        )),
+        description("Revenue, in minor units."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let restricted_to_finance = Audience::Restricted(
+        AudienceGrant::parse(std::collections::BTreeSet::from([
+            AudienceId::parse("finance").expect("a test audience id is one")
+        ]))
+        .expect("one id grants"),
+    );
+    let finance_only = Metric::new(
+        finance_metric_name(),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        std::collections::BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        description("Only a finance-granted caller may see this."),
+        restricted_to_finance,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions =
+        Definitions::assemble(vec![model], vec![], vec![revenue, finance_only]).expect("the test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            source(),
+            Contribution::of(sutura_domain::capabilities::MetadataCapabilities::produced(
+                &definitions,
+                &Knowledge::none(),
+            )),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
+/// [`crate::testing::direct_overlay`], with `docs/adr/0028`'s deployment mapping added under the
+/// same `security:` block - a `groups` claim value of `finance-team` grants the `finance` audience.
+fn direct_overlay_granting_finance(issuer: &MockIssuer, key_set_path: &str) -> String {
+    format!(
+        "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+         authorization_server: \"{}\"\n    key_set_file: \"{key_set_path}\"\n    algorithms: [\"ES256\"]\n  \
+         audience_mapping:\n    finance-team: [\"finance\"]\n",
+        issuer.audience(),
+        issuer.issuer(),
+    )
+}
+
+/// A router serving [`bundle_with_a_restricted_metric`], behind a real leg-1 gate that maps a
+/// `groups` claim of `finance-team` onto `docs/adr/0028`'s `finance` audience.
+fn app_serving_two_metrics(issuer: &MockIssuer, published: &PublishedKeySet) -> axum::Router {
+    let overlay = direct_overlay_granting_finance(issuer, &published.path().to_string_lossy());
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
+        .expect("the audience-mapping overlay loads");
+    let declaration = declared_inbound(&settings);
+    let gate = InboundGate::from_declaration(&declaration).expect("a published key set builds a gate");
+    let recording = recording_warehouse();
+    serving(
+        bundle_with_a_restricted_metric(),
+        recording.warehouses,
+        NothingForThisSubject { at: source() },
+        settings,
+        Some(gate),
+    )
+}
+
+/// `GET /v1/catalog`, carrying `token`. Returns the status and the whole body.
+async fn catalog(app: &axum::Router, token: &str) -> (StatusCode, String) {
+    call(app, request("GET", "/v1/catalog", Some(token), axum::body::Body::empty())).await
+}
+
+#[tokio::test]
+async fn two_verified_callers_get_two_different_catalogs_from_one_bundle() {
+    // `docs/adr/0028`: the catalog handler now reads `Asked::context`'s mapped audiences, so two
+    // callers this ONE issuer verified against this ONE bundle see two different catalogs -
+    // through the assembled router, not through the domain type directly.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "audience-mapping").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+
+    let outsider = issuer
+        .mint(&accepted_by("outsider@example.com"))
+        .expect("the issuer signs a token");
+    let (_, seen_by_outsider) = catalog(&app, &outsider).await;
+    assert!(seen_by_outsider.contains("revenue"), "{seen_by_outsider}");
+    assert!(
+        !seen_by_outsider.contains(finance_metric_name().as_str()),
+        "an unmapped caller must not see the restricted metric: {seen_by_outsider}"
+    );
+
+    let finance_token = issuer
+        .mint(
+            &sutura_dev::issuer::Token::for_subject("finance-caller@example.com")
+                .granting(&every_scope())
+                .claiming("groups", serde_json::json!(["finance-team"])),
+        )
+        .expect("the issuer signs a token");
+    let (_, seen_by_finance) = catalog(&app, &finance_token).await;
+    assert!(seen_by_finance.contains("revenue"), "{seen_by_finance}");
+    assert!(
+        seen_by_finance.contains(finance_metric_name().as_str()),
+        "a caller mapped to `finance` must see the restricted metric: {seen_by_finance}"
+    );
+}
+
+#[tokio::test]
+async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
+    // `docs/adr/0028`'s "invisible means absent at both doors": resolving a metric this caller was
+    // not granted has to reach the SAME refusal, with the SAME detail, as a metric this catalog
+    // never declared at all - otherwise a caller could tell the two apart, which is the
+    // metadata-enumeration oracle the record declines to open.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "byte-identical").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+    let outsider = issuer
+        .mint(&accepted_by("outsider@example.com"))
+        .expect("the issuer signs a token");
+
+    let (invisible_status, invisible_body) = ask_about(&app, &outsider, finance_metric_name().as_str()).await;
+    let (unknown_status, unknown_body) = ask_about(&app, &outsider, "no_such_metric_at_all").await;
+
+    assert_eq!(invisible_status, unknown_status);
+    let invisible_json: serde_json::Value = serde_json::from_str(&invisible_body).expect("a refusal is JSON");
+    let unknown_json: serde_json::Value = serde_json::from_str(&unknown_body).expect("a refusal is JSON");
+    assert_eq!(invisible_json["reason"]["code"], "metric_unknown", "{invisible_body}");
+    // Only the echoed metric name may differ between the two bodies - everything else, including
+    // the sentence's shape, is identical.
+    let invisible_detail = invisible_json["reason"]["detail"]
+        .as_str()
+        .expect("a refusal carries a detail")
+        .replace(finance_metric_name().as_str(), "no_such_metric_at_all");
+    assert_eq!(
+        invisible_detail,
+        unknown_json["reason"]["detail"].as_str().expect("a refusal carries a detail"),
+        "an invisible metric and an unknown one must read as the same refusal"
+    );
+}
+
+/// One question about `metric`, through the real router.
+async fn ask_about(app: &axum::Router, token: &str, metric: &str) -> (StatusCode, String) {
+    let body = format!(r#"{{"metric":"{metric}","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}}}}"#);
+    call(app, request("POST", "/v1/query", Some(token), axum::body::Body::from(body))).await
 }

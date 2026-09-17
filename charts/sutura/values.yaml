@@ -1,0 +1,199 @@
+# Default values for the sutura chart.
+#
+# Every key below either configures a Kubernetes object the settings tree cannot describe
+# (image, probes, resources, service, secret plumbing) or is copied - unread and unvalidated
+# by this chart - into the settings directory `sutura-config` already knows how to layer:
+# `<dir>/base.yaml`, then `<dir>/<environment>.yaml`, then `SUTURA__*` environment variables.
+# Nothing here invents a configuration key the binary does not read; `config.base` and
+# `config.environment` are handed to `crates/sutura-config/src/defaults.yaml`'s own layering
+# verbatim, so anything valid in that file is valid here.
+#
+# What ships today is single player - one shared service-user identity for every caller of
+# every source. This chart does not configure per-caller execution (leg 2 in `AGENTS.md`'s
+# terms), because nothing published implements it; `security.inbound` below only tells this
+# deployment WHO is asking, and every query still runs as the one identity `config.base`
+# names.
+
+image:
+  repository: ghcr.io/telekom/sutura
+  # Empty means `.Chart.AppVersion`, i.e. the moving `latest` tag - see Chart.yaml for why.
+  # Pin an explicit release tag in production, the same advice
+  # docs/verifying-a-release.md gives a manual install.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# The deployment environment. REQUIRED, with no default: it becomes `SUTURA_ENVIRONMENT`,
+# which chooses which layered file applies and which of several settings-tree defaults
+# follow the environment (`rate_limit.enabled`, `telemetry.format`, `api.docs`) - see
+# `crates/sutura-config/src/defaults.yaml`. One of: development, test, staging, production.
+environment: ""
+
+replicaCount: 1
+
+# The settings directory, rendered into a ConfigMap and mounted read-only.
+#
+# `base.yaml` layers on top of the binary's embedded defaults; `<environment>.yaml` (named
+# from `.Values.environment`) layers on top of that. Both are optional - an empty `base` is a
+# ConfigMap holding an empty document, and the embedded defaults plus environment variables
+# below are what a loopback development deployment needs. Anything nested under `sources:` or
+# `catalogs:` belongs here, because those are maps and lists `SUTURA__*` cannot express
+# cleanly.
+config:
+  base: {}
+  environment: {}
+
+security:
+  # `security.access_token` (`SUTURA__SECURITY__ACCESS_TOKEN`), from a Secret key - never a
+  # literal value in values.yaml. REQUIRED once the pod is reachable from other hosts, which
+  # this chart's Service always makes it: `Settings::refusals`' `AccessTokenRequired` refuses
+  # to start otherwise. Leave `secretName` empty only for a chart instance you intend to leave
+  # unreachable (`kubectl port-forward` only, no Service - not this chart's default shape).
+  accessToken:
+    secretName: ""
+    secretKey: token
+  # `security.metrics_token` (`SUTURA__SECURITY__METRICS_TOKEN`) - a SEPARATE credential
+  # gating `GET /metrics` only (`docs/adr/0015` Decision 1). Empty means `/metrics` is
+  # reachable wherever `/v1/query` is, unauthenticated - see `metrics.serviceMonitor` below.
+  metricsToken:
+    secretName: ""
+    secretKey: token
+  # `security.tls_termination` (`SUTURA__SECURITY__TLS_TERMINATION`) - a DECLARATION of where
+  # TLS ends, not a control: `none`, `sidecar`, `ingress`, or `in-process`. REQUIRED to be one
+  # of the last three once the pod is reachable off-host, for the same reason as the access
+  # token: `Settings::refusals`' `TlsTerminationUndeclared`. Set this to `sidecar` or `ingress`
+  # when something else in the cluster terminates TLS; leave it empty and set `tls.enabled`
+  # below instead when this process should terminate it itself.
+  tlsTermination: ""
+  # `security.identity` / `security.single_user_because` - only read once `config.base` (or
+  # `config.environment`) declares a `sources:` entry; an empty registry never reaches this
+  # refusal. Not modelled as chart values on purpose: the identity mode and its
+  # acknowledgement sentence belong beside the source declaration they justify, which is
+  # `config.base.security`, not a value this chart would otherwise have to keep in step with
+  # `config.base.sources`. See the README for the single-user shape this ships with today.
+  #
+  # `security.inbound` - leg 1 only. Absent (the default) is a single-player deployment: no
+  # per-caller identity, and `Settings::refusals` asks nothing more of this deployment because
+  # of it. Turning it on tells this process WHO is asking; it does not make any source execute
+  # AS that caller - see this chart's README before enabling it.
+  #
+  # Everything ELSE about `security.inbound` (`mode`, `resource`, `authorization_server`,
+  # `algorithms`, `token_type`, the `transit_*` keys) is not a chart value: `algorithms` and
+  # `trusted_proxies` below are lists, and the `config` crate's environment-variable source
+  # has no list separator configured here (`crates/sutura-config/src/settings/layers.rs`), so
+  # a `SUTURA__*` variable can carry a scalar but never a list safely. Write the whole
+  # `security.inbound` block into `config.base` instead - the shape
+  # `crates/sutura-config/src/defaults.yaml` documents inline - and point its
+  # `key_set_file` at the path this chart mounts the secret below to:
+  # `/etc/sutura/inbound-keys/<keySetSecretKey>`.
+  inbound:
+    keySetSecretName: ""
+    keySetSecretKey: jwks.json
+
+# In-process TLS termination (`server.tls_certificate` / `server.tls_key`, and
+# `security.tlsTermination: in-process` implied by `enabled: true`). The published image
+# always links the `tls` feature (every optional adapter ships since
+# `github.com/telekom/sutura#685` step 5), so this needs no feature check here - only the
+# material. `secretName` names a `kubernetes.io/tls` Secret (`tls.crt`, `tls.key`); rotate it
+# by replacing the Secret, the same projected-Secret-and-poll mechanism
+# `crates/sutura-http/src/tls.rs` documents.
+tls:
+  enabled: false
+  secretName: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# `rate_limit.enabled` (`SUTURA__RATE_LIMIT__ENABLED`). Absent takes the environment's own
+# default - off in development and test, on in production - but this chart's Service always
+# makes the pod reachable off-host, and `Settings::refusals`' `RateLimitingDisabled` refuses a
+# disabled limiter on ANY off-host bind, not only in production. So this chart sets the key
+# explicitly rather than leaving it to an environment default that is wrong for this shape;
+# turn it off only for a values file you know stays loopback-only.
+rateLimit:
+  enabled: true
+
+# `resources.limits`/`requests` on the container. NOT yet used to derive
+# `runtime.engine_worker_threads` or `runtime.working_set_max_bytes` - that template is a
+# separate, not-yet-landed change (`docs/serving.md`'s two documented traps: an engine width
+# resolved from the host's cores under a CPU quota, and a working-set ceiling left at its
+# provisional one gibibyte). Until then, set `runtime.engineWorkerThreads` and
+# `runtime.workingSetMaxBytes` below explicitly under a CPU or memory limit.
+resources: {}
+
+runtime:
+  # `runtime.engine_worker_threads` (`SUTURA__RUNTIME__ENGINE_WORKER_THREADS`). Empty means
+  # "as many threads as the machine reports", which under a CPU limit over-counts - see
+  # docs/serving.md's "The engine's width". Set this under `resources.limits.cpu`.
+  engineWorkerThreads: ""
+  # `runtime.working_set_max_bytes` (`SUTURA__RUNTIME__WORKING_SET_MAX_BYTES`). Empty means the
+  # binary's shipped default, one provisional gibibyte - `defaults.yaml`, `#140`. Set this
+  # under `resources.limits.memory`.
+  workingSetMaxBytes: ""
+
+# `/health` (`crates/sutura-http/src/constants.rs`) is the liveness path, and there is
+# deliberately no readiness route - docs/serving.md: "There is nothing it could report that is
+# not already true of a process that is listening: the bundle validated, or the process did
+# not start." So this chart wires `/health` as BOTH the liveness and the startup probe, and
+# configures no readinessProbe.
+#
+# The startup probe carries a generous failure budget because boot re-verifies every anchor,
+# which is a round trip per anchor against a networked source - a liveness probe firing during
+# that window looks like a crash loop that is not one.
+probes:
+  startup:
+    failureThreshold: 30
+    periodSeconds: 5
+  liveness:
+    periodSeconds: 10
+    failureThreshold: 3
+
+# `GET /metrics`, gated by `security.metricsToken` above (never the access token -
+# `docs/adr/0015` Decision 1). A `ServiceMonitor` needs the Prometheus Operator CRDs
+# installed; this is off by default rather than assuming they are.
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    # The Secret key holding the scrape credential, read into the ServiceMonitor's
+    # `bearerTokenSecret` - the same Secret `security.metricsToken` names above, so the two
+    # cannot silently drift onto different values.
+
+podAnnotations: {}
+podLabels: {}
+
+# Pod-level and container-level securityContext are separate Kubernetes objects with
+# different fields - `allowPrivilegeEscalation` and `capabilities` do not exist on a
+# PodSecurityContext, so this chart never merges the two.
+podSecurityContext:
+  runAsNonRoot: true
+  # `nix/oci.nix`'s `User = "65532:65532"` - the conventional `nonroot` uid, and the image
+  # never runs as anything else, so this costs nothing to assert.
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  # Nothing in this build spills to local disk - `DiskManagerMode::Disabled` on every session
+  # (`crates/sutura-exec-datafusion/src/pool.rs`) - so a read-only root filesystem refuses
+  # nothing this process would otherwise have done.
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Escape hatches for what this chart does not model by name: a source's own credential file
+# (`sources.<alias>.credential_file`, `password_file`, `client_certificate`, `client_key`),
+# outbound trust anchors, or anything else that needs a volume this chart has no dedicated
+# value for. Point `config.base.sources.<alias>.credential_file` (etc.) at the mount path you
+# declare here.
+extraVolumes: []
+extraVolumeMounts: []
+extraEnv: []

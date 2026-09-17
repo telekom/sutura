@@ -6,6 +6,7 @@
 
 use sutura_domain::capabilities::{DeclarableKind, DefinitionKind, MetadataCapabilities, UnfaithfulDeclaration};
 use sutura_domain::pinned::SemanticCatalog;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_semantic::{Compiled, PredicateOrigin, compile};
 
 use crate::adapters::{CatalogUnderTest, load, questions, read_question, stem};
@@ -154,7 +155,8 @@ where
     for path in questions() {
         let question = read_question(&path);
         let name = stem(&path);
-        let compiled = compile(&question, &pinned).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+        let compiled =
+            compile(&question, &ScopedView::everything(&pinned)).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
         settings(C::NAME).bind(|| match compiled {
             Compiled::Refused { ref reason } => {
                 insta::assert_yaml_snapshot!(format!("{name}__refusal"), reason);
@@ -182,7 +184,7 @@ where
     let pinned = load::<C>();
     for &(fixture, expected) in PROVOKED {
         let asked = question(&format!("{fixture}.yaml"));
-        let compiled = compile(&asked, &pinned).expect("a refusal is not an error");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("a refusal is not an error");
         let reason = compiled
             .refusal()
             .unwrap_or_else(|| panic!("{fixture} was answered by the {} catalog", C::NAME));
@@ -215,7 +217,7 @@ where
         if metric.required_filters().is_empty() {
             continue;
         }
-        let compiled = compile(&asked, &pinned).expect("the corpus compiles");
+        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };
@@ -409,7 +411,7 @@ const AS_WRITTEN: [(&str, &str); 2] = [
     ),
     (
         "revenue.md",
-        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
+        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\naudience: open\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
     ),
 ];
 
@@ -434,7 +436,7 @@ const AS_WRITTEN: [(&str, &str); 2] = [
 const REFORMATTED: [(&str, &str); 2] = [
     (
         "a_revenue.md",
-        "---\n\ndimensions:\n  - description: \"   Where the order was placed.   \"\n    values:\n      - online\n      - retail\n    column: channel\n    name: channel\ngrains:\n  - month\ntime_column: order_date\nmeasure:\n  simple:\n    column: amount_cents\n    aggregate: sum\nmodel: \"orders\"\nname: revenue\nkind: metric\n\n---\n\n\nNet revenue, in minor units.\n\n\n",
+        "---\n\naudience: open\ndimensions:\n  - description: \"   Where the order was placed.   \"\n    values:\n      - online\n      - retail\n    column: channel\n    name: channel\ngrains:\n  - month\ntime_column: order_date\nmeasure:\n  simple:\n    column: amount_cents\n    aggregate: sum\nmodel: \"orders\"\nname: revenue\nkind: metric\n\n---\n\n\nNet revenue, in minor units.\n\n\n",
     ),
     (
         "z_orders.md",
@@ -451,7 +453,7 @@ const A_DIFFERENT_MEANING: [(&str, &str); 2] = [
     AS_WRITTEN[0],
     (
         "revenue.md",
-        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: min, column: amount_cents }\ntime_column: order_date\ngrains: [month]\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
+        "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: min, column: amount_cents }\ntime_column: order_date\ngrains: [month]\naudience: open\ndimensions:\n  - name: channel\n    column: channel\n    values: [online, retail]\n    description: Where the order was placed.\n---\nNet revenue, in minor units.\n",
     ),
 ];
 

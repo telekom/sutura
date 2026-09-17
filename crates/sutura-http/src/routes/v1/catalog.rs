@@ -47,7 +47,14 @@ const TAG: &str = "catalog";
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
     )
 )]
-pub(crate) async fn catalog(State(state): State<ServiceState>) -> impl IntoResponse {
+pub(crate) async fn catalog(
+    State(state): State<ServiceState>,
+    // `docs/adr/0028` step 2's ratchet: this handler used to be the one route under
+    // `establish_asked`'s layer that declined the identity the layer inserted, rendering the whole
+    // bundle to every token holder regardless of what `Asked::context` named. It reads that context
+    // now, the same value `crate::routes::v1::query::ask` reads through `sutura_app::Asked`.
+    axum::Extension(asked): axum::Extension<sutura_app::Asked>,
+) -> impl IntoResponse {
     // No blocking pool and no data system: this reads a bundle that was pinned at startup and has
     // not changed since. A catalog edit cannot reach this - it would be a different process.
     //
@@ -59,11 +66,9 @@ pub(crate) async fn catalog(State(state): State<ServiceState>) -> impl IntoRespo
     // composition root forgot would take `CatalogProse::default()`, which is `quoted`, and ship the
     // prose of a deployment that asked for none. The settings are the one place that cannot be out
     // of date about what the operator wrote.
+    let view = sutura_app::scoped_for(state.definitions(), asked.context());
     (
         [(header::CACHE_CONTROL, "private, no-store")],
-        Json(CatalogBody::of(
-            state.definitions(),
-            state.settings().prompt().catalog_prose(),
-        )),
+        Json(CatalogBody::of(&view, state.settings().prompt().catalog_prose())),
     )
 }

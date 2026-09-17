@@ -7,10 +7,13 @@ use crate::tests::{asked_by_a_person, bundle, june, metric, shared, test_deadlin
 use crate::tests_support::{
     AdapterFailure, DryRunOutcome, FixedBroker, LegDeadlineExceededWarehouse, LegPreflightWarehouse, RecordingLegsWarehouse,
 };
+use sutura_domain::identity::Presented;
 use sutura_domain::model::{Grain, SourceName};
+use sutura_domain::plan::Executable;
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{RowSet, Value};
+use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 
 // ---------------------------------------------------------------------------
 // The federated answer orchestration
@@ -746,5 +749,112 @@ fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
             }
         ),
         "{refused:?}"
+    );
+}
+
+/// A fake whose `Warehouse::executes_legs` answer is a FIELD rather than the type-level constant -
+/// the one shape a heterogeneous registry needs and a `const` cannot give it. Inline here (not
+/// `tests_support`, this file's usual fakes module) so `xtask test-causality`'s base
+/// reconstruction - which keeps THIS file at HEAD and reverts `tests_support.rs` - does not orphan
+/// it.
+///
+/// **`EXECUTES_LEGS` is `true` here on purpose, and the discriminating case is exactly this
+/// choice.** Before `telekom/sutura#112`, `answer_federated` read `W::EXECUTES_LEGS` once for the
+/// whole build - so a registry of two instances of THIS type, whichever way their fields were set,
+/// would have read `true` and tried to run both legs. The per-leg gate this type exists to prove
+/// reads `Warehouse::executes_legs()`, the instance method, instead - so one instance built `false`
+/// still refuses the whole answer even though the type it declines as says it can federate.
+struct AsymmetricLegWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+    can_execute_legs: bool,
+}
+
+impl AsymmetricLegWarehouse {
+    fn answering(source: SourceName, posture: SourcePosture, result: RowSet, can_execute_legs: bool) -> Self {
+        Self {
+            source,
+            posture,
+            result,
+            can_execute_legs,
+        }
+    }
+}
+
+impl Warehouse for AsymmetricLegWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn executes_legs(&self) -> bool {
+        self.can_execute_legs
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Ok(self.result.clone())
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+#[test]
+fn a_federated_answer_is_refused_when_only_one_leg_can_execute() {
+    // **`telekom/sutura#112`'s per-leg gate, isolated from the two-KINDS shape it exists for.**
+    // `AsymmetricLegWarehouse` is one type, so this registry needs no closed enum at all - and
+    // its `EXECUTES_LEGS` is `true`, exactly what a shipped leg-capable adapter declares. Before
+    // this gate moved to the instance, `W::EXECUTES_LEGS` read that `true` once for the whole
+    // build and both legs would have RUN. What proves the gate actually moved: one instance built
+    // with `can_execute_legs: false` still refuses the whole answer, because the check now reads
+    // `Warehouse::executes_legs()` per leg rather than the type's constant.
+    let fact_source = SourceName::parse("facts").expect("facts");
+    let lookup_source = SourceName::parse("geo").expect("geo");
+    let shared = shared();
+    let warehouses = Warehouses::of(AsymmetricLegWarehouse::answering(
+        fact_source,
+        shared.clone(),
+        federated_fact_rows(),
+        true,
+    ))
+    .and(AsymmetricLegWarehouse::answering(
+        lookup_source,
+        shared,
+        federated_lookup_rows(),
+        false,
+    ))
+    .expect("two sources");
+
+    let plan = federated_plan();
+    let refused = answer_federated(
+        &bundle(),
+        &plan,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+    )
+    .expect("a refusal is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            refused,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::FederationNotExecutable
+            }
+        ),
+        "one leg cannot run, so the whole answer refuses rather than half-answering: {refused:?}"
     );
 }
