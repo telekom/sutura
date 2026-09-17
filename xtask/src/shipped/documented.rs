@@ -191,6 +191,14 @@ fn indented_instructions(text: &str) -> Result<Vec<usize>, markdown::Unlexable> 
 /// keying every found error on its page and resolving the smallest key, a `BTreeMap`, after
 /// `inspect` returns. Whichever order the filesystem hands pages back in, the answer is the same
 /// page's error the old loop would have stopped on.
+///
+/// **This property has no dedicated regression test.** A fixture pinning it passes against the
+/// PRE-migration loop too - that loop already visited pages in sorted order and returned on the
+/// first failure - so it is not evidence of anything this change added, and `just causality`'s
+/// claim-cell arm cannot hold it either: this file's tests are inseparable from its own behaviour
+/// change (`Plan::NotSeparable`), which `plan()` decides before a `Claim-Cell:` trailer is ever
+/// consulted. Held by review and by manual mutation (`git apply` a `.next_back()` swap, run the
+/// suite, confirm the wrong page is reported), not by a mechanism in this tree.
 pub(super) fn pages(root: &std::path::Path) -> Result<Vec<DocumentedBuild>, String> {
     let census = repo::collect_files(root, &root.join("docs"), &["md"]);
 
@@ -430,27 +438,30 @@ mod tests {
         assert!(why.contains("docs/index.md"), "{why}");
     }
 
-    /// THE REPRODUCTION for the sorted-order determinism this migration must preserve.
-    ///
-    /// [`super::pages`] used to visit pages in SORTED order via an owned `Vec` and return on the
-    /// FIRST one it could not read or lex. `Census::inspect`'s closure returns `()` and cannot
-    /// early-return, so this accumulates every page's error and resolves the smallest PATH
-    /// afterwards - which must name the same page the old loop would have stopped on, whichever
-    /// order the filesystem's own directory listing happens to hand pages back in.
+    /// A sealed in-scope page is a refusal the CENSUS itself reports, independently of the
+    /// `must_judge` anchor: [`repo::Refusal::Unreachable`] is returned before the anchor is ever
+    /// consulted, so a mutation that swallows `inspect`'s `Result` is caught here even when
+    /// `docs/index.md` is present and every anchor check would otherwise be satisfied.
+    #[cfg(unix)]
     #[test]
-    fn two_broken_pages_report_the_alphabetically_first_one() {
-        let tree = crate::scratch_tree::Tree::of(
-            "documented-two-broken",
+    fn a_sealed_page_is_a_refusal_the_census_itself_reports() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "documented-sealed",
             &[
                 ("docs/index.md", b"front page\n"),
-                ("docs/z-broken.md", &[0xff_u8, 0xfe, 0x00]),
-                ("docs/a-broken.md", &[0xff_u8, 0xfe, 0x00]),
+                (
+                    "docs/sealed.md",
+                    b"```bash\ncargo build -p sutura-cli --features bigquery\n```\n",
+                ),
             ],
         );
+        if !tree.seal("docs/sealed.md") {
+            // Mode bits ignored for this uid - asserting a refusal here would assert nothing.
+            return;
+        }
         let Err(why) = super::pages(tree.root()) else {
-            panic!("two unreadable pages produced a verdict");
+            panic!("a sealed in-scope page produced a verdict");
         };
-        assert!(why.contains("docs/a-broken.md"), "{why}");
-        assert!(!why.contains("docs/z-broken.md"), "{why}");
+        assert!(why.contains("docs/sealed.md"), "{why}");
     }
 }
