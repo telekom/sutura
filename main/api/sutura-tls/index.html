@@ -2876,6 +2876,20 @@ kind.</p>
 <p><code>LoadError::IdentityRead</code> for a half that cannot be read; <code>LoadError::IdentityIncomplete</code> for
 a certificate file with no certificate; <code>LoadError::IdentityKey</code> for a key file that does not
 parse as a private key.</p>
+<h2 id="use-outcome"><code>use Outcome</code><a class="headerlink" href="#use-outcome" title="Permanent link">&para;</a></h2>
+<p>What one look at the declared material decided.</p>
+<h2 id="use-poll_interval"><code>use POLL_INTERVAL</code><a class="headerlink" href="#use-poll_interval" title="Permanent link">&para;</a></h2>
+<h2 id="use-rotating"><code>use Rotating</code><a class="headerlink" href="#use-rotating" title="Permanent link">&para;</a></h2>
+<p>The read side a consumer holds: clones out the in-use <code>T</code>.</p>
+<p><code>Clone</code> is sharing, not copying: every clone observes the same channel, so a rotation adopted by
+<code>poll_once</code> reaches every consumer that holds a clone. <code>current()</code> is an <code>Arc</code> clone under a
+<code>watch</code> borrow - no lock a request path waits on. <code>Debug</code> prints no path.</p>
+<h2 id="use-rotator"><code>use Rotator</code><a class="headerlink" href="#use-rotator" title="Permanent link">&para;</a></h2>
+<p>The poll handle a composition root drives on <code>POLL_INTERVAL</code>.</p>
+<p>Owns the declared source (so it can re-read it), the <code>sender</code> half of the channel <code>Rotating</code>
+reads, the rebuild closure (the consumer's own materialization), and the <code>seen</code> marker that makes
+identical bytes silent. <code>poll_once</code> is synchronous, like <code>sutura-http::tls::Renewal::poll_once</code>;
+<em>starting</em> the loop is the composition root's choice, and this type does not spawn.</p>
 
 
 

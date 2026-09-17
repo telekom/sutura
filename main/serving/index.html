@@ -856,6 +856,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#outbound-trust-material-rotates-the-same-way-one-poll-per-consumers-own-swap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Outbound trust material rotates the same way - one poll, per consumer's own swap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#no-acme-and-why" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3324,6 +3335,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#outbound-trust-material-rotates-the-same-way-one-poll-per-consumers-own-swap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Outbound trust material rotates the same way - one poll, per consumer's own swap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#no-acme-and-why" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4922,6 +4944,18 @@ which for something an issuer plans days ahead is nothing.</p>
 <p>The arrangement this expects is the one most clusters already run: an external certificate manager
 owns renewal and writes the files, and this process follows them. There is <strong>no ACME client here</strong>,
 and that is a judgement rather than a gap - see below.</p>
+<h3 id="outbound-trust-material-rotates-the-same-way-one-poll-per-consumers-own-swap">Outbound trust material rotates the same way - one poll, per consumer's own swap<a class="headerlink" href="#outbound-trust-material-rotates-the-same-way-one-poll-per-consumers-own-swap" title="Permanent link">&para;</a></h3>
+<p>The serving-side renewal above is the SAME poll the outbound side uses (<code>github.com/telekom/sutura#125</code>
+item 3, <code>docs/adr/0010</code>'s rule 3): the declared anchor bundle (or host store) and an optional client
+identity are re-read on the same interval, the bytes compared, and a replacement validated before it
+is adopted - the old material kept, with exactly one loud line naming the source class, when a new
+one does not load. A per-request <code>ureq</code> agent (the BigQuery wire, the STS exchange, <code>iamcredentials</code>
+and the DataHub reader) adopts the new bundle on the NEXT request - there is no drain question, because
+each request makes a fresh resolution. A Postgres source's connection keeps the client pair it was
+established under until it closes - <strong>left until closed, not drained</strong>, because there is no connection
+pool today and nothing to retire a live connection to. The interval is the same constant as the
+serving side's (<code>sutura-tls::POLL_INTERVAL</code>, 30 s), for the same reason: a deployment shape, not a
+knob. The boot log says once, per polled handle, what is polled and the interval.</p>
 <h3 id="no-acme-and-why">No ACME, and why<a class="headerlink" href="#no-acme-and-why" title="Permanent link">&para;</a></h3>
 <p><code>rustls-acme</code> would do TLS-ALPN-01 with automatic renewal, which sounds like exactly this
 requirement. It only makes sense when this process is the edge:</p>

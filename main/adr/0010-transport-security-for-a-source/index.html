@@ -1294,6 +1294,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-rotation-is-built-and-the-client-side-is-left-until-closed-not-drained" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: rotation is built, and the client side is left-until-closed, not drained
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2863,6 +2874,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#second-amendment-2026-09-16-rotation-is-built-and-the-client-side-is-left-until-closed-not-drained" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second amendment, 2026-09-16: rotation is built, and the client side is left-until-closed, not drained
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3162,6 +3184,32 @@ after every one of these was written.</p>
   makes - transports and composition roots, never a data-system adapter - is unaffected by the count
   moving.</li>
 </ul>
+<h2 id="second-amendment-2026-09-16-rotation-is-built-and-the-client-side-is-left-until-closed-not-drained">Second amendment, 2026-09-16: rotation is built, and the client side is <em>left-until-closed</em>, not drained<a class="headerlink" href="#second-amendment-2026-09-16-rotation-is-built-and-the-client-side-is-left-until-closed-not-drained" title="Permanent link">&para;</a></h2>
+<p>Rule 3's pool drain is now tested against the reality of the code that exists, and reality wins:
+<strong>there is no connection pool to drain.</strong> <code>PostgresWarehouse</code> holds ONE connection, opened at connect
+and kept for the adapter's life; <code>connect_secured</code> resolves the declared pair at connect time and a
+live connection keeps the identity it was established under until it closes. Draining would close a
+live connection with nothing to retire <em>to</em> - the primitive rule 3 names would be built to serve a
+user that does not exist. So the Postgres swap is <strong>left-until-closed and recorded as its own decision,
+not inherited as a drain</strong> (the "stated, not inherited" rule applied to the swap: this consumer's
+choice is not rule 3's because the pool rule 3 was written for is unbuilt). When a pool lands, the
+drain primitive rule 3 argues for is its own future concern.</p>
+<p>The HTTP adapters have no drain question at all, which is what makes #125 item 3 tractable: a
+<code>ureq</code> agent is <strong>per-request</strong>, so the next request naturally adopts whatever the rotating handle's
+<code>current()</code> resolves to. BigQuery wire, the STS exchange, <code>iamcredentials</code> and the DataHub reader all
+hold that shape, so all four rotate by the next request, per <code>docs/adr/0010</code>'s own swap-is-the-code's
+mood.</p>
+<p><code>github.com/telekom/sutura#125</code> item 3 lands it with <strong>one shared <code>Rotating</code> handle in <code>sutura-tls</code></strong>
+(<code>sutura_tls::rotating</code>), reusing rule 3's POLL verbatim: re-read the declared material's bytes,
+compare to what was last examined, and only on a difference parse-and-rebuild; adopt the new material
+with one <code>info!</code> line on <code>Ok</code>, keep the old with <strong>one</strong> <code>error!</code> naming the source class on a load or
+rebuild refusal - so a malformed replacement is loud exactly once and then silent until it changes.
+<code>poll_once</code> is synchronous like the serving poller; <em>starting</em> the loop is the composition root's
+choice and the interval is the same constant as the serving side (<code>sutura-tls::POLL_INTERVAL</code>, 30 s),
+for the same "deployment shape, not a knob" reason. It rotates whatever was declared -
+<code>security.outbound.transport_anchors</code> for the HTTP adapters, the per-source <code>transport_*</code> for
+Postgres - and an absent declaration leaves <code>compiled-in</code> roots untouched. The DataHub reader is the
+FOURTH consumer (<code>telekom/sutura#768</code> made it read the declaration); it was never review-held.</p>
 
 
 
