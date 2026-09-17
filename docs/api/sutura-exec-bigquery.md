@@ -2395,3 +2395,34 @@ assert!(refused.is_err());
 ##### Implements
 
 `AccessTokens`, `Debug`
+
+### Module `document`
+
+The two documents this adapter exchanges with the endpoint, and the code that builds and reads
+them.
+
+**Split out of `wire.rs` when that file crossed 1000 lines**, and the cut is at a real seam rather
+than at a line count: everything here is about the SHAPE of a request and an answer, and nothing
+here opens a socket, holds a credential or reads a clock. That is also what makes it the half a
+test can exercise - `super::tests` asserts on the SERIALIZED body and over answer documents, which
+is the whole of what this repository can prove without a project.
+
+Every decision these types carry is argued in `wire.rs`'s own header, which is the one place to
+read them together; what is written here is why each field is the way it is.
+
+#### `fn decode_answer`
+
+```rust
+pub fn decode_answer(text: &str) -> Result<crate::transport::JobRows, crate::wire::WireError<core::convert::Infallible>>
+```
+
+Decode a `jobs.query` reply from its transport text - the pure half of
+`crate::wire::BigQueryWire::run_job`, reached without a socket or a credential.
+
+This is exactly what `submit` feeds the answer through once the HTTP round trip is done:
+`serde_json` into `QueryAnswer` (no `deny_unknown_fields`, because the document is the
+service's own and will grow fields) and then `complete` runs the shape checks that turn it
+into a typed `JobRows`. The seam exists so a harness can fuzz the foreign decode - the first
+untrusted document this adapter reads - without standing up the transport. `Infallible` is the
+frozen error the shape checks cannot produce; the real call sites substitute the credential
+source's own error via the same generic `complete`.

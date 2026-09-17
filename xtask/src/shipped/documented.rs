@@ -12,6 +12,8 @@
 //! copied, because a fourth implementation would be a fourth thing to keep in step.
 
 use crate::markdown;
+use crate::repo;
+use std::collections::BTreeMap;
 
 /// A `cargo build` line in published prose that names a package AND a feature list.
 #[derive(Debug, PartialEq, Eq)]
@@ -176,35 +178,92 @@ fn indented_instructions(text: &str) -> Result<Vec<usize>, markdown::Unlexable> 
 /// build instruction in the repository is one somebody follows whether mkdocs renders the page or
 /// not, so reconciling an unpublished page is the conservative error. The one thing to know is that
 /// a refusal from here can name a page a reader will not find on the site.
+///
+/// **Moved onto [`repo::Census::inspect`] for `github.com/telekom/sutura#414`.** The read is the
+/// census's own now, so an unreadable-for-a-reason-other-than-UTF-8 page is [`repo::Refusal`]
+/// before the closure ever runs, rather than a `read_to_string` failure this function used to
+/// mislabel as a UTF-8 problem. `must_judge` names [`ANCHOR`], `docs/index.md` - the site's own
+/// front page - so a walk that reached every OTHER page and not it has narrowed away the tree this
+/// gate is about, not read a smaller-but-still-valid one.
+///
+/// **The closure returns `()` and cannot early-return**, so the old loop's determinism - visit
+/// pages in SORTED order, stop at the first one that cannot be read or lexed - is reproduced by
+/// keying every found error on its page and resolving the smallest key, a `BTreeMap`, after
+/// `inspect` returns. Whichever order the filesystem hands pages back in, the answer is the same
+/// page's error the old loop would have stopped on.
+///
+/// **This property has no dedicated regression test.** A fixture pinning it passes against the
+/// PRE-migration loop too - that loop already visited pages in sorted order and returned on the
+/// first failure - so it is not evidence of anything this change added, and `just causality`'s
+/// claim-cell arm cannot hold it either: this file's tests are inseparable from its own behaviour
+/// change (`Plan::NotSeparable`), which `plan()` decides before a `Claim-Cell:` trailer is ever
+/// consulted. Held by review and by manual mutation (`git apply` a `.next_back()` swap, run the
+/// suite, confirm the wrong page is reported), not by a mechanism in this tree.
 pub(super) fn pages(root: &std::path::Path) -> Result<Vec<DocumentedBuild>, String> {
-    let (_root, mut pages) = match crate::repo::collect_files(root, &root.join("docs"), &["md"])
-        .into_listing(crate::repo::Unmigrated::ShippedBinaries)
-    {
-        Ok(listing) => listing,
-        Err(why) => return Err(why.describe()),
-    };
-    pages.sort();
+    let census = repo::collect_files(root, &root.join("docs"), &["md"]);
+
+    let mut errors: BTreeMap<String, String> = BTreeMap::new();
     let mut found = Vec::new();
-    for page in pages {
-        let text =
-            std::fs::read_to_string(root.join(&page)).map_err(|why| format!("{page}: cannot be read as UTF-8 text - {why}"))?;
-        match builds(&page, &text) {
-            Ok(here) => found.extend(here),
-            Err(why) => return Err(format!("{page}: {why}")),
-        }
-        match indented_instructions(&text) {
-            Ok(lines) if lines.is_empty() => {}
-            Ok(lines) => {
-                return Err(format!(
-                    "{page}:{lines:?} document a `cargo build --features` as an INDENTED code block. \
-                     This reads fenced blocks only, so the declaration would go unreconciled while \
-                     the other pages keep the count non-empty - fence it instead"
-                ));
+
+    census
+        .inspect(&[ANCHOR], every_markdown_page, |page, bytes| {
+            // `Census::inspect` reads raw bytes via `std::fs::read`, which never fails on invalid
+            // UTF-8 the way `read_to_string` did - so the check moves here instead of vanishing.
+            let text = match std::str::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(why) => {
+                    errors.insert(String::from(page), format!("{page}: cannot be read as UTF-8 text - {why}"));
+                    return;
+                }
+            };
+            match builds(page, text) {
+                Ok(here) => found.extend(here),
+                Err(why) => {
+                    errors.insert(String::from(page), format!("{page}: {why}"));
+                    return;
+                }
             }
-            Err(why) => return Err(format!("{page}: {why}")),
-        }
+            match indented_instructions(text) {
+                Ok(lines) if lines.is_empty() => {}
+                Ok(lines) => {
+                    errors.insert(
+                        String::from(page),
+                        format!(
+                            "{page}:{lines:?} document a `cargo build --features` as an INDENTED code block. \
+                             This reads fenced blocks only, so the declaration would go unreconciled while \
+                             the other pages keep the count non-empty - fence it instead"
+                        ),
+                    );
+                }
+                Err(why) => {
+                    errors.insert(String::from(page), format!("{page}: {why}"));
+                }
+            }
+        })
+        .map_err(|why| why.describe())?;
+
+    if let Some((_, why)) = errors.into_iter().next() {
+        return Err(why);
     }
     Ok(found)
+}
+
+/// The docs tree's own front page, and this function's `must_judge` anchor.
+///
+/// **Why this path rather than the empty default.** This gate's subject is every documented
+/// `cargo build --features` under `docs/`, over an already-narrowed walk (`collect_files` filters
+/// to `docs/**/*.md` itself) - so there is no per-page membership question left for a `Scope` to
+/// answer, only whether the walk reached the tree at all. `docs/index.md` is the one page every
+/// build of this site depends on existing, so a walk that judged every OTHER page and missed it has
+/// narrowed away the tree this gate exists to read, which an empty `must_judge` cannot see: it
+/// would still report `ok` over the pages it kept.
+const ANCHOR: &str = "docs/index.md";
+
+/// Every subject `collect_files` offers here is already narrowed to `docs/**/*.md` by directory and
+/// extension, so there is no second filter to write. Named rather than a closure because
+/// [`repo::Scope`] is a bare `fn` pointer.
+const fn every_markdown_page(_: &str) -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -321,6 +380,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("sutura-documented-{}", std::process::id()));
         let docs = dir.join("docs");
         std::fs::create_dir_all(&docs).unwrap_or_else(|e| panic!("{e}"));
+        // `docs/index.md` is `pages`' `must_judge` anchor - a fixture missing it is testing the
+        // anchor's own refusal, not this one.
+        std::fs::write(docs.join("index.md"), "front page\n").unwrap_or_else(|e| panic!("{e}"));
         std::fs::write(
             docs.join("good.md"),
             "```bash\ncargo build -p sutura-cli --features bigquery\n```\n",
@@ -352,5 +414,54 @@ mod tests {
             panic!("an unclosed fence must not produce a build list");
         };
         assert!(format!("{why}").contains("line 1"), "{why}");
+    }
+
+    /// The `must_judge` anchor: a docs tree missing its own front page fails closed even though
+    /// every other page it holds is fine.
+    ///
+    /// **What this closes.** `Census::inspect`'s own `judged == 0` floor cannot see this: one
+    /// readable page (`good.md`) is enough to make `judged` non-zero, so without a declared anchor
+    /// a walk that lost `docs/index.md` - to a rename, a narrowed `Scope`, or a directory this
+    /// walk stopped reaching - would still report `ok` over what it kept.
+    #[test]
+    fn a_docs_tree_missing_its_own_front_page_fails_closed() {
+        let tree = crate::scratch_tree::Tree::of(
+            "documented-missing-anchor",
+            &[(
+                "docs/good.md",
+                b"```bash\ncargo build -p sutura-cli --features bigquery\n```\n",
+            )],
+        );
+        let Err(why) = super::pages(tree.root()) else {
+            panic!("a docs tree missing its own front page produced a verdict");
+        };
+        assert!(why.contains("docs/index.md"), "{why}");
+    }
+
+    /// A sealed in-scope page is a refusal the CENSUS itself reports, independently of the
+    /// `must_judge` anchor: [`repo::Refusal::Unreachable`] is returned before the anchor is ever
+    /// consulted, so a mutation that swallows `inspect`'s `Result` is caught here even when
+    /// `docs/index.md` is present and every anchor check would otherwise be satisfied.
+    #[cfg(unix)]
+    #[test]
+    fn a_sealed_page_is_a_refusal_the_census_itself_reports() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "documented-sealed",
+            &[
+                ("docs/index.md", b"front page\n"),
+                (
+                    "docs/sealed.md",
+                    b"```bash\ncargo build -p sutura-cli --features bigquery\n```\n",
+                ),
+            ],
+        );
+        if !tree.seal("docs/sealed.md") {
+            // Mode bits ignored for this uid - asserting a refusal here would assert nothing.
+            return;
+        }
+        let Err(why) = super::pages(tree.root()) else {
+            panic!("a sealed in-scope page produced a verdict");
+        };
+        assert!(why.contains("docs/sealed.md"), "{why}");
     }
 }

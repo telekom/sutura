@@ -352,6 +352,14 @@ mod agent;
 #[cfg(test)]
 mod bigquery;
 
+// The agent-route byte join: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
+// over the shipped exchanging broker. Only a composition root links both the MCP transport (the
+// `agent` feature) and the `bigquery` broker, which is why this lives here and not in `sutura-http`
+// next to its sibling - `sutura-http`'s `agent` feature is deliberately empty. `just test` runs
+// `--all-features`, so both halves are linked there.
+#[cfg(all(feature = "agent", feature = "bigquery"))]
+mod agent_identity;
+
 #[test]
 #[cfg(feature = "bigquery")]
 fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_kinds_own_boot_check() {
