@@ -670,6 +670,7 @@ impl RequestContext {
         }
     }
 
+    /// The same context, carrying the audiences a deployment's mapping granted this caller -
     /// `docs/adr/0028`.
     #[inline]
     #[must_use]
@@ -678,7 +679,7 @@ impl RequestContext {
         self
     }
 
-    /// For [`crate::pinned::view::ScopedView::granted_by`].
+    /// What this caller was granted, for [`crate::pinned::view::ScopedView::granted_by`].
     #[inline]
     pub const fn audiences(&self) -> &crate::catalog::GrantedAudiences {
         &self.audiences

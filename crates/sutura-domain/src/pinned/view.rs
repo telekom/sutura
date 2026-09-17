@@ -45,9 +45,9 @@ pub struct ScopedView<'a> {
 }
 
 impl<'a> ScopedView<'a> {
-    /// For the surfaces `docs/adr/0028` names as retaining the whole bundle. Public, so not
-    /// sealed against misuse; what it buys is that nothing downstream renders a catalog from a
-    /// bare `&PinnedDefinitions`.
+    /// Every metric, unfiltered - for the surfaces `docs/adr/0028` names as retaining the whole
+    /// bundle. Public, so not sealed against misuse; what it buys is that nothing downstream
+    /// renders a catalog from a bare `&PinnedDefinitions`.
     #[inline]
     #[must_use]
     pub const fn everything(pinned: &'a PinnedDefinitions) -> Self {
@@ -57,6 +57,7 @@ impl<'a> ScopedView<'a> {
         }
     }
 
+    /// A caller mapped to this set.
     #[inline]
     #[must_use]
     pub const fn granted_by(pinned: &'a PinnedDefinitions, granted: GrantedAudiences) -> Self {
@@ -66,20 +67,21 @@ impl<'a> ScopedView<'a> {
         }
     }
 
-    /// For provenance, which is always the whole bundle's digest.
+    /// The bundle this view borrows from - for provenance, which is the whole bundle's digest.
     #[inline]
     #[must_use]
     pub const fn pinned(&self) -> &'a PinnedDefinitions {
         self.pinned
     }
 
-    /// Absent, not undescribed, when this caller may not see it.
+    /// One metric, if declared AND this caller may see it - absent, not undescribed.
     #[must_use]
     pub fn metric(&self, name: &MetricName) -> Option<&'a Metric> {
         let metric = self.pinned.definitions().metric(name)?;
         self.visible(metric).then_some(metric)
     }
 
+    /// Every metric this caller may see.
     pub fn metrics(&self) -> impl Iterator<Item = &'a Metric> + '_ {
         self.pinned
             .definitions()

@@ -340,8 +340,8 @@ identifier_newtype! {
 }
 
 identifier_newtype! {
-    /// `docs/adr/0028`. Not a scope: catalog metadata, not the deployed authorization-server
-    /// contract.
+    /// A portable identifier a catalog author restricts a metric's audience to - `docs/adr/0028`.
+    /// Not a scope: catalog metadata, not the deployed authorization-server contract.
     AudienceId
 }
 
