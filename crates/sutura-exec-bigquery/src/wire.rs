@@ -142,7 +142,7 @@ use crate::wire::credential::{AccessTokens, QuotaProject};
 pub mod bounds;
 mod budget;
 pub mod credential;
-mod document;
+pub mod document;
 mod iamcredentials;
 mod sts;
 mod tables;

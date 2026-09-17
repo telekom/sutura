@@ -1,0 +1,1 @@
+{"jobComplete": true, "totalRows": "7", "schema": {"fields": [{"name": "n", "type": "INTEGER"}, {"name": "s", "type": "STRING"}]}, "rows": [{"f": [{"v": "1"}, {"v": "emea"}]}, {"f": [{"v": "2"}, {"v": null}]}]}

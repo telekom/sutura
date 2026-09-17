@@ -16,6 +16,21 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use crate::transport::{Cell, Field, FieldType, JobRequest, JobRows, ParameterMode};
 use crate::wire::{Grid, HOST, JobBounds, ReasonCode, WireError, Wired};
 
+/// Decode a `jobs.query` reply from its transport text - the pure half of
+/// [`crate::wire::BigQueryWire::run_job`], reached without a socket or a credential.
+///
+/// This is exactly what `submit` feeds the answer through once the HTTP round trip is done:
+/// `serde_json` into [`QueryAnswer`] (no `deny_unknown_fields`, because the document is the
+/// service's own and will grow fields) and then [`complete`] runs the shape checks that turn it
+/// into a typed [`JobRows`]. The seam exists so a harness can fuzz the foreign decode - the first
+/// untrusted document this adapter reads - without standing up the transport. `Infallible` is the
+/// frozen error the shape checks cannot produce; the real call sites substitute the credential
+/// source's own error via the same generic [`complete`].
+pub fn decode_answer(text: &str) -> Result<JobRows, WireError<core::convert::Infallible>> {
+    let answer = serde_json::from_str(text).map_err(|cause| WireError::NotADocument { cause })?;
+    complete(answer)
+}
+
 /// One request body, as the endpoint's `QueryRequest` spells it.
 ///
 /// Borrowed where it can be: it is built per call, serialized once, and dropped.
