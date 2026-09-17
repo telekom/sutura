@@ -293,6 +293,11 @@
         # including what the check cannot catch.
         licensing = import ./nix/reuse.nix { inherit pkgs; src = ./.; };
 
+        # The chart's own gate (#149 branch 1): `helm` and `kubeconform`, pinned, over
+        # `charts/sutura`. `wholeTree` for `reuse`'s reason - this reads no Cargo input, and
+        # crane's own `src` above drops anything outside its filter's arms.
+        chart = import ./nix/helm-chart.nix { inherit pkgs; src = wholeTree; };
+
         # The two profiles we ship.
         #
         # `release` is the default and is cheap to build on purpose (thin LTO, 16 codegen
@@ -603,6 +608,11 @@
           # and is not collected. It fails loudly rather than silently, which is why this is a note
           # and not a bug report, but the shape is worth knowing before writing an example here.
           reuse = licensing.check;
+
+          # `helm lint`, the refusal render, and `kubeconform` against the pinned schemas -
+          # `nix/helm-chart.nix` carries the derivation, the tool pins and what each leg does
+          # and does not catch.
+          helm-chart = chart.check;
 
           # The committed API reference pages under `docs/api/` are GENERATED from the library
           # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a

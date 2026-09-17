@@ -555,7 +555,8 @@ jobs:
           label: closure-free gate graph
           run: |-
             set -eu
-            nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt
+            nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt \
+              .#checks.x86_64-linux.helm-chart
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file
@@ -565,6 +566,13 @@ jobs:
       - name: Licensing
         if: ${{ !cancelled() }}
         run: nix build .#checks.x86_64-linux.reuse -L
+
+      # `charts/sutura` is one directory, not a classification category (#149 branch 1) - same
+      # closure-free reasoning as `Licensing`, cheaper to always run than to teach the classifier
+      # a fourth axis for it.
+      - name: Chart
+        if: ${{ !cancelled() }}
+        run: nix build .#checks.x86_64-linux.helm-chart -L
 
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
