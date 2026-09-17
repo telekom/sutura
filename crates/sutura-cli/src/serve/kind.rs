@@ -302,9 +302,18 @@ pub(crate) fn open_mixed(
             engines,
             bigquery_group(&grouped.bigquery, registry, request_timeout, outbound)?,
         )?);
+        // See this function's own doc for `attached`'s widened meaning: a `bigquery` group has no
+        // attach step, so its tables are trusted in rather than verified - the SAME trust
+        // `OpenedSources::BigQuery`'s own `None` already extends a single-kind deployment.
+        if let Some(files_attached) = attached.as_mut() {
+            files_attached.extend(trusted_tables(pinned, &grouped.bigquery));
+        }
     }
     if !grouped.postgres.is_empty() {
         engines = Some(accumulate(engines, postgres_group(&grouped.postgres, registry)?)?);
+        if let Some(files_attached) = attached.as_mut() {
+            files_attached.extend(trusted_tables(pinned, &grouped.postgres));
+        }
     }
 
     // Unreachable: `open_engine` only calls this function when `Grouped::kinds_present` is at
@@ -312,6 +321,29 @@ pub(crate) fn open_mixed(
     // an unwrap the workspace denies.
     let engines = engines.ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))?;
     Ok(Mixed { engines, attached })
+}
+
+/// The tables behind every model whose declared source is one of `sources`.
+///
+/// **Why [`Mixed::attached`] needs this, and single-kind `bigquery`/`postgres` do not.** Neither
+/// kind has an attach step, so a single-kind deployment passes `None` for `attached` and
+/// `serve.rs`'s later `refuse_unattached` skips the comparison entirely - correct there, because
+/// [`sutura_app::preflight::served_tables`]'s WHOLE bundle is exactly what that `None` was already
+/// excusing. A MIXED deployment with a `files` group still wants that comparison run for the
+/// tables `files` actually attached; the bug this closes is comparing `served_tables`'s WHOLE
+/// bundle (every kind) against `attached` when it held only `files`'s own set - which read every
+/// `bigquery`/`postgres` table as "no table attached" and refused a mix that had opened
+/// correctly. Widening `attached` with these, un-verified the same way `None` already is for a
+/// single-kind deployment of either, is what keeps the `files` half checked without demanding a
+/// verification neither adapter's port can give.
+fn trusted_tables(pinned: &sutura_domain::pinned::PinnedDefinitions, sources: &[&SourceName]) -> BTreeSet<TableName> {
+    pinned
+        .definitions()
+        .models()
+        .values()
+        .filter(|model| sources.contains(&model.source()))
+        .map(|model| model.table_name().clone())
+        .collect()
 }
 
 /// Folds one more group into the registry-in-progress, or starts it.
