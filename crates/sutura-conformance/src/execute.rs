@@ -96,13 +96,20 @@ where
 ///
 /// Separate from [`content_agrees_with_the_reference`] and asked after it, which is the domain
 /// policy's own instruction: the first symptom of a wrong number would otherwise be reported as a
-/// sort order. Every plan in the corpus groups, so every one of them emits an order to claim.
+/// sort order. Every plan in the corpus groups, so every one of them emits an order to claim - but
+/// [`Case::order_is_asserted`] is `false` for the one case whose key this corpus states no
+/// collation over, and this is where that opt-out is read: the answer is still fetched, so an
+/// adapter that cannot answer the case at all is still `Fault::NotAnswered`, but the order
+/// comparison itself is skipped for it.
 pub fn order_agrees_with_the_reference<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
     for case in corpus::cases() {
         let answered = answer(warehouse, &case)?;
+        if !case.order_is_asserted() {
+            continue;
+        }
         agree_on_order(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Order {
             case: case.name(),
             disagreement: Box::new(disagreement),

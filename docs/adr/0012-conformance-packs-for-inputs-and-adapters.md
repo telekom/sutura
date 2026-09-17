@@ -271,11 +271,18 @@ diff of ours, so this is a dependency regression detector rather than a check on
 `Behaviour::Content` over the same row is first-party: a null key must be a GROUP and not a row a
 join or a filter dropped.
 
-**COLLATION is still open, and the corpus still avoids it** - all-lowercase ASCII keys with distinct
-first letters. A case whose TEXT order a source could legitimately answer differently would still
-need the field the packs do not have, and would still report a locale as a conformance failure. The
-per-source row snapshot in `sutura-app/tests` remains the place a collation difference is a diff a
-reviewer reads rather than a red cell.
+**COLLATION has the field now, and one case uses it.** Every other key in the corpus is still
+all-lowercase ASCII with distinct first letters, so no bound engine's own collation can disagree
+with byte order over them - that limit is unchanged and is what makes the other cases safe to
+assert order over at all. `Case::order_is_asserted` is the field this record used to say the packs
+lacked, and `total_by_collation_sensitive_key_and_day` (`crates/sutura-conformance/src/corpus.rs`)
+is the one case built with it `false`: a mixed-case text key whose byte order and a case-insensitive
+locale's order disagree. `Behaviour::Order` skips exactly that case; `Behaviour::Content` still runs
+over it, because which rows came back is never a collation question. What this does NOT do: decide
+which collation is correct, or claim a defect was found - `DuckDB`, Postgres and the engine all
+default to byte order today, so the case is currently green with the assertion left in too. The
+per-source row snapshot in `sutura-app/tests` remains the place a collation difference beyond this
+one case's shape is a diff a reviewer reads rather than a red cell.
 
 ### Cases the corpus must contain by name, because nothing else finds them
 
