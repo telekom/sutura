@@ -807,17 +807,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-fake-at-the-port" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The fake at the port
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#the-mock-issuer-in-the-sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1025,6 +1014,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-served-binary-under-a-verified-human-caller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A served binary under a verified human caller
+      
+    </span>
+  </a>
   
 </li>
       
@@ -3029,17 +3029,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-fake-at-the-port" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The fake at the port
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#the-mock-issuer-in-the-sandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3251,6 +3240,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-served-binary-under-a-verified-human-caller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A served binary under a verified human caller
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keeping-this-page-honest" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3443,6 +3443,12 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <td>a hosted run resolved both principals to their own accounts - <strong>the pool is provisioned and the two subject assertions are minted at job time</strong></td>
 <td><code>just bigquery-exchanged-identity</code></td>
 </tr>
+<tr>
+<td><strong>A served binary under a verified human caller</strong></td>
+<td>nowhere yet</td>
+<td>a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them <code>iam.workloadIdentityUser</code>, and a hosted run to demand it</td>
+<td>not built</td>
+</tr>
 </tbody>
 </table>
 <p>The rule the mock issuer's row establishes: <strong>the mock issuer is the default venue, and it may never be cited
@@ -3475,12 +3481,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <th>Real dataset, shared key</th>
 <th>Real provider</th>
 <th>Real exchange</th>
+<th>Served caller</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>A refusal is a result and every variant is reachable</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3497,6 +3505,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>A signature verifies, and a forged one does not</td>
@@ -3506,6 +3515,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 <td>-</td>
 </tr>
 <tr>
@@ -3517,6 +3527,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>Algorithm confusion: <code>alg: none</code>, a symmetric key in the set, the wrong key family</td>
@@ -3526,6 +3537,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 <td>-</td>
 </tr>
 <tr>
@@ -3537,6 +3549,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>An <code>aud</code> ARRAY, the form RFC 7519 permits</td>
@@ -3546,6 +3559,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 <td>-</td>
 </tr>
 <tr>
@@ -3557,6 +3571,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The <code>iat</code> ceiling on a gateway assertion</td>
@@ -3566,6 +3581,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 <td>-</td>
 </tr>
 <tr>
@@ -3577,11 +3593,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant - painful to script there, and the mock issuer is the only scriptable venue</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The refetch rate limit under concurrency</td>
 <td>-</td>
 <td><strong>yes</strong>, at the cache - over a source that counts its own calls, never the published file</td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3597,11 +3615,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>Two subjects driving two different credentials to the port</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3617,6 +3637,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The document leg 1 verified is the <code>subject_token</code> the <strong>shipped</strong> exchanging broker offers</td>
@@ -3627,11 +3648,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>redundant</td>
+<td>-</td>
 </tr>
 <tr>
 <td>A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3647,6 +3670,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>The caller a signature established reaches the answer's own record</td>
@@ -3657,11 +3681,13 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>redundant</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td>An unverified caller on the agent surface (<code>/mcp</code>) is refused with the same <code>401</code> every forgery gets</td>
 <td>-</td>
 <td><strong>unrun</strong> - the standing test is <code>sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets</code>, run under <code>just test</code></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3677,6 +3703,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question</strong></td>
@@ -3684,6 +3711,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - it cannot generate an RSA key, so it is not a real provider for this claim either</td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3697,6 +3725,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td><strong>only here</strong></td>
 <td>no</td>
+<td>-</td>
 </tr>
 <tr>
 <td>Whether a statement we generate is accepted by a real data system</td>
@@ -3705,6 +3734,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td><strong>yes</strong></td>
 <td>-</td>
 <td><strong>yes</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 </tr>
@@ -3717,6 +3747,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td><strong>yes</strong> - the hosted run of 2026-09-16 exchanged and STS plus <code>iamcredentials</code> accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218)</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal</strong></td>
@@ -3727,6 +3758,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - one key is one identity</td>
 <td>no</td>
 <td><strong>yes</strong> - in the hosted run each principal's exchange resolved to its own account (run https://github.com/telekom/sutura/actions/runs/35076526218)</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>Whether two subjects read two different row sets</strong></td>
@@ -3737,6 +3769,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - one key is one identity</td>
 <td>no</td>
 <td>no - trusted to the data system, not re-verified by sutura (telekom/sutura#123)</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets</strong></td>
@@ -3747,6 +3780,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - one key is one identity, and it is the transport's own</td>
 <td>no</td>
 <td>no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123)</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>Whether the shipped Postgres source executes as the asking subject</strong></td>
@@ -3757,12 +3791,14 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no - a different data system</td>
 <td>no</td>
 <td>no - a different data system</td>
+<td>-</td>
 </tr>
 <tr>
 <td>Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection</td>
 <td>-</td>
 <td>-</td>
 <td><strong>only here</strong></td>
+<td>-</td>
 <td>-</td>
 <td>-</td>
 <td>-</td>
@@ -3777,10 +3813,32 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>-</td>
 <td>-</td>
 <td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td><strong>A served binary executes as a verified human caller through the declared per-source map</strong></td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>## The fake at the port</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
 </tr>
 </tbody>
 </table>
-<h2 id="the-fake-at-the-port">The fake at the port<a class="headerlink" href="#the-fake-at-the-port" title="Permanent link">&para;</a></h2>
 <p><code>AGENTS.md</code>'s <em>Conventions</em> says why: <em>ports get fakes, not mocked HTTP - that is what lets the whole
 tool surface, refusals included, be tested without a warehouse.</em> Every <code>RefusalReason</code> variant is
 provoked somewhere, and a variant no test can provoke is one the enum refuses to carry.</p>
@@ -4135,6 +4193,20 @@ number an operator can act on, and because per-request minting would not have do
 exchanged token is typically valid for close to an hour regardless of how it was minted, so a fresh
 mint carries the same stale grant for the rest of its own life either way. What the cache adds is
 strictly bounded by the configured window on top of that, never by more.</p>
+<h2 id="a-served-binary-under-a-verified-human-caller">A served binary under a verified human caller<a class="headerlink" href="#a-served-binary-under-a-verified-human-caller" title="Permanent link">&para;</a></h2>
+<p><strong>This venue runs nowhere yet, in the sense that decides what its column may claim: no job invokes
+it and no green run has been observed, so its one claim is <code>-</code> until a run is demanded.</strong> The cell
+this row would earn is what a green <code>bigquery-exchanged-identity</code> run cannot touch - a SERVED binary
+answering under the declared per-source map: it boots with <code>security.inbound</code>, a verified human
+caller whose full <code>sub</code> is a declared map key is granted through the bigquery source (the hop ran,
+not the shared identity), and an undeclared caller is refused at the broker door before anything is
+exchanged. The standing cell is
+<code>served/e2e.rs::a_served_binary_executes_a_verified_human_caller_as_the_declared_account</code>,
+<code>#[ignore]</code>d - it needs the provisioned WIF pool plus the IdP-to-SA <code>iam.workloadIdentityUser</code>
+grant, and it will not run locally. <strong>The raw <code>SESSION_USER() == declared SA</code> string stays the
+exchange venue's <code>exchanged_identity.rs</code> cell</strong>: it is unreachable over <code>/v1/sql/run</code>, because
+<code>BigQueryWarehouse</code> keeps <code>ACCEPTS_RAW_STATEMENTS = false</code>, so the served surface's observable is
+the granted answer's <code>executed_as: impersonation-at-source</code>, not the raw account.</p>
 <h2 id="keeping-this-page-honest">Keeping this page honest<a class="headerlink" href="#keeping-this-page-honest" title="Permanent link">&para;</a></h2>
 <p>A venue that cannot state its limit is how <em>verified</em> drifts. So:</p>
 <ul>
