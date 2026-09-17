@@ -3286,6 +3286,24 @@ by construction). The exact failing input is quarantined as the committed seed
 <code>github.com/tobilg/polyglot</code>, and the generator's byte-slicing there is what the bound is a workaround
 for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
 the dependency, not a judgement that authored SQL is ASCII.</p>
+<p><strong>Reported upstream, and the number is <code>tobilg/polyglot#451</code></strong>, with a fix proposed in
+<code>tobilg/polyglot#452</code>. This record carried the panic without a number for as long as
+none existed. Two things the write-up settles that this paragraph had guessed at:</p>
+<ul>
+<li><strong>It is one site, not the class the phrase "byte-slices a string" suggests.</strong> The offending
+  expression is the <code>WITH ORDINALITY</code> suffix check, <code>func.name[func.name.len() - 16..]</code>, still
+  present and still unfixed at 0.11.0 - the line has moved to <code>generator.rs:19119</code>, so the number
+  above is the only durable citation. The four other byte-indexed slices in that file are each
+  guarded by an ASCII <code>starts_with</code>/<code>ends_with</code> that pins the boundary, so they are safe by
+  construction and the bound here buys nothing for them.</li>
+<li><strong>The lossy decode is not load-bearing.</strong> <code>SELECT "a&lt;e-acute&gt;xxxxxxxxxxxxxxx"(1)</code> panics - valid
+  SQL, a valid identifier, no invalid bytes anywhere. The fuzz artifact is that defect arriving by
+  a longer road, which means the bound is a control over a panic reachable from ordinary authored
+  SQL rather than a quarantine for malformed input, and it is worth more than this record claimed.</li>
+</ul>
+<p>The removal condition is the one the parenthesis guard below already states, and the guard in
+<code>check</code> now carries it: a released <code>polyglot-sql</code> with the fix, this workspace bumped to it, and
+the seed still green under <code>just fuzz-smoke</code> with the guard gone.</p>
 <p><strong>The parser does not return on a parenthesis with no closer, so the fragment is bounded to closed
 parentheses.</strong> Found by the <code>sql_expression</code> fuzz target as a 26-byte timeout and reduced to six
 characters, <code>a.:S1(</code>: <code>.:</code> reads the next word as a custom data type, and the argument loop in the
