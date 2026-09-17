@@ -377,6 +377,19 @@ pub(crate) fn violations(tree: &BTreeSet<String>) -> Vec<&String> {
         .collect()
 }
 
+/// Is `name` a package in this metadata's graph at all, workspace member or not?
+///
+/// [`super::second_workspace`]'s own reason: a declared satellite workspace need not contain every
+/// crate a [`ForbiddenEdge`]'s `from` names - `fuzz/`'s own graph has no `sutura-semantic` package
+/// unless something it depends on pulls it in - and that absence is not the rule going quiet the
+/// way an EMPTY tree from the root workspace would be. It is a structural fact about a smaller
+/// graph, so the caller skips the entry rather than asking [`transitive_names`] to error on it.
+pub(crate) fn contains_package(meta: &serde_json::Value, name: &str) -> bool {
+    meta.get("packages")
+        .and_then(|p| p.as_array())
+        .is_some_and(|packages| packages.iter().any(|p| p.get("name").and_then(|n| n.as_str()) == Some(name)))
+}
+
 /// Whether `edge.forbidden` is reachable from `edge.from`, over the edge kinds `edge.edges` names.
 ///
 /// Factored out of [`super::forbidden_edges`] so a fixture can drive ONE entry's scoping directly: a
@@ -394,10 +407,20 @@ pub(crate) fn reaches(meta: &serde_json::Value, edge: &ForbiddenEdge) -> Result<
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, ForbiddenEdge, reaches, transitive_names, violations};
+    use super::{
+        ALLOWED_IN_DOMAIN, Edges, FORBIDDEN_EDGES, ForbiddenEdge, contains_package, reaches, transitive_names, violations,
+    };
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|n| String::from(*n)).collect()
+    }
+
+    #[test]
+    fn contains_package_answers_for_a_package_the_workspace_does_not_have_to_be_a_member_of() {
+        let meta: serde_json::Value =
+            serde_json::from_str(r#"{"packages": [{"id": "a", "name": "sutura-fuzz"}]}"#).expect("fixture parses");
+        assert!(contains_package(&meta, "sutura-fuzz"));
+        assert!(!contains_package(&meta, "sutura-semantic"));
     }
 
     #[test]

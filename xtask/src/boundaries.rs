@@ -1,6 +1,6 @@
-//! The architecture-boundary gate. NINE halves - four about which way dependencies point, one
-//! about the application specifically, two about the driving port, and two about what the
-//! crossing looks like:
+//! The architecture-boundary gate. TEN halves - four about which way dependencies point, one
+//! about the application specifically, two about the driving port, two about what the crossing
+//! looks like, and one about a SECOND graph the other nine never resolve:
 //!
 //! * the domain crate acquires no framework dependency ([`dependency_direction`])
 //! * a named crate cannot reach a named crate ([`forbidden_edges`])
@@ -27,6 +27,10 @@
 //!   ungoverned-route allowlist, holding that the one place `sutura-http`/`sutura-cli` may call
 //!   `.nest`/`.nest_service`/`.route_service` (outside the governed `.nest(API_V1_PREFIX, …)`) is
 //!   the single mount function
+//! * a DECLARED satellite cargo workspace reaches no framework and no forbidden target over ITS
+//!   OWN `cargo metadata` ([`second_workspace`], `xtask/src/boundaries/second_workspace.rs`), and
+//!   an undeclared one refuses outright - `telekom/sutura#863`: `fuzz/`'s own `[workspace]` table
+//!   makes it a graph none of the halves above ever resolves, allowlist and denylist included
 //!
 //! One gate rather than three, because they all answer "is the boundary real?", and because a
 //! rule in its own task has to be transcribed into the justfile, twice into devenv.nix, into
@@ -57,6 +61,7 @@ mod application;
 mod edges;
 mod harness;
 mod ports;
+mod second_workspace;
 mod ungoverned;
 
 use crate::Verdict;
@@ -75,6 +80,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let through = answer_through_the_port();
     let surface = typed_surface();
     let mounts = ungoverned::check();
+    let satellites = second_workspaces();
     let halves = [
         direction,
         edges,
@@ -85,6 +91,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         through,
         surface,
         mounts,
+        satellites,
     ];
     if halves.iter().all(|half| *half == Verdict::Pass) {
         Verdict::Pass
@@ -466,6 +473,33 @@ fn harness_reaches_no_adapter() -> Verdict {
             }
             eprintln!();
             harness::explain();
+            Verdict::Fail
+        }
+    }
+}
+
+/// A tenth shape: not which way dependencies point inside ONE graph, but whether a SECOND graph
+/// exists that the nine halves above never resolve at all.
+fn second_workspaces() -> Verdict {
+    match second_workspace::check() {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - satellite workspace(s) checked: {}",
+                report.walked.join("; ")
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - a satellite cargo workspace has a problem:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            second_workspace::explain();
             Verdict::Fail
         }
     }
