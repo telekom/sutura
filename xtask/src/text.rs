@@ -20,8 +20,15 @@
 use crate::Verdict;
 use crate::repo;
 
-/// Anything larger is almost certainly not source. The pre-commit default is 500 kB; this
-/// matches the 512 kB the removed hook was configured with.
+/// Anything larger is almost certainly not source, and catching that is what this cap is
+/// for: a huge blob checked in by accident. The number itself is not a considered limit for
+/// any particular kind of file - it is inherited from a pre-commit hook this repo no longer
+/// runs - so treat 512 kB as "big enough to ask a question", not as a size anything was
+/// designed to fit.
+///
+/// [`is_generated_api_doc`] is the one exemption: a generated `docs/api/*.md` page's size is
+/// a function of how much public surface a crate has, which this cap cannot tell apart from
+/// an accident, so a documented crate would otherwise be unable to grow.
 const MAX_BYTES: u64 = 512 * 1024;
 
 /// Conflict markers, as byte patterns at the start of a line.
@@ -93,6 +100,43 @@ impl Finding {
 /// means a bad merge, which is worth hearing about wherever it happens.
 fn is_generated(text: &str) -> bool {
     text.lines().take(5).any(|l| l.to_ascii_lowercase().contains("do not edit"))
+}
+
+/// Where the generated API reference pages live.
+///
+/// `docs/api/index.md` is the one file in this directory that is hand-written, which is why
+/// the path alone is not the check - see [`is_generated_api_doc`].
+const API_DOCS_DIR: &str = "docs/api/";
+
+/// Is this an oversized generated API page, rather than an oversized anything else?
+///
+/// Scoped to `docs/api/` rather than to `devco/max-lines-ignore`'s whole `[silent]` section,
+/// which is the LINE cap's exemption list and reaches `docs/*.md`, `docs/adr/*.md` and
+/// `vendor/**` for reasons that do not carry over here - this gate's own [`BYTE_EXACT`] doc
+/// keeps a vendored file's size checked on purpose, so reading that list whole would silently
+/// exempt vendored blobs from the one check that catches an accidental one. A dedicated,
+/// narrower predicate keeps the two caps' exemptions independent, the same way [`BYTE_EXACT`]
+/// and [`VENDORED_PROSE`] already are.
+///
+/// BOTH conditions matter: the path scopes this to `docs/api/`, and [`is_generated`]
+/// distinguishes the pages `nix run .#api-docs` writes from `docs/api/index.md` - a
+/// hand-written landing page in the same directory that a person still edits, and that this
+/// cap still has to cover.
+fn is_generated_api_doc(path: &str, text: &str) -> bool {
+    path.starts_with(API_DOCS_DIR) && is_generated(text)
+}
+
+/// Should [`Finding::TooLarge`] fire for these bytes at this path?
+///
+/// Pulled out of the census closure in [`run`] so the decision itself - not the whole walk -
+/// is what a test exercises directly.
+fn oversized(rel: &str, bytes: &[u8]) -> Option<Finding> {
+    let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    if size <= MAX_BYTES {
+        return None;
+    }
+    let exempt = repo::looks_like_text(bytes) && is_generated_api_doc(rel, &String::from_utf8_lossy(bytes));
+    (!exempt).then_some(Finding::TooLarge(size))
 }
 
 /// Inspect one file's contents.
@@ -273,9 +317,8 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         // it catches. Taken from the bytes the census already read rather than from a second
         // `metadata` call - one read, one answer, and no window in which the two disagree.
         let mut findings = Vec::new();
-        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        if size > MAX_BYTES {
-            findings.push(Finding::TooLarge(size));
+        if let Some(finding) = oversized(rel, bytes) {
+            findings.push(finding);
         }
 
         // Textness from the bytes in hand. `looks_like_text` cannot conflate *not text* with
@@ -348,7 +391,68 @@ mod tests {
     /// A path that is not vendored, for the tests that are about the text rather than the path.
     const ANY: &str = "src/example.rs";
 
-    use super::{Finding, fixed, inspect};
+    use super::{Finding, fixed, inspect, oversized};
+
+    /// One byte past the cap: cheap to build in a test, and never committed as a fixture.
+    fn oversized_bytes() -> Vec<u8> {
+        let max = usize::try_from(super::MAX_BYTES).expect("the cap fits a usize on this target");
+        vec![b'x'; max + 1]
+    }
+
+    /// A generated API page's header, padded past the cap with content a real page would
+    /// carry - rustdoc prose, not `x` repeated, so `looks_like_text` has something to judge.
+    fn oversized_generated_api_doc() -> Vec<u8> {
+        let max = usize::try_from(super::MAX_BYTES).expect("the cap fits a usize on this target");
+        let mut text = String::from("<!-- GENERATED FILE - do not edit. -->\n");
+        while text.len() <= max {
+            text.push_str("pub fn documented_item() {}\n");
+        }
+        text.into_bytes()
+    }
+
+    #[test]
+    fn the_cap_fires_on_an_oversized_hand_written_file() {
+        // Rung 1 of the proof: a plain file over the limit is still refused.
+        let big = oversized_bytes();
+        assert_eq!(oversized(ANY, &big), Some(Finding::TooLarge(big.len() as u64)));
+    }
+
+    #[test]
+    fn the_cap_does_not_fire_on_an_oversized_generated_api_page() {
+        // Rung 2: the exemption this branch adds. Same size, but this is what
+        // `nix run .#api-docs` actually writes at a path under `docs/api/`.
+        let big = oversized_generated_api_doc();
+        assert_eq!(oversized("docs/api/sutura-domain.md", &big), None);
+    }
+
+    #[test]
+    fn an_oversized_hand_written_page_in_the_same_directory_still_trips_the_cap() {
+        // Rung 3, the boundary: `docs/api/index.md` sits in the exempt DIRECTORY but carries
+        // no generated marker, because a person still edits it. The path alone cannot be the
+        // check, or this file would be exempt too.
+        let big = oversized_bytes();
+        assert_eq!(
+            oversized("docs/api/index.md", &big),
+            Some(Finding::TooLarge(big.len() as u64)),
+            "a hand-written page must stay covered even inside docs/api/"
+        );
+    }
+
+    #[test]
+    fn a_generated_marker_outside_docs_api_does_not_exempt_the_size_cap() {
+        // The other half of the boundary: the marker alone is not the check either. Widening
+        // this to "any generated file" is the over-broad alternative the brief warns against.
+        let big = oversized_generated_api_doc();
+        assert_eq!(
+            oversized("docs/generated/openapi.json", &big),
+            Some(Finding::TooLarge(big.len() as u64))
+        );
+    }
+
+    #[test]
+    fn a_small_generated_api_page_never_reaches_the_size_check() {
+        assert_eq!(oversized("docs/api/sutura-domain.md", b"<!-- do not edit -->\nsmall\n"), None);
+    }
 
     #[test]
     fn clean_text_has_no_findings() {
