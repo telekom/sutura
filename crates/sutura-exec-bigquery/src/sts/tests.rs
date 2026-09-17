@@ -575,6 +575,76 @@ fn the_resulting_bearer_is_the_sa_token_not_the_federated_one() {
 }
 
 #[test]
+fn a_declared_subject_resolves_through_the_hop_to_the_declared_sa() {
+    // **The map key GENERALISES past the harness's own self-impersonation**, which is the point
+    // `docs/adr/0032`'s amendment records: a real human IdP subject (`ada@idp.example`) is a
+    // `SubjectKey` like any other, and a production entry maps it to a DIFFERENT declared SA. The
+    // broker never interprets the key - it equality-compares it against the declared map - so the
+    // resolution is one exchange of the caller's own token plus one hop to the DECLARED account,
+    // and the presented credential is the SA's, never the federated one. This is the non-self
+    // resolution cell; the accepted self-impersonation is only the harness's declared fixture.
+    let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
+        .measured_against(Frozen(A_FIXED_NOW))
+        .impersonating_via(FakeImpersonation::granting("sa-token-the-declared-account-granted"))
+        .impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(
+                String::from("//iam.googleapis.com/.../providers/sso"),
+                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+            )
+            .with_impersonation(std::collections::BTreeMap::from([(
+                SubjectKey::parse("ada@idp.example").expect("an IdP subject is a SubjectKey"),
+                String::from("sa-declared@acme-analytics.iam.gserviceaccount.com"),
+            )])),
+        );
+    let minted = broker
+        .mint(
+            &caller_with("ada@idp.example", Some("the-callers-own-jwt")),
+            &SourceSet::of(source("warehouse")),
+        )
+        .expect("the hop does not fail");
+    // The mint is agreed against the ACTUAL asker (ada), not the harness's default `someone` -
+    // the minted leg is bound to the subject that asked, and agreeing against a different one is
+    // `AnotherSubject`.
+    let agreed = minted
+        .agreeing_with(
+            caller_with("ada@idp.example", Some("the-callers-own-jwt")).chain().subject(),
+            &SourceSet::of(source("warehouse")),
+            A_FIXED_NOW,
+        )
+        .expect("the grant agrees with the request");
+    let Agreed::Granted { credentials } = agreed else {
+        panic!("expected granted");
+    };
+    let Presented::SubjectToken { material } = credentials.presented_for(&source("warehouse")).expect("a leg") else {
+        panic!("an impersonating source gets a subject token");
+    };
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the minted material IS the assertion: that the DECLARED SA's token, not the federated one, reached the leg"
+    )]
+    let observed = String::from(material.expose_secret());
+    assert_eq!(
+        observed, "sa-token-the-declared-account-granted",
+        "an IdP subject on the declared map comes out as the declared SA, not the federated credential"
+    );
+    let WorkloadIdentityBroker {
+        impersonation, exchange, ..
+    } = &broker;
+    let calls = impersonation.calls.borrow();
+    assert_eq!(calls.len(), 1, "one leg is one exchange and one hop");
+    assert_eq!(
+        calls[0].1, "sa-declared@acme-analytics.iam.gserviceaccount.com",
+        "the hop was asked to impersonate the DECLARED account"
+    );
+    assert_eq!(
+        exchange.exchanged.borrow().len(),
+        1,
+        "the caller's own token was exchanged exactly once"
+    );
+}
+
+#[test]
 fn a_source_with_no_impersonate_map_keeps_todays_bare_exchange() {
     // The additive case, `docs/adr/0032`: a source that declares NO map never refuses anybody and
     // never reaches the hop - the bare RFC 8693 exchange is presented as the caller's own federated

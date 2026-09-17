@@ -134,6 +134,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 | **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance`, `just e2e-datahub-bigquery` |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
 | **A real token exchange, and two grants** | a GitHub environment, on demand | a hosted run resolved both principals to their own accounts - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` |
+| **A served binary under a verified human caller** | nowhere yet | a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them `iam.workloadIdentityUser`, and a hosted run to demand it | not built |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -158,39 +159,39 @@ everything *around* it, and shrinks to the one job only it can do.
 
 ## Which venue answers which claim
 
-| Claim | Fake at the port | Mock issuer | Provisioned Postgres | Provisioned Keycloak | Real dataset, shared key | Real provider | Real exchange |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - | - |
-| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - | - |
-| A signature verifies, and a forged one does not | - | **yes** | - | - | - | redundant | - |
-| `kid` selection, and an unknown key id | - | **yes** | - | - | - | redundant | - |
-| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | - | redundant | - |
-| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | - | redundant | - |
-| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | - | redundant | - |
-| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - |
-| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | - | redundant | - |
-| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - |
-| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - | - |
-| `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
-| Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - |
-| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | redundant |
-| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | redundant |
-| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
-| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - |
-| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - |
-| An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
-| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
-| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no |
-| Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **yes** - the hosted run of 2026-09-16 exchanged and STS plus `iamcredentials` accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218) |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **yes** - in the hosted run each principal's exchange resolved to its own account (run https://github.com/telekom/sutura/actions/runs/35076526218) |
-| **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no - one key is one identity | no | no - trusted to the data system, not re-verified by sutura (telekom/sutura#123) |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no - one key is one identity, and it is the transport's own | no | no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123) |
-| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no - a different data system | no | no - a different data system |
-| Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
-| Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
-
+| Claim | Fake at the port | Mock issuer | Provisioned Postgres | Provisioned Keycloak | Real dataset, shared key | Real provider | Real exchange | Served caller |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A refusal is a result and every variant is reachable | **yes** | - | - | - | - | - | - | - |
+| A caller cannot state its own identity | **yes** (a type with no `Deserialize`) | - | - | - | - | - | - | - |
+| A signature verifies, and a forged one does not | - | **yes** | - | - | - | redundant | - | - |
+| `kid` selection, and an unknown key id | - | **yes** | - | - | - | redundant | - | - |
+| Algorithm confusion: `alg: none`, a symmetric key in the set, the wrong key family | - | **yes** | - | - | - | redundant | - | - |
+| Issuer, audience against this deployment's own resource identifier, expiry, `nbf` | - | **yes** | - | - | - | redundant | - | - |
+| An `aud` ARRAY, the form RFC 7519 permits | - | **can** - the builder takes several audiences; the standing test is at the gate | - | - | - | redundant | - | - |
+| Token class: an ID token where an access token is required | - | **yes**, that *we refuse one* | - | - | - | redundant - we refuse the token from its own claims, and whether such a token can be OBTAINED is the bold row below | - | - |
+| The `iat` ceiling on a gateway assertion | - | **can** - the builder takes `iat` and `exp` separately for exactly this; the standing test is at the gate, over in-crate fixtures | - | - | - | redundant | - | - |
+| Key rotation: a removed key stops verifying within the bound | - | **yes**, and it is the only venue where a rotation is scriptable | - | - | - | redundant - painful to script there, and the mock issuer is the only scriptable venue | - | - |
+| The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - | - | - |
+| `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - | - |
+| Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - | - |
+| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | redundant | - |
+| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | redundant | - |
+| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - | - |
+| The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | - | redundant | - | - |
+| The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | - | redundant | - | - |
+| An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - | - |
+| Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - | - |
+| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - | - |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no | - |
+| Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - | - |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **yes** - the hosted run of 2026-09-16 exchanged and STS plus `iamcredentials` accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218) | - |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **yes** - in the hosted run each principal's exchange resolved to its own account (run https://github.com/telekom/sutura/actions/runs/35076526218) | - |
+| **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no - one key is one identity | no | no - trusted to the data system, not re-verified by sutura (telekom/sutura#123) | - |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no - one key is one identity, and it is the transport's own | no | no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123) | - |
+| **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no - a different data system | no | no - a different data system | - |
+| Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - | - |
+| Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - | - |
+| **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | - | - | - |
 ## The fake at the port
 
 `AGENTS.md`'s *Conventions* says why: *ports get fakes, not mocked HTTP - that is what lets the whole
@@ -587,6 +588,22 @@ number an operator can act on, and because per-request minting would not have do
 exchanged token is typically valid for close to an hour regardless of how it was minted, so a fresh
 mint carries the same stale grant for the rest of its own life either way. What the cache adds is
 strictly bounded by the configured window on top of that, never by more.
+
+## A served binary under a verified human caller
+
+**This venue runs nowhere yet, in the sense that decides what its column may claim: no job invokes
+it and no green run has been observed, so its one claim is `-` until a run is demanded.** The cell
+this row would earn is what a green `bigquery-exchanged-identity` run cannot touch - a SERVED binary
+answering under the declared per-source map: it boots with `security.inbound`, a verified human
+caller whose full `sub` is a declared map key is granted through the bigquery source (the hop ran,
+not the shared identity), and an undeclared caller is refused at the broker door before anything is
+exchanged. The standing cell is
+`served/e2e.rs::a_served_binary_executes_a_verified_human_caller_as_the_declared_account`,
+`#[ignore]`d - it needs the provisioned WIF pool plus the IdP-to-SA `iam.workloadIdentityUser`
+grant, and it will not run locally. **The raw `SESSION_USER() == declared SA` string stays the
+exchange venue's `exchanged_identity.rs` cell**: it is unreachable over `/v1/sql/run`, because
+`BigQueryWarehouse` keeps `ACCEPTS_RAW_STATEMENTS = false`, so the served surface's observable is
+the granted answer's `executed_as: impersonation-at-source`, not the raw account.
 
 ## Keeping this page honest
 
