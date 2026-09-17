@@ -206,7 +206,7 @@ const QUOTA_PROJECT_HEADER: &str = "x-goog-user-project";
 /// that goes into the request body are **the same value**. Two arguments could have disagreed.
 #[derive(Debug, Clone)]
 pub struct WireAgent {
-    agent: ureq::Agent,
+    agent: sutura_tls::Rotating<ureq::Agent>,
     bounds: JobBounds,
 }
 
@@ -243,30 +243,59 @@ impl WireAgent {
     ///   `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
     ///   `security.outbound.transport_anchors` resolves to. No client identity: `security.outbound`
     ///   is anchors only, so there is no `ClientCert` in either arm.
+    ///
+    /// The agent is wrapped in a never-rotating [`sutura_tls::Rotating`] - this constructor has no
+    /// declaration to re-read. The rotation lane is [`Self::rotating`], fed by
+    /// [`Self::rotating_agent`].
     #[must_use]
     pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self {
-        Self {
-            agent: ureq::Agent::new_with_config(
-                ureq::Agent::config_builder()
-                    .http_status_as_error(false)
-                    .https_only(true)
-                    .max_redirects(0)
-                    .timeout_global(Some(bounds.deadline().socket()))
-                    .max_response_header_size(MAX_HEADER_BYTES)
-                    .proxy(ureq::Proxy::try_from_env())
-                    .tls_config(tls::config(anchors))
-                    .build(),
-            ),
+        Self::rotating(
             bounds,
-        }
+            sutura_tls::Rotating::fixed(tls::agent_from_tls(bounds.deadline().socket(), tls::config(anchors))),
+        )
     }
 
-    /// The client, for the two modules in this crate that send a request.
+    /// The rotation-lane constructor over a handle built by [`Self::rotating_agent`].
+    #[must_use]
+    pub const fn rotating(bounds: JobBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self {
+        Self { agent, bounds }
+    }
+
+    /// Builds the wire's rotating agent handle for a declared `security.outbound.transport_anchors`
+    /// set (and, when one is declared, the poll handle the composition root drives on
+    /// [`sutura_tls::POLL_INTERVAL`]). `None` returns a fixed handle over `ureq`'s compiled-in roots
+    /// (the pre-`#125` behaviour, nothing to re-read); `Some` rebuilds `RootCerts::Specific` from each
+    /// freshly loaded bundle, adopted by the next request.
+    ///
+    /// # Errors
+    ///
+    /// The declared bundle cannot be loaded at boot.
+    pub fn rotating_agent(
+        bounds: JobBounds,
+        anchors: Option<sutura_tls::Anchors>,
+    ) -> Result<tls::OutboundAgent, sutura_tls::LoadError> {
+        let Some(anchors) = anchors else {
+            return Ok((
+                sutura_tls::Rotating::fixed(tls::agent_from_tls(bounds.deadline().socket(), tls::config(None))),
+                None,
+            ));
+        };
+        let timeout = bounds.deadline().socket();
+        let rebuild = move |loaded, _identity: Option<sutura_tls::LoadedIdentity>| {
+            Ok::<_, sutura_tls::LoadError>(tls::agent_from_tls(timeout, tls::config(Some(loaded))))
+        };
+        let initial = tls::agent_from_tls(timeout, tls::config(Some(sutura_tls::load_anchors(&anchors)?)));
+        let rotator = sutura_tls::Rotator::new(anchors, None, rebuild, initial);
+        Ok((rotator.rotating(), Some(rotator)))
+    }
+
+    /// The client, for the two modules in this crate that send a request, as an `Arc` clone resolved
+    /// from the rotating handle - the per-request read that adopts a rotation on the next request.
     ///
     /// `pub(crate)`, so nothing outside can take the agent out of its wrapper and reconfigure it.
     #[inline]
-    pub(crate) const fn agent(&self) -> &ureq::Agent {
-        &self.agent
+    pub(crate) fn agent(&self) -> std::sync::Arc<ureq::Agent> {
+        self.agent.current()
     }
 
     /// What every job through this client is bounded by.

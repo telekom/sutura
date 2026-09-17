@@ -101,6 +101,14 @@ correctness question rather than a style one.**
 - **`Arc` is for state genuinely shared across tasks and immutable once built** - the pinned bundle,
   the certified key the TLS resolver hands out. `Arc<Mutex<_>>` around per-request state is the shape
   to stop and rethink.
+- **The outbound trust handle is two `Arc`s and no lock on the request path.** `sutura_tls::Rotating`
+  only ever reads (`current()` is an `Arc` clone under a `watch` borrow; the swap is the poller's own
+  `send_replace` of one `Arc`), so a per-request client resolves `current()` with nothing contended.
+  That is the same swap shape the serving resolver uses, on the same 30 s poll. The per-connection
+  half is the part to remember: a Postgres connection reads `current()` ONCE at connect and owns that
+  pair - never reach back into the handle on an established connection, or a rotation would silently
+  change the identity a live connection is presenting, which is the "reads as done and is not" defect
+  `docs/adr/0010`'s amendment exists to name.
 - **The request path BORROWS the pinned bundle.** Not an optimisation: `load()` runs once at boot and
   `crates/sutura-http/src/state.rs` hands a handler `&PinnedDefinitions`, so nothing on that path can
   acquire I/O to widen what it reads. There is no per-request view between the two - the wording that

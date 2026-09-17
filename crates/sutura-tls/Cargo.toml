@@ -23,10 +23,19 @@ description = "Reads a declared trust-anchor bundle or the host store, and an op
 # are the bytes the declaration named", which is the part that was genuinely duplicated.
 # `xtask/src/boundaries.rs`'s `FORBIDDEN_EDGES` holds `sutura-tls -> ring` absent mechanically.
 rustls-pki-types = { workspace = true }
-# The `transport_anchors: system` path - the host trust store, read once. Already resolved at this
+# `transport_anchors: system` - the host trust store, read once. Already resolved at this
 # version for `sutura-exec-postgres`; this crate adds no new entry to `Cargo.lock`.
 rustls-native-certs = { workspace = true }
 thiserror = { workspace = true }
+# The `sync` channel (`tokio::sync::watch`) `crate::rotate::Rotator` swaps the adopted material
+# through - the same lock-free swap the serving side's `Renewal`/resolver split already resolved to.
+# `poll_once` and `current` are synchronous and need no runtime, so this is the small `sync` slice
+# of tokio and nothing else.
+tokio = { workspace = true, features = ["sync"] }
+# The one loud refuse line and the one rotate line `crate::rotate` writes when a declared source is
+# swapped or cannot be adopted - the client side has no handshake to fail visibly, so the log line is
+# the only complaint a deployment hears.
+tracing = { workspace = true }
 
 [dev-dependencies]
 # Generated self-signed pairs for the refusal tests below - the same crate

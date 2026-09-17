@@ -68,7 +68,7 @@ pub(super) fn open(
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<Opened, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
@@ -157,7 +157,11 @@ pub(super) fn open(
     // and the job share one connection pool and one set of pins by construction rather than because
     // two call sites happened to pass the same bounds. `outbound` is `None` for the ordinary
     // deployment, which is `WireAgent::secured`'s exact `pinned` behaviour - `github.com/telekom/sutura#125`.
-    let agent = WireAgent::secured(bounds, outbound.cloned());
+    // A declared bundle becomes a rotating handle, adopted by the next request.
+    let (agent, rotator) = WireAgent::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (BigQuery wire)", rotator);
+    let agent = WireAgent::rotating(bounds, agent);
     let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
         .map_err(|cause| format!("`sources.{source}.credential_file` could not be read: {}", render(&cause)))?;
     // Parsed a SECOND time here, and that is not a redundant check: the settings tree's
@@ -198,7 +202,7 @@ pub(super) fn open(
     _configured: &sutura_config::ConfiguredSource,
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::LoadedAnchors>,
+    _outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<Opened, String> {
     Err(format!(
         "`sources.{source}` is `kind: bigquery`, and this binary was built without the `bigquery` \

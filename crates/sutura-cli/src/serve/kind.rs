@@ -287,7 +287,7 @@ pub(crate) fn open_mixed(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<Mixed, String> {
     let mut engines: Option<sutura_app::Warehouses<AnyWarehouse>> = None;
     let mut attached: Option<BTreeSet<TableName>> = None;
@@ -331,7 +331,7 @@ fn bigquery_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
     let super::OpenedSources::BigQuery(engines) = super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)?
     else {
@@ -349,7 +349,7 @@ fn bigquery_group(
     sources: &[&SourceName],
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
     super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)?;
     // Unreachable: that call's own feature-off twin only ever returns `Err`, propagated above by

@@ -52,6 +52,9 @@ use std::path::{Path, PathBuf};
 use rustls_pki_types::pem::PemObject as _;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
+mod rotate;
+pub use rotate::{Outcome, POLL_INTERVAL, Rotating, Rotator};
+
 /// Where a declared trust anchor bundle is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Anchors {

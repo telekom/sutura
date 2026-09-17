@@ -54,6 +54,13 @@ use rustls::RootCertStore;
 
 use crate::PostgresError;
 
+/// A TLS source's rotating client-config handle and the poll handle that keeps it current - named
+/// for `type_complexity`, the same reason `sutura-exec-bigquery`'s `Wired`/`Grid` aliases exist.
+type RotatingClientConfig = (
+    sutura_tls::Rotating<rustls::ClientConfig>,
+    sutura_tls::Rotator<rustls::ClientConfig, PostgresError>,
+);
+
 /// The trust anchors a TLS source channel verifies against, resolved from the declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlsAnchors {
@@ -106,7 +113,33 @@ impl TlsIdentity {
 /// to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
 /// cannot be read or does not hold its kind.
 pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<rustls::ClientConfig, PostgresError> {
-    let roots = certificate_roots(anchors)?;
+    let loaded = sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(convert_load_error)?;
+    let identity_loaded = identity
+        .map(|id| sutura_tls::load_identity(&resolved_identity(id)).map_err(convert_load_error))
+        .transpose()?;
+    from_loaded(anchors, loaded, identity_loaded)
+}
+
+/// Builds a `rustls::ClientConfig` from ALREADY-loaded anchor material and an optional loaded
+/// client identity - the half that does not read a file, so the rotation lane can rebuild a config
+/// from a freshly loaded bundle without re-entering the loader. The source-class is kept so a
+/// certificate rustls cannot use as a root is refused with the same error identity a boot-time load
+/// produces (`AnchorsRead` for a bundle, `SystemStoreCertificate` for a `system` store).
+fn from_loaded(
+    anchors: &TlsAnchors,
+    loaded: sutura_tls::LoadedAnchors,
+    identity: Option<sutura_tls::LoadedIdentity>,
+) -> Result<rustls::ClientConfig, PostgresError> {
+    let mut roots = RootCertStore::empty();
+    for certificate in loaded {
+        roots.add(certificate).map_err(|cause| match anchors {
+            TlsAnchors::System => PostgresError::SystemStoreCertificate { cause },
+            TlsAnchors::Bundle(path) => PostgresError::AnchorsRead {
+                path: path.display().to_string(),
+                cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
+            },
+        })?;
+    }
 
     // An explicit provider rather than `CryptoProvider::install_default`, for the reason the
     // serving side gives: the process-global default would make this adapter's behaviour depend on
@@ -119,44 +152,50 @@ pub fn client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Re
 
     match identity {
         None => Ok(builder.with_no_client_auth()),
-        Some(identity) => {
-            let loaded = sutura_tls::load_identity(&resolved_identity(identity)).map_err(convert_load_error)?;
+        Some(loaded) => {
             let (chain, key) = loaded.into_parts();
             builder
                 .with_client_auth_cert(chain, key)
                 .map_err(|_cause| PostgresError::IdentityKey {
-                    path: identity.key().display().to_string(),
+                    path: String::new(),
                     what: "not a private key this build can present",
                 })
         }
     }
 }
 
-/// Reads the declared anchors through `sutura_tls::load_anchors` and folds the certificates into a
-/// `RootCertStore`, which is the one step `sutura-tls` deliberately does not take - it has no crypto
-/// provider to validate against, and which anchors a `ClientConfig` trusts is this adapter's own
-/// decision.
+/// Builds a rotating `rustls::ClientConfig` handle (and the poll handle that keeps it current) for a
+/// TLS source channel, from the resolved anchor material and an optional client identity.
 ///
-/// A certificate rustls itself rejects is refused rather than skipped, in the same shape each of the
-/// two sources used before this read moved: a bundle entry's failure is
-/// [`PostgresError::AnchorsRead`] (wrapping the rejection as the read failure it effectively is for
-/// that source), and a system-store entry's is [`PostgresError::SystemStoreCertificate`] - the two
-/// error identities a caller already matches on are unchanged.
-fn certificate_roots(anchors: &TlsAnchors) -> Result<RootCertStore, PostgresError> {
-    let certificates = sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(convert_load_error)?;
-    let mut roots = RootCertStore::empty();
-    for certificate in certificates {
-        roots.add(certificate).map_err(|cause| match anchors {
-            TlsAnchors::System => PostgresError::SystemStoreCertificate { cause },
-            TlsAnchors::Bundle(path) => PostgresError::AnchorsRead {
-                path: path.display().to_string(),
-                cause: std::io::Error::new(std::io::ErrorKind::InvalidData, cause),
-            },
-        })?;
-    }
-    // `sutura_tls::LoadedAnchors` cannot be empty by construction, so `roots` is non-empty here
-    // whenever every `add` above succeeded - the property is the type's, not a comment's.
-    Ok(roots)
+/// A `postgres` source always names its anchors (a bundle or the `system` store) - there is no
+/// compiled-in default the way the outbound wire has one - so this always returns a rotating handle.
+/// A NEW connection calls [`sutura_tls::Rotating::current`] at connect time and keeps that pair for
+/// the adapter's life; a live connection is left until it closes. **Not drained** - there is no
+/// connection pool today, so draining would close a live connection with nothing to retire to
+/// (`docs/adr/0010`; `github.com/telekom/sutura#125` item 3).
+///
+/// # Errors
+///
+/// The same refusals as [`client_config`] when the declared material cannot be loaded or built at
+/// boot.
+pub fn rotating_client_config(
+    anchors: &TlsAnchors,
+    identity: Option<&TlsIdentity>,
+) -> Result<RotatingClientConfig, PostgresError> {
+    let sut_anchors = resolved_anchors(anchors);
+    let sut_identity = identity.map(resolved_identity);
+    let initial_loaded = sutura_tls::load_anchors(&sut_anchors).map_err(convert_load_error)?;
+    let initial_identity = sut_identity
+        .as_ref()
+        .map(|id| sutura_tls::load_identity(id).map_err(convert_load_error))
+        .transpose()?;
+    let initial = from_loaded(anchors, initial_loaded, initial_identity)?;
+    let rebuild_anchors = anchors.clone();
+    let rebuild = move |loaded: sutura_tls::LoadedAnchors, identity: Option<sutura_tls::LoadedIdentity>| {
+        from_loaded(&rebuild_anchors, loaded, identity)
+    };
+    let rotator = sutura_tls::Rotator::new(sut_anchors, sut_identity, rebuild, initial);
+    Ok((rotator.rotating(), rotator))
 }
 
 /// This crate's declared anchors, as the plain `Bundle`-or-`System` shape `sutura-tls` reads.

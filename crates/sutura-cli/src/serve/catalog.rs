@@ -50,7 +50,7 @@ pub(crate) enum OpenedCatalogs {
 /// leaves the reader on `ureq`'s compiled-in roots, the behaviour before `security.outbound`.
 pub(crate) fn open_catalog(
     catalogs: &sutura_config::Catalogs,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<OpenedCatalogs, String> {
     let mut kinds = catalogs.each().map(sutura_config::CatalogSettings::kind);
     // `Catalogs::parse` refuses an empty list, so there is always a first kind - the `ok_or_else`
@@ -113,7 +113,7 @@ fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> Local
 #[cfg(feature = "datahub")]
 fn open_datahub_catalogs(
     catalogs: &sutura_config::Catalogs,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<OpenedCatalogs, String> {
     catalogs
         .each()
@@ -132,7 +132,7 @@ fn open_datahub_catalogs(
 #[cfg(not(feature = "datahub"))]
 fn open_datahub_catalogs(
     _catalogs: &sutura_config::Catalogs,
-    _outbound: Option<&sutura_tls::LoadedAnchors>,
+    _outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<OpenedCatalogs, String> {
     Err(String::from(
         "catalog.kind: datahub names a metadata adapter this binary was not built to link - build \
@@ -193,7 +193,7 @@ fn read_token(settings: &sutura_config::CatalogSettings) -> Result<sutura_domain
 #[cfg(feature = "datahub")]
 fn open_one_datahub_catalog(
     settings: &sutura_config::CatalogSettings,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<sutura_catalog_datahub::DataHubCatalog<sutura_catalog_datahub::http::HttpAspectReader>, String> {
     use sutura_catalog_datahub::http::{
         DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds,
@@ -225,7 +225,10 @@ fn open_one_datahub_catalog(
             settings.name()
         )
     })?;
-    let reader = HttpAspectReader::new(endpoint, property, token, bounds, outbound.cloned());
+    let (reader, rotator) = HttpAspectReader::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (datahub reader)", rotator);
+    let reader = HttpAspectReader::rotating(endpoint, property, token, bounds, reader);
     let mut sources = std::collections::BTreeMap::new();
     drop(sources.insert(String::from("bigquery"), settings.name().clone()));
     Ok(sutura_catalog_datahub::DataHubCatalog::new(

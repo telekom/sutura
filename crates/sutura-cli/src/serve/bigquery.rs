@@ -22,7 +22,7 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<super::OpenedSources, String> {
     let mut engines: Option<sutura_app::Warehouses<super::BigQuerySource>> = None;
     for source in declared {
@@ -56,7 +56,7 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::LoadedAnchors>,
+    _outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<super::OpenedSources, String> {
     let named = declared
         .iter()
@@ -86,7 +86,7 @@ fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<super::BigQuerySource, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
@@ -157,8 +157,12 @@ fn build_bigquery(
     // construction rather than because two call sites happened to pass the same bounds. `WireAgent` is
     // `Clone` and a `ureq::Agent`'s clone shares its pool, so the clone is the cheap half of that.
     // `outbound` is `None` for the ordinary deployment, which is `WireAgent::secured`'s exact
-    // `pinned` behaviour - `github.com/telekom/sutura#125`.
-    let agent = WireAgent::secured(bounds, outbound.cloned());
+    // `pinned` behaviour - `github.com/telekom/sutura#125`. A declared bundle becomes a ROTATING
+    // handle (`sutura-tls`), so a replaced bundle is adopted by the next request without a restart.
+    let (agent, rotator) = WireAgent::rotating_agent(bounds, outbound.cloned())
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    crate::rotation::drive_rotation("security.outbound.transport_anchors (BigQuery wire)", rotator);
+    let agent = WireAgent::rotating(bounds, agent);
     let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone()).map_err(|cause| {
         format!(
             "`sources.{source}.credential_file` could not be read: {}",

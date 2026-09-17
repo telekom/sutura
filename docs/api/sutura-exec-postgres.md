@@ -114,15 +114,16 @@ private schema - so several warehouses can share one Postgres without clobbering
 The caller-supplied schema name is validated to a word before it reaches `CREATE SCHEMA`.
 
 ```rust
-pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, config: &tokio_postgres::Config, tls: Option<rustls::ClientConfig>) -> Result<Self, PostgresError>
+pub fn connect_secured(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, config: &tokio_postgres::Config, tls: Option<sutura_tls::Rotating<rustls::ClientConfig>>) -> Result<Self, PostgresError>
 ```
 
 Opens one connection under the supplied `config`, secured as the caller resolved.
 
-`tls` is `None` for a `plaintext` channel and a ready-built `rustls::ClientConfig` for
-`verified` and `mutual` channels. Both are produced by the composition root, which is the
-only place that can see the declared `sutura_config::sources::transport::SourceTransport` -
-this adapter takes the resolved material rather than a second copy of the three-state shape.
+`tls` is `None` for a `plaintext` channel and a rotating `rustls::ClientConfig` handle for
+`verified` and `mutual` channels. Both are produced by the composition root, which is the only
+place that can see the declared `sutura_config::sources::transport::SourceTransport`. The
+handle is resolved ONCE here (`Rotating::current`), so the resulting connection keeps that
+pair for its life - `docs/adr/0010`: a live connection is left until it closes.
 
 ```rust
 pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError>
@@ -471,3 +472,24 @@ with, from the resolved anchor material and an optional client identity.
 root set; `AnchorsRead` for a bundle that cannot be read; `AnchorsEmpty` for a bundle that parses
 to no certificates; `IdentityRead`/`IdentityIncomplete`/`IdentityKey` for an identity half that
 cannot be read or does not hold its kind.
+
+### `fn rotating_client_config`
+
+```rust
+pub fn rotating_client_config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<(sutura_tls::Rotating<rustls::ClientConfig>, sutura_tls::Rotator<rustls::ClientConfig, crate::PostgresError>), crate::PostgresError>
+```
+
+Builds a rotating `rustls::ClientConfig` handle (and the poll handle that keeps it current) for a
+TLS source channel, from the resolved anchor material and an optional client identity.
+
+A `postgres` source always names its anchors (a bundle or the `system` store) - there is no
+compiled-in default the way the outbound wire has one - so this always returns a rotating handle.
+A NEW connection calls `sutura_tls::Rotating::current` at connect time and keeps that pair for
+the adapter's life; a live connection is left until it closes. **Not drained** - there is no
+connection pool today, so draining would close a live connection with nothing to retire to
+(`docs/adr/0010`; `github.com/telekom/sutura#125` item 3).
+
+# Errors
+
+The same refusals as `client_config` when the declared material cannot be loaded or built at
+boot.

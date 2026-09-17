@@ -985,6 +985,30 @@ leaves `ureq`'s compiled-in `RootCerts::WebPki` (every deployment before `securi
 `Some` replaces it with `RootCerts::Specific` from exactly the declared certificates - never a
 union of the two (see `super::tls_roots`); anchors only, no `ClientCert` in either arm.
 
+```rust
+pub const fn rotating(endpoint: Endpoint, property: String, token: Secret, bounds: ReadBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
+```
+
+The rotation-lane constructor: holds the rotating agent handle a composition root built (via
+`Self::rotating_agent`) and drove to re-read on `sutura_tls::POLL_INTERVAL`. The reader is
+per-request, so the agent `current()` resolves to on the next `read` is the latest that loaded -
+a replaced bundle (`security.outbound.transport_anchors`, `github.com/telekom/sutura#125`) is
+adopted by the next read, no drain (per `docs/adr/0010`).
+
+```rust
+pub fn rotating_agent(bounds: ReadBounds, anchors: Option<sutura_tls::Anchors>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
+```
+
+Builds the reader's rotating agent handle for a declared `security.outbound.transport_anchors`
+set, and (when one is declared) the `sutura_tls::Rotator` the composition root drives on
+`sutura_tls::POLL_INTERVAL`. `None` (no declaration) returns a fixed handle over `ureq`'s
+compiled-in roots and no poll handle. Rebuilt over `RootCerts::Specific` from each freshly
+loaded bundle - never a union, never a second external read.
+
+# Errors
+
+The declared bundle cannot be loaded at boot.
+
 #### Implements
 
 `AspectReader`, `Clone`, `Debug`

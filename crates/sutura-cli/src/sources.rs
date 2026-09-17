@@ -216,7 +216,7 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 ///
 /// The declared bundle or the host trust store cannot be read, is empty, or (a bundle) is not valid
 /// PEM.
-pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Result<Option<sutura_tls::LoadedAnchors>, String> {
+pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Result<Option<sutura_tls::Anchors>, String> {
     let Some(declared) = settings.security().outbound() else {
         return Ok(None);
     };
@@ -224,8 +224,10 @@ pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Re
         sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
         sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
     };
+    // Fail-fast here, and return the DECLARATION: the rotating handles each consumer builds re-load
+    // it on `sutura_tls::POLL_INTERVAL`, so the value handed onward is the thing they can re-read.
     sutura_tls::load_anchors(&anchors)
-        .map(Some)
+        .map(|_| Some(anchors))
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))
 }
 
@@ -302,7 +304,7 @@ pub(crate) fn open_engine(
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
     data: Option<&Path>,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let named = match sources.as_slice() {
@@ -352,7 +354,7 @@ fn from_the_registry(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<Opened, String> {
     let identity = configured
         .identity()

@@ -47,7 +47,7 @@ pub(super) fn open(
 ) -> Result<Opened, String> {
     use sutura_exec_postgres::PostgresWarehouse;
     use sutura_exec_postgres::connection::{ConnectionTarget, config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, rotating_client_config};
 
     let sutura_config::SourcePlacement::Postgres {
         ref dial,
@@ -94,7 +94,7 @@ pub(super) fn open(
                 sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
                 sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
             };
-            Some(client_config(&anchors, None).map_err(|cause| {
+            Some(rotating_client_config(&anchors, None).map_err(|cause| {
                 format!(
                     "`sources.{source}` is declared TLS and its material is not usable: {}",
                     render(&cause)
@@ -107,7 +107,7 @@ pub(super) fn open(
                 sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
             };
             let tls_identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
+            Some(rotating_client_config(&anchors, Some(&tls_identity)).map_err(|cause| {
                 format!(
                     "`sources.{source}` is declared mTLS and its material is not usable: {}",
                     render(&cause)
@@ -115,6 +115,11 @@ pub(super) fn open(
             })?)
         }
     };
+    let (tls, rotator) = match tls {
+        None => (None, None),
+        Some((rotating, rotator)) => (Some(rotating), Some(rotator)),
+    };
+    crate::rotation::drive_rotation("source transport (postgres TLS)", rotator);
     let engine = PostgresWarehouse::connect_secured(source.clone(), identity.posture().clone(), &config, tls)
         .map_err(|cause| render(&cause))?;
     Ok(Opened::Postgres(OpenedWith {

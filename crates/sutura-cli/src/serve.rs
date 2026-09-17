@@ -420,7 +420,7 @@ pub(crate) fn run() -> Result<(), String> {
 /// reader for the loaded value (see [`bigquery::open_bigquery`]'s refusal for the parallel case: a
 /// declared `kind: bigquery` with no linked adapter), which is a stated limit rather than a second
 /// refusal this settings crate cannot see the feature set to make.
-fn outbound_anchors(settings: &Settings) -> Result<Option<sutura_tls::LoadedAnchors>, String> {
+fn outbound_anchors(settings: &Settings) -> Result<Option<sutura_tls::Anchors>, String> {
     let Some(declared) = settings.security().outbound() else {
         return Ok(None);
     };
@@ -428,16 +428,20 @@ fn outbound_anchors(settings: &Settings) -> Result<Option<sutura_tls::LoadedAnch
         sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
         sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
     };
-    let loaded = sutura_tls::load_anchors(&anchors)
+    // Fail-fast: an unreadable or empty declaration stops the process. The DECLARATION (not the
+    // loaded value) is what flows onward - the rotating handles each consumer builds re-read it on
+    // [`sutura_tls::POLL_INTERVAL`], so what is handed to `open_catalog`/`open_engine`/
+    // `build_broker` is the thing they can re-load, which the pre-rotation loaded bytes were not.
+    sutura_tls::load_anchors(&anchors)
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     tracing::info!(
         anchors = match declared {
             sutura_config::OutboundAnchors::System => "system",
             sutura_config::OutboundAnchors::Bundle(_) => "bundle",
         },
-        "security.outbound: declared trust anchors were read for the BigQuery wire and the STS exchange"
+        "security.outbound: declared trust anchors were read for the BigQuery wire, the STS exchange and the datahub reader"
     );
-    Ok(Some(loaded))
+    Ok(Some(anchors))
 }
 
 /// Leg 1, for a deployment that declared one.
@@ -725,7 +729,7 @@ fn open_engine(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::LoadedAnchors>,
+    outbound: Option<&sutura_tls::Anchors>,
 ) -> Result<OpenedSources, String> {
     let declared = sutura_app::sources(pinned);
     if declared.is_empty() {

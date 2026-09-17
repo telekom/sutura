@@ -956,6 +956,12 @@ mod deadline;
 #[cfg(test)]
 mod tls;
 
+// The rotation half of `security.outbound.transport_anchors` (#125 item 3) - its own file because a
+// brand-new constructor has no stale base to be red against, so `xtask test-causality` holds it;
+// see its own module header.
+#[cfg(test)]
+mod rotation;
+
 #[test]
 fn the_cells_helper_names_the_row_as_well_as_the_column() {
     // The position is two numbers, and a refusal that only named the column would send a reader to

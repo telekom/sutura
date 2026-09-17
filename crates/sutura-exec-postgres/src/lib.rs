@@ -287,15 +287,16 @@ impl PostgresWarehouse {
 
     /// Opens one connection under the supplied `config`, secured as the caller resolved.
     ///
-    /// `tls` is `None` for a `plaintext` channel and a ready-built `rustls::ClientConfig` for
-    /// `verified` and `mutual` channels. Both are produced by the composition root, which is the
-    /// only place that can see the declared `sutura_config::sources::transport::SourceTransport` -
-    /// this adapter takes the resolved material rather than a second copy of the three-state shape.
+    /// `tls` is `None` for a `plaintext` channel and a rotating `rustls::ClientConfig` handle for
+    /// `verified` and `mutual` channels. Both are produced by the composition root, which is the only
+    /// place that can see the declared `sutura_config::sources::transport::SourceTransport`. The
+    /// handle is resolved ONCE here (`Rotating::current`), so the resulting connection keeps that
+    /// pair for its life - `docs/adr/0010`: a live connection is left until it closes.
     pub fn connect_secured(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
         config: &tokio_postgres::Config,
-        tls: Option<rustls::ClientConfig>,
+        tls: Option<sutura_tls::Rotating<rustls::ClientConfig>>,
     ) -> Result<Self, PostgresError> {
         let mut config = config.clone();
         // `Prefer` is the driver's default and falls back to plaintext when a server refuses SSL.
@@ -311,7 +312,8 @@ impl PostgresWarehouse {
         // Each arm CONNECTS and SPAWNS the driver task, so the two arms unify on the `Client` and
         // the connection's differing stream type does not leak into the match. `runtime.spawn`
         // accepts both `Connection` shapes because each is `Send` once its stream is.
-        let client = if let Some(client_config) = tls {
+        let client = if let Some(rotating) = tls {
+            let client_config = (*rotating.current()).clone();
             let connector = tokio_postgres_rustls::MakeRustlsConnect::new(client_config);
             let (client, connection) = runtime
                 .block_on(config.connect(connector))

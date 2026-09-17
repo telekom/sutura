@@ -86,7 +86,7 @@ fn build_postgres(
 ) -> Result<super::PostgresSource, String> {
     use sutura_exec_postgres::PostgresWarehouse;
     use sutura_exec_postgres::connection::{ConnectionTarget, config};
-    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, client_config};
+    use sutura_exec_postgres::tls::{TlsAnchors, TlsIdentity, rotating_client_config};
 
     let identity = configured
         .identity()
@@ -132,7 +132,7 @@ fn build_postgres(
                 sutura_config::sources::transport::TrustAnchors::System => TlsAnchors::System,
                 sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
             };
-            Some(client_config(&anchors, None).map_err(|cause| {
+            Some(rotating_client_config(&anchors, None).map_err(|cause| {
                 format!(
                     "`sources.{source}` is declared TLS and its material is not usable: {}",
                     super::flatten(&cause)
@@ -145,7 +145,7 @@ fn build_postgres(
                 sutura_config::sources::transport::TrustAnchors::File(path) => TlsAnchors::Bundle(path.clone()),
             };
             let identity = TlsIdentity::new(identity.certificate().clone(), identity.key().clone());
-            Some(client_config(&anchors, Some(&identity)).map_err(|cause| {
+            Some(rotating_client_config(&anchors, Some(&identity)).map_err(|cause| {
                 format!(
                     "`sources.{source}` is declared mTLS and its material is not usable: {}",
                     super::flatten(&cause)
@@ -153,5 +153,12 @@ fn build_postgres(
             })?)
         }
     };
+    // A new connection resolves the rotating handle ONCE (at connect) and keeps that pair for its
+    // life - a live connection is left until it closes, per `docs/adr/0010`.
+    let (tls, rotator) = match tls {
+        None => (None, None),
+        Some((rotating, rotator)) => (Some(rotating), Some(rotator)),
+    };
+    crate::rotation::drive_rotation("source transport (postgres TLS)", rotator);
     PostgresWarehouse::connect_secured(source.clone(), identity.posture().clone(), &config, tls).map_err(super::flatten)
 }
