@@ -1,0 +1,19 @@
+{{ include "sutura.fullname" . }} is deployed.
+
+Single player only: every query on this deployment runs as the one identity `config.base`
+declares for its sources. `security.inbound` (if you configured it) tells this process WHO
+is asking; it does not make a source execute AS that caller.
+
+Check readiness:
+
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+Ask a certified question, from inside the cluster:
+
+  kubectl run -it --rm curl --image=curlimages/curl --restart=Never -- \
+    curl -sf -H "Authorization: Bearer <security.access_token>" \
+    http://{{ include "sutura.fullname" . }}:{{ .Values.service.port }}/v1/query \
+    -d '{"metric": "...", ...}'
+
+`GET /health` on the same Service and port needs no token; it is what `startupProbe` and
+`livenessProbe` already ask.

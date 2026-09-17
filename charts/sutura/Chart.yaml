@@ -1,0 +1,26 @@
+apiVersion: v2
+name: sutura
+description: |
+  Identity-aware semantic data runtime, served over HTTP. One Deployment running the
+  published `sutura serve` image over a settings tree - the same directory-plus-env-vars
+  layering `sutura-config` reads everywhere else, so this chart configures nothing the
+  binary itself does not.
+type: application
+# The chart's own version, bumped on a template or values change. Independent of appVersion.
+version: 0.1.0
+# `sutura`'s own version is the release tag (docs/verifying-a-release.md), not this crate
+# workspace's placeholder - there is no single tag to pin here without this file rotting on
+# every release, so `image.tag` defaults to `latest` rather than to this field. Kept at a
+# fixed placeholder rather than tracking a moving tag no mechanism here enforces agreement
+# with; see `values.yaml`'s `image.tag` for what actually decides the pulled digest.
+appVersion: "latest"
+home: https://github.com/telekom/sutura
+sources:
+  - https://github.com/telekom/sutura
+keywords:
+  - semantic-layer
+  - metrics
+  - data-runtime
+maintainers:
+  - name: the sutura authors
+    url: https://github.com/telekom/sutura

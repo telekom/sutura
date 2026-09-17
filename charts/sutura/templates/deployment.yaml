@@ -1,0 +1,159 @@
+{{- include "sutura.requireOffHostPosture" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sutura.fullname" . }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sutura.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: sutura
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # `sutura serve` - the HTTP surface folded into the one published binary
+          # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays
+          # `/bin/sutura`; only the argument changes.
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: {{ "SUTURA_ENVIRONMENT" }}
+              value: {{ .Values.environment | quote }}
+            - name: SUTURA_CONFIG_DIR
+              value: /etc/sutura/config
+            # Always off-host from this process's own point of view: the Service targets
+            # the pod, never the loopback-only embedded default.
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: {{ .Values.service.port | quote }}
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: {{ .Values.rateLimit.enabled | quote }}
+            - name: SUTURA__SECURITY__ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.accessToken.secretName }}
+                  key: {{ .Values.security.accessToken.secretKey }}
+            {{- if .Values.security.metricsToken.secretName }}
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.metricsToken.secretName }}
+                  key: {{ .Values.security.metricsToken.secretKey }}
+            {{- end }}
+            {{- if .Values.tls.enabled }}
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: "in-process"
+            - name: SUTURA__SERVER__TLS_CERTIFICATE
+              value: /etc/sutura/tls/tls.crt
+            - name: SUTURA__SERVER__TLS_KEY
+              value: /etc/sutura/tls/tls.key
+            {{- else if .Values.security.tlsTermination }}
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: {{ .Values.security.tlsTermination | quote }}
+            {{- end }}
+            {{- if .Values.security.inbound.keySetSecretName }}
+            - name: SUTURA__SECURITY__INBOUND__KEY_SET_FILE
+              value: /etc/sutura/inbound-keys/{{ .Values.security.inbound.keySetSecretKey }}
+            {{- end }}
+            {{- if .Values.runtime.engineWorkerThreads }}
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: {{ .Values.runtime.engineWorkerThreads | quote }}
+            {{- end }}
+            {{- if .Values.runtime.workingSetMaxBytes }}
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: {{ .Values.runtime.workingSetMaxBytes | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sutura/config
+              readOnly: true
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: /etc/sutura/tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.security.inbound.keySetSecretName }}
+            - name: inbound-keys
+              mountPath: /etc/sutura/inbound-keys
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # `/health` is the liveness path (`crates/sutura-http/src/constants.rs`) and there is
+          # deliberately no readiness route - docs/serving.md. The startup probe carries the
+          # generous failure budget: boot re-verifies every anchor before the listener opens,
+          # a round trip per anchor against a networked source.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "sutura.fullname" . }}-config
+        {{- if .Values.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        {{- end }}
+        {{- if .Values.security.inbound.keySetSecretName }}
+        - name: inbound-keys
+          secret:
+            secretName: {{ .Values.security.inbound.keySetSecretName }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

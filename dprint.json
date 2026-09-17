@@ -34,6 +34,11 @@
     // Generated from rustdoc and byte-compared against a fresh generation by
     // `cargo xtask check-api-docs`. A formatted page can never match a generated one.
     "docs/api/**",
+    // Helm templates: `.yaml` in extension only. Go template syntax (`{{- ... -}}`) is not YAML,
+    // and dprint's yaml plugin refuses to parse it - measured, four parse errors across this
+    // chart's own templates. `helm lint`/`helm template` are what checks these; this repository's
+    // YAML formatter was never going to be one of them.
+    "charts/*/templates/**",
     // FIXTURE DATA, not prose: the markdown catalog a `SemanticCatalog` reads, whose whole content
     // is pinned by a digest in `crates/sutura-app/tests/golden/catalogs.rs`. Measured: dprint's
     // only change to these files is ONE BLANK LINE after the YAML frontmatter, not a word, and the

@@ -154,6 +154,12 @@
             # anchored.
             || (builtins.match "nix(/.*)?" rel != null)
             || (builtins.match "docs/crap\\.md" rel != null)
+            # Keep `charts/` WHOLESALE, for the reason every arm above states in its own
+            # words: any directory a build or a test reads has to be named here, and #149's
+            # chart is neither Cargo input nor documentation - it is a `helm template` input
+            # a later check will build a derivation over. Absent, `charts/` exists in git and
+            # in the dev shell, and is an empty directory to every filtered-src derivation.
+            || (builtins.match "charts(/.*)?" rel != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
