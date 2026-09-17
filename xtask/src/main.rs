@@ -182,7 +182,7 @@ fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
 }
 
 /// `cargo metadata` against a manifest OTHER than this process's own -
-/// [`boundaries::second_workspace`]'s reason: `fuzz/Cargo.toml`'s empty `[workspace]` table makes
+/// `boundaries::second_workspace`'s reason: `fuzz/Cargo.toml`'s empty `[workspace]` table makes
 /// it a workspace root of its own, which the plain call above never resolves regardless of `extra`.
 fn cargo_metadata_at(manifest: &std::path::Path, extra: &[&str]) -> Result<serde_json::Value, String> {
     run_cargo_metadata(Some(manifest), extra)
