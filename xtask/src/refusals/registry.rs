@@ -21,8 +21,8 @@ const QUERY: Subject = Subject {
     name: "RefusalReason",
     declared_in: DECLARED_IN,
     allow_file: ALLOW_FILE,
-    // 22: PR-1 (conf266 D19+A4) added `FederatedAnswerNotWellFormed`.
-    variants: variants(22),
+    // 23: `github.com/telekom/sutura#777` added `TopNotFederated`.
+    variants: variants(23),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

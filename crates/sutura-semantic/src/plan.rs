@@ -145,7 +145,15 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
 
     match remote.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
+        1 => {
+            // Honest scope, `github.com/telekom/sutura#777`: the combiner orders and limits AFTER
+            // the join, above the port, and carries no `top` field on either leg. Refused here
+            // rather than reaching a splitter that would silently drop it.
+            if resolution.top.is_some() {
+                return Err(PlanError::Refused(RefusalReason::TopNotFederated));
+            }
+            Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?)))
+        }
         // Two are served; three or more refused, because each source is a separate identity.
         _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
@@ -226,7 +234,7 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
             table: ambiguous.alias().clone(),
         })?;
 
-    Ok(QueryPlan::new(
+    let plan = QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
         tables,
@@ -236,7 +244,11 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
         ResultLabel::measure(metric.name()),
         bindings,
         resolution.range,
-    ))
+    );
+    Ok(match resolution.top {
+        Some(top) => plan.with_top(top),
+        None => plan,
+    })
 }
 
 /// Splits a two-source question into a fact leg and a lookup leg.

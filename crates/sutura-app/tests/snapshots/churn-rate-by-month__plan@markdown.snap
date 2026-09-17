@@ -50,3 +50,4 @@ range:
   start: 2026-01-01
   end: 2026-07-01
 max_rows: 10000
+top: ~

@@ -248,6 +248,10 @@ mod fixture;
 /// differs from a whole plan is the SHAPE of the plan, not how a piece of one renders.
 mod leg;
 
+/// `top`'s own sort-and-limit, because this adapter renders no SQL for `sutura_sql::generate` to
+/// share it through.
+mod top;
+
 /// Opt-in peak recording for measurement-only children, excluded from default builds.
 #[cfg(feature = "measurement")]
 pub mod measurement;
@@ -555,11 +559,12 @@ impl DataFusionWarehouse {
             .map_err(|cause| DataFusionError::Build { cause })?;
 
         let labels = plan.result_labels();
-        let (projection, ordering) = outputs(builder.schema(), &labels, group_count)?;
+        let (projection, tiebreak) = outputs(builder.schema(), &labels, group_count)?;
+        let (sorts, limit) = top::sort_and_limit(plan.top(), &labels, group_count, tiebreak, plan.max_rows());
         builder
             .project(projection)
-            .and_then(|projected| projected.sort_by(ordering))
-            .and_then(|sorted| sorted.limit(0, Some(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX))))
+            .and_then(|projected| projected.sort(sorts))
+            .and_then(|sorted| sorted.limit(0, Some(limit)))
             .and_then(LogicalPlanBuilder::build)
             .map_err(|cause| DataFusionError::Build { cause })
     }

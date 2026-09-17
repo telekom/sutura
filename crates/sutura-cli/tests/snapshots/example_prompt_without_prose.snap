@@ -87,7 +87,12 @@ Every reason you can be given, and what to do about each:
   and nothing will be: a total over some of the groups is a different number wearing the same name.
   Retrying the same question returns the same refusal. The refusal names a number where one exists -
   the row cap, or this deployment's own byte ceiling - and where the data system's own bound is,
-  there is no number to read, so narrow by a visible step rather than computing one.
+  there is no number to read, so narrow by a visible step rather than computing one. If it names the
+  row cap, `top` on the question is the other move: rank by the measure or the period, ask for the
+  number of rows you actually want, and this deployment answers exactly that many instead of
+  refusing the unbounded question - the cap is not something you or the caller can raise from here,
+  it is this build's own compiled bound, so report to whoever operates this deployment if it is
+  consistently too small rather than retrying past it.
 - **time_range_too_long** - the period asked about is longer than one question may span.
   Split it into consecutive shorter periods and ask about each. The refusal carries both day counts,
   so the split can be computed rather than guessed.
@@ -131,6 +136,11 @@ Every reason you can be given, and what to do about each:
   same way every time.
   Do not retry it unchanged. Ask the same metric without the dimension on the second data system, or
   report it to a person: it is a fact about the data, not about how you asked.
+- **top_not_federated** - the question asks for an ordered, bounded result AND spans two data
+  systems - `top` is not yet applied above the combiner that joins them.
+  Ask the same metric without the dimension that sits on the second data system, and `top` still
+  bounds the answer there. Retrying the two-source question unchanged returns the same refusal: this
+  is a capability this deployment does not have yet, not an outage.
 - **legs_decide_identity_differently** - the question spans two data systems that decide who is
   asking differently, so one answer would add rows read under one identity to rows read under
   another - a total neither identity is entitled to.
@@ -182,6 +192,11 @@ These are not soft limits and there is no way to raise one from the caller's sid
 - - **At most 10000 rows in a result.** A wider result is REFUSED, not truncated: the remedy is to
   narrow the question, and the refusal says so. Do not plan on paging through a large result,
   because there is no paging and no cursor.
+- - **`top: { n, by, direction }`** bounds a wide group-by instead of asking for every group: `by`
+  is `metric` or `period`, `direction` is `desc` or `asc`, and `n` may not exceed 10000 - a larger
+  `n` is the same refusal as an unbounded question this wide. This is a single-source question's own
+  bound; a question spanning two data systems refuses `top` rather than applying it above the
+  combiner.
 
 Ask the question you want rather than a wide one you intend to filter afterwards. There is no
 post-filtering step here, and a wide question is the one that gets declined.
@@ -252,7 +267,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `3c32660aa595f7b6d3ee1445eab6a7591a3803dccde62be45a910fb22ec2161d`
+- Definitions digest: `a1ba95de5502afc48bba4a67ba13a43a77756b715de7edb25af85c95cf19caa2`
 
 11 metrics, and they are the whole of what may be asked about.
 

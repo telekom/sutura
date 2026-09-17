@@ -474,6 +474,13 @@ fn bounds() -> String {
              the remedy is to narrow the question, and the refusal says so. Do not plan on paging \
              through a large result, because there is no paging and no cursor."
         ),
+        format!(
+            "- **`top: {{ n, by, direction }}`** bounds a wide group-by instead of asking for every \
+             group: `by` is `metric` or `period`, `direction` is `desc` or `asc`, and `n` may not \
+             exceed {MAX_ROWS} - a larger `n` is the same refusal as an unbounded question this \
+             wide. This is a single-source question's own bound; a question spanning two data \
+             systems refuses `top` rather than applying it above the combiner."
+        ),
     ];
     let mut lines = vec![
         String::from("## The bounds a question is held to\n"),

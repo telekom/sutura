@@ -25,6 +25,7 @@ use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
 use crate::pinned::PinnedDefinitions;
+use crate::query::Top;
 use crate::warehouse::ParamValue;
 
 pub mod bindings;
@@ -421,6 +422,7 @@ pub struct QueryPlan {
     params: Vec<ParamValue>,
     range: TimeRange,
     max_rows: u32,
+    top: Option<Top>,
 }
 
 impl QueryPlan {
@@ -467,7 +469,26 @@ impl QueryPlan {
             params,
             range,
             max_rows: MAX_ROWS,
+            top: None,
         }
+    }
+
+    /// Attaches a caller-chosen order and row limit, so the generator renders it instead of the
+    /// plan's own tie-break-only order and probe-by-one limit.
+    ///
+    /// A builder rather than a constructor argument, for the reason [`Query::with_top`](crate::query::Query::with_top)
+    /// gives: every existing caller of [`Self::new`] keeps its argument list, and a plan built
+    /// without it is byte-for-byte one built before this field existed.
+    #[inline]
+    #[must_use]
+    pub const fn with_top(mut self, top: Top) -> Self {
+        self.top = Some(top);
+        self
+    }
+
+    #[inline]
+    pub const fn top(&self) -> Option<Top> {
+        self.top
     }
 
     #[inline]

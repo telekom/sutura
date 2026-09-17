@@ -6137,6 +6137,21 @@ pub const fn table_name(&self) -> &TableName
 
 The table's own name, which is what this plan's columns are qualified by.
 
+```rust
+pub const fn top(&self) -> Option<Top>
+```
+
+```rust
+pub const fn with_top(self, top: Top) -> Self
+```
+
+Attaches a caller-chosen order and row limit, so the generator renders it instead of the
+plan's own tie-break-only order and probe-by-one limit.
+
+A builder rather than a constructor argument, for the reason `Query::with_top`
+gives: every existing caller of `Self::new` keeps its argument list, and a plan built
+without it is byte-for-byte one built before this field existed.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -8509,6 +8524,18 @@ pub const fn new(metric: MetricName, grain: Grain, range: TimeRange, dimensions:
 pub const fn range(&self) -> TimeRange
 ```
 
+```rust
+pub const fn top(&self) -> Option<Top>
+```
+
+```rust
+pub const fn with_top(self, top: Top) -> Self
+```
+
+Attaches a `top` clause. A builder rather than a sixth constructor argument, so every
+existing caller of `Self::new` - a question without `top` - keeps its argument list; a
+question built this way is byte-for-byte one built without it, minus this one field.
+
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
@@ -8842,6 +8869,19 @@ somebody else's input.
   `DeadlineExceeded` carries its budget: a number this
   replica computed, the same meaning for every caller, safe in a log - and enough for a
   transport to answer `Retry-After` with a fact rather than a guess.
+- `TopNotFederated` - `top` was asked on a plan that spans two sources.
+
+  **Honest scope, not the missing capability.** `docs/adr/0007`'s combiner orders and limits
+  *after* the join, above the port; the splitter's fact and lookup legs carry no `top` field
+  at all, so nothing here would apply it even if it compiled. `github.com/telekom/sutura#828`
+  is where a wider federated engine is filed; this is the refusal until whichever of that or a
+  smaller combiner-side change lands.
+
+  **Carries nothing.** There is no source, no leg count and no measure to name: every
+  two-source plan is refused the same way regardless of which two sources or which measure,
+  so a payload here would only ever repeat what
+  `PlanSpansTooManySources` already carries for a
+  question this one is narrower than.
 
 #### Methods
 
@@ -8867,128 +8907,6 @@ from the variant.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum ResultBound`
-
-```rust
-pub enum ResultBound
-```
-
-Which bound a result was too large for.
-
-**The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
-is one sentence - *too much data, ask a narrower question* - and
-`RefusalReason::ResultTooLarge` is that one answer. This is what the deployment knows about why,
-and the two arms differ in who measured it: the row cap is a number an operator configured here,
-and the volume bound belongs to the data system and is not one this process was told.
-
-**Closed, and read by exhaustive matches with no wildcard arm in both transports.** A third bound
-is a compile error in each of them rather than a case one renders as another - which is what stops
-a bound with no number being described using somebody else's number. The agent-facing prompt is
-deliberately NOT one of those matches: `sutura_app::prompt::guide_for` keys on the
-`RefusalReason` variant and never the payload, because what it must tell an agent - *too much
-data, ask a narrower question* - is the same for both bounds and a guide per bound would give an
-agent two paragraphs saying one thing.
-
-#### Variants
-
-- `Rows` - The plan's row cap, in rows.
-
-  Carries the limit and **not** how many rows there would have been, because nobody knows: the
-  plan asks for one row more than the cap and stops there, so what is known is "more than
-  this". That is the difference from
-  `TooManyDimensions`, which can name what was requested
-  because the caller sent it.
-- `Volume` - The data system would not hand this result back in one piece.
-
-  Raised through `Warehouse::result_did_not_fit`, a predicate for the reason that port method's
-  own documentation gives. It is *not* the row cap: the statement carries `MAX_ROWS + 1` as its
-  `LIMIT`, so a result reaching this arm was inside the cap and was still more data than the
-  data system would deliver at once - a wide result rather than a tall one.
-
-  **Carries no number, and that is a decision rather than a field somebody forgot.** The bound
-  belongs to the data system and is not stated to a client: the endpoint this arm was built for
-  caps a reply by size and reports neither that cap nor the reply's size, so the only figures
-  in scope are how much was scanned and how much would be billed - neither of which is the
-  bound that fired. An `Option<u64>` here would make every reader decide what an absence
-  permits, and a figure filled in from one of those would be a certified-looking number for a
-  bound that is not the one that refused. A fabricated limit is worse than an absent one.
-
-  **The limit, stated with the claim:** a caller is told to narrow the question and is not told
-  by how much. That is the whole of what this deployment honestly knows.
-- `Encoded` - This deployment's own rendered-response ceiling, in bytes.
-
-  **The third arm, and it exists because the first two do not cover a wide-but-short result.**
-  A result inside `plan::MAX_ROWS` and inside every data system's own reply cap can still carry
-  `MAX_DIMENSIONS` grouped columns of arbitrary text - `crate::catalog::MAX_DIMENSION_VALUE_CHARS`
-  bounds a caller's filter value and a catalog author's allowlist entry, and says nothing about
-  the length of a value a data system actually returns - so the row cap counts rows and the
-  volume bound is the data system's, and neither measures what a caller's own cells add up to.
-  Raised by
-  `sutura_app::answer` against `ResponseByteLimit`, after the row cap has already passed, over
-  `RowSet::rendered_byte_len` - the same canonical cell text an anchor is compared against, not
-  the wire bytes a transport wraps it in.
-
-  Carries the ceiling, because unlike `Self::Volume` this is a number the deployment chose
-  rather than one it was never told.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct ResponseByteLimit`
-
-```rust
-pub struct ResponseByteLimit
-```
-
-The most bytes an answer's rendered cells may occupy before this deployment declines to encode
-it into a response.
-
-**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
-ceiling that refuses every answer while reading as "no bound was set" - the same distinction
-`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
-outside this crate.
-
-`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
-number and the reasoning. **The limit, stated here rather than left for a reader to assume
-otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
-the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
-`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
-same way `working_set_bytes` already is, from a composition root down through
-`sutura_app::surface::LocalService`.
-
-#### Methods
-
-```rust
-pub const fn bytes(self) -> u64
-```
-
-```rust
-pub const fn parse(bytes: u64) -> Result<Self, InvalidResponseByteLimit>
-```
-
-Reads a byte ceiling.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `enum InvalidResponseByteLimit`
-
-```rust
-pub enum InvalidResponseByteLimit
-```
-
-Why a response byte ceiling is not one.
-
-#### Variants
-
-- `Zero` - Zero reads as "no bound was configured" to whoever wrote it, and is the opposite: it refuses every answer without saying it means to.
-
-#### Implements
-
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `enum ToolOutcome`
 
@@ -9021,6 +8939,71 @@ The refusal reason, if this is one. Convenience for tests and for an audit sink.
 #### Implements
 
 `Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `use InvalidResponseByteLimit`
+
+Why a response byte ceiling is not one.
+
+### `use ResponseByteLimit`
+
+The most bytes an answer's rendered cells may occupy before this deployment declines to encode
+it into a response.
+
+**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
+ceiling that refuses every answer while reading as "no bound was set" - the same distinction
+`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
+outside this crate.
+
+`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
+number and the reasoning. **The limit, stated here rather than left for a reader to assume
+otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
+the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
+`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
+same way `working_set_bytes` already is, from a composition root down through
+`sutura_app::surface::LocalService`.
+
+### `use ResultBound`
+
+Which bound a result was too large for.
+
+**The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
+is one sentence - *too much data, ask a narrower question* - and
+`RefusalReason::ResultTooLarge` is that one
+answer. This is what the deployment knows about why, and the two arms differ in who measured
+it: the row cap is a number an operator configured here, and the volume bound belongs to the
+data system and is not one this process was told.
+
+**Closed, and read by exhaustive matches with no wildcard arm in both transports.** A third bound
+is a compile error in each of them rather than a case one renders as another - which is what stops
+a bound with no number being described using somebody else's number. The agent-facing prompt is
+deliberately NOT one of those matches: `sutura_app::prompt::guide_for` keys on the
+`RefusalReason` variant and never the payload, because what it
+must tell an agent - *too much data, ask a narrower question* - is the same for both bounds and
+a guide per bound would give an agent two paragraphs saying one thing.
+
+### `use InvalidTopN`
+
+Why a `top.n` did not parse.
+
+### `use Top`
+
+A caller-chosen order and row limit on a question's own result.
+
+`n` is checked against `crate::plan::MAX_ROWS` where the question is resolved, not here: this
+type carries only what the caller asked for, and a bound that depends on the deployment does
+not belong on a value the caller alone constructs.
+
+### `use TopBy`
+
+What to rank a `top` question's rows by.
+
+### `use TopDirection`
+
+Which way `TopBy` ranks.
+
+### `use TopN`
+
+A positive row count. Zero asks for nothing, which is not what a caller who wrote `top` meant.
 
 ### `constant MAX_DIMENSIONS`
 
@@ -9069,12 +9052,284 @@ refusal is not a budget. A day count is also only a proxy for rows: ten years of
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
 
+### Module `limits`
+
+The two bounds behind `RefusalReason::ResultTooLarge`,
+and the ceiling that names one of them.
+
+Its own module because it is a self-contained concept `sutura-domain/src/query.rs` was carrying
+at the byte cap `cargo xtask max-lines` enforces: one refusal, honest about two - now three -
+causes it can fire for.
+
+#### `enum ResultBound`
+
+```rust
+pub enum ResultBound
+```
+
+Which bound a result was too large for.
+
+**The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
+is one sentence - *too much data, ask a narrower question* - and
+`RefusalReason::ResultTooLarge` is that one
+answer. This is what the deployment knows about why, and the two arms differ in who measured
+it: the row cap is a number an operator configured here, and the volume bound belongs to the
+data system and is not one this process was told.
+
+**Closed, and read by exhaustive matches with no wildcard arm in both transports.** A third bound
+is a compile error in each of them rather than a case one renders as another - which is what stops
+a bound with no number being described using somebody else's number. The agent-facing prompt is
+deliberately NOT one of those matches: `sutura_app::prompt::guide_for` keys on the
+`RefusalReason` variant and never the payload, because what it
+must tell an agent - *too much data, ask a narrower question* - is the same for both bounds and
+a guide per bound would give an agent two paragraphs saying one thing.
+
+##### Variants
+
+- `Rows` - The plan's row cap, in rows.
+
+  Carries the limit and **not** how many rows there would have been, because nobody knows: the
+  plan asks for one row more than the cap and stops there, so what is known is "more than
+  this". That is the difference from
+  `TooManyDimensions`, which can name what
+  was requested because the caller sent it.
+
+  **Also what `top.n` is checked against directly**, before anything executes:
+  `crate::query::top::TopN::exceeds_the_row_cap` compares the caller's own count rather than
+  waiting for a probe row to come back, because a `top` question already states the limit it
+  wants and there is nothing to detect.
+- `Volume` - The data system would not hand this result back in one piece.
+
+  Raised through `Warehouse::result_did_not_fit`, a predicate for the reason that port method's
+  own documentation gives. It is *not* the row cap: the statement carries `MAX_ROWS + 1` as its
+  `LIMIT`, so a result reaching this arm was inside the cap and was still more data than the
+  data system would deliver at once - a wide result rather than a tall one.
+
+  **Carries no number, and that is a decision rather than a field somebody forgot.** The bound
+  belongs to the data system and is not stated to a client: the endpoint this arm was built for
+  caps a reply by size and reports neither that cap nor the reply's size, so the only figures
+  in scope are how much was scanned and how much would be billed - neither of which is the
+  bound that fired. An `Option<u64>` here would make every reader decide what an absence
+  permits, and a figure filled in from one of those would be a certified-looking number for a
+  bound that is not the one that refused. A fabricated limit is worse than an absent one.
+
+  **The limit, stated with the claim:** a caller is told to narrow the question and is not told
+  by how much. That is the whole of what this deployment honestly knows.
+- `Encoded` - This deployment's own rendered-response ceiling, in bytes.
+
+  **The third arm, and it exists because the first two do not cover a wide-but-short result.**
+  A result inside `plan::MAX_ROWS` and inside every data system's own reply cap can still carry
+  `MAX_DIMENSIONS` grouped columns of arbitrary text -
+  `crate::catalog::MAX_DIMENSION_VALUE_CHARS` bounds a caller's filter value and a catalog
+  author's allowlist entry, and says nothing about the length of a value a data system
+  actually returns - so the row cap counts rows and the volume bound is the data system's, and
+  neither measures what a caller's own cells add up to. Raised by
+  `sutura_app::answer` against `ResponseByteLimit`, after the row cap has already passed, over
+  `RowSet::rendered_byte_len` - the same canonical cell text an anchor is compared against, not
+  the wire bytes a transport wraps it in.
+
+  Carries the ceiling, because unlike `Self::Volume` this is a number the deployment chose
+  rather than one it was never told.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct ResponseByteLimit`
+
+```rust
+pub struct ResponseByteLimit
+```
+
+The most bytes an answer's rendered cells may occupy before this deployment declines to encode
+it into a response.
+
+**Parsed rather than a bare constant**, so a caller of this type cannot end up with a zero
+ceiling that refuses every answer while reading as "no bound was set" - the same distinction
+`crate::plan::MAX_ROWS` does not need to make, because nothing constructs a row cap from
+outside this crate.
+
+`Self::DEFAULT` is what every deployment is held to today - see its own documentation for the
+number and the reasoning. **The limit, stated here rather than left for a reader to assume
+otherwise:** nothing yet reads this from a settings file the way `server.max_body_bytes` bounds
+the request side: `sutura_app::answer` and `sutura_app::federated::answer_federated` both use
+`Self::DEFAULT` unconditionally. Making it operator-configurable is future work, threaded the
+same way `working_set_bytes` already is, from a composition root down through
+`sutura_app::surface::LocalService`.
+
+##### Methods
+
+```rust
+pub const fn bytes(self) -> u64
+```
+
+```rust
+pub const fn parse(bytes: u64) -> Result<Self, InvalidResponseByteLimit>
+```
+
+Reads a byte ceiling.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidResponseByteLimit`
+
+```rust
+pub enum InvalidResponseByteLimit
+```
+
+Why a response byte ceiling is not one.
+
+##### Variants
+
+- `Zero` - Zero reads as "no bound was configured" to whoever wrote it, and is the opposite: it refuses every answer without saying it means to.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `top`
+
+`top`: an explicit order and a caller-chosen row limit, so a group-by over a wide dimension is
+bounded rather than refused.
+
+**The problem this exists for.** Without it the planner fixes the order (the group keys,
+`NULLS LAST`) and `crate::plan::MAX_ROWS` refuses a result past ten thousand rows - so "top
+ten products by revenue" over a fifty-thousand-product dimension has no representable form:
+the only question that exists asks for all fifty thousand and is refused. `top` is the bounded
+form of that question.
+
+**The tie-break is not decoration.** `Top` ranks by `TopBy::Metric` or `TopBy::Period`,
+and a generator appends the plan's own group-key ordering after it - the same ordering a
+question without `top` already gets. Without that second key, two rows tied on the first one
+come back in an order nothing pins, and two executors disagree about which `n`th row survives.
+
+#### `struct Top`
+
+```rust
+pub struct Top
+```
+
+A caller-chosen order and row limit on a question's own result.
+
+`n` is checked against `crate::plan::MAX_ROWS` where the question is resolved, not here: this
+type carries only what the caller asked for, and a bound that depends on the deployment does
+not belong on a value the caller alone constructs.
+
+##### Methods
+
+```rust
+pub const fn by(self) -> TopBy
+```
+
+```rust
+pub const fn direction(self) -> TopDirection
+```
+
+```rust
+pub const fn n(self) -> TopN
+```
+
+```rust
+pub const fn new(n: TopN, by: TopBy, direction: TopDirection) -> Self
+```
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum TopBy`
+
+```rust
+pub enum TopBy
+```
+
+What to rank a `top` question's rows by.
+
+##### Variants
+
+- `Metric` - The question's own measure.
+- `Period` - The time bucket - the oldest or newest periods, rather than the largest or smallest values.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum TopDirection`
+
+```rust
+pub enum TopDirection
+```
+
+Which way `TopBy` ranks.
+
+##### Variants
+
+- `Desc`
+- `Asc`
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct TopN`
+
+```rust
+pub struct TopN
+```
+
+A positive row count. Zero asks for nothing, which is not what a caller who wrote `top` meant.
+
+##### Methods
+
+```rust
+pub const fn exceeds_the_row_cap(self) -> bool
+```
+
+Whether this request asks for more rows than the deployment will certify.
+
+Reads `crate::plan::MAX_ROWS` directly rather than taking a bound as an argument: today
+that constant is the one ceiling this deployment has, the same one
+`crate::query::RefusalReason::ResultTooLarge` already reports for an unbounded question
+that came back too wide. Making the ceiling operator-configurable is future work - see
+`github.com/telekom/sutura#777`'s own record of the decision - and this is the one call
+site that would read a configured value instead.
+
+```rust
+pub const fn get(self) -> u32
+```
+
+```rust
+pub const fn parse(n: u32) -> Result<Self, InvalidTopN>
+```
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum InvalidTopN`
+
+```rust
+pub enum InvalidTopN
+```
+
+Why a `top.n` did not parse.
+
+##### Variants
+
+- `Zero`
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ## Module `question`
 
 Parsing a caller's raw question fields into a certified `crate::query::Query`.
 
 **The one conversion two transports used to duplicate.** `sutura-http`'s `QuestionBody` and
-`sutura-mcp`'s `AskArgs` carry the same five fields, for the reason every wire shape here does:
+`sutura-mcp`'s `AskArgs` carry the same six fields, for the reason every wire shape here does:
 they are both the whole of what a caller may ask, extracted as plain strings so a parse failure
 can name the field rather than quote a deserializer. Before this module existed, each transport
 re-derived `crate::query::Query` from those fields with its own copy of this logic, its own
@@ -9086,8 +9341,9 @@ What stays with each transport is genuinely transport-shaped: the `#[derive(serd
 / `schemars::JsonSchema` wire struct itself, and the one extra failure a transport's own
 deserialization step can produce before this function is ever reached - MCP's arguments object
 failing to deserialize as an object at all, which HTTP's extractor rejects earlier in its own
-stack and which therefore has no analogue here. `parse_query` takes the five fields already
-extracted, as borrowed strings, so it carries no serde of its own and no framework.
+stack and which therefore has no analogue here. `parse_query` takes the six fields already
+extracted, as borrowed strings and one optional `RawTop`, so it carries no serde of its own
+and no framework.
 
 ### `struct RawFilter`
 
@@ -9109,6 +9365,25 @@ pub const fn new(dimension: &'a str, value: &'a str) -> Self
 ```
 
 Pairs a caller's raw dimension name and value, as a transport extracted them.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
+### `struct RawTop`
+
+```rust
+pub struct RawTop<'a>
+```
+
+A `top` clause, before parsing: a caller's raw row count, ranking key and direction, borrowed
+out of whichever wire struct a transport deserialized.
+
+#### Methods
+
+```rust
+pub const fn new(n: u32, by: &'a str, direction: &'a str) -> Self
+```
 
 #### Implements
 
@@ -9166,6 +9441,9 @@ parser never carried.
   field and the index are reported and the cause is dropped rather than reported and trusted:
   the same answer `DimensionValueNotAllowed` gives, at the boundary that now catches it
   earlier.
+- `TopN`
+- `TopBy` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
+- `TopDirection` - Carries no field, for `Self::Grain`'s own reason: the accepted set is fixed and finite.
 
 #### Implements
 
@@ -9174,7 +9452,7 @@ parser never carried.
 ### `fn parse_query`
 
 ```rust
-pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>]) -> Result<crate::query::Query, MalformedQuestion>
+pub fn parse_query(metric: &str, grain: &str, range_start: &str, range_end: &str, dimensions: &[String], filters: &[RawFilter<'_>], top: Option<RawTop<'_>>) -> Result<crate::query::Query, MalformedQuestion>
 ```
 
 Parses a caller's raw question fields into a `Query`.

@@ -36,7 +36,7 @@
 //! in the diff, which is the whole mechanism - `deny_unknown_fields` stops an *undeclared* field from
 //! being answered, and this stops a *declared* one from arriving unreviewed.
 //!
-//! Beside it, `tests::the_question_tool_takes_exactly_the_five_fields_a_question_has` asserts the
+//! Beside it, `tests::the_question_tool_takes_exactly_the_six_fields_a_question_has` asserts the
 //! property rather than the bytes: a field named `sql`, `table`, `where`, `predicate` or `rows` is not
 //! merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
 //! one cannot.
@@ -238,7 +238,7 @@ mod tests {
     /// The property behind the snapshot, so a re-accepted snapshot is not the only thing standing
     /// between the tool surface and a field that carries SQL.
     #[test]
-    fn the_question_tool_takes_exactly_the_five_fields_a_question_has() {
+    fn the_question_tool_takes_exactly_the_six_fields_a_question_has() {
         let schema = input_schema(Capability::AskMetric);
         let properties = schema
             .get("properties")
@@ -246,7 +246,11 @@ mod tests {
             .expect("the generated schema describes properties");
         let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
         names.sort_unstable();
-        assert_eq!(names, ["dimensions", "filters", "grain", "metric", "range"], "{names:?}");
+        assert_eq!(
+            names,
+            ["dimensions", "filters", "grain", "metric", "range", "top"],
+            "{names:?}"
+        );
         // Named explicitly rather than left to the equality above, so the failure says what went wrong
         // rather than only that something did.
         for forbidden in ["sql", "query", "table", "where", "predicate", "rows", "row_ids", "limit"] {

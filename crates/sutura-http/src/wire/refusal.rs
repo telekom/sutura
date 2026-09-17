@@ -378,6 +378,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  is otherwise about spend already made rather than about this question's shape"
             ),
         ),
+        // 409, with the rest of the federation family: this question spans two data systems and
+        // `top` is not yet applied above the combiner that joins them - a capability gap, not a
+        // data system being down, and asking again unchanged returns this same refusal.
+        RefusalReason::TopNotFederated => (
+            StatusCode::CONFLICT,
+            String::from(
+                "this question asks for an ordered, bounded result and spans two data systems; \
+                 `top` is not yet applied above the join that combines them. Ask the same metric \
+                 without the dimension on the second data system, where `top` still applies",
+            ),
+        ),
     };
     (
         status,
@@ -419,7 +430,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::CredentialUnavailable { .. }
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::LegsDecideIdentityDifferently { .. }
-        | RefusalReason::DeadlineExceeded { .. } => None,
+        | RefusalReason::DeadlineExceeded { .. }
+        | RefusalReason::TopNotFederated => None,
     }
 }
 
@@ -435,7 +447,10 @@ fn too_much_data(bound: ResultBound) -> String {
     match bound {
         ResultBound::Rows { limit } => format!(
             "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
-             narrow the period or group by fewer dimensions and ask again"
+             narrow the period or group by fewer dimensions and ask again, or add a `top` clause to \
+             ask for exactly the rows you want ranked by the metric or the period. {limit} is this \
+             build's own compiled bound and not one this request can raise; if it is consistently \
+             too small, that is worth reporting to whoever operates this deployment"
         ),
         // No figure, because there is none this deployment was told - see `ResultBound::Volume`,
         // which says at length why inventing one would be worse than leaving it out. So the sentence
@@ -629,6 +644,7 @@ mod tests {
                 StatusCode::TOO_MANY_REQUESTS,
                 "budget_exhausted",
             ),
+            (RefusalReason::TopNotFederated, StatusCode::CONFLICT, "top_not_federated"),
         ]
     }
 

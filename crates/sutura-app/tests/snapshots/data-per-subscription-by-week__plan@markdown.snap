@@ -51,3 +51,4 @@ range:
   start: 2026-06-01
   end: 2026-06-29
 max_rows: 10000
+top: ~

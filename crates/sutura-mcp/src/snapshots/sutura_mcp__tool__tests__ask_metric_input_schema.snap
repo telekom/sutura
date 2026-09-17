@@ -80,11 +80,37 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
         }
       },
       "type": "object"
+    },
+    "TopArgs": {
+      "additionalProperties": false,
+      "description": "A `top` clause: rank by `by`, in `direction`, keep the first `n`.",
+      "properties": {
+        "by": {
+          "description": "`metric` ranks by the question's own measure; `period` ranks by the time bucket.",
+          "type": "string"
+        },
+        "direction": {
+          "description": "`desc` for the largest first, `asc` for the smallest.",
+          "type": "string"
+        },
+        "n": {
+          "description": "How many groups to return. Must be positive, and no more than this deployment will\ncertify - a larger count is the same refusal an unbounded question over that many groups\nalready gets.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n",
+        "by",
+        "direction"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "One governed question, as a tool call carries it.\n\nThe five fields are the whole input surface of this deployment. There is no field for SQL, a\ntable, a filter expression or a row-id list, and an argument naming one is a parse error rather\nthan a key that gets ignored.",
+  "description": "One governed question, as a tool call carries it.\n\nThe six fields are the whole input surface of this deployment. There is no field for SQL, a\ntable, a filter expression or a row-id list, and an argument naming one is a parse error rather\nthan a key that gets ignored.",
   "properties": {
     "dimensions": {
       "default": [],
@@ -112,6 +138,17 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
     "range": {
       "$ref": "#/$defs/RangeArgs",
       "description": "The half-open period to ask about."
+    },
+    "top": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TopArgs"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "An order and a caller-chosen row limit, bounding a wide group-by instead of asking for\nevery group - `github.com/telekom/sutura#777`."
     }
   },
   "required": [

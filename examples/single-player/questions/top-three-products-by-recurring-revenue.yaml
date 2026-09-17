@@ -1,0 +1,10 @@
+metric: recurring_revenue
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+dimensions: [product_name]
+top:
+  n: 3
+  by: metric
+  direction: desc

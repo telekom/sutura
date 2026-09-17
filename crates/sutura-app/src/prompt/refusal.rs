@@ -103,7 +103,12 @@ const RESULT_TOO_LARGE: Guide = Guide {
              wearing the same name. Retrying the same question returns the same refusal. The \
              refusal names a number where one exists - the row cap, or this deployment's own byte \
              ceiling - and where the data system's own bound is, there is no number to read, so \
-             narrow by a visible step rather than computing one.",
+             narrow by a visible step rather than computing one. If it names the row cap, `top` on \
+             the question is the other move: rank by the measure or the period, ask for the number \
+             of rows you actually want, and this deployment answers exactly that many instead of \
+             refusing the unbounded question - the cap is not something you or the caller can raise \
+             from here, it is this build's own compiled bound, so report to whoever operates this \
+             deployment if it is consistently too small rather than retrying past it.",
 };
 
 const TIME_RANGE_TOO_LONG: Guide = Guide {
@@ -242,6 +247,16 @@ const BUDGET_EXHAUSTED: Guide = Guide {
              remedy.",
 };
 
+const TOP_NOT_FEDERATED: Guide = Guide {
+    reason: "top_not_federated",
+    meaning: "the question asks for an ordered, bounded result AND spans two data systems - `top` \
+              is not yet applied above the combiner that joins them",
+    remedy: "Ask the same metric without the dimension that sits on the second data system, and \
+             `top` still bounds the answer there. Retrying the two-source question unchanged \
+             returns the same refusal: this is a capability this deployment does not have yet, not \
+             an outage.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -279,6 +294,9 @@ pub(super) const GUIDES: &[&Guide] = &[
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
     &FEDERATED_ANSWER_NOT_WELL_FORMED,
+    // With the federation family: the move is again to drop the second-source dimension, and
+    // `top` itself is not what is missing - the combiner above it is.
+    &TOP_NOT_FEDERATED,
     // With the federation family rather than with the two an agent cannot act on, because it IS
     // actionable and the move is the same one: drop the dimension that pulls in the second data
     // system. An agent reading it here has just read that a refusal about the two-source shape is
@@ -329,6 +347,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::LegsDecideIdentityDifferently { .. } => &LEGS_DECIDE_IDENTITY_DIFFERENTLY,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
+        RefusalReason::TopNotFederated => &TOP_NOT_FEDERATED,
     }
 }
 

@@ -128,7 +128,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  3c32660aa595f7b6d3ee1445eab6a7591a3803dccde62be45a910fb22ec2161d
+digest  a1ba95de5502afc48bba4a67ba13a43a77756b715de7edb25af85c95cf19caa2
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -246,7 +246,7 @@ sutura query examples/single-player/catalog \
 ```
 
 ```text
--- definitions local-working-tree 3c32660aa595f7b6d3ee1445eab6a7591a3803dccde62be45a910fb22ec2161d
+-- definitions local-working-tree a1ba95de5502afc48bba4a67ba13a43a77756b715de7edb25af85c95cf19caa2
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598
