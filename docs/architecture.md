@@ -169,12 +169,12 @@ against.
 The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
 root; within that set, a deployment selects a data system by writing `sources.<alias>.kind`.
 
-| Port              | Adapter                  | What it is                                                                                                            | In the shipped binary?                                             |
-| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                | **Yes.** The only catalogue adapter there is                       |
-| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL                 | **Yes**, and it is what `sutura query` runs                        |
-| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                       | **No.** A development dependency of `sutura-app`                   |
-| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify | **No.** A default-off `postgres` feature on both composition roots |
+| Port              | Adapter                  | What it is                                                                                                            | In the shipped binary?                                         |
+| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                | **Yes.** The only catalogue adapter there is                   |
+| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL                 | **Yes**, and it is what `sutura query` runs                    |
+| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                       | **No.** A development dependency of `sutura-app`               |
+| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify | **No.** A default-off `postgres` feature on the shipped binary |
 
 So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
 metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
@@ -237,7 +237,7 @@ default-off `wire` feature, with a second narrow port for the credential.
 service-account key -
 [`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md)'s amendment records it and puts the repeat
 in CI. **Whether a build can REACH it is now a build's question rather than the repository's**, and
-that is the fact this paragraph used to state the other way round: both composition roots register the
+that is the fact this paragraph used to state the other way round: `sutura-cli` registers the
 adapter behind a default-off `bigquery` feature, so a build that carries it opens `kind: bigquery`
 and a build without it - every published artefact - refuses that entry by name, naming the feature.
 The `data_systems:` axis of the golden matrix still gains no entry: one live statement, and a
