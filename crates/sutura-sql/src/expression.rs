@@ -258,6 +258,19 @@ fn check(
     // check below: a lossy-decode or authored non-ASCII character would otherwise travel into the
     // AST as a string literal, and the dialect layer's generator panics byte-slicing it with no
     // error to map. Refusing here keeps the crash class off the process entirely.
+    //
+    // The defect is now written up upstream as `tobilg/polyglot#451`, with a fix proposed in
+    // `tobilg/polyglot#452`: the `WITH ORDINALITY` suffix check slices a function name at
+    // `len() - 16`, which is a BYTE offset, so a name of sixteen bytes or more whose character
+    // boundaries do not fall there panics. An ordinary non-ASCII identifier reaches it -- the
+    // fuzz artifact this guard was written for is the same defect arriving through a lossy
+    // decode, not a separate one.
+    //
+    // Removable when all three hold, on the pattern of the parenthesis guard below: a released
+    // `polyglot-sql` carrying that fix, this workspace bumped to it, and
+    // `fuzz/seeds/sql_expression/non-ascii-crash` still green under `just fuzz-smoke` with the
+    // guard gone. Until then the bound stays a control over the dependency and not a judgement
+    // that authored SQL is ASCII.
     if let Some(offending) = fragment.as_str().chars().find(|c| !c.is_ascii()) {
         return Err(ExpressionError::NonAscii {
             tag: tag.clone(),

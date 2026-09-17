@@ -230,6 +230,25 @@ by construction). The exact failing input is quarantined as the committed seed
 for. None of that changes what a catalog can carry until a pin fixes it - the bound is a control over
 the dependency, not a judgement that authored SQL is ASCII.
 
+**Reported upstream, and the number is `tobilg/polyglot#451`**, with a fix proposed in
+`tobilg/polyglot#452`. This record carried the panic without a number for as long as
+none existed. Two things the write-up settles that this paragraph had guessed at:
+
+- **It is one site, not the class the phrase "byte-slices a string" suggests.** The offending
+  expression is the `WITH ORDINALITY` suffix check, `func.name[func.name.len() - 16..]`, still
+  present and still unfixed at 0.11.0 - the line has moved to `generator.rs:19119`, so the number
+  above is the only durable citation. The four other byte-indexed slices in that file are each
+  guarded by an ASCII `starts_with`/`ends_with` that pins the boundary, so they are safe by
+  construction and the bound here buys nothing for them.
+- **The lossy decode is not load-bearing.** `SELECT "a<e-acute>xxxxxxxxxxxxxxx"(1)` panics - valid
+  SQL, a valid identifier, no invalid bytes anywhere. The fuzz artifact is that defect arriving by
+  a longer road, which means the bound is a control over a panic reachable from ordinary authored
+  SQL rather than a quarantine for malformed input, and it is worth more than this record claimed.
+
+The removal condition is the one the parenthesis guard below already states, and the guard in
+`check` now carries it: a released `polyglot-sql` with the fix, this workspace bumped to it, and
+the seed still green under `just fuzz-smoke` with the guard gone.
+
 **The parser does not return on a parenthesis with no closer, so the fragment is bounded to closed
 parentheses.** Found by the `sql_expression` fuzz target as a 26-byte timeout and reduced to six
 characters, `a.:S1(`: `.:` reads the next word as a custom data type, and the argument loop in the
