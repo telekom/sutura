@@ -223,7 +223,10 @@ ci:
     printf 'checks for %s\n' "$system"
     # api-docs IS in this list: the committed pages are byte-compared and no test covers them, so four
     # stale-page incidents were invisible locally while this task was called THE gate.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier; do
+    # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
+    # validates against three vendored schema files, seconds rather than the minutes a release
+    # profile build costs - `nix/helm-chart.nix` carries the derivation.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier helm-chart; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done

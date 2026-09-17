@@ -38,6 +38,9 @@
 //!   job by a real amount, and its value is **merge-blocking**: a licence violation cannot merge
 //!   whatever this run says, so deferring it to the next push costs a round trip and not a
 //!   guarantee. Cancel should mean cancel here.
+//! * `Chart` takes `!cancelled()`, for `Licensing`'s own reason: a `nix build` over
+//!   `charts/sutura` (#149 branch 1), merge-blocking, and cheap enough that `always()` buys
+//!   nothing a cancelled run would rather skip.
 //!
 //! **The limit, next to the claim.** This rule holds the condition on the steps named in
 //! [`REQUIRED`] and nothing wider. It does not require any OTHER step to stay reachable - adding
@@ -81,6 +84,10 @@ const REQUIRED: &[Obligation] = &[
     },
     Obligation {
         step: "Licensing",
+        condition: "!cancelled()",
+    },
+    Obligation {
+        step: "Chart",
         condition: "!cancelled()",
     },
 ];
@@ -234,6 +241,34 @@ mod tests {
         assert_eq!(found.len(), REQUIRED.len(), "{found:?}");
         assert!(
             found.iter().all(|problem| problem.contains("declares no step named")),
+            "{found:?}"
+        );
+    }
+
+    /// #149 branch 1: the chart's own gate is registered here alongside `Licensing`, on the
+    /// same reasoning - a `nix build`, merge-blocking, closure-free. Naming it, rather than
+    /// trusting the generic tests above to cover it: those iterate `REQUIRED` itself, so an
+    /// entry that was never added would leave them passing over one fewer obligation and
+    /// nothing would say so.
+    #[test]
+    fn the_chart_step_is_a_required_obligation() {
+        assert!(
+            REQUIRED.iter().any(|o| o.step == "Chart" && o.condition == "!cancelled()"),
+            "the chart's step obligation is missing or holds the wrong condition"
+        );
+    }
+
+    /// The specific finding, not just the count: a tree with every OTHER obligation met but no
+    /// `Chart` step names `Chart`, not a generic count mismatch.
+    #[test]
+    fn a_tree_missing_the_chart_step_names_it_rather_than_a_count() {
+        let found = check(concat!(
+            "jobs:\n  ci:\n    steps:\n",
+            "      - name: Secrets\n        if: ${{ always() }}\n        run: true\n",
+            "      - name: Licensing\n        if: ${{ !cancelled() }}\n        run: true\n",
+        ));
+        assert!(
+            found.iter().any(|problem| problem.contains("declares no step named `Chart`")),
             "{found:?}"
         );
     }
