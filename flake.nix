@@ -487,7 +487,12 @@
             INSTA_UPDATE = "no";
           }) // {
             # The disposable demo's fake-child contract is stdlib-only and runs from the same
-            # unfiltered source tree as the Rust tests, before the tier is provisioned.
+            # unfiltered source tree as the Rust tests, before the tier is provisioned. One
+            # exception: `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` runs the real
+            # `xtask` CLI against a faked `docker`, so THIS check now also builds `xtask` and
+            # whatever it pulls in before the `cargoNextest` build below does - cargo's own cache
+            # makes that a scheduling change, not a second build, but it moves real wall time ahead
+            # of `preCheck` rather than eliminating it.
             nativeCheckInputs = [ postgresTier.tier pkgs.git pkgs.python3 ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
