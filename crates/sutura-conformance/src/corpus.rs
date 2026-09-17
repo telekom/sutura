@@ -1,4 +1,4 @@
-//! The corpus the execute packs run: one table, seven questions, and the answer written ONCE.
+//! The corpus the execute packs run: one table, eight questions, and the answer written ONCE.
 //!
 //! **Written once is the whole property.** Every registered adapter is asked the same plan and
 //! compared against the same [`Case::expected`] rows, so *these two data systems answer this
@@ -48,6 +48,23 @@
 //! Through [`crate::Behaviour::Content`] it is a claim about OUR code: a null key must be a GROUP
 //! and not a row a join or a filter dropped, which is the failure class
 //! `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
+//!
+//! # Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
+//!
+//! Every key above is chosen so no bound engine's own collation can disagree with byte order -
+//! `docs/adr/0012` names this as the corpus's deliberate limit. [`total_by_collation_sensitive_key_and_day`]
+//! is the one case that does not have that property on purpose, and [`Case::order_is_asserted`] is
+//! what lets it exist without lying: `Behaviour::Order` skips exactly this case, so a source
+//! whose locale answers `"apple"` before `"Banana"` is not reported as a defect for disagreeing
+//! with a byte order this corpus never claimed. `Behaviour::Content` still runs over it - which
+//! four totals came back is ours to assert regardless of anybody's locale.
+//!
+//! **What this does NOT decide.** It is an opt-out from one assertion, not a statement of which
+//! collation is correct - there is no such statement anywhere in this crate, and none is added
+//! here. And it is not evidence of a defect found: `DuckDB`, Postgres and the engine all default
+//! to byte order today, so this case is currently green with the assertion left in too; the field
+//! exists so a future adapter's own default does not need to become one before this corpus can
+//! say why it is not a fault.
 
 #![expect(
     clippy::expect_used,
@@ -92,6 +109,7 @@ pub struct Case {
     name: &'static str,
     plan: QueryPlan,
     expected: RowSet,
+    order_is_asserted: bool,
 }
 
 impl Case {
@@ -111,6 +129,20 @@ impl Case {
     #[inline]
     pub const fn expected(&self) -> &RowSet {
         &self.expected
+    }
+
+    /// Whether [`crate::Behaviour::Order`] may compare this case's row order at all.
+    ///
+    /// **`true` for every case but one.** This corpus states no collation - every other case's
+    /// group key is either not text or is chosen so byte order and every collation a bound engine
+    /// might use agree (see the module header). A case whose key does not have that property would
+    /// have a source's own locale decide an order this corpus never claimed, and asserting one
+    /// particular order over it would report a legitimate per-source difference as a defect - which
+    /// is the reverse of what conformance is for. `false` marks exactly that case; its content is
+    /// still asserted, because *which rows* is never a collation question.
+    #[inline]
+    pub const fn order_is_asserted(&self) -> bool {
+        self.order_is_asserted
     }
 }
 
@@ -309,6 +341,7 @@ pub fn cases() -> Vec<Case> {
         wide_total_by_day(),
         overflowing_integer_total_by_day(),
         decimal_total_by_day(),
+        total_by_collation_sensitive_key_and_day(),
     ]
 }
 
@@ -387,6 +420,7 @@ fn total_by_region_and_day() -> Case {
         name: "total-by-region-and-day",
         plan,
         expected,
+        order_is_asserted: true,
     }
 }
 
@@ -430,6 +464,7 @@ fn mean_by_day() -> Case {
         name: "mean-by-day",
         plan,
         expected,
+        order_is_asserted: true,
     }
 }
 
@@ -510,6 +545,49 @@ fn decimal_total_by_day() -> Case {
     )
 }
 
+/// `SUM` by day and a text key whose byte order and a locale's alphabetic order disagree -
+/// `"Banana"` sorts before `"apple"` here (ASCII `'B'` is 66, `'a'` is 97), and after it under a
+/// case-insensitive collation.
+///
+/// **This is the case `Case::order_is_asserted` exists for.** Every other key in this corpus is
+/// chosen so no bound engine's own collation can disagree with byte order - see this module's
+/// header - and this is the one case that deliberately does not have that property, so
+/// `Behaviour::Order` must not assert one particular order over it. Content still is: which four
+/// totals came back is a claim about our own aggregation, not about anybody's locale.
+fn total_by_collation_sensitive_key_and_day() -> Case {
+    let plan = QueryPlan::new(
+        source(),
+        metric("collation_total"),
+        StatementTables::only(table()),
+        bucket(),
+        vec![collation_key()],
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("amount_cents"),
+            },
+        },
+        ResultLabel::measure(&metric("collation_total")),
+        range_bindings(),
+        range(),
+    );
+    let expected = rows(
+        &plan,
+        vec![
+            vec![text("Banana"), text("2026-01-01"), Value::Integer(500)],
+            vec![text("Banana"), text("2026-01-02"), Value::Integer(850)],
+            vec![text("apple"), text("2026-01-01"), Value::Integer(300)],
+            vec![text("apple"), text("2026-01-02"), Value::Integer(600)],
+        ],
+    );
+    Case {
+        name: "total-by-collation-sensitive-key-and-day",
+        plan,
+        expected,
+        order_is_asserted: false,
+    }
+}
+
 fn total_by_day(case_name: &'static str, metric_name: &str, column_name: &str, totals: [Value; 2]) -> Case {
     let [first, second] = totals;
     let plan = QueryPlan::new(
@@ -533,6 +611,7 @@ fn total_by_day(case_name: &'static str, metric_name: &str, column_name: &str, t
         name: case_name,
         plan,
         expected,
+        order_is_asserted: true,
     }
 }
 
@@ -572,6 +651,15 @@ fn region_key() -> PlanKey {
     PlanKey::new(
         ResultLabel::dimension(&DimensionName::parse("region").expect("a corpus dimension is a dimension")),
         column("region"),
+    )
+}
+
+/// The one dimension key in the corpus whose text order this corpus does not claim - see
+/// [`total_by_collation_sensitive_key_and_day`].
+fn collation_key() -> PlanKey {
+    PlanKey::new(
+        ResultLabel::dimension(&DimensionName::parse("collation_key").expect("a corpus dimension is a dimension")),
+        column("collation_key"),
     )
 }
 

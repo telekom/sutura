@@ -32,7 +32,9 @@ use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 /// How a fake's answer differs from the corpus's.
 ///
 /// One axis with one variant per `Fault` the answer can produce, so each fault below is provoked
-/// by exactly one distortion and a test cannot pass because two of them fired.
+/// by exactly one distortion and a test cannot pass because two of them fired. One exception:
+/// [`Self::ReversedOnlyForCase`] provokes no fault at all when it names the one case
+/// `Case::order_is_asserted` marks `false` - that is the property it exists to test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Distortion {
     /// None: the corpus's own answer, unchanged.
@@ -43,6 +45,12 @@ enum Distortion {
     ANumberChanged,
     /// The right rows, back to front.
     Reversed,
+    /// The named case's rows, back to front; every other case's answer is faithful.
+    ///
+    /// Separate from [`Self::Reversed`], which reverses every case and so cannot isolate one: a
+    /// fake built on it faults on the first order-asserted case in `corpus::cases()` before ever
+    /// reaching a case further down the list.
+    ReversedOnlyForCase(&'static str),
     /// No answer at all.
     Silent,
 }
@@ -136,6 +144,21 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
         }
     }
 
+    /// Which named case this executable is, if any - what [`Distortion::ReversedOnlyForCase`]
+    /// reads to decide whether to reverse.
+    fn case_name(executable: Executable<'_>) -> Option<&'static str> {
+        match executable {
+            Executable::Query(plan) => corpus::cases()
+                .into_iter()
+                .find(|case| case.plan() == plan)
+                .map(|case| case.name()),
+            Executable::Leg(leg) => {
+                let case = corpus::leg_case();
+                (case.leg() == leg).then(|| case.name())
+            }
+        }
+    }
+
     /// The answer, distorted the one way this fake was built to distort it.
     fn answer(&self, executable: Executable<'_>) -> Result<RowSet, FakeFailure> {
         if self.distortion == Distortion::Silent {
@@ -156,6 +179,11 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
                 }
             }
             Distortion::Reversed => rows.reverse(),
+            Distortion::ReversedOnlyForCase(name) => {
+                if Self::case_name(executable) == Some(name) {
+                    rows.reverse();
+                }
+            }
         }
         Ok(RowSet::new(columns, rows)?)
     }
@@ -316,7 +344,7 @@ mod location {
 #[cfg(test)]
 mod faults {
     use super::{Check, Distortion, Fake};
-    use sutura_conformance::{Behaviour, Declination, Fault, Outcome, Spent, execute};
+    use sutura_conformance::{Behaviour, Declination, Fault, Outcome, Spent, corpus, execute};
 
     /// A relabelled answer is a labels fault, and it is reported as one rather than as wrong rows.
     ///
@@ -351,6 +379,29 @@ mod faults {
         );
         let fault = execute::order_agrees_with_the_reference(&fake).expect_err("a reversed answer is a fault");
         assert!(matches!(fault, Fault::Order { .. }), "{fault:?}");
+    }
+
+    /// The one case the corpus states no collation over is not order-asserted, even reversed.
+    ///
+    /// The contrast with the test above is the point: reversing EVERY case there faults on the
+    /// first order-asserted one before ever reaching this one, so isolating the reversal to this
+    /// named case is what proves the SKIP fires rather than proving nothing ran into it.
+    #[test]
+    fn a_case_the_corpus_does_not_claim_an_order_over_is_not_faulted_when_reversed() {
+        const NAME: &str = "total-by-collation-sensitive-key-and-day";
+        assert!(
+            corpus::cases().iter().any(|case| case.name() == NAME),
+            "the corpus is missing the case this test is about"
+        );
+        let fake = Fake::<false>::distorted(Distortion::ReversedOnlyForCase(NAME));
+        assert_eq!(
+            execute::content_agrees_with_the_reference(&fake).expect("a reversed case still agrees on content"),
+            Outcome::Held
+        );
+        assert_eq!(
+            execute::order_agrees_with_the_reference(&fake).expect("this case's order is not asserted"),
+            Outcome::Held
+        );
     }
 
     /// An adapter that does not answer is reported as not answering, with its own error beneath.

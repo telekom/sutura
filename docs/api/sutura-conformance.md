@@ -61,7 +61,7 @@ mod conformance {
   never called, so *held to the same test bodies* is a statement about two methods and not about
   `Warehouse`. Three of those five carry guarantees of their own in
   `.agents/skills/sutura/invariants`, held by other mechanisms.
-- **That the corpus is exhaustive.** It is seven questions over one table; `corpus` names the
+- **That the corpus is exhaustive.** It is eight questions over one table; `corpus` names the
   federated cases that still belong to another suite.
 - **That every adapter is held IS held now, and not by anything in this crate.** A pack is bound
   where an adapter's own crate binds it, so which adapters conform used to be a reading of which
@@ -617,7 +617,7 @@ its position.
 
 ## Module `corpus`
 
-The corpus the execute packs run: one table, seven questions, and the answer written ONCE.
+The corpus the execute packs run: one table, eight questions, and the answer written ONCE.
 
 **Written once is the whole property.** Every registered adapter is asked the same plan and
 compared against the same `Case::expected` rows, so *these two data systems answer this
@@ -668,6 +668,23 @@ Through `crate::Behaviour::Content` it is a claim about OUR code: a null key mus
 and not a row a join or a filter dropped, which is the failure class
 `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 
+# Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
+
+Every key above is chosen so no bound engine's own collation can disagree with byte order -
+`docs/adr/0012` names this as the corpus's deliberate limit. `total_by_collation_sensitive_key_and_day`
+is the one case that does not have that property on purpose, and `Case::order_is_asserted` is
+what lets it exist without lying: `Behaviour::Order` skips exactly this case, so a source
+whose locale answers `"apple"` before `"Banana"` is not reported as a defect for disagreeing
+with a byte order this corpus never claimed. `Behaviour::Content` still runs over it - which
+four totals came back is ours to assert regardless of anybody's locale.
+
+**What this does NOT decide.** It is an opt-out from one assertion, not a statement of which
+collation is correct - there is no such statement anywhere in this crate, and none is added
+here. And it is not evidence of a defect found: `DuckDB`, Postgres and the engine all default
+to byte order today, so this case is currently green with the assertion left in too; the field
+exists so a future adapter's own default does not need to become one before this corpus can
+say why it is not a fault.
+
 ### `struct Case`
 
 ```rust
@@ -692,6 +709,20 @@ pub const fn name(&self) -> &'static str
 ```
 
 The name a failure reports. Static, so a fault carries it without allocating.
+
+```rust
+pub const fn order_is_asserted(&self) -> bool
+```
+
+Whether `crate::Behaviour::Order` may compare this case's row order at all.
+
+**`true` for every case but one.** This corpus states no collation - every other case's
+group key is either not text or is chosen so byte order and every collation a bound engine
+might use agree (see the module header). A case whose key does not have that property would
+have a source's own locale decide an order this corpus never claimed, and asserting one
+particular order over it would report a legitimate per-source difference as a defect - which
+is the reverse of what conformance is for. `false` marks exactly that case; its content is
+still asserted, because *which rows* is never a collation question.
 
 ```rust
 pub const fn plan(&self) -> &QueryPlan
@@ -921,7 +952,11 @@ The rows are in the order the plan's `ORDER BY` claims.
 
 Separate from `content_agrees_with_the_reference` and asked after it, which is the domain
 policy's own instruction: the first symptom of a wrong number would otherwise be reported as a
-sort order. Every plan in the corpus groups, so every one of them emits an order to claim.
+sort order. Every plan in the corpus groups, so every one of them emits an order to claim - but
+`Case::order_is_asserted` is `false` for the one case whose key this corpus states no
+collation over, and this is where that opt-out is read: the answer is still fetched, so an
+adapter that cannot answer the case at all is still `Fault::NotAnswered`, but the order
+comparison itself is skipped for it.
 
 ### `fn one_plan_asked_twice_answers_the_same_way`
 
