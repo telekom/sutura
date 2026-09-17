@@ -349,9 +349,11 @@ finds four rows explained and two silent will assume the silent two are the bad 
 ## Fuzzing = 0
 
 Real, and `#146` already holds it - *no parser that reads untrusted input is fuzzed, and
-`panic = abort` makes a panic process death*. Not duplicated here. As of `#697` five parsers
-are fuzzed; the open half of `#146` is the panic strategy at the parsing boundary, which
-nothing here decides.
+`panic = abort` makes a panic process death*. Not duplicated here. As of `#146`'s close six
+parsers are fuzzed, and the panic strategy at the parsing boundary is decided here: **abort
+stays**. A panic inside a parser is the process dying at the boundary - the very state that made
+fuzzing them necessary - and `catch_unwind` offers no middle ground, because under
+`-C panic=abort` there is nothing to unwind.
 
 ## What this record does not do
 
