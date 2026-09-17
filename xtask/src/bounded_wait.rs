@@ -291,35 +291,65 @@ struct Waiting {
     sites: Vec<(usize, &'static Needle)>,
 }
 
+/// The tier's own module root - the one file [`TIER`] always matches while the compose tier
+/// exists at all.
+///
+/// Declared as [`scan`]'s `must_judge` anchor, a deliberate choice rather than the empty default:
+/// this gate's subject is a SPECIFIC tier, not one that may legitimately be absent, so a scope
+/// predicate narrowed to exclude even the tier's own root module has narrowed away everything this
+/// gate is about and should fail closed rather than read as a clean, smaller tree. The docker
+/// module itself is deliberately NOT the anchor - it is free to move inside the tier (see this
+/// module's header, and the test below pinning that property), and pinning the anchor to it would
+/// go red for that move rather than for a defect.
+///
+/// A literal rather than `TIER[0]`: `clippy::indexing_slicing` is `deny` in this workspace, and
+/// `TIER.first()` has nowhere to unwrap to in a `const`. A test below holds the two in step.
+const ANCHOR: &str = "xtask/src/compose.rs";
+
+/// What one call to [`scan`] found: how many files were judged, and every blocking site among
+/// them. Named because `clippy::type_complexity` is tightened in this workspace - the same reason
+/// the census's own transitional `Listing` is named rather than spelled as a bare tuple.
+type Scanned = (usize, Vec<Waiting>);
+
+/// Every blocking site in the compose tier, and how many files were judged to find them.
+///
+/// Pulled out of [`run`] so the wiring - [`repo::Census::inspect`] performing the read, [`in_tier`]
+/// as the [`repo::Scope`], and [`ANCHOR`] as the declared anchor - is one function a test can call
+/// directly rather than only exercising it through `just test`'s real invocation of `run`.
+fn scan(census: repo::Census) -> Result<Scanned, repo::Refusal> {
+    let mut waiting: Vec<Waiting> = Vec::new();
+    let scope: repo::Scope = in_tier;
+    let inspected = census.inspect(&[ANCHOR], scope, |rel, bytes| {
+        // Lossy rather than `read_to_string`: a file the census opened and that is not valid
+        // UTF-8 is a file it reached - `Census::inspect`'s own reasoning about what `judged` means.
+        let text = String::from_utf8_lossy(bytes);
+        let sites = wait_sites(&code_lines(&text));
+        if !sites.is_empty() {
+            waiting.push(Waiting {
+                path: String::from(rel),
+                sites,
+            });
+        }
+    })?;
+    Ok((inspected.judged(), waiting))
+}
+
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::BoundedWait)) {
-        Ok(listing) => listing,
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask check-bounded-wait: FAILED - {}", why.describe());
             return Verdict::Fail;
         }
     };
 
-    let mut scanned = 0_usize;
-    let mut waiting: Vec<Waiting> = Vec::new();
-    for rel in &files {
-        if !in_tier(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            // Not skipped. A file in scope this gate cannot read is a file it did not judge.
-            eprintln!("xtask check-bounded-wait: could not read {rel}, which is in scope");
+    let (scanned, waiting) = match scan(census) {
+        Ok(scanned) => scanned,
+        Err(refusal) => {
+            eprintln!("xtask check-bounded-wait: FAILED - {}", refusal.describe());
             return Verdict::Fail;
-        };
-        scanned = scanned.saturating_add(1);
-        let sites = wait_sites(&code_lines(&text));
-        if !sites.is_empty() {
-            waiting.push(Waiting {
-                path: rel.clone(),
-                sites,
-            });
         }
-    }
+    };
 
     let problems = judged(scanned, &waiting);
     if problems.is_empty() {
@@ -500,7 +530,7 @@ fn wait_sites(code: &[String]) -> Vec<(usize, &'static Needle)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED, BLOCKING, Blocks, Needle, Waiting, in_runtime, in_tier, judged, wait_sites};
+    use super::{ALLOWED, ANCHOR, BLOCKING, Blocks, Needle, Waiting, in_runtime, in_tier, judged, scan, wait_sites};
     use crate::serde_parse::scan::code_lines;
 
     /// The tier's module root as a PATH - what the first entry of `TIER` matches, spelled out so
@@ -846,5 +876,72 @@ mod tests {
             );
             assert!(!allowance.why.is_empty(), "{} says nothing about why", allowance.path);
         }
+    }
+
+    #[test]
+    fn the_anchor_is_the_tier_root_the_docker_module_is_free_to_move_away_from() {
+        assert_eq!(ANCHOR, TIER_ROOT);
+        assert!(in_tier(ANCHOR));
+        // Not `RUNTIME_ROOT`: the waiter has already moved inside the docker module once, and
+        // pinning the anchor there would go red for that move rather than for a defect.
+        assert_ne!(ANCHOR, RUNTIME_ROOT);
+    }
+
+    #[test]
+    fn scan_derives_its_count_from_the_census_not_a_caller_tally() {
+        let tree = crate::scratch_tree::Tree::of(
+            "bounded-wait-scan",
+            &[
+                (TIER_ROOT, b"//! tier root, no wait here\n"),
+                (RUNTIME_ROOT, b"fn f() { let _ = command.output(); }\n"),
+                (SIBLING, b"//! nothing to see\n"),
+            ],
+        );
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let (scanned, waiting) = scan(census).expect("a readable tier scans");
+        // Three files judged, none narrowed - the count came off `Inspected::judged`, not off a
+        // loop this function could have shortened.
+        assert_eq!(scanned, 3);
+        assert_eq!(waiting.len(), 1, "only the docker module has a wait site");
+        assert_eq!(waiting[0].path, RUNTIME_ROOT);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_in_scope_file_the_scan_cannot_read_fails_closed() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "bounded-wait-sealed",
+            &[
+                (TIER_ROOT, b"//! tier root\n"),
+                (RUNTIME_ROOT, b"fn f() { let _ = command.output(); }\n"),
+            ],
+        );
+        if !tree.seal(RUNTIME_ROOT) {
+            // Mode bits ignored for this uid - asserting a refusal here would assert nothing.
+            return;
+        }
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let Err(refusal) = scan(census) else {
+            panic!("an unreadable in-scope file produced a verdict");
+        };
+        assert!(refusal.describe().contains(RUNTIME_ROOT), "{}", refusal.describe());
+    }
+
+    #[test]
+    fn a_tier_missing_its_own_root_module_fails_closed_even_with_the_waiter_present() {
+        // The property `ANCHOR` buys, and the one this migration is about: the docker waiter
+        // alone used to be enough for a clean verdict, because `scanned` was a caller-held tally
+        // that only asked "non-zero", never "did the walk discover the tier's own root module".
+        // Declaring `ANCHOR` in `must_judge` makes a walk that dropped it fail closed instead of
+        // reading as a smaller, clean tree.
+        let tree = crate::scratch_tree::Tree::of(
+            "bounded-wait-no-anchor",
+            &[(RUNTIME_ROOT, b"fn f() { let _ = command.output(); }\n")],
+        );
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let Err(refusal) = scan(census) else {
+            panic!("a tree missing the tier's own root module produced a verdict");
+        };
+        assert!(refusal.describe().contains(TIER_ROOT), "{}", refusal.describe());
     }
 }
