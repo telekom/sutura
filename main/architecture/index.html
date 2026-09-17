@@ -3291,7 +3291,7 @@ root; within that set, a deployment selects a data system by writing <code>sourc
 <td><code>Warehouse</code></td>
 <td><code>sutura-exec-postgres</code></td>
 <td>A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify</td>
-<td><strong>No.</strong> A default-off <code>postgres</code> feature on both composition roots</td>
+<td><strong>No.</strong> A default-off <code>postgres</code> feature on the shipped binary</td>
 </tr>
 </tbody>
 </table>
@@ -3348,7 +3348,7 @@ default-off <code>wire</code> feature, with a second narrow port for the credent
 service-account key -
 <a href="../adr/0017-what-a-bigquery-test-runs-against/"><code>adr/0017</code></a>'s amendment records it and puts the repeat
 in CI. <strong>Whether a build can REACH it is now a build's question rather than the repository's</strong>, and
-that is the fact this paragraph used to state the other way round: both composition roots register the
+that is the fact this paragraph used to state the other way round: <code>sutura-cli</code> registers the
 adapter behind a default-off <code>bigquery</code> feature, so a build that carries it opens <code>kind: bigquery</code>
 and a build without it - every published artefact - refuses that entry by name, naming the feature.
 The <code>data_systems:</code> axis of the golden matrix still gains no entry: one live statement, and a
