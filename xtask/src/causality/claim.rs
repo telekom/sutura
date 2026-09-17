@@ -86,6 +86,9 @@ pub(super) const MUTATIONS_DIR: &str = "devco/claim-mutations";
 /// The commit trailer that declares a claim cell.
 const TRAILER: &str = "Claim-Cell:";
 
+#[cfg(test)]
+mod probe;
+
 /// What the commit messages in the measured range DECLARED.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Claim {
@@ -767,3 +770,6 @@ pub(super) fn report_accepted(declared: usize, killed: usize) -> Verdict {
 fn accepted_lines(declared: usize, killed: usize) -> Vec<String> {
     vec![format!("ok - claim cells: {declared} declared, {killed} killed")]
 }
+
+#[cfg(test)]
+mod tests;
