@@ -49,8 +49,8 @@
 //!   over the same input. Both isolated, so nothing was shared - but they were different values, so
 //!   no Rust writer could find a tier's directory and no gate noticed when one side moved. One
 //!   spelling now: `nix/keycloak-tier.nix` derives no key at all - its home is under the worktree,
-//!   where the tree IS the key (`telekom/sutura#528`) - and `nix/postgres-tier.nix`, which needs a
-//!   short path for a unix socket, spells `Scope::scratch("pg")`. Held by
+//!   where the tree IS the key (`telekom/sutura#528`) - and `nix/postgres-tier-provision.sh`, which
+//!   needs a short path for a unix socket, spells `Scope::scratch("pg")`. Held by
 //!   `the_tier_and_the_rust_scope_derive_one_worktree_key` below, which RUNS the tier's own two
 //!   lines rather than comparing their text. **Its limits, next to the claim:** it reads the
 //!   dev-shell arm of ONE tier, so a second tier that takes a shared root is held by nothing here;

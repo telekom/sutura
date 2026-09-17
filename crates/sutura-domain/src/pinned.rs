@@ -30,6 +30,7 @@
 //! is the fourth piece of content that made the digest cover the composition.
 
 pub mod manifest;
+pub mod view;
 
 use std::collections::BTreeMap;
 

@@ -135,6 +135,16 @@ security:
   # built - no question executes without a credential minted for its source - and no adapter in this
   # build can CARRY a per-subject one, so every question still reads as this process. The startup log
   # says so on every boot.
+  #
+  # `audience_mapping` is deliberately ABSENT here too, and absence is a safe value rather than a
+  # gap: it grants no verified caller any audience, so every metric a catalog author restricted
+  # stays invisible until this deployment maps a group onto it - `docs/adr/0028`. It has nothing to
+  # do with `inbound`: leg 1 decides WHO is asking, this decides WHICH of what that caller may see.
+  #
+  #   security:
+  #     audience_mapping:
+  #       finance-team: ["finance"]     # a `groups` claim value to the audience identifiers it grants
+  #       platform-eng: ["engineering", "on_call"]
 
 rate_limit:
   # `enabled` is deliberately absent - see the note above. It follows the environment, and writing

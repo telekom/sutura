@@ -512,7 +512,16 @@ fn question(request: CallToolRequestParams) -> Result<Query, ErrorData> {
     // arguments fails on the missing required fields rather than on a different message.
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
     let args: AskArgs = serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))?;
-    Query::try_from(args).map_err(|error| invalid(&error))
+    match Query::try_from(args) {
+        Ok(query) => Ok(query),
+        // The caller asked nothing wrong here; this deployment's own clock could not be read.
+        // `invalid()` renders every other arm as the caller's mistake, which this is not.
+        Err(MalformedQuestion::Range(sutura_runtime::relative_range::RangeResolutionError::Clock(cause))) => {
+            tracing::error!(error = %cause, "this deployment's clock could not be read");
+            Err(ErrorData::internal_error("this process could not read the time", None))
+        }
+        Err(error) => Err(invalid(&error)),
+    }
 }
 
 /// The arguments, parsed into a bounded raw statement.

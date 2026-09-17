@@ -1603,3 +1603,32 @@ beside it later. Each binary in `binaries` now carries its own `permit` list, su
 before; the artefact `#685` step 5 adds will state `permit = [ "ring" "ureq" ]` on its own entry, by
 name, rather than by loosening the check for everyone. The mechanism is ready; the artefact that
 needs it is not built.
+
+## Sixteenth amendment, 2026-09-16: the artefact the Fifteenth amendment priced is now built
+
+`#685` step 5, in the same change. `nix/shipped.nix`'s `sutura` entry now carries `features =
+allFeatures` and `permit = [ "ring" "ureq" ]`; `nativeFor`/`crossFor` read that field for every
+release and release-performance build, native and cross, so every published binary and every
+image over it links `bigquery`, `postgres`, `tls`, `datahub` and `agent` together. The Fifteenth
+amendment's own limit - *"this amendment records the decision; it does not implement it"* - no
+longer holds, and every sentence built on it needs saying so too: `nix/shipped.nix`'s and this
+record's own "the shipped binary carries neither `tls`, `bigquery`, `postgres` nor `datahub`" is
+retired alongside `docs/getting-started.md`'s "build from source for the feature you need"
+instruction and `docs/verifying-a-release.md`'s "built with cargo's default features" table, both
+corrected in the same commit as this amendment.
+
+**Confirmed rather than assumed.** `rust-audit-info` against the built native `sutura` binary reads
+`ring` and `ureq` back out of the embedded dependency list - the same check `checks.shipped-
+features` runs, read by hand first so a passing `permit` is not exempting a crate that was never
+there. `checks.one-binary` and `checks.shipped-features` themselves now build every release and
+release-performance target at this feature set, which is the fat-LTO-adjacent cost `#685`'s issue
+comments priced at "tens of minutes" per musl triple and the owner accepted; the `-ci` link-check
+variant deliberately does not read `features`, staying a cheap "does this triple still compile and
+link" probe rather than a second all-features build.
+
+**What is still NOT covered, stated rather than left to be found.** `allFeaturesProbes` (step 1's
+own fat-LTO probe) is now largely redundant with the shipped `release-performance` build sharing
+the same inputs - kept rather than removed, since a probe outside `checks` costs nothing unbuilt
+and removing it is a separate, smaller cleanup this amendment does not do. And the union's binary
+size - priced as unmeasured in `#685`'s own comments - is still unmeasured here; nothing in this
+change takes that measurement.

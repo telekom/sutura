@@ -9,6 +9,7 @@ measure:
     zero_denominator: yields_null
 time_column: usage_date
 grains: [day, week, month]
+audience: open
 ---
 Data volume per subscription, in gigabytes.
 

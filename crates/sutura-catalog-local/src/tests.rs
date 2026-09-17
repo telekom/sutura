@@ -256,7 +256,7 @@ mod content {
 
     /// A metric over that model. Two documents together are the smallest catalog a note can be
     /// about.
-    const METRIC: &str = "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\n---\nNet revenue, in minor units.\n";
+    const METRIC: &str = "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\naudience: open\n---\nNet revenue, in minor units.\n";
 
     /// A knowledge document with no referent of its own, so it loads beside no definitions.
     const NOT_DEFINED: &str = "---\nkind: not_defined\nphrase: revenue forecast\n---\n";

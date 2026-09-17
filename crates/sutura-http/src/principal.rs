@@ -48,7 +48,7 @@ use crate::inbound::VerifiedCaller;
 /// Takes no argument, deliberately: there is nothing about the request that may contribute to it. A
 /// parameter here would be the first place a caller-supplied value could arrive, and the signature is
 /// what makes its absence checkable rather than a comment asking the next author not to add one.
-pub(crate) const fn established() -> RequestContext {
+pub(crate) fn established() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
 }
 
@@ -70,7 +70,7 @@ pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
 mod tests {
     use sutura_domain::identity::{ActorChain, Attribution, PrincipalChain, Subject};
 
-    use crate::inbound::{Scopes, VerifiedCaller};
+    use crate::inbound::{Groups, Scopes, VerifiedCaller};
 
     use super::{established, of_verified};
 
@@ -105,6 +105,7 @@ mod tests {
         let caller = VerifiedCaller::established(
             PrincipalChain::of(a_person()).acting(actor),
             Scopes::none(),
+            Groups::none(),
             sutura_domain::identity::Secret::new("the-assertion-the-gate-verified"),
         );
         let context = of_verified(&caller);

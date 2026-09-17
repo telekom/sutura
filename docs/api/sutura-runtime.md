@@ -8,8 +8,8 @@
 The public API of `sutura-runtime`, rendered from rustdoc JSON.
 
 Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
-the banner, the bound on how much executes at once, and the audit sink a deployment gets for
-free.
+the banner, the bound on how much executes at once, the audit sink a deployment gets for free,
+and the wall clock a caller's relative time range resolves against.
 
 The sink is here for the same reason everything else is: it writes onto the process subscriber
 this crate installs, so it is a *use* of a process-global rather than a second installation of
@@ -942,6 +942,175 @@ subscriber it would still work - `tracing` drops events with no subscriber rathe
 but the panic it was installed for would be the one that is lost.
 
 Idempotent: the second and later calls do nothing.
+
+## Module `relative_range`
+
+A relative time range - `last: { count, unit }` - resolved against this deployment's own wall
+clock into the absolute `TimeRange` the domain already knows how to hold. `telekom/sutura#778`.
+
+**Not `docs/adr/0029`'s clock.** That one is monotonic (`std::time::Instant`) and exists for a
+deadline that must not be fooled by a wall-clock jump; the domain reads no clock of either kind.
+This one answers "what calendar day is it", which a monotonic instant cannot say, and it lives
+here rather than in `sutura-domain` for the same reason the rest of this crate does: two
+transports need the identical implementation rather than each re-deriving it (see this crate's
+own doc comment).
+
+`WallClock` is the port, `SystemClock` its first and only shipping implementor - the same
+shape as `sutura_exec_bigquery::sts::UnixClock`/`SystemClock`, for the same reason: everything
+`resolve_range` decides is exercised against a fixed clock in a test, so an ambient
+`SystemTime::now()` inside the resolution would make the outcome a function of the day the test
+ran on.
+
+**The limit.** "Last week" resolves against THIS process's calendar date; a caller in another
+timezone gets the server's week, not their own. Nothing here reads a timezone, and nothing asks
+for one yet.
+
+### `trait WallClock`
+
+```rust
+pub trait WallClock
+```
+
+Where "today" comes from when a caller's range is relative rather than absolute.
+
+### `struct SystemClock`
+
+```rust
+pub struct SystemClock
+```
+
+The wall clock: the shipping `WallClock`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `WallClock`
+
+### `enum ClockUnavailable`
+
+```rust
+pub enum ClockUnavailable
+```
+
+Why this process could not say what today is.
+
+#### Variants
+
+- `Read` - The system clock reads before the Unix epoch.
+- `NotADate` - The system clock's day count falls outside the years `Date` can hold.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `enum RelativeUnit`
+
+```rust
+pub enum RelativeUnit
+```
+
+The closed vocabulary a relative range's `unit` may name.
+
+#### Variants
+
+- `Day`
+- `Week`
+- `Month`
+- `Quarter`
+- `Year`
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct UnknownRelativeUnit`
+
+```rust
+pub struct UnknownRelativeUnit
+```
+
+`unit` named none of the five accepted values.
+
+Carries nothing: the set is fixed and finite, so the message names all five instead of echoing
+back the value that did not match - the same choice `sutura_domain::model::Grain`'s own parse
+failure makes, and for the same reason.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct LastWire`
+
+```rust
+pub struct LastWire
+```
+
+A transport's own `last` fields, extracted as plain values - the wire struct's job stops at
+deserializing them; everything from here on is the one resolver both transports call.
+
+Fields are private: this is a library crate's own public type, and a `pub` field would let a
+caller build one directly rather than through `Self::new` - which holds no invariant of its
+own today, but a struct literal bypassing a constructor is exactly the shape that stops holding
+one the day it gains one.
+
+#### Methods
+
+```rust
+pub const fn new(count: u32, unit: String, include_current: bool) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `enum InvalidRangeShape`
+
+```rust
+pub enum InvalidRangeShape
+```
+
+Why a `range` was neither a valid absolute period nor a valid relative one.
+
+#### Variants
+
+- `AmbiguousOrMissing` - Both `start`/`end` and `last` were given, or neither was.
+- `ZeroCount` - `last.count` was zero, which names no period.
+- `Unit` - `last.unit` named none of the five accepted values.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum RangeResolutionError`
+
+```rust
+pub enum RangeResolutionError
+```
+
+Why a `range` could not become the two ISO dates `resolve_range` hands to
+`sutura_domain::question::parse_query`.
+
+#### Variants
+
+- `Shape` - The wire shape itself - see `InvalidRangeShape`.
+- `Clock` - A relative range needed the clock and could not read it.
+- `OutOfRange` - A relative range resolved to a boundary outside the years `Date` can hold.
+- `Empty` - Unreachable: `count` is a `NonZeroU32`, so every window `shift` builds spans at least one day and `start` is always strictly before `end`. Answered rather than unwrapped because `unwrap_used` is denied - a panic reachable from a caller's `count` is exactly what that ban exists to prevent, so the impossible alternative gets its own name and keeps its real cause instead of being discarded into a borrowed one.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn resolve_range`
+
+```rust
+pub fn resolve_range<C>(clock: &C, start: Option<String>, end: Option<String>, last: Option<LastWire>) -> Result<(String, String), RangeResolutionError>
+```
+
+The one place both transports turn a `range` - absolute or relative - into the two ISO dates
+`sutura_domain::question::parse_query` already knows how to certify.
+
+`Query` does not change: this resolves BEFORE that function is ever called, so a relative range
+is indistinguishable from an absolute one by the time the domain sees it.
 
 ## Module `shutdown`
 

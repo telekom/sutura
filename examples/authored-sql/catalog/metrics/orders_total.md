@@ -17,6 +17,7 @@ dimensions:
 anchor:
   range: { start: 2026-09-01, end: 2026-09-02 }
   value: 4300
+audience: open
 ---
 Total order value in minor units, over orders whose customer is known.
 

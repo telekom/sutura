@@ -80,6 +80,7 @@ measure:
   simple: { aggregate: count_distinct, column: subscription_key }
 time_column: month
 grains: [month]
+audience: open
 ---
 How many subscriptions existed, the scaffold's own metric.
 ";

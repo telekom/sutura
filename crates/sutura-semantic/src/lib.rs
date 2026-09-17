@@ -2,9 +2,10 @@
 //!
 //! Two stages, in two modules, and the split is the design rather than tidiness:
 //!
-//! 1. **Resolve** looks every name up in the pinned snapshot. Its only outputs are references into
-//!    that bundle and refusals naming the argument that failed. It cannot reach a live catalog,
-//!    because it is handed a [`PinnedDefinitions`] and nothing else.
+//! 1. **Resolve** looks every name up in the caller's [`ScopedView`](sutura_domain::pinned::view::ScopedView)
+//!    of the pinned snapshot. Its only outputs are references into that bundle and refusals naming
+//!    the argument that failed. It cannot reach a live catalog, because it is handed the view and
+//!    nothing else - and a metric outside that view resolves as unknown, not merely undescribed.
 //! 2. **Plan** settles what nothing else may settle: which single data
 //!    system the statement runs against, and which values become bind parameters. It holds no SQL,
 //!    and its serialized form is what a golden snapshot pins.
@@ -34,7 +35,7 @@ use crate::plan::PlanError;
 pub use crate::resolve::BundleInconsistent;
 use crate::resolve::ResolveError;
 use sutura_domain::model::MetricName;
-use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::QueryPlan as DomainPlan;
 pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
 use sutura_domain::plan::{FederatedPlanError, IncoherentBindings};
@@ -142,11 +143,12 @@ pub enum CompileFailure {
 ///
 /// ```compile_fail
 /// use sutura_domain::pinned::PinnedDefinitions;
+/// use sutura_domain::pinned::view::ScopedView;
 /// use sutura_domain::query::Query;
 /// use sutura_semantic::{BundleInconsistent, compile};
 ///
 /// fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
-///     compile(query, pinned).err()
+///     compile(query, &ScopedView::everything(pinned)).err()
 /// }
 /// ```
 ///
@@ -154,15 +156,16 @@ pub enum CompileFailure {
 ///
 /// ```
 /// use sutura_domain::pinned::PinnedDefinitions;
+/// use sutura_domain::pinned::view::ScopedView;
 /// use sutura_domain::query::Query;
 /// use sutura_semantic::{CompileFailure, compile};
 ///
 /// fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
-///     compile(query, pinned).err()
+///     compile(query, &ScopedView::everything(pinned)).err()
 /// }
 /// ```
-pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, CompileFailure> {
-    let resolution = match resolve::resolve(query, pinned) {
+pub fn compile(query: &Query, view: &ScopedView<'_>) -> Result<Compiled, CompileFailure> {
+    let resolution = match resolve::resolve(query, view) {
         Ok(resolution) => resolution,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),

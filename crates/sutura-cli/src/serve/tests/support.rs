@@ -64,7 +64,7 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// from being satisfied by a missing CSV.
 pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Anchor, AnchorValue, Metric};
+    use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, Grain, MetricName};
 
@@ -97,6 +97,7 @@ pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
             AnchorValue::parse("7").expect("a test anchor value is a value"),
         )),
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");

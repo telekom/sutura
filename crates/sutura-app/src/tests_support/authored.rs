@@ -61,7 +61,7 @@ pub(crate) fn authored_bundle(metric: sutura_domain::model::MetricName, source: 
     use std::collections::BTreeSet;
 
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
+    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
     use sutura_domain::expression::{AuthoredSql, Computation, DialectTag, SqlFragment};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::model::{ColumnName, Grain, ModelName, TableName};
@@ -89,6 +89,7 @@ pub(crate) fn authored_bundle(metric: sutura_domain::model::MetricName, source: 
         Vec::new(),
         None,
         Description::default(),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     let declared = MetadataCapabilities::of(

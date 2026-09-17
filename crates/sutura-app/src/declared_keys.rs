@@ -105,8 +105,10 @@
 //! * A LIVE deployment whose probe fails is no longer quiet - it does not start, and the refusal
 //!   carries the data system's own complaint.
 //! * **An adapter outside that registry is still quiet**, and there is one: `BigQuery` takes the
-//!   default, and it is absent from the `data_systems` registry because no published artifact links
-//!   the crate. So a dimension model on a dataset is unchecked, nothing says so at boot, and no test
+//!   default, and it is absent from the `data_systems` registry because that registry's cell needs
+//!   a real dataset and the nix sandbox has no network - not because the crate is unlinked, which
+//!   it no longer is since `github.com/telekom/sutura#685` step 5. So a dimension model on a
+//!   dataset is unchecked, nothing says so at boot, and no test
 //!   here can see it. What closes that is the adapter implementing the method, not another gate.
 //!
 //! **The second limit is time, and it is the whole process lifetime.** This is a boot check over the

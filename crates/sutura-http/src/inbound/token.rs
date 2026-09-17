@@ -58,7 +58,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenRequirement, TokenType};
 use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject};
 
-use crate::inbound::caller::{InvalidScope, Scopes, VerifiedCaller};
+use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
 
 /// The largest token this surface will look at.
@@ -167,6 +167,12 @@ pub enum TokenRejected {
     UnusableScope {
         #[source]
         cause: InvalidScope,
+    },
+    /// The `groups` claim is not usable as one - `docs/adr/0028`.
+    #[error("the groups claim in the presented token is not usable as one")]
+    UnusableGroups {
+        #[source]
+        cause: InvalidGroup,
     },
     /// The token is of a class this deployment does not accept.
     ///
@@ -279,6 +285,10 @@ struct Claims {
     /// RFC 6749's space-delimited scope string, if the issuer sent one.
     #[serde(default)]
     scope: Option<String>,
+    /// The caller's group membership, if the issuer sent one - `docs/adr/0028`. A JSON array, per
+    /// every mainstream issuer's convention for this claim (unlike `scope`).
+    #[serde(default)]
+    groups: Option<Vec<String>>,
     /// When the token was issued.
     ///
     /// **Read here rather than required of the library**, because the library cannot: its
@@ -398,9 +408,14 @@ impl TokenValidator {
             None => Scopes::none(),
             Some(ref written) => Scopes::parse(written).map_err(|cause| TokenRejected::UnusableScope { cause })?,
         };
+        let groups = match claims.groups {
+            None => Groups::none(),
+            Some(claimed) => Groups::parse(claimed).map_err(|cause| TokenRejected::UnusableGroups { cause })?,
+        };
         Ok(VerifiedCaller::established(
             chain,
             scopes,
+            groups,
             sutura_domain::identity::Secret::new(token),
         ))
     }

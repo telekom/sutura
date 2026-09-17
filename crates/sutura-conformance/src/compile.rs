@@ -40,10 +40,11 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName};
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{CatalogKind, Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Filter, Query};
 use sutura_semantic::{Compiled, compile};
@@ -422,6 +423,7 @@ impl SemanticCatalog for DeclaringSubject {
             Vec::new(),
             None,
             Description::default(),
+            Audience::Open,
         )?;
         let definitions = Definitions::assemble(vec![model], Vec::new(), vec![metric])?;
         pin(definitions, <Self as SemanticCatalog>::capabilities())
@@ -473,6 +475,7 @@ fn golden_metric_transcribed_for_the_oracle() -> Result<Metric, FixtureError> {
         vec![region_dimension()?],
         Some(anchor()?),
         Description::default(),
+        Audience::Open,
     )?)
 }
 
@@ -497,6 +500,7 @@ fn golden_metric_transcribed_for_the_subject() -> Result<Metric, FixtureError> {
         vec![region_dimension()?],
         Some(anchor()?),
         Description::default(),
+        Audience::Open,
     )?)
 }
 
@@ -581,7 +585,7 @@ where
              refused, federated, or failing to compile is a broken test, not production input"
 )]
 fn compiled_plan(pinned: &PinnedDefinitions, question: &Query, what: &str) -> Box<sutura_domain::plan::QueryPlan> {
-    match compile(question, pinned) {
+    match compile(question, &ScopedView::everything(pinned)) {
         Ok(Compiled::Planned { plan }) => plan,
         Ok(Compiled::Refused { reason }) => panic!("{what} answered a question this corpus compiles with a refusal: {reason:?}"),
         Ok(Compiled::Federated { .. }) => panic!("{what} federated a mono corpus question"),
@@ -684,7 +688,7 @@ where
 {
     let subject = or_panic(pinned::<C>(), "the catalog under test failed to load");
     for (case, agent) in or_panic(refusal_agents(), "the refusal corpus").iter().enumerate() {
-        match compile(&agent.question, &subject) {
+        match compile(&agent.question, &ScopedView::everything(&subject)) {
             Ok(Compiled::Refused { reason }) => {
                 let rendered = format!("{reason:?}");
                 assert!(

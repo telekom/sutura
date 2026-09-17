@@ -78,6 +78,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_app::Validated;
 use sutura_domain::model::SourceName;
+use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
@@ -134,7 +135,7 @@ fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) -> Compiled
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
-    compile(&query, pinned).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(pinned)).expect("the derived catalog is consistent")
 }
 
 #[test]
@@ -892,8 +893,10 @@ enum Split {
 
 /// Whether this question is a two-source question, decided by compiling it against both bundles.
 fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &PinnedDefinitions) -> Split {
-    let here = compile(query, one).unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
-    let there = compile(query, two).unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
+    let here =
+        compile(query, &ScopedView::everything(one)).unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
+    let there =
+        compile(query, &ScopedView::everything(two)).unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
     match (here, there) {
         (Compiled::Planned { .. }, Compiled::Federated { .. }) => Split::Yes(Federated::Split),
         (Compiled::Planned { .. }, Compiled::Refused { reason }) => Split::Yes(Federated::Refused(reason)),

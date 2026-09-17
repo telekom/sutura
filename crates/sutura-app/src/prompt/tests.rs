@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::MetadataCapabilities;
-use sutura_domain::catalog::{Anchor, AnchorValue, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
@@ -171,6 +171,7 @@ fn definitions() -> Definitions {
             AnchorValue::parse("4711").expect("a test anchor value is a value"),
         )),
         description(HOSTILE),
+        Audience::Open,
     )
     .expect("these fixture dimensions are distinct");
     let headcount = Metric::new(
@@ -186,6 +187,7 @@ fn definitions() -> Definitions {
         Vec::new(),
         None,
         description("How many there were."),
+        Audience::Open,
     )
     .expect("no dimensions to duplicate");
     Definitions::assemble(vec![model], vec![], vec![revenue, headcount]).expect("the test bundle is consistent")

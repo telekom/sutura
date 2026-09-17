@@ -166,6 +166,90 @@ impl Scopes {
     }
 }
 
+/// The longest one group claim value may be, and the most a token may carry.
+///
+/// Same reasoning as [`MAX_SCOPE_LENGTH`]/[`MAX_SCOPES`]: an issuer-signed claim is still
+/// caller-adjacent text, bounded before it does any work proportional to its size - a set lookup
+/// against `docs/adr/0028`'s deployment mapping, here.
+const MAX_GROUP_LENGTH: usize = 128;
+const MAX_GROUPS: usize = 64;
+
+/// Why a group claim value is not one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidGroup {
+    #[error("a group claim value may be at most {limit} characters and one of these is {found}")]
+    TooLong { found: usize, limit: usize },
+    #[error("a token may carry at most {limit} group claim values")]
+    TooMany { limit: usize },
+    /// A control or invisible character - the same class `sutura_domain::identity` refuses in a
+    /// `sub` or an `act`, applied here because this value also reaches a lookup key comparison and,
+    /// on a mapping miss, could reach a log.
+    #[error("a group claim value holds a character at position {position} that is not printable")]
+    NotPrintable { position: usize },
+}
+
+/// The `groups` claim a verified token carried - `docs/adr/0028`'s input to a deployment's own
+/// group-to-audience mapping.
+///
+/// **Not a scope, and not read by the capability gate**: this decides metadata visibility, never
+/// which operation a caller may invoke.
+///
+/// A `BTreeSet<String>` rather than a closed vocabulary, deliberately: unlike a scope, a group name
+/// is the identity provider's own word and this deployment does not define the set. Comparison
+/// against a deployment's mapping is a plain string lookup for the same reason - the mapping's own
+/// keys are exactly this text, operator-authored to match whatever the provider calls a group.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Groups {
+    claimed: BTreeSet<String>,
+}
+
+impl Groups {
+    /// No groups. What a token with no `groups` claim carried.
+    #[inline]
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Parses a token's `groups` claim: a JSON array of strings, per every mainstream issuer's
+    /// convention (unlike `scope`, which RFC 6749 fixes as a single space-delimited string).
+    pub fn parse(claimed: Vec<String>) -> Result<Self, InvalidGroup> {
+        if claimed.len() > MAX_GROUPS {
+            return Err(InvalidGroup::TooMany { limit: MAX_GROUPS });
+        }
+        let mut set = BTreeSet::new();
+        for value in claimed {
+            let found = value.chars().count();
+            if found > MAX_GROUP_LENGTH {
+                return Err(InvalidGroup::TooLong {
+                    found,
+                    limit: MAX_GROUP_LENGTH,
+                });
+            }
+            if let Some(position) = value
+                .chars()
+                .position(|c| c.is_control() || !c.is_ascii_graphic() && c != ' ')
+            {
+                return Err(InvalidGroup::NotPrintable { position });
+            }
+            let _newly_claimed = set.insert(value);
+        }
+        Ok(Self { claimed: set })
+    }
+
+    /// Every group claimed, for the deployment mapping to look up.
+    pub fn iter(&self) -> impl Iterator<Item = &str> + '_ {
+        self.claimed.iter().map(String::as_str)
+    }
+
+    /// How many were claimed - the one thing safe to log.
+    #[inline]
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.claimed.len()
+    }
+}
+
 /// A caller whose token this deployment verified.
 ///
 /// **The only way to one of these is a signature check.** See the module documentation for the three
@@ -196,6 +280,7 @@ impl Scopes {
 pub struct VerifiedCaller {
     chain: PrincipalChain,
     scopes: Scopes,
+    groups: Groups,
     assertion: sutura_domain::identity::Secret,
 }
 
@@ -211,10 +296,16 @@ impl VerifiedCaller {
     /// to the request buffer it was read out of. It costs this type its `PartialEq`/`Eq`, which is the
     /// same trade `RequestContext` makes and for the same reason: `==` on credential material is a
     /// timing oracle. `Secret`'s `Debug` redacts it.
-    pub(crate) const fn established(chain: PrincipalChain, scopes: Scopes, assertion: sutura_domain::identity::Secret) -> Self {
+    pub(crate) const fn established(
+        chain: PrincipalChain,
+        scopes: Scopes,
+        groups: Groups,
+        assertion: sutura_domain::identity::Secret,
+    ) -> Self {
         Self {
             chain,
             scopes,
+            groups,
             assertion,
         }
     }
@@ -245,5 +336,16 @@ impl VerifiedCaller {
     #[must_use]
     pub const fn scopes(&self) -> &Scopes {
         &self.scopes
+    }
+
+    /// What the token said this caller's group membership is - `docs/adr/0028`.
+    ///
+    /// Read by `crate::visibility`, which maps it through this deployment's own settings into a
+    /// [`sutura_domain::catalog::GrantedAudiences`]. Never by the capability gate: a group decides
+    /// metadata visibility and nothing about which operations this caller may invoke.
+    #[inline]
+    #[must_use]
+    pub const fn groups(&self) -> &Groups {
+        &self.groups
     }
 }

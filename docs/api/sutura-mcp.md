@@ -793,10 +793,24 @@ than a key that gets ignored.
 pub struct RangeArgs
 ```
 
-A half-open period: `start` is included, `end` is not.
+A half-open period: `start` is included, `end` is not. Either an absolute period
+(`start`/`end`) or a period relative to today (`last`) - never both, never neither.
 
 Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
 last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`, `JsonSchema`
+
+### `struct LastArgs`
+
+```rust
+pub struct LastArgs
+```
+
+A count of calendar periods before today, resolved at request time rather than authored as
+dates - `telekom/sutura#778`.
 
 #### Implements
 
@@ -832,6 +846,7 @@ Why an arguments object is not a question.
   `MalformedQuestion` has no arm for this case and does not need one. MCP's own
   `serde_json::from_value` step, in `crate::server`, is what can still fail this way here.
 - `Question` - Every other way a question can be malformed: which field, and none of the caller's own value at any link of the chain `crate::server`'s `invalid()` walks - see that type's own note. Shared with `sutura-http`, which parses the same five fields into the same domain types and would otherwise carry its own copy of this whole vocabulary.
+- `Range` - A relative `range` needs a failure mode the domain does not have and must not gain - see `sutura_runtime::relative_range`, the resolver `sutura-http` shares this variant's whole purpose with.
 
 #### Implements
 
