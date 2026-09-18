@@ -419,3 +419,111 @@ async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_ve
     assert_eq!(call.scope, SCOPE, "the scope the exchange was asked for");
     assert!(asked.try_recv().is_err(), "one question over one source is one exchange");
 }
+
+/// Claim-Cell: `two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange`.
+///
+/// Pins behaviour the base tree already provides - the broker already offers each caller's own
+/// token, unchanged by this cell - so it needs the declared trailer and its killing mutation at
+/// `devco/claim-mutations/two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange.patch`.
+///
+/// The gap this closes: `two_callers_over_one_connection_are_two_different_askers`
+/// (`crates/sutura-mcp/src/server/tests/asking.rs`) proves asker distinctness at the PORT - it
+/// records the subject each context the port receives. It says nothing about the SUBJECT TOKENS
+/// offered to the exchange: a broker that resolved each caller correctly and then offered a cached
+/// or process-owned token would still pass it. This cell reaches the exchange itself, over the SAME
+/// mounted `/mcp` surface the one-caller cell above joins, with two different bearer tokens.
+#[tokio::test]
+async fn two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange() {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "agent-byte-join-two-callers").expect("the key set publishes");
+    let overlay = direct_overlay(&issuer, &published.path().to_string_lossy());
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
+        .expect("the agent-route overlay loads");
+
+    let (exchange, mut asked) = an_exchange();
+    let broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+        .expect("a one-cell result is a result set");
+    let warehouses = sutura_app::Warehouses::of(PersonaWarehouse {
+        source: source(),
+        posture: SourcePosture::ImpersonationAtSource,
+        result,
+    });
+
+    let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
+        sutura_app::surface::LocalService::start(
+            &catalog_of(bundle()),
+            warehouses,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            1 << 30,
+        )
+        .expect("the test bundle validates: the anchor path takes no credential"),
+    );
+
+    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone()).expect("the agent mount builds");
+    let gate = sutura_http::InboundGate::from_declaration(
+        &settings
+            .security()
+            .inbound()
+            .expect("this overlay declares an inbound identity")
+            .clone(),
+    )
+    .expect("a published key set builds a gate");
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission)
+        .with_inbound_identity(Arc::new(gate))
+        .with_agent_surface(mount);
+    let app = sutura_http::router(&state).expect("the test router assembles");
+
+    // Two callers, two tokens the same issuer signs for two different subjects - the only thing
+    // that varies between them.
+    let ada = issuer
+        .mint(&accepted_by("ada@example.com"))
+        .expect("the issuer signs ada's token");
+    let grace = issuer
+        .mint(&accepted_by("grace@example.com"))
+        .expect("the issuer signs grace's token");
+
+    drop(post(app.clone(), &ada, initialize(1)).await);
+    let ada_answered = post(app.clone(), &ada, ask_metric_call()).await;
+    assert!(
+        ada_answered.get("error").is_none(),
+        "ada's ask_metric call must be answered, not refused: {ada_answered}"
+    );
+
+    drop(post(app.clone(), &grace, initialize(1)).await);
+    let grace_answered = post(app, &grace, ask_metric_call()).await;
+    assert!(
+        grace_answered.get("error").is_none(),
+        "grace's ask_metric call must be answered, not refused: {grace_answered}"
+    );
+
+    let first = asked
+        .try_recv()
+        .expect("ada's ask_metric call performed an exchange through the shipped broker");
+    let second = asked
+        .try_recv()
+        .expect("grace's ask_metric call performed an exchange through the shipped broker");
+    assert!(
+        asked.try_recv().is_err(),
+        "two questions over one source is two exchanges, not three"
+    );
+
+    // The seam this cell exists to close: two callers over the agent route must offer two
+    // DISTINCT subject tokens - a broker that resolved each caller and then offered a cached or
+    // process-owned token would still pass the port-level distinctness cell, and fail only here.
+    assert_ne!(
+        first.subject_token, second.subject_token,
+        "two callers over the agent route must not offer the same subject token to the exchange"
+    );
+    assert_eq!(
+        first.subject_token, ada,
+        "ada's own token must be the one offered on her behalf"
+    );
+    assert_eq!(
+        second.subject_token, grace,
+        "grace's own token must be the one offered on her behalf"
+    );
+}
