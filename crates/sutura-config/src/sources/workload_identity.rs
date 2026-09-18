@@ -28,11 +28,31 @@ pub struct WifScope(String);
 /// asks Google's `iamcredentials.generateAccessToken` for anything - there is no fallback to the
 /// deployment's own identity for a caller absent from the map, because the broker that reads this
 /// refuses such a caller before any network call rather than answering as the process.
+///
+/// **`expected_issuer` and `expected_audience` name what the pool itself trusts, and both are the
+/// missing link telekom/sutura#817 names.** Leg 1 (who is asking) verifies a document against
+/// `security.inbound`'s issuer and audience; the exchange hands that *same* subject token to
+/// Google STS for this pool. Unless the pool's trusted issuer and its STS audience are the very
+/// values leg 1 verifies, the two trust roots are unconnected by construction - a document leg 1
+/// accepts is one the pool declines. Declaring them beside the exchange makes the link mechanical:
+/// the broker refuses a boot whose leg 1 can never satisfy the stated pool, and a runtime cell
+/// asserts the asserted document actually carries them before it is offered to a real STS.
+///
+/// **Both are `Option`, and absent keeps today's deployment exactly.** A source that declares no
+/// expectation still exchanges as before; the seam only graduates a deployment that writes the two
+/// roots down. That is deliberate: the pool expectation is a value an operator has to know (it is
+/// this deployment's own pool configuration), and failing an existing bare-exchange deployment over
+/// a value it never wrote would be the same over-reach `impersonate` is careful not to commit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadIdentityConfig {
     audience: WifAudience,
     scope: WifScope,
     impersonate: std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>,
+    /// The issuer the pool trusts - the `iss` a subject token must carry for Google STS to accept
+    /// it. See the type's own doc for why `None` is a value.
+    expected_issuer: Option<crate::IssuerUrl>,
+    /// The audience the pool's provider accepts - the STS audience a subject token must carry.
+    expected_audience: Option<WifAudience>,
 }
 
 impl WorkloadIdentityConfig {
@@ -54,6 +74,22 @@ impl WorkloadIdentityConfig {
         scope: impl AsRef<str>,
         impersonate: &std::collections::BTreeMap<String, String>,
     ) -> Result<Self, InvalidWorkloadIdentity> {
+        Self::parse_with_expectations(audience, scope, impersonate, None, None)
+    }
+
+    /// Parses a declaration that also names what the pool trusts - telekom/sutura#817's seam.
+    ///
+    /// The two extra values are what make `expected_issuer()`/`expected_audience()` readable by the
+    /// broker. Both are optional and parsed with the same rules as the values they must match on
+    /// the inbound side: the issuer as an absolute `https` URI (the [`crate::IssuerUrl`] parse) and
+    /// the audience as a provider resource (the [`WifAudience`] parse).
+    pub fn parse_with_expectations(
+        audience: impl AsRef<str>,
+        scope: impl AsRef<str>,
+        impersonate: &std::collections::BTreeMap<String, String>,
+        expected_issuer: Option<&str>,
+        expected_audience: Option<&str>,
+    ) -> Result<Self, InvalidWorkloadIdentity> {
         let mut parsed = std::collections::BTreeMap::new();
         for (subject, target) in impersonate {
             let subject = sutura_domain::identity::SubjectKey::parse(subject)
@@ -63,10 +99,25 @@ impl WorkloadIdentityConfig {
                 return Err(InvalidWorkloadIdentity::DuplicateImpersonationSubject);
             }
         }
+        let (expected_issuer, expected_audience) = match (expected_issuer, expected_audience) {
+            (None, None) => (None, None),
+            (issuer, audience) => (
+                issuer
+                    .map(crate::IssuerUrl::parse)
+                    .transpose()
+                    .map_err(|cause| InvalidWorkloadIdentity::ExpectedIssuer { cause })?,
+                audience
+                    .map(WifAudience::parse)
+                    .transpose()
+                    .map_err(|cause| InvalidWorkloadIdentity::ExpectedAudience { cause: Box::new(cause) })?,
+            ),
+        };
         Ok(Self {
             audience: WifAudience::parse(audience.as_ref())?,
             scope: WifScope::parse(scope.as_ref())?,
             impersonate: parsed,
+            expected_issuer,
+            expected_audience,
         })
     }
 
@@ -89,6 +140,20 @@ impl WorkloadIdentityConfig {
     #[must_use]
     pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa> {
         &self.impersonate
+    }
+
+    /// The issuer the pool trusts, if the declaration named one - `None` keeps the bare exchange.
+    #[inline]
+    #[must_use]
+    pub const fn expected_issuer(&self) -> Option<&crate::IssuerUrl> {
+        self.expected_issuer.as_ref()
+    }
+
+    /// The audience the pool accepts, if the declaration named one - `None` keeps the bare exchange.
+    #[inline]
+    #[must_use]
+    pub const fn expected_audience(&self) -> Option<&WifAudience> {
+        self.expected_audience.as_ref()
     }
 }
 
@@ -255,6 +320,18 @@ pub enum InvalidWorkloadIdentity {
     /// to tell which service account was meant.
     #[error("two declared `impersonate` subjects are the same subject")]
     DuplicateImpersonationSubject,
+    /// A declared `expected_issuer` is not a usable `https` issuer.
+    #[error("`sources.<alias>.workload_identity.expected_issuer` is not usable: {cause}")]
+    ExpectedIssuer {
+        #[source]
+        cause: crate::InvalidInboundValue,
+    },
+    /// A declared `expected_audience` is not a usable provider audience.
+    #[error("`sources.<alias>.workload_identity.expected_audience` is not usable: {cause}")]
+    ExpectedAudience {
+        #[source]
+        cause: Box<InvalidWorkloadIdentity>,
+    },
 }
 
 #[cfg(test)]
