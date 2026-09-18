@@ -97,6 +97,12 @@ let
   # granted client scope's own NAME in the `scope` claim it mints, which is what makes this the
   # right mechanism rather than a hardcoded-claim mapper synthesizing a value nothing granted.
   capabilityScopes = [ "sutura:catalog.read" "sutura:metrics.ask" "sutura:sql.run" ];
+  # A third-party audience (an OIDC workforce pool identity provider) for the
+  # `#105` ID-token probe: this mapper puts it into the `aud` claim when the
+  # password grant requests `scope=openid`. Not cited by any harness test -
+  # only exercised by the probe script that answers the blocking unknown.
+  # RFC 2606 `.example.com`, non-secret, not a real host.
+  idTokenAudience = "https://workforce-pool.example.com";
 in
 # `rec` so `check` can drive `tier`: the check exists to run this exact script, and a second
 # reference to it through `flake.nix` would be a second thing to keep pointing here.
@@ -133,6 +139,7 @@ rec {
       realm=${realm}
       client=${client}
       resourceAudience=${resourceAudience}
+      idTokenAudience=${idTokenAudience}
       capabilityScopes="${builtins.concatStringsSep " " capabilityScopes}"
       subjects="${builtins.concatStringsSep " " subjects}"
 
@@ -312,7 +319,7 @@ rec {
           -s clientId="$client" -s enabled=true -s publicClient=false \
           -s directAccessGrantsEnabled=true -s standardFlowEnabled=false \
           -s secret="$client_secret" \
-          -s 'protocolMappers=[{"name":"resource-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$resourceAudience"'","id.token.claim":"false","access.token.claim":"true","introspection.token.claim":"true"}}]' \
+          -s 'protocolMappers=[{"name":"resource-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$resourceAudience"'","id.token.claim":"false","access.token.claim":"true","introspection.token.claim":"true"}},{"name":"id-token-audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","consentRequired":false,"config":{"included.custom.audience":"'"$idTokenAudience"'","id.token.claim":"true","access.token.claim":"false","introspection.token.claim":"false"}}]' \
           "''${kcadm_trust[@]}" -i)"
 
         # One client scope PER CAPABILITY, DEFAULT (auto-granted, no consent screen) - see
