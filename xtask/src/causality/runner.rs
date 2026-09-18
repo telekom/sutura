@@ -128,11 +128,32 @@ pub(super) enum Tree {
 /// `Isolated::of(Path::new("/"), Path::new("/nowhere"))` and then a run somewhere else compiled and
 /// passed every gate, because nothing tied the pair together. There is no second value to disagree
 /// with now: what was cleaned is what runs, at the profile it was cleaned at.
+///
+/// **AND THE CALLER'S NEXTEST PROFILE IS NOT A SECOND VALUE EITHER**, which the sentence above
+/// asserted one layer too low to be true. The CARGO profile came from the witness while the NEXTEST
+/// profile came from whatever shell invoked the gate, because `NEXTEST_PROFILE` was inherited - so
+/// there was a second value, and it decided `slow-timeout` and `fail-fast` for the very runs the
+/// verdict compares. Measured on `github.com/telekom/sutura#879`: this repository's own documented
+/// local invocation - `.config/nextest.toml` names `NEXTEST_PROFILE=nofailfast` for a complete
+/// table - reached the nested run inside `super::claim`'s fixture, whose throwaway crate carries no
+/// nextest configuration at all, and the child exited 96 with nextest's own `profile ... not found`
+/// having compiled and run nothing. `super::base::could_not_attest` does not recognise a CONFIG
+/// error, so the claim arm reported *the mutation does not kill it* about a run that never reached
+/// the cell - red under the repository's own documented command and green in every venue that does
+/// not set the variable. REMOVED rather than pinned to a name: this gate wants nextest's defaults
+/// plus the flags on this line, and a profile it did not choose changes the run whatever the name
+/// resolves to.
+///
+/// **WHAT THAT DOES NOT COVER**: every other `NEXTEST_*` variable is still inherited.
+/// `NEXTEST_RETRIES` and `NEXTEST_TEST_THREADS` perturb a run rather than killing it, so nothing
+/// measured here settles whether this should be an `env_clear` - which would also take
+/// `CARGO_TARGET_DIR` and the toolchain's own variables with it.
 pub(super) fn nextest(isolated: &Isolated, only: &str, tree: Tree) -> Command {
     let mut command = Command::new("cargo");
     command
         .current_dir(isolated.dir())
         .env("CARGO_TARGET_DIR", isolated.target())
+        .env_remove("NEXTEST_PROFILE")
         .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile"])
         .arg(isolated.profile())
         .args(["--no-fail-fast", "-E", only]);
@@ -195,6 +216,15 @@ mod tests {
                 .get_envs()
                 .any(|(name, value)| name == OsStr::new("CARGO_TARGET_DIR") && value == Some(OsStr::new("/tmp/target"))),
             "the run builds into the directory that was cleaned"
+        );
+        // AND NO PROFILE THE CALLER CHOSE. Inherited, `NEXTEST_PROFILE` was the second value the
+        // doc above says cannot exist: `#879`'s red was the documented `nofailfast` reaching a
+        // fixture crate that defines no profiles, where the child dies at configuration load.
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == OsStr::new("NEXTEST_PROFILE") && value.is_none()),
+            "the caller's nextest profile does not reach the child"
         );
     }
 
