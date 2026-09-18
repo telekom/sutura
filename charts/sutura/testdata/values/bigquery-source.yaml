@@ -1,0 +1,25 @@
+# A non-trivial `config.base` - a declared `bigquery` source (`SourceKind::BigQuery`) -
+# rendered verbatim into the ConfigMap this chart mounts (`toYaml .Values.config.base`, parsed
+# by nothing here). `sources.<alias>.credential_file` has no dedicated chart value on purpose
+# (see the chart README); `extraVolumeMounts` is where its Secret would land in a real
+# deployment, omitted here to keep this golden about the source declaration.
+#
+# `kind: bigquery` is declarable today and refused at startup, not by this chart -
+# `sutura-exec-bigquery` exists but no composition root links it yet
+# (`crates/sutura-config/src/sources.rs`). This golden is about the ConfigMap the chart
+# produces, not a claim that this deployment boots.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  tlsTermination: ingress
+config:
+  base:
+    sources:
+      warehouse:
+        kind: bigquery
+        billing_project: sutura-analytics
+        dataset: metrics
+        posture: shared-service-user
+        acknowledged_because: "a single analytics project this deployment owns"
+        credential_file: /etc/sutura/sources/warehouse/credential.json

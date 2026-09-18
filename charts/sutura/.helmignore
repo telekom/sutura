@@ -6,3 +6,6 @@
 *.orig
 *~
 .DS_Store
+# The golden suite's values files and rendered output (#149 branch 2) - fixtures for
+# `checks.helm-chart`, not part of the chart a user installs.
+testdata/
