@@ -40,7 +40,7 @@
 use std::sync::Arc;
 
 use sutura_config::Settings;
-use sutura_runtime::{Admission, Registry, RegistryBuilder};
+use sutura_runtime::{Admission, Gauge, Registry, RegistryBuilder};
 
 #[cfg(feature = "agent")]
 use crate::router::Ungoverned;
@@ -60,6 +60,16 @@ pub struct ServiceState {
     /// fixed strings and takes no lock.
     registry: Arc<Registry>,
     metrics: crate::metrics::Metrics,
+    /// `sutura_spend_headroom_bytes` - registered only when this deployment's surface reports a
+    /// headroom value at all, i.e. only when `governance.per_replica_spend_ceiling` is configured.
+    ///
+    /// **`None` here means the series does not exist**, not that it reads zero - the same "absent
+    /// rather than zero" discipline `docs/adr/0015` already applies to the engine memory pool
+    /// series: a spend ceiling nobody configured is unlimited, and a zero-forever gauge would read
+    /// as a deployment permanently one byte from refusing everything. Updated from the question
+    /// route after every answered call, never from `/metrics` itself - Decision 1 of that record is
+    /// why the scrape handler's own state carries no [`crate::surface::Surface`] to poll.
+    spend_headroom: Option<Gauge>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
     /// building it reads a file: a `new` that could not fail would have to swallow an unreadable key
@@ -178,6 +188,15 @@ impl ServiceState {
         // coverage ramp is measured against.
         let coverage = builder.gauge("sutura_catalog_metrics");
         coverage.set(surface.definitions().definitions().metrics().len() as u64);
+        // Registered only when the surface reports SOME headroom right now - which it does
+        // exactly when a ceiling is configured, since an unconfigured ledger's own accessor
+        // returns `None` unconditionally. A fresh ledger's initial reading is its own ceiling, so
+        // this is also the correct first sample rather than a placeholder zero.
+        let spend_headroom = surface.spend_headroom_bytes().map(|initial| {
+            let gauge = builder.gauge("sutura_spend_headroom_bytes");
+            gauge.set(initial);
+            gauge
+        });
         let registry = Arc::new(builder.build());
         Self {
             surface,
@@ -185,6 +204,7 @@ impl ServiceState {
             admission,
             registry,
             metrics,
+            spend_headroom,
             inbound: None,
             #[cfg(feature = "agent")]
             agent: None,
@@ -280,6 +300,19 @@ impl ServiceState {
     #[must_use]
     pub const fn admission(&self) -> &Admission {
         &self.admission
+    }
+
+    /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a
+    /// ceiling configured at all.
+    ///
+    /// Called by the query route after a call to [`crate::surface::Surface::answer`], never by the
+    /// metrics route: a scrape must not poll the ledger itself, only read what a request already
+    /// pushed. A `None` reading - either no ceiling configured, or this deployment's own
+    /// composition never attached one - leaves the gauge untouched rather than fabricating zero.
+    pub(crate) fn record_spend_headroom(&self, headroom_bytes: Option<u64>) {
+        if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, headroom_bytes) {
+            gauge.set(bytes);
+        }
     }
 }
 

@@ -36,6 +36,9 @@ impl Surface for Serving {
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
         self.0.run_sql(context, statement)
     }
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        self.0.spend_headroom_bytes()
+    }
 }
 
 /// The mounted streamable-HTTP transport over the serving surface, ready for

@@ -309,6 +309,12 @@ pub(crate) async fn ask(
         // is written on the blocking thread, inside the span this helper carries across, and it is
         // written whether or not the caller is still waiting for the response.
         let answered = surface.answer(&context, &query, deadline);
+        // Read here, on the same thread and right after the call that could have moved it - never
+        // from `/metrics` itself, which must not touch the ledger's own lock at scrape time
+        // (`docs/adr/0015` Decision 1). Read regardless of whether `answered` is an answer, a
+        // refusal or a `SurfaceFailure`: a charge is a reservation never released, so the ledger
+        // can have moved even where the call went on to fail.
+        let headroom = surface.spend_headroom_bytes();
         // Explicitly, and here rather than at the top of the closure: the admission `slot` and the
         // in-use `slot_guard` are released when the WORK finishes, which is what makes the bound a
         // bound on execution. Dropping them earlier would let a second question start on top of
@@ -318,17 +324,20 @@ pub(crate) async fn ask(
         // emitted while releasing is still attributable to this request.
         drop(slot);
         drop(slot_guard);
-        answered
+        (answered, headroom)
     })
     .await;
     let outcome = match joined {
-        Ok(answered) => match answered {
-            Ok(answered) => answered,
-            Err(ref failure) => {
-                let failure = failed(failure);
-                return Err(failure);
+        Ok((answered, headroom)) => {
+            state.record_spend_headroom(headroom);
+            match answered {
+                Ok(answered) => answered,
+                Err(ref failure) => {
+                    let failure = failed(failure);
+                    return Err(failure);
+                }
             }
-        },
+        }
         Err(cause) => {
             // The blocking task panicked. The panic hook has already traced the payload and the
             // location; this says which request it took down with it.

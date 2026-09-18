@@ -346,6 +346,11 @@ impl Surface for FailingSurface {
             cause: Box::new(ConnectionRefused),
         })
     }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` at all.
+        None
+    }
 }
 
 /// A surface that records the SUBJECT each call was handed, and answers nothing else.
@@ -414,6 +419,11 @@ impl Surface for RecordingSurface {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
         })
+    }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
+        None
     }
 }
 
@@ -516,6 +526,11 @@ impl Surface for HoldingSurface {
         Ok(sutura_domain::raw::RawOutcome::Refusal {
             reason: sutura_domain::raw::RawRefusalReason::StatementFailed,
         })
+    }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
+        None
     }
 }
 
