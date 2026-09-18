@@ -9,7 +9,7 @@
 //! `docs/what-okf-can-carry.md` is the finding that decides this adapter's whole shape. The OKF
 //! vocabulary (Table Schema version 1) is **strictly narrower than Wren** - it carries a table's
 //! column set and free-text descriptions, and nothing of a metric layer. A `foreignKey` declares no
-//! cardinality, so it can licence no [`Relationship`] (a relationship carries a required `JoinType`,
+//! cardinality, so it can licence no relationship (a relationship carries a required `JoinType`,
 //! and Table Schema gives no way to choose one) - which is why this adapter **declares**
 //! `Relationships` out rather than supplying an unlicensed one. What it provides is exactly
 //! [`DefinitionKind::Structure`] and [`DefinitionKind::Descriptions`]; everything else - the metric,
@@ -66,7 +66,7 @@ type Content = (Definitions, Knowledge);
 
 /// A catalog read from a directory of Table Schema descriptors.
 ///
-/// Like [`sutura_catalog_local::LocalCatalog`] it carries a declared NAME, a root and a version: the
+/// Like the local catalog's `LocalCatalog`, it carries a declared NAME, a root and a version: the
 /// name is the key the contribution manifest records this contributor under, the root is the
 /// directory of descriptors, and the version identifies which snapshot of that directory this is.
 #[derive(Debug, Clone)]
