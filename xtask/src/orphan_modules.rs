@@ -206,8 +206,8 @@ struct CratePass {
 /// Walk one crate's `.rs` tree once, building the corpus text and the `pub mod` declarations
 /// together.
 ///
-/// This used to be two walks over the same directory - one to build the corpus, a second inside
-/// [`public_mods_in`] (since deleted) to re-read every file looking for declarations - and both
+/// This used to be two walks over the same directory - one to build the corpus, a second
+/// (`public_mods_in`, since deleted) to re-read every file looking for declarations - and both
 /// held the transitional door's plain `Vec` in caller space. [`repo::Census::inspect`] performs
 /// the read once now; a `pub mod x;` or inline `pub mod x { ... }` declares a public module,
 /// `pub(crate) mod` excluded because after the first `pub ` the next non-space token is `(`, not
