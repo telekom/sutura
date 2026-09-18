@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Why sutura generates a metric's SQL from a model it can read, instead of only splicing a statement authored elsewhere.">
+        <meta name="description" content="A source may declare the issuer and STS audience its identity pool trusts, the broker refuses a boot whose direct leg-one document can never satisfy that pool, and it checks the subject token's iss/aud claims before any exchange - closing, by mechanism, the gap where a document leg 1 verifies is one the pool would decline.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0001-first-party-semantic-models/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0034-the-twin-root-link-between-leg-1-and-the-pool/">
       
       
-        <link rel="prev" href="../../what-agent-identity-can-carry/">
+        <link rel="prev" href="../0033-a-closed-enum-over-the-shipped-warehouse-kinds/">
       
       
-        <link rel="next" href="../0002-a-closed-vocabulary-for-measures/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>First-party semantic models - sutura</title>
+        <title>The twin-root link between leg 1 and the pool - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#first-party-semantic-models" class="md-skip">
+        <a href="#the-twin-root-link-between-leg-1-and-the-pool" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              First-party semantic models
+              The twin-root link between leg 1 and the pool
             
           </span>
         </div>
@@ -957,37 +957,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    First-party semantic models
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -1003,98 +976,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Context
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Decision">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-a-model-may-not-contain" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a model may not contain
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-does-not-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What does not change
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#alternatives-considered" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Alternatives considered
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2000,10 +1881,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0034-the-twin-root-link-between-leg-1-and-the-pool/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The twin-root link between leg 1 and the pool
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2019,6 +1927,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-decides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this decides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-does-not-close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this does NOT close
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-venue-and-why-it-stays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this venue, and why it stays
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2886,10 +2847,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
+  <a href="#what-this-decides" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Context
+        What this decides
       
     </span>
   </a>
@@ -2897,38 +2858,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
+  <a href="#what-this-does-not-close" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Decision">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-a-model-may-not-contain" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a model may not contain
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-does-not-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What does not change
+        What this does NOT close
       
     </span>
   </a>
@@ -2936,21 +2869,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
+  <a href="#why-this-venue-and-why-it-stays" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Consequences
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#alternatives-considered" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Alternatives considered
+        Why this venue, and why it stays
       
     </span>
   </a>
@@ -2977,136 +2899,59 @@
   
 
 
-<h1 id="first-party-semantic-models">First-party semantic models<a class="headerlink" href="#first-party-semantic-models" title="Permanent link">&para;</a></h1>
-<p>Status: accepted. It supersedes nothing; it adds a second way for a definition to arrive.</p>
-<p><strong>Amended.</strong> The measure vocabulary described below - one aggregate over one declared column - was
-widened by <a href="../0002-a-closed-vocabulary-for-measures/">a closed vocabulary for measures</a>, which adds
-a conditional count, a ratio of two aggregates, and filters that belong to a metric's definition.
-Nothing in the argument here changes, because the argument is about free-text SQL rather than about
-arity: read the constraint in <a href="#what-a-model-may-not-contain">what a model may not contain</a> as the
-ban on expressions it is, and not as the one-aggregate limit it also happened to be.</p>
-<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p><a href="../../architecture/">Architecture</a> describes one path from a question to a number: a metric's SQL is
-authored in a semantic layer outside this repository, arrives as text with a digest, and is spliced
-into a generated wrapper byte for byte without being parsed. That path exists because re-emitting
-somebody else's statement substitutes our reading of it for theirs, and the digest would not move.</p>
-<p>The path has a precondition that is easy to miss: <strong>something upstream has to have rendered the
-statement.</strong> Where a build-time semantic layer already emits dialect-correct SQL per metric, taking
-it as given is strictly better than re-deriving it. Where there is no such upstream, on a laptop, over
-a single Parquet file, on a first run against a new warehouse, the precondition is simply absent.
-There is no statement to splice, and the design as written has nothing to say about that case.</p>
-<p>That is not a small corner. It is the case a person is in when they first try this.</p>
-<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p><strong>A catalog may declare a model, and sutura will generate the whole statement from it.</strong></p>
-<p>A model names a physical table, its columns, and its relationships to other models. A metric names a
-model, an aggregate over one of its columns, the grains it supports, the dimensions it may be broken
-down by, and its time column. From those, <code>sutura-semantic</code> generates the entire statement:
-projection, grouping, the bounded date predicate, the join for a single-hop dimension, and quoting
-and placeholders per dialect. Nothing is spliced, because nothing arrived as text.</p>
-<p>The invariant this repository actually cares about is unchanged, and gets easier to hold:</p>
-<blockquote>
-<p>We never re-parse SQL we did not generate.</p>
-</blockquote>
-<p>When we generate all of it, there is no foreign SQL on the query path to re-parse. The rule holds by
-construction rather than by discipline.</p>
-<h3 id="what-a-model-may-not-contain">What a model may not contain<a class="headerlink" href="#what-a-model-may-not-contain" title="Permanent link">&para;</a></h3>
-<p><strong>No free-text SQL expression, anywhere.</strong> A measure is an aggregate from a closed set over a named
-column, not the string <code>sum(amount)</code>. A relationship is a pair of columns and a join type, not the
-string <code>orders.customer_id = customers.id</code>. A dimension is a column, optionally reached through one
-declared relationship.</p>
-<p>This is the load-bearing half of the decision, and it is where this design departs from the
-modelling languages it otherwise resembles. Those carry SQL fragments as strings and parse them
-downstream. A string field is an escape hatch, and an escape hatch on the query path is the thing
-being defended against: it turns "the catalog describes the data" into "the catalog can say
-anything", and every check downstream then has to reason about text somebody wrote.</p>
-<p>The cost is real and worth stating. <code>sum(price * quantity)</code> cannot be expressed, and neither can a
-window function or a three-table join. Those are the cases the spliced-statement path exists for:
-where a definition is genuinely more than a model can say, it should be authored where the
-expressiveness lives and arrive certified. <strong>The two paths are for two different situations, and
-neither is a degraded version of the other.</strong></p>
-<p>Adding an expression field later is an architecture decision, not a feature. It would need its own
-entry here, and the question it has to answer is not whether the expression is parsed but what
-happens the first time one arrives that we cannot parse.</p>
-<h2 id="what-does-not-change">What does not change<a class="headerlink" href="#what-does-not-change" title="Permanent link">&para;</a></h2>
-<p>Every other guarantee is untouched, and each still has the same mechanism behind it:</p>
-<table>
-<thead>
-<tr>
-<th>Guarantee</th>
-<th>Still held by</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Definitions are pinned and hashed, so a catalog edit cannot change what a question means between two invocations</td>
-<td>The digest is taken over the canonical form of the parsed definitions. It moves on any semantic edit, and it travels with the answer</td>
-</tr>
-<tr>
-<td>A catalog cannot see who is asking</td>
-<td><code>SemanticCatalog::load</code> takes no request context, so there is nothing to branch on</td>
-</tr>
-<tr>
-<td>An unvalidated bundle is never served</td>
-<td>The service accepts only <code>Validated&lt;PinnedDefinitions&gt;</code>, and the anchor check is its only constructor</td>
-</tr>
-<tr>
-<td>A definition that has stopped computing its own number fails readiness</td>
-<td>The anchor test re-executes each metric and compares against the number its author declared</td>
-</tr>
-<tr>
-<td>Refusal is a result, not an error</td>
-<td><code>ToolOutcome::Refusal { reason }</code>, with a test per variant</td>
-</tr>
-<tr>
-<td>No SQL, table, predicate or row id on the tool surface</td>
-<td><code>Query</code> has no field for one. This decision changes what a <em>catalog</em> may say, and nothing about what a <em>caller</em> may say</td>
-</tr>
-<tr>
-<td>A mono answer resolves to one data system</td>
-<td>The plan stage gathers the source of every model the statement would read - the metric's own, and each one reached through a join - into a set. One is a mono plan; exactly two are split into a fact leg and a lookup leg; three or more refuse as <code>PlanSpansTooManySources</code></td>
-</tr>
-<tr>
-<td>No result cache</td>
-<td>Nothing added one</td>
-</tr>
-</tbody>
-</table>
-<p>One new guarantee arrives with the generator, and it is mechanical rather than argued: <strong>no value
-from a question reaches the statement as text.</strong> Every one becomes a bind parameter, and a golden
-test asserts that no literal from the question appears in the generated SQL. Before this decision the
-claim was structural, because there was no generator. Now it is a check that can fail.</p>
-<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
-<ul>
-<li>The catalog on disk is now a source of definitions rather than only a carrier of them. Reviewing a
-  catalog change is reviewing what will execute, which is a heavier kind of review than approving a
-  text passthrough, and it belongs in the same pull request as any other change to behaviour.</li>
-<li>The generated SQL is a reviewable artifact. Goldens are regenerated and read as a diff, never
-  typed, because a hand-written expectation is an assertion about what we wish the generator did.</li>
-<li>Dialect differences become ours. Placeholder syntax, identifier quoting and date truncation differ
-  per data system, and the generator owns all three. It must own placeholder style <em>explicitly</em>: the
-  dialect layer we build on renders a placeholder the same way regardless of target, so relying on it
-  would silently emit the wrong syntax for anything but the first dialect we shipped.</li>
-<li>We do not translate between dialects. A transpile is a parse followed by a re-emit, and it does not
-  reliably repair the differences that matter. A measured example is date truncation, where argument
-  order differs between two dialects and translation left it unchanged, producing output that is not
-  valid in the target. The generator renders into the target dialect from a plan, and the ban is a
-  lint rather than a paragraph.</li>
-<li>The spliced-statement path stays documented and unbuilt. The dialect layer has a verbatim
-  passthrough node whose generator appends the text unchanged and which no dialect pass rewrites, so
-  the splice remains implementable exactly as <a href="../../architecture/">Architecture</a> describes it.</li>
-</ul>
-<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
-<p><strong>Only splice, and require an upstream renderer.</strong> Correct where one exists, and no help at all
-otherwise. It makes the first thing a new user tries the hardest thing to set up, and it puts the
-whole design behind a dependency a laptop does not have.</p>
-<p><strong>Only generate, and delete the splice.</strong> Tempting, because one path is simpler than two. Rejected:
-where a definition has already been certified upstream, re-deriving it is exactly the substitution of
-our reading for the author's that the splice exists to prevent. Deleting it would trade a real
-guarantee for tidiness.</p>
-<p><strong>Generate from free-text expressions, as the reference modelling languages do.</strong> More expressive,
-and it moves a parser onto the query path, where a parse failure is a runtime refusal instead of a
-review comment. The closed set of aggregates covers the metrics a model can honestly describe, and
-the ones it cannot belong on the other path.</p>
+<h1 id="the-twin-root-link-between-leg-1-and-the-pool">The twin-root link between leg 1 and the pool<a class="headerlink" href="#the-twin-root-link-between-leg-1-and-the-pool" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted.</strong> <code>github.com/telekom/sutura#817</code> is the issue. Leg 1 (<code>who is asking</code>) verifies a
+caller document against <code>security.inbound</code>'s issuer and audience; leg 2 (<code>a source executes AS the
+asker</code>) hands that same subject token to Google STS for a workload-identity pool. Unless the pool's
+trusted issuer and its STS audience are the very values leg 1 verifies, the two trust roots are
+unconnected by construction: a document this deployment accepts is one the pool declines, and every
+credential the exchange would mint is refused before a single row is read.</p>
+<h2 id="what-this-decides">What this decides<a class="headerlink" href="#what-this-decides" title="Permanent link">&para;</a></h2>
+<p><strong>A source may declare what its pool trusts, beside the audience and scope it already names.</strong>
+<code>sutura_config::sources::workload_identity::WorkloadIdentityConfig</code> carries two optional values -
+<code>expected_issuer</code> (an absolute <code>https</code> URI, parsed with the inbound [<code>IssuerUrl</code>] rules) and
+<code>expected_audience</code> (a provider resource, parsed with the <code>WifAudience</code> rules). Both are <code>Option</code>:
+absent keeps today's bare RFC 8693 exchange for a deployment that wrote nothing, so the seam is
+additive rather than a tax every existing source pays. This is the same "absent is a value" shape
+<code>impersonate</code> (ADR 0032) already uses.</p>
+<p><strong>The broker refuses at boot a direct leg-one document can never satisfy.</strong> When leg 1 is
+<code>InboundIdentity::Direct</code>, <code>build_broker</code> (<code>crates/sutura-cli/src/serve/broker.rs</code>) compares each
+impersonating source's declared expectations against the direct issuer and resource. They are the
+very values that must equal the pool's for the SAME document to satisfy both sides; when they cannot,
+the deployment refuses to start, naming the source and both pairs, rather than serve questions whose
+every credential the pool would decline.</p>
+<p><strong>The broker checks the subject token's claims before any exchange.</strong> <code>WorkloadIdentityBroker::mint</code>
+decodes the payload of the verified assertion (the document leg 1 already verified - the decode is
+deliberately UNVERIFIED, because re-verifying it would be rebuilding leg 1) and refuses with
+<code>ExchangeUnusable::PoolExpectation</code> before any round trip when its <code>iss</code>/<code>aud</code> are not the declared
+pool values. This is the runtime half: a document that leg 1 accepted but that the pool would decline
+never reaches the STS call.</p>
+<h2 id="what-this-does-not-close">What this does NOT close<a class="headerlink" href="#what-this-does-not-close" title="Permanent link">&para;</a></h2>
+<p><strong>Does not prove a real Google STS accepts a leg-1-verified document.</strong> The boot refusal and the
+runtime check make the two roots agree <em>by configuration and by claim inspection</em>, but nothing here
+dials a live STS. The decisive check - reading a live pool's provider and testing whether STS accepts
+a document leg 1 verifies - still needs grant access and a <code>workflow_dispatch</code> run, exactly as
+<code>docs/where-identity-is-proven.md</code> says. This change deliberately moves no row on that page.</p>
+<p><strong>Only <code>Direct</code> leg 1 is linked.</strong> <code>BehindGateway</code> (ADR 0014) proves a fronting component's signed
+assertion; its issuer and audience live on the transit proof, not on a <code>security.inbound</code> direct
+block, and this boot refusal does not reach it. The runtime claim check still applies to any source
+that declares expectations, whatever the inbound mode.</p>
+<p><strong>The runtime check is opt-in, and a source that declares nothing is unguarded.</strong> The claim check
+only fires when a source declares BOTH <code>expected_issuer</code> and <code>expected_audience</code> (the
+<code>PartialExpectation</code> variant refuses a lone half). A source that declares neither keeps the
+pre-hardening behaviour - its exchange runs with no twin-root check at all - so a deployment that
+means to verify the twin root must declare the pair on every impersonating source.</p>
+<p><strong>The decode trusts the token's well-formedness, not its signature.</strong> <code>jwt_payload</code> reads <code>iss</code>/<code>aud</code>
+out of the payload without cryptographic verification. That is safe here because the input is the
+document leg 1 already verified end to end; it is a stated limit, not a shortcut, and the reason only
+<code>serde_json</code> and <code>base64</code> are promoted to always-on dependencies (the wire gate is about the outbound
+network stack, not JSON).</p>
+<h2 id="why-this-venue-and-why-it-stays">Why this venue, and why it stays<a class="headerlink" href="#why-this-venue-and-why-it-stays" title="Permanent link">&para;</a></h2>
+<p>The refusal and the claim check are both exercised in-process against the fake <code>StsExchange</code> and a
+constructed <code>Settings</code> overlay - mechanism-backed cells (<code>sts::tests::a_source_with_expectations_*</code>,
+the config parse cells, and the CLI boot cell) that are red against base. This is exactly the venue
+ADR 0032 uses for the hop's mechanics: necessary and not sufficient for an identity claim, which is
+why <code>docs/where-identity-is-proven.md</code> is unchanged.</p>
 
 
 
