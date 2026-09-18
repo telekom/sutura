@@ -39,10 +39,12 @@
 //! does not read what a target's code DOES - that a target reaches the parser it claims is a
 //! review question, and each target's header is where the claim and its limits are written.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Verdict;
 use crate::repo;
+
+mod hook_paths;
 
 /// The fuzz crate's manifest, relative to the repository root.
 const MANIFEST: &str = "fuzz/Cargo.toml";
@@ -269,18 +271,40 @@ fn unparseable_entries(dictionary: &str) -> Vec<usize> {
         .collect()
 }
 
-/// The verdict, given everything read off the tree.
-fn report(
-    sources: &BTreeSet<String>,
-    bins: &[(String, String)],
-    seeded: &BTreeSet<String>,
-    harnessed: &BTreeSet<String>,
-    matrix: &BTreeSet<String>,
-    refused: &[(String, usize)],
-    in_release: &[(usize, &str)],
+/// Everything `report` reads off the tree, carried as one value so `check-fuzz` does not grow an
+/// unbounded parameter list - the count-threshold lints (`too_many_arguments`) may not be `#[expect]`ed
+/// here (`xtask/src/threshold_expect.rs`), so the many inputs of a single verdict are grouped instead.
+struct Report<'a> {
+    sources: &'a BTreeSet<String>,
+    bins: &'a [(String, String)],
+    seeded: &'a BTreeSet<String>,
+    harnessed: &'a BTreeSet<String>,
+    matrix: &'a BTreeSet<String>,
+    refused: &'a [(String, usize)],
+    in_release: &'a [(usize, &'a str)],
     locked: bool,
     aborts: bool,
-) -> Verdict {
+    bound: &'a BTreeMap<String, BTreeSet<String>>,
+    hook_regex: Option<&'a str>,
+    row_paths: Option<&'a [&'a str]>,
+}
+
+/// The verdict, given everything read off the tree.
+fn report(inputs: &Report<'_>) -> Verdict {
+    let Report {
+        sources,
+        bins,
+        seeded,
+        harnessed,
+        matrix,
+        refused,
+        in_release,
+        locked,
+        aborts,
+        bound,
+        hook_regex,
+        row_paths,
+    } = *inputs;
     let mut failures = Vec::new();
     if sources.is_empty() {
         failures.push(format!("{TARGETS_DIR} holds no target - a green fuzz run over nothing"));
@@ -324,6 +348,26 @@ fn report(
     for (line, form) in in_release {
         failures.push(format!(
             "{RELEASE_WORKFLOW}:{line} invokes the fuzzer (`{form}`) - a fuzz job there is one `needs:` away from deciding whether a tag ships, and the first finding on a fresh random path would then block every release. {WORKFLOW} runs it on the same `v*` tag as a separate run, which no release job can depend on"
+        ));
+    }
+    // The two hook-surface obligations (#867, #873): a target whose source binds a crate that
+    // reaches NEITHER the pre-commit `fuzz` hook's `files:` regex NOR the hook-coverage
+    // `fuzzed tree` row is the silent gap #864 shipped - editing that parser fired no local
+    // replay and no coverage row while every gated check stayed green. So a bound crate absent
+    // from either surface is a red `check-fuzz` rather than a gap a reviewer has to find.
+    //
+    // `hook_regex` is `None` only when the `fuzz` hook declares no `files:` at all, which is the
+    // UNFILTERED spelling - prek then runs it on every diff, so there is no gap to report. The
+    // `"fuzzed tree"` row always declares paths for this gate to exist at all; a missing row is
+    // itself the failure (`fuzzed_tree_row` below is checked first).
+    for (target, prefix) in hook_paths::missing_from_regex(bound, hook_regex) {
+        failures.push(format!(
+            "{TARGETS_DIR}/{target}.rs binds `{prefix}`, which the `fuzz` hook's `files:` regex in .pre-commit-config.yaml does not reach - editing that parser fires no local fuzz replay. Add the crate to the hook's alternation."
+        ));
+    }
+    for (target, prefix) in hook_paths::missing_from_row(bound, row_paths) {
+        failures.push(format!(
+            "{TARGETS_DIR}/{target}.rs binds `{prefix}`, which the hook-coverage `fuzzed tree` row does not reach - a diff touching that parser reports fully covered while the target was never replayed. Add the crate to the row."
         ));
     }
     if !locked {
@@ -448,18 +492,43 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
+
+    // The per-target bound-crate map, and the two hook surfaces it is held against. Reading the
+    // hook config through `crate::hooks` (its one parser) keeps that file single-read; reading
+    // `SURFACES` through the fuzzed-tree row keeps that table single-write. An unreadable hook
+    // config fails closed exactly like the manifest and the workflows above.
+    let mut bound: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for name in &sources {
+        let Ok(src) = std::fs::read_to_string(root.join(TARGETS_DIR).join(format!("{name}.rs"))) else {
+            continue;
+        };
+        bound.insert(name.clone(), hook_paths::crates_of(&src));
+    }
+    let Ok(text) = std::fs::read_to_string(root.join(crate::hooks::CONFIG)) else {
+        eprintln!(
+            "xtask check-fuzz: {} is unreadable - cannot hold the fuzz hook's regex against this target's crates",
+            crate::hooks::CONFIG
+        );
+        return Verdict::Fail;
+    };
+    let hook_regex = hook_paths::hook_regex(&crate::hooks::hooks(&text));
+    let row_paths = hook_paths::fuzzed_tree_row();
+
     match matrix_targets(&workflow) {
-        Ok(matrix) => report(
-            &sources,
-            &bins,
-            &seeded,
-            &harnessed,
-            &matrix,
-            &refused,
-            &in_release,
+        Ok(matrix) => report(&Report {
+            sources: &sources,
+            bins: &bins,
+            seeded: &seeded,
+            harnessed: &harnessed,
+            matrix: &matrix,
+            refused: &refused,
+            in_release: &in_release,
             locked,
             aborts,
-        ),
+            bound: &bound,
+            hook_regex: hook_regex.as_deref(),
+            row_paths,
+        }),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
             Verdict::Fail
@@ -480,85 +549,100 @@ mod tests {
 
     #[test]
     fn a_complete_target_set_passes() {
-        let verdict = report(
-            &set(&["sql_expression", "question_body"]),
-            &bins(&[
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression", "question_body"]),
+            bins: &bins(&[
                 ("sql_expression", "fuzz_targets/sql_expression.rs"),
                 ("question_body", "fuzz_targets/question_body.rs"),
             ]),
-            &set(&["sql_expression", "question_body"]),
-            &set(&["sql_expression", "question_body"]),
-            &set(&["sql_expression", "question_body"]),
-            &[],
-            &[],
-            true,
-            true,
-        );
+            seeded: &set(&["sql_expression", "question_body"]),
+            harnessed: &set(&["sql_expression", "question_body"]),
+            matrix: &set(&["sql_expression", "question_body"]),
+            refused: &[],
+            in_release: &[],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Pass, "a coherent set must pass");
     }
 
     #[test]
     fn a_target_without_a_bin_entry_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &[],
-            &[],
-            true,
-            true,
-        );
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression"]),
+            bins: &bins(&[]),
+            seeded: &set(&["sql_expression"]),
+            harnessed: &set(&["sql_expression"]),
+            matrix: &set(&["sql_expression"]),
+            refused: &[],
+            in_release: &[],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Fail, "an unbuilt target must fail");
     }
 
     #[test]
     fn a_target_the_matrix_never_runs_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &set(&[]),
-            &[],
-            &[],
-            true,
-            true,
-        );
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression"]),
+            bins: &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            seeded: &set(&["sql_expression"]),
+            harnessed: &set(&["sql_expression"]),
+            matrix: &set(&[]),
+            refused: &[],
+            in_release: &[],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Fail, "a target CI never runs must fail");
     }
 
     #[test]
     fn a_target_with_no_seed_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-            &set(&[]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &[],
-            &[],
-            true,
-            true,
-        );
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression"]),
+            bins: &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            seeded: &set(&[]),
+            harnessed: &set(&["sql_expression"]),
+            matrix: &set(&["sql_expression"]),
+            refused: &[],
+            in_release: &[],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Fail, "an unseeded target must fail");
     }
 
     #[test]
     fn a_missing_lock_or_missing_panic_abort_fails() {
         for (locked, aborts) in [(false, true), (true, false)] {
-            let verdict = report(
-                &set(&["sql_expression"]),
-                &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-                &set(&["sql_expression"]),
-                &set(&["sql_expression"]),
-                &set(&["sql_expression"]),
-                &[],
-                &[],
+            let verdict = report(&Report {
+                sources: &set(&["sql_expression"]),
+                bins: &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+                seeded: &set(&["sql_expression"]),
+                harnessed: &set(&["sql_expression"]),
+                matrix: &set(&["sql_expression"]),
+                refused: &[],
+                in_release: &[],
                 locked,
                 aborts,
-            );
+                bound: &BTreeMap::new(),
+                hook_regex: None,
+                row_paths: Some(&[]),
+            });
             assert!(verdict == Verdict::Fail, "an unlocked or unwinding harness must fail");
         }
     }
@@ -587,17 +671,20 @@ mod tests {
 
     #[test]
     fn a_dictionary_libfuzzer_would_refuse_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &[(String::from("sql_expression.dict"), 17)],
-            &[],
-            true,
-            true,
-        );
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression"]),
+            bins: &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            seeded: &set(&["sql_expression"]),
+            harnessed: &set(&["sql_expression"]),
+            matrix: &set(&["sql_expression"]),
+            refused: &[(String::from("sql_expression.dict"), 17)],
+            in_release: &[],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Fail, "a dictionary libFuzzer refuses must fail");
     }
 
@@ -653,17 +740,20 @@ mod tests {
 
     #[test]
     fn a_fuzz_invocation_in_the_release_workflow_fails() {
-        let verdict = report(
-            &set(&["sql_expression"]),
-            &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &set(&["sql_expression"]),
-            &[],
-            &[(41, "run-fuzz.sh")],
-            true,
-            true,
-        );
+        let verdict = report(&Report {
+            sources: &set(&["sql_expression"]),
+            bins: &bins(&[("sql_expression", "fuzz_targets/sql_expression.rs")]),
+            seeded: &set(&["sql_expression"]),
+            harnessed: &set(&["sql_expression"]),
+            matrix: &set(&["sql_expression"]),
+            refused: &[],
+            in_release: &[(41, "run-fuzz.sh")],
+            locked: true,
+            aborts: true,
+            bound: &BTreeMap::new(),
+            hook_regex: None,
+            row_paths: Some(&[]),
+        });
         assert!(verdict == Verdict::Fail, "a fuzz job inside the release workflow must fail");
     }
 

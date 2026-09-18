@@ -154,6 +154,11 @@ pub(crate) struct Hook {
     /// both were claimed by a row, so the rule that reads only `always_run` passed over the same
     /// defect written the other way.
     pub(crate) filtered: bool,
+    /// The hook's `files:` regex, when it declares one. `pub(crate)` because `crate::fuzz`
+    /// checks that a fuzz target's bound crate appears in the `fuzz` hook's regex - the same
+    /// file-to-surface correlation the `fuzzed tree` row makes, read here so a second parser of
+    /// this file is not required.
+    pub(crate) files: String,
 }
 
 impl Hook {
@@ -331,6 +336,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
                 stages: defaults.clone(),
                 always_run: false,
                 filtered: false,
+                files: String::new(),
             });
             continue;
         }
@@ -345,7 +351,12 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             hook.always_run = value.trim() == "true";
             continue;
         }
-        if trimmed.starts_with("files:") || trimmed.starts_with("types:") {
+        if let Some(value) = trimmed.strip_prefix("files:") {
+            hook.filtered = true;
+            hook.files = String::from(value.trim());
+            continue;
+        }
+        if trimmed.starts_with("types:") {
             hook.filtered = true;
             continue;
         }

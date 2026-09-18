@@ -7,20 +7,20 @@
 //! of it.
 
 /// A kind of file a change can touch, and what inspects it.
-pub(super) struct Surface {
+pub(crate) struct Surface {
     /// What a reader would call it.
-    pub(super) label: &'static str,
+    pub(crate) label: &'static str,
     /// Path globs, matched by [`crate::repo::matches`].
-    pub(super) paths: &'static [&'static str],
+    pub(crate) paths: &'static [&'static str],
     /// The hook IDs that claim it. **EMPTY is the sharp case**: nothing a diff-scoped hook run
     /// invokes reaches this surface at all.
-    pub(super) hooks: &'static [&'static str],
+    pub(crate) hooks: &'static [&'static str],
     /// The `just` task that reaches it when no hook did.
-    pub(super) reached_by: &'static str,
+    pub(crate) reached_by: &'static str,
 }
 
 /// Every surface, and the reason each row is where it is.
-pub(super) const SURFACES: &[Surface] = &[
+pub(crate) const SURFACES: &[Surface] = &[
     Surface {
         // The extension, not a directory: `crates/`, `xtask/` and `examples/` all carry Rust, and
         // a directory list here is a list to forget the day a fourth appears.
@@ -79,7 +79,7 @@ pub(super) const SURFACES: &[Surface] = &[
     },
     Surface {
         // The surface the `fuzz` pre-commit hook claims: the `fuzz/` harness tree plus the crates
-        // the five targets' headers name. It is a separate row from "Rust source" on purpose - the
+        // the six targets' headers name. It is a separate row from "Rust source" on purpose - the
         // hook's `files:` never inspects all `*.rs`, only this reach, so claiming the broader row
         // would report a permanent gap there. A change at the boundary of both surfaces is covered
         // when every hook claiming EACH ran, which is the same all-must-run rule.
@@ -103,6 +103,8 @@ pub(super) const SURFACES: &[Surface] = &[
             "crates/sutura-http/src/inbound/token.rs",
             "crates/sutura-http/src/inbound/keys.rs",
             "crates/sutura-http/src/inbound/keys/**",
+            "crates/sutura-config/**",
+            "crates/sutura-exec-bigquery/**",
             "crates/sutura-catalog-local/**",
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
