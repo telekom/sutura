@@ -30,14 +30,17 @@ use std::path::Path;
 ///
 /// A test rather than any function, because the page's claim is that these names ARE the standing
 /// tests: a helper renamed into one of them would satisfy an existence check and prove nothing.
-pub(super) fn test_names(root: &Path, files: &[String]) -> BTreeSet<String> {
+///
+/// This used to take the caller's `files: &[String]` from the transitional census door and filter
+/// it to `.rs` here - a plain `Vec` a narrowing had nothing here to notice. It now walks the whole
+/// tree itself through [`crate::repo::Census::inspect`], scoped to a Rust extension, so the loop
+/// and the read both live inside the census.
+pub(super) fn test_names() -> Result<BTreeSet<String>, crate::repo::Refusal> {
     let mut out = BTreeSet::new();
-    let rust = files
-        .iter()
-        .filter(|f| Path::new(f).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs")));
-    for rel in rust {
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            continue;
+    let census = crate::repo::all_files()?;
+    census.inspect(&[], is_rust, |_rel, bytes| {
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return;
         };
         let lines: Vec<&str> = text.lines().collect();
         for (i, line) in lines.iter().enumerate() {
@@ -55,8 +58,13 @@ pub(super) fn test_names(root: &Path, files: &[String]) -> BTreeSet<String> {
                 }
             }
         }
-    }
-    out
+    })?;
+    Ok(out)
+}
+
+/// This gate's [`crate::repo::Scope`] for [`test_names`]: only a `.rs` file can declare a test.
+fn is_rust(rel: &str) -> bool {
+    Path::new(rel).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("rs"))
 }
 
 /// The task or app name one invocation names, or `None` when the span is not an invocation.
@@ -589,6 +597,41 @@ mod tests {
             .map(str::to_owned)
             .collect();
         assert_eq!(found, Some(expected));
+    }
+
+    #[test]
+    fn names_refuses_over_an_unreachable_subtree_instead_of_a_smaller_set() {
+        // `github.com/telekom/sutura#414`: `test_names` used to filter the caller's `files` slice
+        // to `.rs` in its own loop - a narrowing written at either end had nothing here to notice.
+        // It now walks the tree itself through `Census::inspect`, so an unreachable subtree under
+        // the process's own root refuses instead of quietly finding fewer tests.
+        use std::os::unix::fs::PermissionsExt as _;
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture changes cwd: run under just test for one process per test"
+        );
+        let root = std::env::temp_dir().join(format!("sutura-venue-test-names-{}", std::process::id()));
+        let _cleanup_before = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("crates/example/blocked")).expect("the scratch tree");
+        std::fs::write(root.join("flake.nix"), "{ }\n").expect("a root marker");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the other root marker");
+        std::fs::write(root.join("crates/example/a.rs"), "#[test]\nfn a_test() {}\n").expect("a readable file");
+        std::fs::set_permissions(root.join("crates/example/blocked"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000 on the subtree");
+
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&root).expect("enter the fixture");
+        let result = super::test_names();
+        std::env::set_current_dir(original).expect("restore before asserting");
+
+        std::fs::set_permissions(root.join("crates/example/blocked"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
+
+        assert!(
+            result.is_err(),
+            "an unreachable subtree must refuse rather than scan a smaller tree"
+        );
     }
 
     #[test]

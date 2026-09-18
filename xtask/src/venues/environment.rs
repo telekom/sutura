@@ -242,30 +242,34 @@ fn referenced(text: &str, kind: &str, prefixes: &[&str]) -> BTreeSet<String> {
 /// needs - and `crate::venues::acceptance` is what reads the job's shape. **What a reader does need
 /// is which file was not read at all**, because the answer this scan gives is over the tree and a
 /// dropped file makes it over a subset.
+///
+/// The read used to be a second loop over a plain `Vec<String>` the transitional door handed
+/// back - a narrowing written there had nothing to notice. [`repo::Census::inspect`] performs the
+/// read itself now; `found` is sorted afterwards to keep the deterministic order the old
+/// `paths.sort()` gave the joined text.
 fn workflow_text(root: &Path) -> (String, Vec<String>) {
     let mut unreadable = Vec::new();
+    let mut found: Vec<(String, String)> = Vec::new();
     // The walk's own finding lands in the channel this function already publishes, rather than
     // being dropped: an unreachable workflow directory makes the answer below over a subset.
-    let mut paths = match repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"])
-        .into_listing(repo::Unmigrated::Venues)
-    {
-        Ok((_root, found)) => found,
-        Err(why) => {
-            unreadable.push(why.describe());
-            Vec::new()
-        }
-    };
-    paths.sort();
-    let mut text = Vec::new();
-    for rel in &paths {
-        match std::fs::read_to_string(root.join(rel)) {
-            Ok(read) => text.push(read),
-            Err(error) => unreadable.push(format!(
-                "{rel} could not be read, so any name it reads was not compared: {error}"
-            )),
-        }
+    let census = repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"]);
+    if let Err(why) = census.inspect(&[], everything, |rel, bytes| match std::str::from_utf8(bytes) {
+        Ok(read) => found.push((rel.to_owned(), String::from(read))),
+        Err(_not_utf8) => unreadable.push(format!(
+            "{rel} could not be read, so any name it reads was not compared: stream did not contain valid UTF-8"
+        )),
+    }) {
+        unreadable.push(why.describe());
     }
+    found.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let text: Vec<String> = found.into_iter().map(|(_rel, text)| text).collect();
     (text.join("\n"), unreadable)
+}
+
+/// This gate's [`repo::Scope`]: `collect_files` already filtered to `yml`/`yaml`, so every subject
+/// the census offers is in scope.
+const fn everything(_rel: &str) -> bool {
+    true
 }
 
 #[cfg(test)]
