@@ -3583,12 +3583,16 @@ the same deliberate cost <code>super::AskArgs</code> already pays.</strong> An a
 this crate cannot import that shape; what keeps the two equal is review plus the fact that both
 are built from the one <code>sutura_domain::pinned::PinnedDefinitions</code> accessor set, which is where a
 missing field would show up as a missing call rather than as a silent divergence.</p>
-<p>Descriptive content only. <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context
-and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
-returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
+<p><strong>What narrows this listing is the CALLER's identity - <code>docs/adr/0028</code> - and nothing the caller
+SENDS.</strong> <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context and cannot be
+given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
+audiences (which <code>describe</code> reads and this constructor takes as a <code>ScopedView</code>) decide which
+metrics the listing holds, while the bundle underneath is the same one every answer is computed
+from. Invisible means absent, and it is the transport's job to build the view, never this type's.</p>
 <h3 id="use-describecatalogargs"><code>use DescribeCatalogArgs</code><a class="headerlink" href="#use-describecatalogargs" title="Permanent link">&para;</a></h3>
-<p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
-nothing to filter or select: send an empty object.</p>
+<p>This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
+to what the calling principal may see: there is nothing to filter or select, so send an empty
+object.</p>
 <h3 id="use-dimensioncontent"><code>use DimensionContent</code><a class="headerlink" href="#use-dimensioncontent" title="Permanent link">&para;</a></h3>
 <p>One dimension of one metric.</p>
 <h3 id="use-metriccontent"><code>use MetricContent</code><a class="headerlink" href="#use-metriccontent" title="Permanent link">&para;</a></h3>
@@ -3624,8 +3628,9 @@ puts a root doc comment into the schema's <code>description</code>, which is tex
 <h4 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
 </span></code></pre></div>
-<p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
-nothing to filter or select: send an empty object.</p>
+<p>This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
+to what the calling principal may see: there is nothing to filter or select, so send an empty
+object.</p>
 <h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h4>
@@ -3637,18 +3642,27 @@ the same deliberate cost <code>super::AskArgs</code> already pays.</strong> An a
 this crate cannot import that shape; what keeps the two equal is review plus the fact that both
 are built from the one <code>sutura_domain::pinned::PinnedDefinitions</code> accessor set, which is where a
 missing field would show up as a missing call rather than as a silent divergence.</p>
-<p>Descriptive content only. <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context
-and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
-returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
+<p><strong>What narrows this listing is the CALLER's identity - <code>docs/adr/0028</code> - and nothing the caller
+SENDS.</strong> <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context and cannot be
+given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
+audiences (which <code>describe</code> reads and this constructor takes as a <code>ScopedView</code>) decide which
+metrics the listing holds, while the bundle underneath is the same one every answer is computed
+from. Invisible means absent, and it is the transport's job to build the view, never this type's.</p>
 <h5 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>The reader's view of a pinned bundle, under the prose setting this deployment was started
-with.</p>
+<p>The reader's view of one pinned bundle, under the prose setting this deployment was started
+with and under the caller this read is for.</p>
 <p><strong>A named constructor rather than a <code>From</code>, and the argument is the reason.</strong> A conversion
 reachable without the setting fails OPEN - it ships the prose of a deployment that asked for
 none, which is the defect this function exists to close, and it is how that defect arrived
 here. A second argument cannot be left out.</p>
+<p><strong>The view is the second reason a <code>From</code> would be wrong, and it is the one <code>docs/adr/0028</code>
+exists to close.</strong> A caller may see only the metrics its granted audiences name; rendering
+from a bare <code>&amp;PinnedDefinitions</code> would hand every caller the whole bundle again, which is
+the defect this surface shipped until it took the view. <code>ScopedView</code> borrows the bundle, so
+this builder cannot reach <code>SemanticCatalog::load</code> - a per-caller filter stays off the
+request path as a property of the type, never a call the renderer happens to omit.</p>
 <p>It also asks nothing of the setting itself: <code>Carried::under</code> and <code>prose::notice</code> are the
 crate's only two readers of it, so this builder cannot fill a <code>description</code> or pick a notice
 without the operator's decision, and a third <code>CatalogProse</code> spelling is a compile error in
