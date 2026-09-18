@@ -561,6 +561,30 @@ mod tests {
             Ok(inspected) => panic!("an unreadable anchor produced a verdict: {}", inspected.verdict()),
         }
     }
+    #[test]
+    fn an_absent_anchor_stays_judged_against_because_the_read_discharges_it() {
+        // #878 F1: the two cells that look like they cover the discharge cannot tell its
+        // placement apart, because they differ on another axis too. An unreadable anchor returns
+        // via `Unreachable` before whatever `retain` did, and an empty `must_judge` leaves no
+        // anchor outstanding to discharge at all. The discriminating combination is an ABSENT
+        // anchor - split into its own arm at the read, deliberately not a refusal - with a
+        // NON-EMPTY `must_judge`, judged alongside a readable subject so we land after the
+        // `judged == 0` guard. `outstanding.retain` on the read path is what makes an absent
+        // (never read) anchor stay outstanding and refuse; moving that line out of the `Ok(bytes)`
+        // arm discharges it and turns the refusal into a green verdict.
+        let at = tree("f1-absent-anchor", &[("a.rs", "// fine\n")]);
+
+        let refused = census_in(&at.0, &["a.rs", "b.md"], &[]).inspect(&["b.md"], everything, |_, _| {});
+
+        match refused {
+            Err(Refusal::NotJudged { path, discovered }) => {
+                assert_eq!(path, "b.md");
+                assert_eq!(discovered, 2);
+            }
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(inspected) => panic!("an absent anchor was discharged: {}", inspected.verdict()),
+        }
+    }
 
     #[test]
     fn an_anchor_out_of_scope_can_never_be_discharged() {
