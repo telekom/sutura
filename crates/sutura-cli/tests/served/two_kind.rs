@@ -13,6 +13,18 @@
 //!
 //! **The identity limit, same as every other served cell in this suite.** Both sources are
 //! declared `shared-service-user`; this is single-player federation twice over, not leg 2.
+//!
+//! **The developer-machine limit, `github.com/telekom/sutura#877`.** This cell skips - green,
+//! silently, no `SKIP` in a bare `cargo nextest` summary - wherever `harness/two_kind.rs`'s
+//! `settings` finds no `Postgres` tier, which is every developer machine that has not run
+//! `just postgres-tier start` or set `SUTURA_DEV_REQUIRE_TIER=1`. A skip here proves nothing
+//! about `#861`'s regression (`kind::open_mixed` narrowing `Mixed::attached` back to `files`-only)
+//! over the real HTTP round trip. `just test`'s own `checks.nextest` sets that variable and fails
+//! closed, so CI is covered either way - but the call-site regression itself needs no tier at
+//! all: `crates/sutura-cli/src/serve/kind.rs`'s `trust_into_widens_attached_with_the_tables_its_
+//! slice_names` unit cell holds it on every machine, every run, because `open_mixed`'s `bigquery`
+//! and `postgres` branches both widen `attached` through that one function rather than each
+//! inlining its own copy.
 
 #[cfg(unix)]
 #[cfg(test)]
