@@ -42,6 +42,22 @@ fn resolve_push_base(marker: Option<&str>, before: &str) -> String {
     }
 }
 
+/// The classification base for a `merge_group` event: `HEAD`'s own parent.
+///
+/// The opposite correction from [`resolve_push_base`], for the opposite reason: that widens a
+/// push's range to cover what an EVICTED run missed, this NARROWS a `merge_group`'s range to the
+/// one entry under test. `HEADGREEN` batches several queue entries into ONE tested tree
+/// (`max_entries_to_build`), and each entry previews as ONE commit (this ruleset's own
+/// `merge_method: SQUASH`) stacked on the entries ahead of it - so `HEAD` in a `merge_group` job is
+/// always single-parent, and its parent is exactly "the state this entry is queued on top of
+/// right now", regardless of how many OTHER entries share the batch. Using the batch's own
+/// merge-base with the default branch instead walks back through every entry ahead of this one
+/// too, which is `github.com/telekom/sutura#876`: a claim-cell declaration or an added test from
+/// an EARLIER queued entry then reads as part of the diff under test.
+fn resolve_merge_group_base(head_parent: &str) -> String {
+    String::from(head_parent)
+}
+
 /// Is `candidate` inside the classification range that starts at `range_base`?
 ///
 /// `range_base..head` includes `candidate` exactly when the base is an ancestor-or-equal of the
@@ -56,7 +72,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{range_covers, resolve_push_base};
+    use super::{range_covers, resolve_merge_group_base, resolve_push_base};
 
     /// An ancestor-or-equal predicate over the synthetic chain a0 -> a1 -> b1 -> c1.
     fn chain_descendant(x: &str, y: &str) -> bool {
@@ -102,5 +118,53 @@ mod tests {
         // predecessor still classifies its own range; an empty marker is treated as absent.
         assert_eq!(resolve_push_base(None, "a0"), "a0");
         assert_eq!(resolve_push_base(Some(""), "a0"), "a0");
+    }
+
+    /// An ancestor-or-equal predicate over a synthetic THREE-ENTRY `merge_group` batch: main's tip
+    /// `m`, stacked with `e1`, `e2`, `e3` (the entry actually under test, tested WITH the two
+    /// entries ahead of it already applied - the shape `#876` measured).
+    fn batch_descendant(x: &str, y: &str) -> bool {
+        let rank = |c: &str| match c {
+            "m" => 0,
+            "e1" => 1,
+            "e2" => 2,
+            _ => 3, // e3
+        };
+        rank(y) <= rank(x)
+    }
+
+    /// `#876`'s required pair, over the same batch: the WRONG base (this branch's merge-base with
+    /// the default branch) covers every entry ahead of the one under test; the RIGHT base
+    /// (`HEAD`'s own parent) covers only that entry.
+    #[test]
+    fn the_merge_group_base_covers_only_the_entry_under_test() {
+        // THE DEFECT: `git merge-base origin/main HEAD` resolves to `m` here, so `m..e3` covers
+        // `e1` and `e2` too - an earlier queued entry's own commit reads as part of the diff
+        // under test.
+        assert!(
+            range_covers("m", "e1", &batch_descendant),
+            "the wrong base covers the entry ahead"
+        );
+        assert!(
+            range_covers("m", "e2", &batch_descendant),
+            "the wrong base covers the entry ahead"
+        );
+
+        // THE FIX: `HEAD`'s own parent is `e2`, so `resolve_merge_group_base` names it, and
+        // `e2..e3` covers NEITHER entry ahead - only `e3`, the one this job is testing.
+        let base = resolve_merge_group_base("e2");
+        assert_eq!(base, "e2");
+        assert!(
+            !range_covers(&base, "e1", &batch_descendant),
+            "the right base must not cover an entry two steps ahead"
+        );
+        assert!(
+            !range_covers(&base, "e2", &batch_descendant),
+            "the right base must not cover the entry immediately ahead - only e2..e3 remains"
+        );
+        assert!(
+            range_covers(&base, "e3", &batch_descendant),
+            "the entry actually under test must still be covered"
+        );
     }
 }

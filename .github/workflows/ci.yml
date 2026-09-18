@@ -366,6 +366,39 @@ jobs:
           if [ "$EVENT" = "pull_request" ]; then
             # The merge base, not the base tip: it is the whole PR even if the target moved.
             base="$(git merge-base "$PR_BASE" HEAD || true)"
+          elif [ "$EVENT" = "merge_group" ]; then
+            # HEADGREEN BATCHES SEVERAL QUEUE ENTRIES INTO ONE TESTED TREE
+            # (`max_entries_to_build`), and `git merge-base "origin/$DEFAULT_BRANCH" HEAD` walks
+            # back through EVERY entry ahead of this one in the batch, not just the one under
+            # test - a step below (`Test causality`) then reads every batched entry's commit
+            # messages and added tests as if they were one diff, so an earlier entry's own
+            # legitimate `Claim-Cell:` declaration collides with a later entry's ordinary,
+            # undeclared test, and a diff that added no test at all can be measured against
+            # ANOTHER entry's tests instead of its own - `github.com/telekom/sutura#876`,
+            # `#855`, `#874`.
+            #
+            # This ruleset's `merge_method: SQUASH` previews each queued entry as ONE commit
+            # stacked on the entries ahead of it, so HEAD is always single-parent and `HEAD^` is
+            # exactly "the state this entry is queued on top of right now" - `HEAD^..HEAD` is the
+            # one entry under test, whatever the batch size. `xtask validated_base`'s
+            # `resolve_merge_group_base` is a hand-synchronised MODEL of that intent, not a proof
+            # of this shell: it is the identity function over its argument, so the `%P` parse and
+            # the one-parent guard below have no mechanism checking them - only that `range_covers`
+            # answers correctly once the right ancestor is already in hand. FAIL OPEN rather than
+            # guess if the one-parent assumption ever stops holding: a HEAD with any parent count
+            # but 1 leaves `base` empty. That is NOT "everything will run" for every reader of
+            # `base` below - `Classify the change` treats it that way, but `Test causality`
+            # (this file, further down) skips SILENTLY on an empty base, so that step now carries
+            # its own `::warning` for exactly this case, matching `Find the CRAP baseline`'s
+            # existing precedent for the same empty-base shape.
+            parents="$(git show -s --format=%P HEAD)"
+            read -r parent extra <<< "$parents"
+            if [ -n "$parent" ] && [ -z "$extra" ]; then
+              base="$parent"
+            else
+              echo "merge_group HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
+              base=""
+            fi
           elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
             # THE DEFAULT-BRANCH BASE IS A DURABLE MARKER, NOT `github.event.before` (#561).
             # The per-ref concurrency group keeps only ONE pending run, so a third push EVICTS the
@@ -1164,6 +1197,7 @@ jobs:
             git checkout --detach "$PR_HEAD"
           fi
           if [ -z "$BASE" ]; then
+            echo "::warning title=Test causality::No usable base ref, so this step is green over NOTHING RUN - not a red-before-green verdict. Read the base-resolution step above for why none was resolved."
             echo "no usable base ref; causality not checked"
             exit 0
           fi

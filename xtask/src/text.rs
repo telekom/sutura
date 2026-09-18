@@ -172,11 +172,25 @@ fn is_vendored_prose(path: &str) -> bool {
 /// newline to one of those changes the input and can un-reproduce the crash it was committed
 /// to hold, so the gate that reformats it silently destroys the regression.
 ///
+/// `devco/claim-mutations/**` is the same property again, arrived at from `git apply`'s side.
+/// A claim-cell mutation is a unified diff, and a unified diff represents an unchanged BLANK
+/// line as one context line holding a single space and nothing else - which is exactly
+/// `Finding::TrailingWhitespace`, so an unfixed patch is refused by this gate outright. That
+/// alone is reason enough to exempt the prefix; `--fix` stripping the space is not merely
+/// cosmetic on top of it. When the bare-space line is the file's LAST line, [`fixed`]'s own
+/// trailing-blank-line collapse (`while out.ends_with("\n\n")`) deletes the line outright,
+/// so the hunk's body has one fewer line than its `@@` header declares and `git apply
+/// --check` refuses it as corrupt - verified, not assumed. A bare-space line stripped
+/// mid-hunk is milder: `git apply` tolerates the resulting markerless blank line as an
+/// implicit context line, so that shape alone would not have forced this exemption; the
+/// gate's own refusal is what does. A hand-authored patch is the whole point of the file, the
+/// same way a fuzz seed's bytes are the whole point of it.
+///
 /// WIDER than `VENDORED_PROSE`, which exempts only the em dash: this also exempts the
 /// whitespace and final-newline rules. Conflict markers and the size limit still apply,
 /// because those are about a file being well-formed rather than about its formatting - a bad
 /// merge in a vendored tree is still a bad merge, and an enormous blob is still a problem.
-const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/"];
+const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/", "devco/claim-mutations/"];
 
 /// Is this path byte-exact, exempt from the formatting rules?
 fn is_byte_exact(path: &str) -> bool {
@@ -556,6 +570,40 @@ mod tests {
                 .iter()
                 .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
             "conflict markers are still reported in vendored source"
+        );
+    }
+
+    #[test]
+    fn a_claim_mutation_patch_keeps_its_bare_space_context_line() {
+        // `devco/claim-mutations/**` holds a unified diff `git apply` depends on byte for
+        // byte. A context line quoting an unchanged blank line is one leading space with
+        // nothing after it - exactly `Finding::TrailingWhitespace` - so an unfixed patch is
+        // refused by this gate outright, whatever line the space sits on.
+        let claim_mutation = "devco/claim-mutations/some_claim_cell.patch";
+        let patch = "@@ -1,3 +1,3 @@\n context\n \n-old\n+new\n";
+        assert_eq!(inspect(claim_mutation, patch), vec![], "the diff's own bytes are the point");
+        assert_eq!(fixed(claim_mutation, patch), patch, "`--fix` returns the patch unchanged");
+        assert!(!inspect(ANY, patch).is_empty(), "our own files are still checked");
+
+        // The other half, and the reason the exemption is narrow: a bad merge is a bad merge
+        // wherever it lands. This is about formatting, not about being well-formed.
+        let conflicted = "<<<<<<< HEAD\nold\n>>>>>>> theirs\n";
+        assert!(
+            inspect(claim_mutation, conflicted)
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
+            "conflict markers are still reported under devco/claim-mutations/"
+        );
+
+        // The trailing slash anchors the prefix to the directory, not to a string that
+        // merely starts with it: a sibling directory and a same-named file both stay covered.
+        assert!(
+            !inspect("devco/claim-mutations-scratch/x.patch", patch).is_empty(),
+            "a sibling directory sharing the prefix is not exempt"
+        );
+        assert!(
+            !inspect("devco/claim-mutations.md", patch).is_empty(),
+            "a same-named file is not exempt"
         );
     }
 
