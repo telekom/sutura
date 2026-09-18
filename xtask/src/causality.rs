@@ -543,10 +543,30 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,
-        } => report_not_separable(&inseparable, &Coverage::of(&[], &files, &working_tree), &build_inputs),
+        } => {
+            // A STRING CHECK ONLY: this reads the commit messages already in hand to say whether
+            // a `Claim-Cell:` trailer is declared, and builds nothing. This arm returns before
+            // `claim::Claim::of` is otherwise reached (below, inside `Plan::Separable`), so a
+            // declaration made on an inseparable diff would otherwise go unmentioned.
+            let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
+            report_not_separable(
+                &inseparable,
+                &Coverage::of(&[], &files, &working_tree),
+                &build_inputs,
+                claim_declared,
+            )
+        }
         Plan::Separable(separable) => {
             if separable.revert.is_empty() {
-                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree), &separable.build_inputs);
+                // Same string check as the arm above: an incomplete claim declaration (trailer
+                // committed, patch not) has an empty `revert` and lands here rather than at
+                // `Plan::NotSeparable`, so it needs the same unconsulted-declaration line.
+                let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
+                return report_nothing_to_revert(
+                    &Coverage::of(&[], &files, &working_tree),
+                    &separable.build_inputs,
+                    claim_declared,
+                );
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {
