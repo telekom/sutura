@@ -31,6 +31,8 @@ fn wif() -> crate::raw::RawWorkloadIdentity {
         ),
         scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
         impersonate: std::collections::BTreeMap::new(),
+        expected_issuer: None,
+        expected_audience: None,
     }
 }
 

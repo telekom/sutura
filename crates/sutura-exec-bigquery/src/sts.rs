@@ -165,6 +165,13 @@ impl WorkloadIdentity {
     ///
     /// `None` is not a failure - it is the bare exchange, which declares no link and therefore
     /// checks nothing. This is the same "absent is a value" shape `impersonate` uses.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "reading the issuer/audience claims of the document leg 1 ALREADY verified needs \
+                  its bytes once; the token is the subject-slots OWN verified document, not a \
+                  process secret, and it is decoded into nothing but the two pool claims before \
+                  the exchange - a bounded, purpose-named exposure like every other in this crate"
+    )]
     #[must_use]
     pub fn assertion_matches_expectations(&self, assertion: &Secret) -> bool {
         let (Some(expected_issuer), Some(expected_audience)) = (self.expected_issuer(), self.expected_audience()) else {

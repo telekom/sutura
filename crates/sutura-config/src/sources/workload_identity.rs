@@ -457,6 +457,7 @@ mod tests {
         assert!(matches!(err, super::InvalidWorkloadIdentity::ImpersonationSubject { .. }));
     }
 
+    #[test]
     fn declared_pool_expectations_parse_and_are_read_back() {
         // telekom/sutura#817's config seam: a source may declare the issuer and STS audience its
         // pool trusts. Absent keeps the bare exchange; present, they surface for the broker to link
@@ -479,6 +480,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn a_declared_pool_issuer_that_is_not_https_is_refused() {
         // The pool issuer is an absolute `https` URI, parsed with the inbound `IssuerUrl` rules. A
         // value that is not one is refused at declaration, never accepted and then surprising.

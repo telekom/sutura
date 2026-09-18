@@ -11,7 +11,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
 
-use base64::Engine;
+use base64::Engine as _;
 
 use super::{
     Duration, ExchangeUnusable, ImpersonateAsAccount, NoImpersonation, NonZeroU64, StsCredential, StsExchange, UnixClock,

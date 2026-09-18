@@ -222,6 +222,7 @@ nav:
           - Caching an exchanged credential: adr/0031-caching-an-exchanged-credential.md
           - The iamcredentials impersonation hop: adr/0032-the-iamcredentials-impersonation-hop.md
           - A closed enum over the shipped warehouse kinds: adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
+          - The twin-root link between leg 1 and the pool: adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md
