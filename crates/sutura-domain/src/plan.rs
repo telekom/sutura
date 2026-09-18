@@ -42,7 +42,7 @@ pub use crate::plan::federated::{
     AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
 pub use crate::plan::label::ResultLabel;
-pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
+pub use crate::plan::leg::{Executable, FactTop, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// The most rows any plan may return.
@@ -66,6 +66,48 @@ pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 /// honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 /// the caller's move is to narrow the range or drop a dimension.
 pub const MAX_ROWS: u32 = 10_000;
+
+/// How many rows a `top` answer is certified over, before it is refused.
+///
+/// **A configured value, defaulting to [`MAX_ROWS`] - `github.com/telekom/sutura#777`.** Unlike
+/// `MAX_ROWS` itself, which stays the compiled constant for an ordinary question, this is the
+/// ceiling [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge) and
+/// [`RefusalReason::TopOverUncertifiedRows`](crate::query::RefusalReason::TopOverUncertifiedRows)
+/// name to a caller for a `top` question - which is the one place a message telling the caller to
+/// *"ask your operator to raise this"* has to be true rather than aspirational. A deployment
+/// configures one in its settings; absent, [`Self::DEFAULT`] is what every deployment already got.
+///
+/// **The limit, next to the claim.** Nothing here makes the ORDINARY row cap configurable - a
+/// question with no `top` is still refused against the compiled [`MAX_ROWS`]. Only the two `top`
+/// refusals this type feeds read a configured value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowCeiling(u32);
+
+/// Why a row ceiling did not parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidRowCeiling {
+    /// A zero ceiling reads as "unlimited" to whoever wrote it, not "refuse every `top`".
+    #[error("a row ceiling of zero would refuse every `top` rather than mean unlimited")]
+    Zero,
+}
+
+impl RowCeiling {
+    /// [`MAX_ROWS`], restated as a ceiling - what every deployment had before this type existed.
+    pub const DEFAULT: Self = Self(MAX_ROWS);
+
+    /// Parses an operator-chosen ceiling, refusing zero for [`InvalidRowCeiling::Zero`]'s reason.
+    pub const fn parse(rows: u32) -> Result<Self, InvalidRowCeiling> {
+        if rows == 0 {
+            return Err(InvalidRowCeiling::Zero);
+        }
+        Ok(Self(rows))
+    }
+
+    #[inline]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
 
 /// A column, qualified by the table it is read from.
 ///

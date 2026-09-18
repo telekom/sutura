@@ -148,7 +148,7 @@ pub enum CompileFailure {
 /// use sutura_semantic::{BundleInconsistent, compile};
 ///
 /// fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
-///     compile(query, &ScopedView::everything(pinned)).err()
+///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
 /// }
 /// ```
 ///
@@ -161,11 +161,15 @@ pub enum CompileFailure {
 /// use sutura_semantic::{CompileFailure, compile};
 ///
 /// fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
-///     compile(query, &ScopedView::everything(pinned)).err()
+///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
 /// }
 /// ```
-pub fn compile(query: &Query, view: &ScopedView<'_>) -> Result<Compiled, CompileFailure> {
-    let resolution = match resolve::resolve(query, view) {
+pub fn compile(
+    query: &Query,
+    view: &ScopedView<'_>,
+    row_ceiling: sutura_domain::plan::RowCeiling,
+) -> Result<Compiled, CompileFailure> {
+    let resolution = match resolve::resolve(query, view, row_ceiling) {
         Ok(resolution) => resolution,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),

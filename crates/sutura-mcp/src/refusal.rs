@@ -81,8 +81,8 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             ResultBound::Rows { limit } => format!(
                 "the answer would have been more than {limit} rows; ask a narrower question, or add \
                  `top: {{ n, by, direction }}` to ask for exactly the rows you want ranked by the \
-                 metric or the period - {limit} is this build's own compiled bound and not one you \
-                 or the caller can raise; report it to whoever operates this deployment if it is \
+                 metric or the period - {limit} is this deployment's own bound and not one you or \
+                 the caller can raise; report it to whoever operates this deployment if it is \
                  consistently too small"
             ),
             // No figure: the bound is the data system's and this deployment is not told it, so
@@ -206,14 +206,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              window, this question's own estimate is over the ceiling by itself: waiting will never \
              help that case, and narrowing the question is the only remedy."
         ),
-        // Written for an agent: `top` itself is not what is missing, the combiner above the two
-        // legs is - so the sentence says what has no capability yet rather than what the question
-        // got wrong.
-        RefusalReason::TopNotFederated => String::from(
-            "this question asks for an ordered, bounded result and spans two data systems; `top` \
-             is not yet applied above the join that combines them. Retrying it unchanged will be \
-             refused again: ask the same metric without the dimension on the second data system, \
-             where `top` still applies.",
+        // Written for an agent: the combined set was cut before it could be ranked, so the sentence
+        // says what happened to the data rather than implying the question was malformed - and it
+        // names who can move the number, because narrowing is not always the caller's remedy here.
+        RefusalReason::TopOverUncertifiedRows { ceiling } => format!(
+            "this question asks for a ranked, bounded result over two data systems, and the \
+             combined set before ranking already reached this deployment's ceiling of {ceiling} \
+             rows; the top rows of that set are not the top rows of the dimension. Retrying it \
+             unchanged will be refused again: narrow the range, add a filter, or report it to \
+             whoever operates this deployment, who can raise this ceiling."
         ),
     };
     (code, detail)
@@ -293,7 +294,7 @@ mod tests {
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
-            RefusalReason::TopNotFederated,
+            RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
         ]
     }
 
@@ -371,11 +372,11 @@ mod tests {
     }
 
     #[test]
-    fn a_federated_top_names_the_missing_capability_and_the_narrower_question() {
-        let (code, detail) = refused(&RefusalReason::TopNotFederated);
-        assert_eq!(code, "top_not_federated");
-        assert!(detail.contains("top"), "{detail}");
-        assert!(detail.contains("second data system"), "{detail}");
+    fn a_federated_top_over_the_ceiling_names_the_bound_and_the_operator() {
+        let (code, detail) = refused(&RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 });
+        assert_eq!(code, "top_over_uncertified_rows");
+        assert!(detail.contains("10000"), "{detail}");
+        assert!(detail.contains("operates this deployment"), "{detail}");
     }
 
     #[test]

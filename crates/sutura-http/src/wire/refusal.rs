@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 6 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 7 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -378,15 +378,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  is otherwise about spend already made rather than about this question's shape"
             ),
         ),
-        // 409, with the rest of the federation family: this question spans two data systems and
-        // `top` is not yet applied above the combiner that joins them - a capability gap, not a
-        // data system being down, and asking again unchanged returns this same refusal.
-        RefusalReason::TopNotFederated => (
-            StatusCode::CONFLICT,
-            String::from(
-                "this question asks for an ordered, bounded result and spans two data systems; \
-                 `top` is not yet applied above the join that combines them. Ask the same metric \
-                 without the dimension on the second data system, where `top` still applies",
+        // 422, `ResourcesExhausted`'s reason applied to a row ceiling rather than a byte one: the
+        // number that fired is one an operator wrote down, retrying unchanged returns this same
+        // refusal, and the remedy is either narrowing the question or the operator raising the
+        // ceiling - never a retry against a bound that returns the same reply.
+        RefusalReason::TopOverUncertifiedRows { ceiling } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "this question asks for a ranked, bounded result over two data systems, and the \
+                 combined set before ranking already reached this deployment's ceiling of {ceiling} \
+                 rows; the top rows of that set are not the top rows of the dimension. Narrow the \
+                 range, add a filter, or ask the deployment's operator to raise this ceiling"
             ),
         ),
     };
@@ -431,7 +433,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::LegsDecideIdentityDifferently { .. }
         | RefusalReason::DeadlineExceeded { .. }
-        | RefusalReason::TopNotFederated => None,
+        | RefusalReason::TopOverUncertifiedRows { .. } => None,
     }
 }
 
@@ -449,8 +451,8 @@ fn too_much_data(bound: ResultBound) -> String {
             "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
              narrow the period or group by fewer dimensions and ask again, or add a `top` clause to \
              ask for exactly the rows you want ranked by the metric or the period. {limit} is this \
-             build's own compiled bound and not one this request can raise; if it is consistently \
-             too small, that is worth reporting to whoever operates this deployment"
+             deployment's own bound and not one this request can raise; if it is consistently too \
+             small, that is worth reporting to whoever operates this deployment"
         ),
         // No figure, because there is none this deployment was told - see `ResultBound::Volume`,
         // which says at length why inventing one would be worse than leaving it out. So the sentence
@@ -644,7 +646,11 @@ mod tests {
                 StatusCode::TOO_MANY_REQUESTS,
                 "budget_exhausted",
             ),
-            (RefusalReason::TopNotFederated, StatusCode::CONFLICT, "top_not_federated"),
+            (
+                RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "top_over_uncertified_rows",
+            ),
         ]
     }
 
@@ -692,7 +698,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 6 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 7 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

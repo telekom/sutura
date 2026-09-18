@@ -90,9 +90,9 @@ Every reason you can be given, and what to do about each:
   there is no number to read, so narrow by a visible step rather than computing one. If it names the
   row cap, `top` on the question is the other move: rank by the measure or the period, ask for the
   number of rows you actually want, and this deployment answers exactly that many instead of
-  refusing the unbounded question - the cap is not something you or the caller can raise from here,
-  it is this build's own compiled bound, so report to whoever operates this deployment if it is
-  consistently too small rather than retrying past it.
+  refusing the unbounded question - the cap is this deployment's own bound, and whoever operates it
+  is who can say whether it moves, so report it there if it is consistently too small rather than
+  retrying past it.
 - **time_range_too_long** - the period asked about is longer than one question may span.
   Split it into consecutive shorter periods and ask about each. The refusal carries both day counts,
   so the split can be computed rather than guessed.
@@ -136,11 +136,13 @@ Every reason you can be given, and what to do about each:
   same way every time.
   Do not retry it unchanged. Ask the same metric without the dimension on the second data system, or
   report it to a person: it is a fact about the data, not about how you asked.
-- **top_not_federated** - the question asks for an ordered, bounded result AND spans two data
-  systems - `top` is not yet applied above the combiner that joins them.
-  Ask the same metric without the dimension that sits on the second data system, and `top` still
-  bounds the answer there. Retrying the two-source question unchanged returns the same refusal: this
-  is a capability this deployment does not have yet, not an outage.
+- **top_over_uncertified_rows** - the question spans two data systems and asks for a ranked, bounded
+  result, but the combined set before ranking already reached this deployment's row ceiling - so the
+  top rows of that set would not be the top rows of the dimension.
+  Narrow the period, add a filter, or ask for a dimension that sits on the metric's own data system
+  instead of the second one - that shape ranks exactly, before the combine, and never reaches this
+  ceiling. Retrying the same question unchanged returns the same refusal: this is a configured
+  bound, not a passing outage, and only whoever operates this deployment can raise it.
 - **legs_decide_identity_differently** - the question spans two data systems that decide who is
   asking differently, so one answer would add rows read under one identity to rows read under
   another - a total neither identity is entitled to.

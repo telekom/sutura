@@ -80,6 +80,7 @@ use sutura_app::Validated;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
+use sutura_domain::plan::RowCeiling;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{RowSet, Value};
@@ -98,6 +99,10 @@ mod corpus;
 // is what causality's own "held: … (carries its own tests)" rule keys on.
 #[path = "federated/two_kinds.rs"]
 mod two_kinds;
+// Case 1's own differential cell - see the module's own header for why it is not a
+// `DERIVED_QUESTIONS` entry. `#[path]` for the reason every sibling above gives.
+#[path = "federated/topk.rs"]
+mod topk;
 
 use two_kinds::two_kinds;
 
@@ -135,7 +140,7 @@ fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) -> Compiled
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
-    compile(&query, &ScopedView::everything(pinned)).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(pinned), RowCeiling::DEFAULT).expect("the derived catalog is consistent")
 }
 
 #[test]
@@ -198,33 +203,36 @@ fn two_relationships_on_one_remote_source_have_no_single_federation_link() {
     assert_eq!(source.as_str(), LOOKUP_SOURCE);
 }
 
-/// `github.com/telekom/sutura#777`'s honest scope: `top` is refused above a federated plan, and
-/// the same question single-source still plans - so the refusal is about the SHAPE spanning two
-/// sources, not about `top` itself.
+/// `github.com/telekom/sutura#777`'s case 2. Case 1 has no cell here: federating at all needs a
+/// remote-reaching dimension, and the splitter's only two ways there are a remote key
+/// (`LegSide::Lookup`, violating case 1) or a remote filter (forcing INNER, case 2's own "or") -
+/// so no real question satisfies case 1's conjunction; `topk` builds that shape directly instead.
+/// Here `region` is remote, so the rank waits for the combine rather than refusing outright.
 #[test]
-fn top_on_a_federated_plan_is_refused_and_the_mono_question_still_plans() {
+fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     let corpus = derived();
     let one = bundle(&corpus.one_source);
     let two = bundle(&corpus.two_source);
-    let asked: Query = serde_norway::from_str(
+    let case_2: Query = serde_norway::from_str(
         "metric: recurring_revenue\ngrain: month\nrange: { start: 2026-07-01, end: 2026-08-01 }\n\
          dimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
     )
     .expect("a top question is a question");
 
-    let mono = compile(&asked, &ScopedView::everything(&one)).expect("the mono question compiles");
-    assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
-
-    let federated = compile(&asked, &ScopedView::everything(&two)).expect("a refusal is not a compile error");
+    let Compiled::Federated { plan: case_2_plan } =
+        compile(&case_2, &ScopedView::everything(&two), RowCeiling::DEFAULT).expect("case 2 compiles")
+    else {
+        panic!("a region question over the two-source catalog must federate");
+    };
     assert!(
-        matches!(
-            federated,
-            Compiled::Refused {
-                reason: RefusalReason::TopNotFederated
-            }
-        ),
-        "expected TopNotFederated, got {federated:?}"
+        case_2_plan.fact().fact_top().is_none(),
+        "case 2 pushes nothing to the fact leg"
     );
+    assert!(case_2_plan.top().is_some(), "case 2 ranks the combine instead");
+
+    // `top` does not narrow what the mono side can do: it still plans whole on one source.
+    let mono = compile(&case_2, &ScopedView::everything(&one), RowCeiling::DEFAULT).expect("the mono question compiles");
+    assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
 }
 
 /// The one-source side: the ENGINE, over every table the bundle names.
@@ -389,6 +397,7 @@ where
         BUDGET,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
+        RowCeiling::DEFAULT,
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),
@@ -658,6 +667,9 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
         "two-source-a-distinct-value-spanning-join-keys",
         Reached::RefusedAsUnfederatable,
     ),
+    // `github.com/telekom/sutura#777`'s case 2 - `corpus::DERIVED_QUESTIONS` says why case 1 has
+    // no entry here.
+    ("two-source-a-case-2-combine-then-rank-top", Reached::Agreed),
 ];
 
 /// What the two answers disagree about: nothing, the content, or the order.
@@ -922,10 +934,10 @@ enum Split {
 
 /// Whether this question is a two-source question, decided by compiling it against both bundles.
 fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &PinnedDefinitions) -> Split {
-    let here =
-        compile(query, &ScopedView::everything(one)).unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
-    let there =
-        compile(query, &ScopedView::everything(two)).unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
+    let here = compile(query, &ScopedView::everything(one), RowCeiling::DEFAULT)
+        .unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
+    let there = compile(query, &ScopedView::everything(two), RowCeiling::DEFAULT)
+        .unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
     match (here, there) {
         (Compiled::Planned { .. }, Compiled::Federated { .. }) => Split::Yes(Federated::Split),
         (Compiled::Planned { .. }, Compiled::Refused { reason }) => Split::Yes(Federated::Refused(reason)),

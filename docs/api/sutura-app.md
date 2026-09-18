@@ -163,7 +163,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger, row_ceiling: sutura_domain::plan::RowCeiling) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -225,57 +225,6 @@ grant and no verification at all must not read alike: `Subject::TheDeploymentIts
 explicit single-player posture the ADR's surface table names - every non-verified surface reaches
 this value and always has - while `Subject::Verified` is a caller this deployment
 authenticated, whose mapped audiences decide what is visible even when that set is empty.
-
-## `fn verify_anchors`
-
-```rust
-pub fn verify_anchors<W>(pinned: &sutura_domain::pinned::PinnedDefinitions, warehouses: &Warehouses<W>) -> sutura_domain::pinned::AnchorReport
-```
-
-Re-executes every declared anchor and reports what each produced.
-
-Returns a report rather than a `Result`, because "this one metric no longer computes its number"
-and "the data system is down" are both outcomes worth recording per metric. Collapsing either into
-a single error would lose which metric, and the whole point is to name it.
-
-## `fn sources`
-
-```rust
-pub fn sources(pinned: &sutura_domain::pinned::PinnedDefinitions) -> Vec<&sutura_domain::model::SourceName>
-```
-
-The data systems a bundle reads from.
-
-Exposed because a composition root has to decide which adapters to open before it can answer
-anything, and reading it off the bundle beats being told twice.
-
-## `fn source_of`
-
-```rust
-pub fn source_of<'bundle>(pinned: &'bundle sutura_domain::pinned::PinnedDefinitions, metric: &sutura_domain::model::MetricName) -> Option<&'bundle sutura_domain::model::SourceName>
-```
-
-The data system one metric's own model sits on.
-
-Exposed for the composition root's anchor check: an anchor is asked with no dimensions, so it
-resolves to the metric's own model and therefore to that model's source - which is the source whose
-declared verification identity would have to run it.
-
-**Narrower than "every source this metric's plan could read", deliberately.** A question WITH
-dimensions can reach a joined model, and the plan stage refuses one that spans two sources - so for
-a plan that compiles at all this is the only source there is. What it is not is a general answer for
-a federated plan, and it stops being the right function the moment one exists.
-
-## `fn grains_coarsest_first`
-
-```rust
-pub fn grains_coarsest_first(pinned: &sutura_domain::pinned::PinnedDefinitions, metric: &sutura_domain::model::MetricName) -> Vec<sutura_domain::model::Grain>
-```
-
-The grains a metric declares, coarsest first.
-
-A small helper the composition root uses to describe a metric, kept here so the ordering is the
-same one `verify_anchors` picks a grain by.
 
 ## `use SourceAlreadyOpen`
 
@@ -540,6 +489,41 @@ that statement* - not an infrastructure outage this deployment must page for. Wh
 `Err` is only what happens before the statement ever reaches the data system: the broker not
 answering, or credentials that do not fit.
 
+## `use grains_coarsest_first`
+
+The grains a metric declares, coarsest first.
+
+A small helper the composition root uses to describe a metric, kept here so the ordering is the
+same one `verify_anchors` picks a grain by.
+
+## `use source_of`
+
+The data system one metric's own model sits on.
+
+Exposed for the composition root's anchor check: an anchor is asked with no dimensions, so it
+resolves to the metric's own model and therefore to that model's source - which is the source whose
+declared verification identity would have to run it.
+
+**Narrower than "every source this metric's plan could read", deliberately.** A question WITH
+dimensions can reach a joined model, and the plan stage refuses one that spans two sources - so for
+a plan that compiles at all this is the only source there is. What it is not is a general answer for
+a federated plan, and it stops being the right function the moment one exists.
+
+## `use sources`
+
+The data systems a bundle reads from.
+
+Exposed because a composition root has to decide which adapters to open before it can answer
+anything, and reading it off the bundle beats being told twice.
+
+## `use verify_anchors`
+
+Re-executes every declared anchor and reports what each produced.
+
+Returns a report rather than a `Result`, because "this one metric no longer computes its number"
+and "the data system is down" are both outcomes worth recording per metric. Collapsing either into
+a single error would lose which metric, and the whole point is to name it.
+
 ## Module `surface`
 
 What a transport needs from this crate, with the ports' generic parameters erased.
@@ -786,6 +770,15 @@ validates is the bundle this serves" true for N sources rather than for one.
 
 `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.
+
+```rust
+pub const fn with_row_ceiling(self, row_ceiling: RowCeiling) -> Self
+```
+
+Replaces the `top` row ceiling, for a composition root that read one out of its settings -
+`github.com/telekom/sutura#777`. `Self::with_spend_ledger`'s reason applies unchanged:
+every existing caller of `Self::start` and `Self::start_composed` keeps `RowCeiling::DEFAULT`,
+which is `sutura_domain::plan::MAX_ROWS` and the behaviour every deployment already had.
 
 ```rust
 pub fn with_spend_ledger(self, spend_ledger: SpendLedger) -> Self

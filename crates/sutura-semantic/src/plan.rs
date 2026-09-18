@@ -37,7 +37,7 @@ use sutura_domain::plan::{
     PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
     plan_required_filter,
 };
-use sutura_domain::query::RefusalReason;
+use sutura_domain::query::{RefusalReason, Top};
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter};
@@ -145,15 +145,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
 
     match remote.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1 => {
-            // Honest scope, `github.com/telekom/sutura#777`: the combiner orders and limits AFTER
-            // the join, above the port, and carries no `top` field on either leg. Refused here
-            // rather than reaching a splitter that would silently drop it.
-            if resolution.top.is_some() {
-                return Err(PlanError::Refused(RefusalReason::TopNotFederated));
-            }
-            Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?)))
-        }
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
         // Two are served; three or more refused, because each source is a separate identity.
         _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
@@ -422,24 +414,6 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
             table: ambiguous.alias().clone(),
         })?;
 
-    let fact = sutura_domain::plan::LegPlan::Fact {
-        source: model.source().clone(),
-        metric: metric.name().clone(),
-        tables: fact_tables,
-        bucket: bucket.clone(),
-        keys: fact_keys,
-        terms,
-        bindings: fact_bindings,
-        range: resolution.range,
-    };
-
-    let lookup = sutura_domain::plan::LegPlan::Lookup {
-        source: remote_source.clone(),
-        table: remote_path.clone(),
-        keys: lookup_keys,
-        bindings: lookup_bindings,
-    };
-
     // The answer's group-by keys in question order, each naming which leg's result it is read from.
     // Question order is the mono path's column order too, so a federated answer aligns with a
     // single-source one (and with a future federated differential that reads rows by position).
@@ -456,26 +430,93 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         })
         .collect();
 
-    FederatedPlan::new(
+    // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it does.
+    // `docs/adr/0009` decides the direction.
+    let include_unmatched = remote_filters.is_empty();
+
+    let (case_1_pushdown, fact_top) = case_1(resolution.top, include_unmatched, &answer_keys, &federation);
+
+    let fact = sutura_domain::plan::LegPlan::Fact {
+        source: model.source().clone(),
+        metric: metric.name().clone(),
+        tables: fact_tables,
+        bucket: bucket.clone(),
+        keys: fact_keys,
+        terms,
+        bindings: fact_bindings,
+        range: resolution.range,
+        top: fact_top,
+    };
+
+    let lookup = sutura_domain::plan::LegPlan::Lookup {
+        source: remote_source.clone(),
+        table: remote_path.clone(),
+        keys: lookup_keys,
+        bindings: lookup_bindings,
+    };
+
+    let plan = FederatedPlan::new(
         metric.name().clone(),
         ResultLabel::measure(metric.name()),
         bucket,
         fact,
         lookup,
-        // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it
-        // does. `docs/adr/0009` decides the direction.
-        remote_filters.is_empty(),
+        include_unmatched,
         federation,
         answer_keys,
-    )
+    )?;
+    // Case 2: a `top` that could not be pushed to the fact leg still ranks the answer, just above
+    // the combine instead of inside a leg's own statement.
+    //
     // **The cause is no longer erased, and this is the whole of `telekom/sutura#338`.** It used to
     // become `RefusalReason::FederationNotExecutable`, which is ALSO what a build whose adapter does
     // not declare `EXECUTES_LEGS` gets - so a plan this workspace could not assemble read exactly
-    // like the deployment simply not being able to execute a leg. It leaves as an error now, keeping
-    // the typed cause, because a defect in our own wiring is not a governance answer and a caller
-    // must not be handed one it could retry. `PlanError` carries what a reader needs, including
-    // which variants are reachable from here today, and that is none of them.
-    .map_err(PlanError::NotAssembled)
+    // like the deployment simply not being able to execute a leg. `FederatedPlan::new`'s `?` above
+    // leaves it as `PlanError::NotAssembled` now, keeping the typed cause, because a defect in our
+    // own wiring is not a governance answer and a caller must not be handed one it could retry.
+    Ok(match resolution.top {
+        Some(top) if !case_1_pushdown => plan.with_top(top),
+        _ => plan,
+    })
+}
+
+/// `github.com/telekom/sutura#777`'s two-case rule, decided mechanically from facts the plan
+/// already carries: every answer key on the fact leg, and a LEFT join. Both together mean the
+/// fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop one, and
+/// no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own rows and
+/// keeping `top.n()` of them is exact. Anything else (a lookup-side key, or an INNER join) has to
+/// rank above the combine instead, which the caller's own `FederatedPlan::with_top` carries.
+///
+/// Returns whether case 1 applies, and the [`FactTop`](sutura_domain::plan::FactTop) to attach to
+/// the fact leg if so - `None` otherwise, whether because there is no `top` at all or because
+/// case 2 applies instead.
+///
+/// **Measured unreachable from any question `plan()` actually dispatches here for.** Reaching this
+/// function at all requires a remote dimension among `resolution.keys` OR `resolution.filters`
+/// (`every_dimension`, this module) - that is `plan()`'s own Mono/Federated split. Case 1 requires
+/// the opposite of both: `include_unmatched` needs zero remote filters, and "every answer key is
+/// `Fact`" needs zero remote group-by keys. The two conditions cannot both hold, so this always
+/// returns `(false, None)` in production; only a constructed `FederatedPlan` in a test reaches the
+/// orchestration this feeds. `github.com/telekom/sutura#890` is the trace and the two ways to close
+/// it - cut the pushdown, or change what this is computed from.
+fn case_1(
+    top: Option<Top>,
+    include_unmatched: bool,
+    answer_keys: &[sutura_domain::plan::AnswerKey],
+    federation: &Federation,
+) -> (bool, Option<sutura_domain::plan::FactTop>) {
+    let case_1_pushdown = top.is_some()
+        && include_unmatched
+        && answer_keys
+            .iter()
+            .all(|key| matches!(key.side(), sutura_domain::plan::LegSide::Fact));
+    let fact_top = if case_1_pushdown {
+        // `.expect`: guarded by `case_1_pushdown`'s own `top.is_some()` above.
+        top.map(|top| sutura_domain::plan::FactTop::new(top, federation.ranking()))
+    } else {
+        None
+    };
+    (case_1_pushdown, fact_top)
 }
 
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.

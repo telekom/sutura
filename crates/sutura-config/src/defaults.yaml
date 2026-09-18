@@ -289,3 +289,10 @@ prompt:
 #   per_replica_spend_ceiling:
 #     bytes: 1073741824
 #     window_seconds: 3600
+#
+# `top_row_ceiling` is also absent by default, which resolves to `RowCeiling::DEFAULT`
+# (`sutura_domain::plan::MAX_ROWS`) - every deployment's behaviour before this key existed. It
+# bounds only the two `top` refusals (`sutura_domain#777`); the ordinary row cap stays compiled.
+#
+# governance:
+#   top_row_ceiling: 10000

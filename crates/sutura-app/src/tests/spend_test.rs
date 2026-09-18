@@ -29,6 +29,7 @@ fn a_configured_ceiling_refuses_when_the_dry_runs_own_price_exceeds_it() {
         1 << 30,
         test_deadline(),
         &ledger,
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a refusal is an Ok, so a client cannot retry it into an answer")
     .into_outcome();
@@ -75,6 +76,7 @@ fn an_adapter_that_did_not_price_is_never_refused_for_spend() {
         1 << 30,
         test_deadline(),
         &ledger,
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("an answer is an Ok")
     .into_outcome();
@@ -109,6 +111,7 @@ fn two_subjects_are_isolated_through_answer_not_only_in_the_ledger() {
             1 << 30,
             test_deadline(),
             &ledger,
+            sutura_domain::plan::RowCeiling::DEFAULT,
         )
         .expect("an Ok either way")
         .into_outcome()
@@ -157,6 +160,7 @@ fn an_agent_acting_for_a_subject_spends_that_subjects_own_budget() {
             1 << 30,
             test_deadline(),
             &ledger,
+            sutura_domain::plan::RowCeiling::DEFAULT,
         )
         .expect("an Ok either way")
         .into_outcome()

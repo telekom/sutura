@@ -894,6 +894,11 @@ fn the_whole_settings_tree_can_be_logged_without_printing_the_token() {
 #[cfg(test)]
 mod governance;
 
+/// A written `governance.top_row_ceiling` reaching `Settings::row_ceiling()`, its absent-key
+/// default, and its zero refusal. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod row_ceiling;
+
 /// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
 

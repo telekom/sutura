@@ -44,6 +44,7 @@ where
         1 << 30,
         deadline(),
         no_budget,
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
 }
 

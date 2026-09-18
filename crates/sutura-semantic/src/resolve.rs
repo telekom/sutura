@@ -21,6 +21,7 @@ use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
+use sutura_domain::plan::RowCeiling;
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
 
 /// A dimension, and the join needed to reach it.
@@ -101,7 +102,7 @@ impl From<RefusalReason> for ResolveError {
 }
 
 /// Looks up everything a question names.
-pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>) -> Result<Resolution<'a>, ResolveError> {
+pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: RowCeiling) -> Result<Resolution<'a>, ResolveError> {
     // A metric outside the view is absent HERE, which is the whole mechanism: there is no second
     // branch downstream that could disagree about which metrics exist.
     let metric = view.metric(query.metric()).ok_or_else(|| RefusalReason::MetricUnknown {
@@ -160,11 +161,11 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>) -> Result<Resolu
     // question that is both too wide and misspells a dimension is refused for the reason that is
     // about cost.
     if let Some(top) = query.top()
-        && top.n().exceeds_the_row_cap()
+        && top.n().exceeds_the_row_cap(row_ceiling)
     {
         return Err(RefusalReason::ResultTooLarge {
             bound: ResultBound::Rows {
-                limit: sutura_domain::plan::MAX_ROWS,
+                limit: row_ceiling.get(),
             },
         }
         .into());

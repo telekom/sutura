@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use sutura_domain::model::InvalidIdentifier;
 use sutura_domain::pinned::InvalidVersion;
+use sutura_domain::plan::{InvalidRowCeiling, RowCeiling};
 
 use crate::api::ApiSettings;
 use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
@@ -348,6 +349,11 @@ pub enum SettingsError {
         #[source]
         cause: InvalidSourceRegistry,
     },
+    #[error("`governance.top_row_ceiling` is not usable")]
+    RowCeiling {
+        #[source]
+        cause: InvalidRowCeiling,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -383,6 +389,7 @@ pub struct Settings {
     tools: crate::tools::ToolsSettings,
     sources: SourceRegistry,
     spend_budget: Option<SpendBudget>,
+    row_ceiling: RowCeiling,
 }
 
 impl Settings {
@@ -435,6 +442,7 @@ impl Settings {
             prompt: parse::parse_prompt(raw)?,
             tools: parse::parse_tools(raw),
             spend_budget: parse::parse_spend_budget(raw)?,
+            row_ceiling: parse::parse_row_ceiling(raw)?,
             sources,
         })
     }
@@ -719,6 +727,13 @@ impl Settings {
     #[inline]
     pub const fn spend_budget(&self) -> Option<SpendBudget> {
         self.spend_budget
+    }
+
+    /// The `top` row ceiling this deployment certifies over - [`RowCeiling::DEFAULT`] unless
+    /// `governance.top_row_ceiling` configured a different one (`github.com/telekom/sutura#777`).
+    #[inline]
+    pub const fn row_ceiling(&self) -> RowCeiling {
+        self.row_ceiling
     }
 
     /// What goes into the agent-facing system prompt beyond the pinned bundle and the tool list.

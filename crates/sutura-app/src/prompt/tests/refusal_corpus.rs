@@ -93,7 +93,7 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
-        RefusalReason::TopNotFederated,
+        RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
     ]
 }
 
@@ -147,7 +147,7 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::LegsDecideIdentityDifferently { .. }
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
-            | RefusalReason::TopNotFederated => {}
+            | RefusalReason::TopOverUncertifiedRows { .. } => {}
         }
         assert_eq!(
             key,

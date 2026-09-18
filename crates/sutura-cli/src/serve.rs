@@ -212,6 +212,7 @@ pub(crate) fn run() -> Result<(), String> {
     // make unrepresentable.
     let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
     let spend_budget = settings.spend_budget();
+    let row_ceiling = settings.row_ceiling();
     // **One `Arc<dyn Surface>` out of up to four adapter shapes, and the erasure is where it always
     // was.** `sutura_app::Warehouses<W>` is generic in ONE adapter, so a single-kind arm still
     // monomorphises `started` over its own concrete type - and `ServiceState` takes
@@ -223,7 +224,14 @@ pub(crate) fn run() -> Result<(), String> {
         OpenedSources::Files(files) => {
             let broker = StaticCredentialBroker::from_registry(settings.sources());
             (
-                started(&catalogs, files.engines, broker, working_set_ceiling_bytes, spend_budget)?,
+                started(
+                    &catalogs,
+                    files.engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?,
                 Some(files.attached),
             )
         }
@@ -259,7 +267,14 @@ pub(crate) fn run() -> Result<(), String> {
                 outbound.as_ref(),
             )?;
             (
-                started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
+                started(
+                    &catalogs,
+                    engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?,
                 None,
             )
         }
@@ -280,7 +295,14 @@ pub(crate) fn run() -> Result<(), String> {
             // itself, and nothing is ever exchanged.
             let broker = StaticCredentialBroker::from_registry(settings.sources());
             (
-                started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
+                started(
+                    &catalogs,
+                    engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?,
                 None,
             )
         }
@@ -302,15 +324,36 @@ pub(crate) fn run() -> Result<(), String> {
                     settings.security().credential_cache(),
                     outbound.as_ref(),
                 )?;
-                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+                started(
+                    &catalogs,
+                    mixed.engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?
             } else {
                 let broker = StaticCredentialBroker::from_registry(settings.sources());
-                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+                started(
+                    &catalogs,
+                    mixed.engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?
             };
             #[cfg(not(feature = "bigquery"))]
             let served = {
                 let broker = StaticCredentialBroker::from_registry(settings.sources());
-                started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
+                started(
+                    &catalogs,
+                    mixed.engines,
+                    broker,
+                    working_set_ceiling_bytes,
+                    spend_budget,
+                    row_ceiling,
+                )?
             };
             (served, mixed.attached)
         }
@@ -676,6 +719,7 @@ fn started<W, B>(
     broker: B,
     working_set_bytes: u64,
     spend_budget: Option<sutura_config::SpendBudget>,
+    row_ceiling: sutura_domain::plan::RowCeiling,
 ) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -686,13 +730,25 @@ where
     match catalogs {
         catalog::OpenedCatalogs::Markdown(catalogs) => {
             LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
+                .map(|service| {
+                    Arc::new(
+                        service
+                            .with_spend_ledger(spend_ledger(spend_budget))
+                            .with_row_ceiling(row_ceiling),
+                    ) as Serving
+                })
                 .map_err(flatten)
         }
         #[cfg(feature = "datahub")]
         catalog::OpenedCatalogs::Datahub(catalogs) => {
             LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| Arc::new(service.with_spend_ledger(spend_ledger(spend_budget))) as Serving)
+                .map(|service| {
+                    Arc::new(
+                        service
+                            .with_spend_ledger(spend_ledger(spend_budget))
+                            .with_row_ceiling(row_ceiling),
+                    ) as Serving
+                })
                 .map_err(flatten)
         }
     }

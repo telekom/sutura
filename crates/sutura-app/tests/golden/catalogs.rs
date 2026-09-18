@@ -155,8 +155,12 @@ where
     for path in questions() {
         let question = read_question(&path);
         let name = stem(&path);
-        let compiled =
-            compile(&question, &ScopedView::everything(&pinned)).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+        let compiled = compile(
+            &question,
+            &ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
         settings(C::NAME).bind(|| match compiled {
             Compiled::Refused { ref reason } => {
                 insta::assert_yaml_snapshot!(format!("{name}__refusal"), reason);
@@ -184,7 +188,12 @@ where
     let pinned = load::<C>();
     for &(fixture, expected) in PROVOKED {
         let asked = question(&format!("{fixture}.yaml"));
-        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("a refusal is not an error");
+        let compiled = compile(
+            &asked,
+            &ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .expect("a refusal is not an error");
         let reason = compiled
             .refusal()
             .unwrap_or_else(|| panic!("{fixture} was answered by the {} catalog", C::NAME));
@@ -217,7 +226,12 @@ where
         if metric.required_filters().is_empty() {
             continue;
         }
-        let compiled = compile(&asked, &ScopedView::everything(&pinned)).expect("the corpus compiles");
+        let compiled = compile(
+            &asked,
+            &ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
             continue;
         };

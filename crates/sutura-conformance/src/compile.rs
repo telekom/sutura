@@ -585,7 +585,11 @@ where
              refused, federated, or failing to compile is a broken test, not production input"
 )]
 fn compiled_plan(pinned: &PinnedDefinitions, question: &Query, what: &str) -> Box<sutura_domain::plan::QueryPlan> {
-    match compile(question, &ScopedView::everything(pinned)) {
+    match compile(
+        question,
+        &ScopedView::everything(pinned),
+        sutura_domain::plan::RowCeiling::DEFAULT,
+    ) {
         Ok(Compiled::Planned { plan }) => plan,
         Ok(Compiled::Refused { reason }) => panic!("{what} answered a question this corpus compiles with a refusal: {reason:?}"),
         Ok(Compiled::Federated { .. }) => panic!("{what} federated a mono corpus question"),
@@ -688,7 +692,11 @@ where
 {
     let subject = or_panic(pinned::<C>(), "the catalog under test failed to load");
     for (case, agent) in or_panic(refusal_agents(), "the refusal corpus").iter().enumerate() {
-        match compile(&agent.question, &ScopedView::everything(&subject)) {
+        match compile(
+            &agent.question,
+            &ScopedView::everything(&subject),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        ) {
             Ok(Compiled::Refused { reason }) => {
                 let rendered = format!("{reason:?}");
                 assert!(

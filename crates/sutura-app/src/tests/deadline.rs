@@ -68,6 +68,7 @@ fn a_budget_spent_before_the_leg_starts_is_refused_and_the_data_system_is_never_
         1 << 30,
         spent,
         &crate::spend::SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a refusal is an Ok, so a client cannot retry it into an answer")
     .into_outcome();
@@ -114,6 +115,7 @@ fn a_slow_pre_flight_that_spends_the_budget_is_refused_before_execute_is_ever_as
         1 << 30,
         small,
         &crate::spend::SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .expect("a refusal is an Ok, so a client cannot retry it into an answer")
     .into_outcome();
