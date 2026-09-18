@@ -1,0 +1,25 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: customers
+    columns:
+      - country
+      - id
+      - name
+    description: "The people who place orders, one row per person."
+  orders:
+    name: orders
+    source: local
+    table: orders
+    columns:
+      - id
+      - region
+      - total
+    description: "Orders, one row per placed order."
+relationships: {}
+metrics: {}

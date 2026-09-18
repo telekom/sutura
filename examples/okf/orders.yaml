@@ -1,0 +1,11 @@
+description: Orders, one row per placed order.
+fields:
+  - name: id
+    type: integer
+    description: The order's unique identifier.
+  - name: total
+    type: number
+    description: The order's total value.
+  - name: region
+    type: string
+    description: The region the order was placed in.
