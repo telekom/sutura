@@ -29,7 +29,7 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # `[graph] all-features = true`. So the wire is compiled, linted, tested and audited on every run;
 # what the default buys is that a future composition root has to ASK for the outbound stack, in a
 # manifest line a reviewer can see, rather than inheriting it by depending on this crate.
-wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64", "dep:sutura-tls"]
+wire = ["dep:ureq", "dep:serde", "dep:ring", "dep:sutura-tls"]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
@@ -127,35 +127,44 @@ sutura-sql = { workspace = true }
 thiserror = { workspace = true }
 # The exchanged-credential cache's own lock (`src/sts/cache.rs`, `docs/adr/0031`) - not
 # feature-gated, unlike the wire: the cache holds no network client and no TLS stack, it is a
-# `HashMap` behind a lock, so there is no artefact-size or musl-link argument for hiding it. The
-# root manifest's entry carries why `parking_lot` rather than a denied `std::sync` type.
 parking_lot = { workspace = true }
 
+# Always-on, not wire-gated, because the identity-exchange broker (core `sts.rs`, telekom/sutura#817)
+# decodes the `iss`/`aud` claims of the subject token it hands to Google STS - a broker-level check
+# that must run whether or not this build links the wire's HTTP client, and one the broker's fake
+# `StsExchange` tests exercise. The wire gate exists to keep the OUTBOUND STACK (ureq/rustls) off the
+# lean build; a JSON value and a base64url decode are already in every served binary through
+# `sutura-config`/`sutura-http`, so promoting them here adds no new package to `Cargo.lock` and no
+# network stack to any build. `serde` stays `optional` (it is only `serde_json`'s macro companion)
+# and real: the claim decode derives nothing, so only `serde_json`'s `Value` and `base64` are needed.
+serde_json = { workspace = true }
+base64 = { workspace = true }
+
 # ---------------------------------------------------------------- the wire, feature-gated ----
-# All three are `optional = true`, so the default build of this crate resolves none of them.
+# These are the outbound-stack pieces: the client, the signing key for a service-account assertion,
+# and the trust-anchor read. Everything a served deployment needs to TALK, separate from the kinds
+# of value the broker decides without talking.
 #
 # The client. The whole argument for it - blocking because the port is, rustls because two release
 # triples are musl, and zero new packages in `Cargo.lock` because `libduckdb-sys` already resolves
 # exactly this version with exactly these two features - is on the workspace entry in the root
 # manifest, next to the pin.
 ureq = { workspace = true, optional = true }
-# The request and response documents. `serde_json` reads a response into `serde_json::Value` for the
-# one place the endpoint's shape is genuinely dynamic - a cell is a string, a null, or something this
-# adapter refuses - and `serde` derives the fixed shapes around it.
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 # `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the same bundle-or-system
 # read `sutura-exec-postgres` already depends on, so the two adapters share the PEM/system-store read
 # rather than each holding a copy. This crate builds no `RootCertStore`; `crate::wire::tls` turns the
 # loaded certificates into `ureq::tls::RootCerts` directly, which is the whole reason this crate does
 # not also need `rustls` or `rustls-pki-types` as a direct dependency beyond what `sutura-tls` gives.
 sutura-tls = { workspace = true, optional = true }
-# The signature on a service-account assertion, and the base64url around it. Both are already resolved
-# in `Cargo.lock` - `ring` as the TLS provider, `base64` at the same version it was a dev-dependency at
-# - so neither adds a package. The root manifest carries the argument, including the alternative that
-# would have cost one.
+# `serde` derives the fixed request/response shapes the wire serializes and deserializes
+# (`wire/sts.rs`, `wire/iamcredentials.rs`, `wire/tables.rs`, `wire/document.rs`). It rides the wire
+# feature: nothing outside the HTTP/TLS half of the crate needs `#[derive(Serialize)]`.
+serde = { workspace = true, optional = true }
+# The signature on a service-account assertion. `ring` is the TLS provider's signing engine and is
+# already resolved in `Cargo.lock` at this version, so it adds no package. `base64` is now always-on
+# (above) for the broker's subject-token decode; this stays wire-gated because constructing and
+# signing a service-account ASSERTION is something only the wire's credential read does.
 ring = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
 
 # Only `tests/corpus.rs` reads these, and only under `required-features`. **Every one of them is
 # already a workspace member and already in `Cargo.lock`, so this section adds no package** - what it

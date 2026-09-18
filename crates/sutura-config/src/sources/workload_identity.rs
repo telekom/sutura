@@ -456,4 +456,40 @@ mod tests {
         .expect_err("an over-long declared subject is not a usable identifier");
         assert!(matches!(err, super::InvalidWorkloadIdentity::ImpersonationSubject { .. }));
     }
+
+    fn declared_pool_expectations_parse_and_are_read_back() {
+        // telekom/sutura#817's config seam: a source may declare the issuer and STS audience its
+        // pool trusts. Absent keeps the bare exchange; present, they surface for the broker to link
+        // to leg 1 at boot and to check the subject token against at mint.
+        let id = WorkloadIdentityConfig::parse_with_expectations(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &std::collections::BTreeMap::new(),
+            Some("https://accounts.google.com"),
+            Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc"),
+        )
+        .expect("a declared pool issuer and audience parse");
+        assert_eq!(
+            id.expected_issuer().map(|iss| iss.as_str()),
+            Some("https://accounts.google.com")
+        );
+        assert_eq!(
+            id.expected_audience().map(|aud| aud.as_str()),
+            Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc")
+        );
+    }
+
+    fn a_declared_pool_issuer_that_is_not_https_is_refused() {
+        // The pool issuer is an absolute `https` URI, parsed with the inbound `IssuerUrl` rules. A
+        // value that is not one is refused at declaration, never accepted and then surprising.
+        let err = WorkloadIdentityConfig::parse_with_expectations(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &std::collections::BTreeMap::new(),
+            Some("not-an-https-url"),
+            None,
+        )
+        .expect_err("a pool issuer that is not an absolute https URI is refused");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::ExpectedIssuer { .. }));
+    }
 }

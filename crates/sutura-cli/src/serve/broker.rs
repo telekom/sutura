@@ -43,6 +43,7 @@ pub(crate) fn build_broker(
     request_timeout: sutura_config::RequestTimeout,
     credential_cache: sutura_config::CredentialCacheSettings,
     outbound: Option<&sutura_tls::Anchors>,
+    leg_one: Option<&sutura_config::InboundIdentity>,
 ) -> Result<ExchangingBroker, String> {
     use sutura_config::SourcePlacement;
     use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
@@ -84,6 +85,43 @@ pub(crate) fn build_broker(
     let mut ceiling_source: Option<u64> = None;
     let mut shared: Vec<(sutura_domain::model::SourceName, SharedIdentityDeclared)> = Vec::new();
     let mut impersonating: Vec<(sutura_domain::model::SourceName, WorkloadIdentity)> = Vec::new();
+    // **The twin-root boot refusal, telekom/sutura#817.** When leg 1 is configured `direct` it pins
+    // the exact issuer and audience a caller token must carry; a source that ALSO declares what its
+    // pool accepts is tying the two roots together. If they can never agree, a document leg 1
+    // verifies is one the pool would decline - so the deployment refuses at boot, before any
+    // request, naming the source and both pairs. A `direct` leg 1's issuer and audience are the very
+    // values that must equal the pool's expected ones for the SAME document to satisfy both sides.
+    if let Some(sutura_config::InboundIdentity::Direct {
+        authorization_server,
+        resource,
+        ..
+    }) = leg_one
+    {
+        // Rendered as bare `str`s rather than the newtype values: neither `IssuerUrl` nor
+        // `ResourceIdentifier` implements `Display`, and a refusal carries the exact configured
+        // text an operator wrote, never a debug rendering that could differ.
+        let accepted_issuer = authorization_server.as_str();
+        let accepted_audience = resource.as_str();
+        for (alias, source) in registry.each() {
+            if let Some(workload) = source.workload_identity()
+                && let (Some(expected_issuer), Some(expected_audience)) = (
+                    workload.expected_issuer().map(|iss| iss.as_str()),
+                    workload.expected_audience().map(|aud| aud.as_str()),
+                )
+                && (expected_issuer != accepted_issuer || expected_audience != accepted_audience)
+            {
+                return Err(format!(
+                    "`sources.{alias}.workload_identity` names expectations no document leg 1 \
+                     verifies can satisfy: a caller token `security.inbound` accepts carries issuer \
+                     `{accepted_issuer}` / audience `{accepted_audience}`, but the pool declares \
+                     issuer `{expected_issuer}` / audience `{expected_audience}`. The two trust \
+                     roots are unconnected (telekom/sutura#817); either align them or remove the \
+                     expectations.",
+                ));
+            }
+        }
+    }
+
     for (alias, source) in registry.each() {
         if let SourcePlacement::BigQuery { max_bytes_billed, .. } = source.placement() {
             ceiling_source.get_or_insert(*max_bytes_billed);
@@ -107,7 +145,11 @@ pub(crate) fn build_broker(
                     String::from(workload.audience().as_str()),
                     String::from(workload.scope().as_str()),
                 )
-                .with_impersonation(impersonate),
+                .with_impersonation(impersonate)
+                .with_expectations(
+                    workload.expected_issuer().map(|iss| iss.as_str()).map(String::from),
+                    workload.expected_audience().map(|aud| aud.as_str()).map(String::from),
+                ),
             ));
         }
     }

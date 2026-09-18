@@ -257,6 +257,7 @@ pub(crate) fn run() -> Result<(), String> {
                 settings.server().request_timeout(),
                 settings.security().credential_cache(),
                 outbound.as_ref(),
+                settings.security().inbound(),
             )?;
             (
                 started(&catalogs, engines, broker, working_set_ceiling_bytes, spend_budget)?,
@@ -301,6 +302,7 @@ pub(crate) fn run() -> Result<(), String> {
                     settings.server().request_timeout(),
                     settings.security().credential_cache(),
                     outbound.as_ref(),
+                    settings.security().inbound(),
                 )?;
                 started(&catalogs, mixed.engines, broker, working_set_ceiling_bytes, spend_budget)?
             } else {

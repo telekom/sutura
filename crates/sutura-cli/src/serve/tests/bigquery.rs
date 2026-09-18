@@ -246,6 +246,7 @@ fn the_boot_line_names_the_credential_cache_as_off_by_default() {
             default_timeout(),
             sutura_config::CredentialCacheSettings::default(),
             None,
+            None,
         )
     })
     .expect("a shared bigquery source with a declared ceiling builds a broker");
@@ -265,4 +266,47 @@ fn the_boot_line_names_the_credential_cache_as_off_by_default() {
         !rendered.contains("credential_cache: on"),
         "the default settings must never log the cache as on: {rendered}"
     );
+}
+
+/// The workload-identity block of an `impersonation-at-source` source that ALSO declares the issuer
+/// and STS audience its pool trusts (`telekom/sutura#817`'s seam), with values that differ from the
+/// direct leg-one ones the boot-refusal cell below sets up.
+fn wif_with_unmatching_expectations() -> &'static str {
+    "    workload_identity:\n      audience: \
+     \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
+     providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n      \
+     expected_issuer: \"https://pool.example.com\"\n      \
+     expected_audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/\
+     workloadIdentityPools/analysts/providers/sso\"\n"
+}
+
+#[cfg(feature = "bigquery")]
+#[test]
+fn a_source_declaring_pool_expectations_direct_leg_one_cannot_satisfy_refuses_at_boot() {
+    // telekom/sutura#817's boot half: when leg 1 is `direct` and a source declares the issuer and
+    // audience its pool trusts, the SAME document must satisfy both. Here the pool's expected issuer
+    // differs from the direct leg-one issuer, so no caller token `security.inbound` would verify is
+    // one the pool would accept - the deployment refuses at boot, naming the source, rather than
+    // serving questions whose every credential the pool would decline.
+    let overlay = format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  inbound:\n    \
+         mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+         authorization_server: \"https://leg-one.example.com\"\n    \
+         key_set_file: \"/nonexistent/sutura-test-key.pem\"\n    algorithms: [\"ES256\"]\n\
+         sources:\n{}",
+        bigquery_entry("warehouse", "impersonation-at-source", wif_with_unmatching_expectations()),
+    );
+    let settings = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("an inbound-direct and impersonating settings block loads");
+    let error = super::super::broker::build_broker(
+        settings.sources(),
+        settings.server().request_timeout(),
+        settings.security().credential_cache(),
+        None,
+        settings.security().inbound(),
+    )
+    .expect_err("a source whose pool expectations no direct leg-one document satisfies refuses at boot");
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
 }

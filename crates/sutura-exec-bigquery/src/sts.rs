@@ -29,6 +29,8 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine;
+
 use sutura_domain::identity::{
     CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectKey,
 };
@@ -64,6 +66,13 @@ pub struct WorkloadIdentity {
     /// [`SubjectKey`] holds the raw `sub` for equality while rendering only the mask, so two
     /// distinct callers stay two distinct keys and an absent caller resolves `None`.
     impersonate: BTreeMap<SubjectKey, String>,
+    /// The issuer the pool trusts - the `iss` a subject token must carry for Google STS to accept
+    /// it. `None` (the bare exchange) declares no link and performs no claim check, keeping today's
+    /// deployment exactly; `Some` engages the `telekom/sutura#817` link to leg 1 at boot and a
+    /// claim check at mint.
+    expected_issuer: Option<String>,
+    /// The audience the pool's provider accepts - the STS `aud` a subject token must carry.
+    expected_audience: Option<String>,
 }
 
 impl WorkloadIdentity {
@@ -74,6 +83,8 @@ impl WorkloadIdentity {
             audience,
             scope,
             impersonate: BTreeMap::new(),
+            expected_issuer: None,
+            expected_audience: None,
         }
     }
 
@@ -84,6 +95,18 @@ impl WorkloadIdentity {
     #[must_use]
     pub fn with_impersonation(mut self, impersonate: BTreeMap<SubjectKey, String>) -> Self {
         self.impersonate = impersonate;
+        self
+    }
+
+    /// Declares what the pool itself trusts - the `iss` and STS `aud` a subject token must carry.
+    ///
+    /// A second builder rather than a wider [`Self::of`], for the same reason `with_impersonation`
+    /// is: every existing call site that exchanges a bare RFC 8693 token reads unchanged, and the
+    /// two roots become a thing a source can tie together rather than a cost every source pays.
+    #[must_use]
+    pub fn with_expectations(mut self, expected_issuer: Option<String>, expected_audience: Option<String>) -> Self {
+        self.expected_issuer = expected_issuer;
+        self.expected_audience = expected_audience;
         self
     }
 
@@ -101,6 +124,20 @@ impl WorkloadIdentity {
         &self.scope
     }
 
+    /// The issuer the pool trusts, if the declaration named one.
+    #[inline]
+    #[must_use]
+    pub fn expected_issuer(&self) -> Option<&str> {
+        self.expected_issuer.as_deref()
+    }
+
+    /// The audience the pool's provider accepts, if the declaration named one.
+    #[inline]
+    #[must_use]
+    pub fn expected_audience(&self) -> Option<&str> {
+        self.expected_audience.as_deref()
+    }
+
     /// The service account `subject`'s exchanged credential is impersonated into, if this source
     /// declares one.
     ///
@@ -113,6 +150,55 @@ impl WorkloadIdentity {
     pub fn target_for(&self, subject: &SubjectKey) -> Option<&str> {
         self.impersonate.get(subject).map(String::as_str)
     }
+
+    /// Does the subject token carry the issuer and audience this pool declared it trusts?
+    ///
+    /// **The claim check for `telekom/sutura#817`'s twin-root link, at mint.** When a source names
+    /// an `expected_issuer`/`expected_audience`, a subject token that does not carry them is one the
+    /// pool would decline no matter what the STS answered - so it is refused here, before any
+    /// round trip, rather than offered to an exchange that rejects it.
+    ///
+    /// The decode is deliberately UNVERIFIED: leg 1 already verified the signature, issuer, audience
+    /// and lifetime before this broker ever saw the token (`RequestContext.assertion()` is the
+    /// VERIFIED document, `docs/adr/0008` part 2). All that is needed here is to read the two claims
+    /// the pool cares about back out of that same document and compare them to the declared values.
+    ///
+    /// `None` is not a failure - it is the bare exchange, which declares no link and therefore
+    /// checks nothing. This is the same "absent is a value" shape `impersonate` uses.
+    #[must_use]
+    pub fn assertion_matches_expectations(&self, assertion: &Secret) -> bool {
+        let (Some(expected_issuer), Some(expected_audience)) = (self.expected_issuer(), self.expected_audience()) else {
+            return true;
+        };
+        let Some(payload) = jwt_payload(assertion.expose_secret()) else {
+            // A token whose payload does not parse is not one whose claims can be trusted to match
+            // the declared pool - refuse it rather than pass the exchange a document it will decline.
+            return false;
+        };
+        payload
+            .get("iss")
+            .and_then(|v| v.as_str())
+            .is_some_and(|iss| iss == expected_issuer)
+            && payload
+                .get("aud")
+                .and_then(|v| v.as_str())
+                .is_some_and(|aud| aud == expected_audience)
+    }
+}
+/// Decodes a compact JWT's payload segment as a JSON object, without verifying it.
+///
+/// **Unverified on purpose** - see [`WorkloadIdentity::assertion_matches_expectations`]: the caller
+/// passes the document leg 1 ALREADY verified, so the only thing needed here is to read the `iss`
+/// and `aud` claims back out of it. A payload that does not decode or does not parse as a JSON
+/// object is `None`.
+///
+/// Only `serde_json`'s `Value` and a base64url decode are needed - `serde_json` derives nothing here,
+/// which is why the crate carries `serde_json` and `base64` always-on rather than a full `serde` and
+/// `jsonwebtoken` (the wire gate keeps the outbound stack, not JSON, off the lean build).
+fn jwt_payload(assertion: &str) -> Option<serde_json::Value> {
+    let payload = assertion.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    serde_json::from_slice(&decoded).ok()
 }
 
 /// One exchanged credential: a Google access token and the instant it stops being usable.
@@ -351,6 +437,16 @@ pub enum ExchangeUnusable {
         #[source]
         cause: std::time::SystemTimeError,
     },
+    /// The subject token did not carry the issuer and audience this source's pool declared it
+    /// trusts - so a document leg 1 verified is one the pool would decline (telekom/sutura#817).
+    ///
+    /// **The token's claims are never rendered**, for the same reason no operator-written value is
+    /// - the pair that mattered to the refusal is named, not the whole document.
+    #[error(
+        "the subject token does not carry the issuer/audience this source's identity pool declared \
+         it accepts - a document `security.inbound` verified is one the pool would decline"
+    )]
+    PoolExpectation,
 }
 
 impl<E> WorkloadIdentityBroker<E, NoImpersonation, SystemClock> {
@@ -558,6 +654,13 @@ where
             let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+            // **The twin-root link, `telekom/sutura#817`, refused here before any round trip.** When
+            // a source declares the issuer/audience its pool accepts, a subject token that does not
+            // carry them is a document leg 1 would verify but the pool would decline - so it is
+            // refused as a provider defect rather than offered to an exchange that rejects it.
+            if !workload.assertion_matches_expectations(assertion) {
+                return Err(ExchangeUnusable::PoolExpectation);
+            }
             // The hop's target, if this source declares one for THIS subject - resolved before any
             // round trip because it is part of the cache key (`sts/cache.rs`'s own doc: the SA is
             // itself part of "what was asked for") and part of the decision whether to call the
