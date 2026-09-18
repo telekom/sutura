@@ -12,9 +12,10 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::probe::{
-    DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, PRODUCTION_CALLER, UNRELATED, async_reader, cell, pub_fn_reader, reader,
+    DID_NOT_COMPILE, DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, NO_TESTS_TO_RUN, PRODUCTION_CALLER, UNRELATED, async_reader, cell,
+    pub_fn_reader, reader,
 };
-use super::{Cause, Claim, MutationKill, classify_mutation, report_accepted, report_refused};
+use super::{Cause, Claim, MutationKill, attest, classify_mutation, report_accepted, report_refused};
 use crate::Verdict;
 use crate::causality::fixtures::{changed, manifest, tree};
 use crate::causality::scoped::Scan;
@@ -327,6 +328,102 @@ fn a_declared_but_unkilled_cell_refuses_the_whole_arm() {
         report_refused(&[Cause::NotKilled {
             cell: String::from("the_cell"),
         }]),
+        Verdict::Fail
+    );
+}
+
+// #855's fix. RED: a build that never compiled is not evidence the mutation fails to kill - a
+// `text` this shape means the gate never asked the cell anything, so folding it into `NotKilled`
+// would report *the mutation does not kill it* about a subject the run never reached.
+#[test]
+fn a_build_that_never_compiled_is_not_a_verdict_about_the_cell() {
+    assert_eq!(
+        attest(false, DID_NOT_COMPILE, "the_added_one", &cell(), &reader()),
+        Err(Cause::BuildFailed {
+            cell: String::from("the_added_one"),
+            why: String::from("the tree did not compile"),
+        })
+    );
+}
+
+// The same guard's OTHER shape: a filter matching no test at all is orphaning, not a kill -
+// `base::names_no_tests` is the predicate the base run already classifies `NotRun` by, and
+// `could_not_attest` reuses it rather than reading only a compile failure.
+#[test]
+fn a_filter_matching_nothing_is_not_a_verdict_about_the_cell_either() {
+    assert_eq!(
+        attest(false, NO_TESTS_TO_RUN, "the_added_one", &cell(), &reader()),
+        Err(Cause::BuildFailed {
+            cell: String::from("the_added_one"),
+            why: String::from("the filter matched no test - orphaned by the patch, not killed by it"),
+        })
+    );
+}
+
+// The `!ok` half of the guard, held: a run that reports SUCCESS (`ok = true`) is never read as a
+// build failure, whatever its text contains - `cargo_test`'s own exit status already means the
+// run completed, so text alone must not override it. Catches a mutant that drops the `!ok`
+// conjunct and reads `could_not_attest` unconditionally.
+#[test]
+fn a_successful_run_is_never_read_as_a_build_failure() {
+    assert_eq!(
+        attest(true, DID_NOT_COMPILE, "the_added_one", &cell(), &reader()),
+        Err(Cause::NotKilled {
+            cell: String::from("the_added_one"),
+        })
+    );
+}
+
+// Negative control for the same guard: `ok` is ALSO false here (nextest exits non-zero on any
+// failure), but the text is an ordinary completed run naming a different test - not a compile
+// failure - so the build-failure guard must stay out of the way and the normal classification
+// (`NotAsserted`, unchanged) still applies.
+#[test]
+fn an_ordinary_run_failure_still_reaches_the_normal_classification() {
+    assert_eq!(
+        attest(false, UNRELATED, "the_added_one", &cell(), &reader()),
+        Err(Cause::NotKilled {
+            cell: String::from("the_added_one"),
+        })
+    );
+}
+
+// GREEN control: a genuine kill still reaches `Ok` - `ok = false` here because a killed cell is
+// itself a failing nextest run, and the guard only fires on `could_not_attest`'s text patterns,
+// which `KILLED` does not carry.
+#[test]
+fn a_genuine_kill_still_passes_through_the_guard() {
+    assert_eq!(attest(false, KILLED, "the_added_one", &cell(), &reader()), Ok(()));
+}
+
+// The build-failure cause is a NON-VERDICT, the same exit code `Verdict::Inconclusive` carries
+// elsewhere in this gate - not the author-actionable `Fail` every other cause here is.
+#[test]
+fn a_build_failure_refuses_as_inconclusive_not_failed() {
+    assert_eq!(
+        report_refused(&[Cause::BuildFailed {
+            cell: String::from("the_cell"),
+            why: String::from("the tree did not compile"),
+        }]),
+        Verdict::Inconclusive
+    );
+}
+
+// A build failure mixed with an author-actionable cause stays `Fail`: the run DID measure
+// something real, so the non-verdict exit is not owed just because one cause among several
+// could not attest.
+#[test]
+fn a_build_failure_mixed_with_a_real_cause_stays_failed() {
+    assert_eq!(
+        report_refused(&[
+            Cause::BuildFailed {
+                cell: String::from("cell_a"),
+                why: String::from("the tree did not compile"),
+            },
+            Cause::NotKilled {
+                cell: String::from("cell_b"),
+            },
+        ]),
         Verdict::Fail
     );
 }
