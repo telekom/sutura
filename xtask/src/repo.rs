@@ -591,7 +591,7 @@ mod tests {
         assert!(clean.is_some(), "a clean listing has to produce a census");
         assert!(
             clean
-                .and_then(|census| census.into_listing(super::Unmigrated::Docs).ok())
+                .and_then(|census| census.into_listing(super::Unmigrated::WarmStart).ok())
                 .is_some(),
             "0 bytes of stderr is the clean tree's shape, verified in a checkout and in a worktree"
         );
@@ -604,7 +604,7 @@ mod tests {
             &listed("", "Warnung: konnte Verzeichnis 'x/' nicht offnen: Permission denied\n"),
         )
         .expect("a listing was still produced");
-        match warned.into_listing(super::Unmigrated::Docs) {
+        match warned.into_listing(super::Unmigrated::WarmStart) {
             Err(super::Refusal::Unreachable(subjects)) => {
                 assert!(
                     subjects.first().is_some_and(|why| why.starts_with("git ls-files --others: ")),
@@ -630,7 +630,7 @@ mod tests {
         };
         let census = super::from_git(std::path::Path::new("/nowhere"), &listed(&staged(&["a.rs"]), ""), &half)
             .expect("the tracked half still produced a listing");
-        match census.into_listing(super::Unmigrated::Docs) {
+        match census.into_listing(super::Unmigrated::WarmStart) {
             Err(super::Refusal::Unreachable(subjects)) => assert!(
                 subjects.first().is_some_and(|why| why.contains("untracked")),
                 "the refusal has to say what is missing: {subjects:?}"
@@ -649,7 +649,7 @@ mod tests {
             &listed("", ""),
         )
         .expect("a listing was still produced");
-        let Err(super::Refusal::Unreachable(subjects)) = census.into_listing(super::Unmigrated::Docs) else {
+        let Err(super::Refusal::Unreachable(subjects)) = census.into_listing(super::Unmigrated::WarmStart) else {
             panic!("the tracked listing's stderr was dropped");
         };
         assert!(
@@ -677,7 +677,7 @@ mod tests {
 
         let refused = super::from_git(&root, &listed(&tracked, ""), &listed("", ""))
             .expect("the listing answered")
-            .into_listing(super::Unmigrated::Docs);
+            .into_listing(super::Unmigrated::WarmStart);
 
         match refused {
             Err(super::Refusal::Unreachable(subjects)) => assert_eq!(
@@ -693,7 +693,7 @@ mod tests {
         let seed_only = format!("100644 {EMPTY_BLOB} 0\t{SEED}\0");
         let listing = super::from_git(&root, &listed(&seed_only, ""), &listed("", ""))
             .expect("the seed listing answered")
-            .into_listing(super::Unmigrated::Docs)
+            .into_listing(super::Unmigrated::WarmStart)
             .expect("a deliberate empty fuzz seed remains reachable");
         assert_eq!(listing.1, [String::from(SEED)]);
 

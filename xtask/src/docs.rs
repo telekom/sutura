@@ -241,18 +241,25 @@ fn exclusions(text: &str) -> Vec<String> {
 }
 
 /// Every page under the docs directory, relative to it, with `/` separators.
+///
+/// The extraction used to run over the transitional door's plain `Vec` in caller space - a
+/// `.take(n)` written on the `filter_map` chain had nothing here to notice. The loop lives inside
+/// [`repo::Census::inspect`] now; `collect_files` already filtered to `.md`, so every subject it
+/// offers is in scope.
 fn pages(root: &Path, docs_dir: &str) -> Result<BTreeSet<String>, String> {
-    let (_root, found) = repo::collect_files(root, &root.join(docs_dir), &["md"])
-        .into_listing(repo::Unmigrated::Docs)
+    let mut found = BTreeSet::new();
+    repo::collect_files(root, &root.join(docs_dir), &["md"])
+        .inspect(
+            &[],
+            |_rel| true,
+            |rel, _bytes| {
+                if let Some(tail) = rel.strip_prefix(docs_dir).and_then(|tail| tail.strip_prefix('/')) {
+                    found.insert(String::from(tail));
+                }
+            },
+        )
         .map_err(|why| why.describe())?;
-    Ok(found
-        .iter()
-        .filter_map(|rel| {
-            let tail = rel.strip_prefix(docs_dir)?;
-            tail.strip_prefix('/')
-        })
-        .map(String::from)
-        .collect())
+    Ok(found)
 }
 
 /// Both directions, as a list of problems. Pure, so the rule is testable without a repo.
@@ -601,11 +608,36 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        block, declares, exclusions, list_entry, nav_target, nested_scalar, problems, snippet_problems, top_level_scalar,
+        block, declares, exclusions, list_entry, nav_target, nested_scalar, pages, problems, snippet_problems, top_level_scalar,
     };
 
     fn set(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| String::from(*s)).collect()
+    }
+
+    #[test]
+    fn an_unreachable_subtree_refuses_instead_of_a_smaller_page_set() {
+        // `github.com/telekom/sutura#414`: `pages` used to extract names from the transitional
+        // door's plain `Vec` with a `filter_map` chain in caller space - a `.take(n)` written
+        // there had nothing here to notice. `Census::inspect` owns the loop now, so an
+        // unreachable subtree under the docs directory refuses instead of shrinking the set.
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = std::env::temp_dir().join(format!("sutura-docs-pages-unreachable-{}", std::process::id()));
+        let docs = root.join("docs");
+        std::fs::create_dir_all(docs.join("blocked")).expect("the scratch tree");
+        std::fs::write(docs.join("index.md"), "# hi\n").expect("a readable page");
+        std::fs::set_permissions(docs.join("blocked"), std::fs::Permissions::from_mode(0o000)).expect("chmod 000 on the subtree");
+
+        let result = pages(&root, "docs");
+
+        std::fs::set_permissions(docs.join("blocked"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
+
+        assert!(
+            result.is_err(),
+            "an unreachable subtree must refuse rather than a smaller page set"
+        );
     }
 
     const CONFIG: &str = "\

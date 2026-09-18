@@ -219,7 +219,6 @@ impl Refusal {
 pub(crate) enum Unmigrated {
     BootOrder,
     Causality,
-    Docs,
     FeatureRemedies,
     Guidance,
     OneBound,
@@ -250,7 +249,7 @@ pub(crate) enum Unmigrated {
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source.
-pub(crate) const UNMIGRATED_DOORS: usize = 32;
+pub(crate) const UNMIGRATED_DOORS: usize = 31;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.
@@ -697,14 +696,17 @@ mod tests {
             census(&[], &[]).inspect(&[], everything, |_, _| {}),
             Err(Refusal::Empty)
         ));
-        assert!(matches!(census(&[], &[]).into_listing(Unmigrated::Docs), Err(Refusal::Empty)));
+        assert!(matches!(
+            census(&[], &[]).into_listing(Unmigrated::WarmStart),
+            Err(Refusal::Empty)
+        ));
     }
 
     #[test]
     fn the_transitional_door_refuses_an_unreachable_subject_too() {
         // The property an unmigrated gate DOES get, stated as a test rather than as a sentence in
         // a PR body.
-        let refused = census(&["a.rs"], &["docs: Permission denied"]).into_listing(Unmigrated::Docs);
+        let refused = census(&["a.rs"], &["docs: Permission denied"]).into_listing(Unmigrated::WarmStart);
         assert!(matches!(refused, Err(Refusal::Unreachable(_))));
     }
 
