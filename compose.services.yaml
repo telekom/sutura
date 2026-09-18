@@ -247,6 +247,9 @@ services:
     #   obtain a token, so a green `just validate` now says something about Keycloak - and what it
     #   says comes from the nix tier and not from this file. What the two venues are FOR still
     #   differs: this one is a browser and a console, the tier is an issuer a test can reach.
+    #   A third venue - `just keycloak-docker-tier start` - provisions the SAME issuer a test can
+    #   reach against a docker daemon instead of a store derivation, for a machine outside the
+    #   sandbox (`nix/keycloak-docker-tier.sh`); this demo block remains the browser venue.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
       - identity

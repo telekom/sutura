@@ -144,13 +144,21 @@ gcp_provider = gcp.Provider(
 # --------------------------------------------------------------------------- #
 # API bootstrap - `up` enables what it needs on a fresh project, no separate gcloud CLI.
 # --------------------------------------------------------------------------- #
-# Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`) is turned
-# on as a Pulumi resource first, and every consumer below waits on the enabling call via
-# `depends_on`. serviceusage.googleapis.com powers the ENABLING call itself, so it is enabled
-# FIRST and bigquery/iam depend on it - without it, `up` fails on a fresh project with
-# `SERVICE_DISABLED` on the enable call, which is exactly what a disabled Service Usage API
-# produces. The applying credential still needs `serviceusage.services.enable`; self-bootstrapping
-# moves that ONE grant into the credential, which is the same class of trust the provider key is.
+# Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`, the
+# exchange and impersonation hops on `sts` and `iamcredentials`) is turned on as a Pulumi
+# resource first, and every consumer below waits on the enabling call via `depends_on`.
+# serviceusage.googleapis.com powers the ENABLING call itself, so it is enabled FIRST and the
+# rest depend on it - without it, `up` fails on a fresh project with `SERVICE_DISABLED` on the
+# enable call, which is exactly what a disabled Service Usage API produces. The applying
+# credential still needs `serviceusage.services.enable`; self-bootstrapping moves that ONE grant
+# into the credential, which is the same class of trust the provider key is.
+#
+# `sts.googleapis.com` and `iamcredentials.googleapis.com` are the two grants the leg-2 exchange
+# (issue #376) needs and a fresh project does not have: `sts` is the Security Token Service that
+# `StsOverHttp` exchanges a caller's token against (RFC 8693), and `iamcredentials` is the
+# `generateAccessToken` hop that turns the exchanged pool principal into the service account whose
+# email `SESSION_USER()` must read. Without the APIs enabled, a fresh `up` provisions pools and
+# bindings and then every exchange and every impersonation answers `SERVICE_DISABLED`.
 _usage = gcp.projects.Service(
     "api-serviceusage.googleapis.com",
     project=project,
@@ -159,7 +167,18 @@ _usage = gcp.projects.Service(
     opts=pulumi.ResourceOptions(provider=gcp_provider),
 )
 API_BOOTSTRAP = [_usage]
-for _api in ["bigquery.googleapis.com", "iam.googleapis.com"]:
+# ENABLING AN API IS PROJECT-WIDE, NOT WORKLOAD-SCOPED. `gcp.projects.Service` turns the API on for
+# every resource in this project, and `disable_on_destroy=False` keeps it on after a `down`. These
+# enables by themselves grant nothing - the per-principal `roles/iam.workloadIdentityUser` bindings
+# below hold that - but they are the blast radius of this stack: once `sts`/`iamcredentials` are on,
+# any project member can call them. That is the accepted cost of a project dedicated to the
+# identity/e2e venue and must not be copy-pasted onto a shared project.
+for _api in [
+    "bigquery.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
+]:
     API_BOOTSTRAP.append(
         gcp.projects.Service(
             "api-" + _api,
@@ -412,15 +431,15 @@ cross_dataset_res = gcp.bigquery.Dataset(
     "cross-dataset",
     dataset_id=cross_dataset,
     location=cross_dataset_location,
-    # A dataset id is unique per project, so a replacement (location is immutable) must delete the
-    # old one first; the venue is disposable by design, nothing in it outlives a run. Delete-first
-    # needs contents-on-destroy too: a per-run table can outlive the run that made it (the loader
-    # expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a non-empty dataset
-    # unless `deleteContents=true`.
+    # Delete-first needs contents-on-destroy too: a per-run table can outlive the run that made it
+    # (the loader expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a
+    # non-empty dataset unless `deleteContents=true`. `delete_contents_on_destroy` is a Dataset
+    # RESOURCE argument, not a `ResourceOptions` one - it belongs beside `location`, and only
+    # `provider` / `delete_before_replace` belong in `opts`.
+    delete_contents_on_destroy=True,
     opts=pulumi.ResourceOptions(
         provider=gcp_provider,
         delete_before_replace=True,
-        delete_contents_on_destroy=True,
     ),
 )
 gcp.bigquery.DatasetIamMember(

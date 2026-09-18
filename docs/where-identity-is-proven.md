@@ -184,7 +184,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - | - |
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - | - |
-| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **yes** - the hosted run of 2026-09-16 exchanged and STS plus `iamcredentials` accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218) | - |
+| Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **yes** - the hosted run of 2026-09-16 exchanged and STS plus `iamcredentials` accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218); re-confirmed 2026-09-18 (run https://github.com/telekom/sutura/actions/runs/35324133081). Both ran against a project whose `sts.googleapis.com`/`iamcredentials.googleapis.com` were enabled OUT OF BAND, so neither run exercised this repository's own enablement. `test-infra/pulumi/google/__main__.py` now enables the two APIs in the bootstrap itself, so a fresh `up` reproduces that grant instead of assuming it - a mechanism, not a run | - |
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **yes** - in the hosted run each principal's exchange resolved to its own account (run https://github.com/telekom/sutura/actions/runs/35076526218) | - |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no - one key is one identity | no | no - trusted to the data system, not re-verified by sutura (telekom/sutura#123) | - |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no - one key is one identity, and it is the transport's own | no | no - withdrawn with the two-principal cell, trusted and not re-verified (telekom/sutura#123) | - |
@@ -500,7 +500,10 @@ adapter, asserting the account each leg became;
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.
 
-**The state is `yes`**, held by a run somebody observed. On 2026-09-16 a `workflow_dispatch` of
+**The state is `yes`**, held by a run somebody observed. That success depended on
+`sts.googleapis.com`/`iamcredentials.googleapis.com` being enabled OUT OF BAND (this repository's
+Pulumi now enables them itself, so a fresh `up` reproduces the grant rather than assuming it). On
+2026-09-16 a `workflow_dispatch` of
 `.github/workflows/bigquery-exchanged-identity.yml` concluded `success` (run
 https://github.com/telekom/sutura/actions/runs/35076526218): the nextest log shows
 `each_principal_is_who_this_source_says_it_is_executing_as` PASS, whose assertion is
