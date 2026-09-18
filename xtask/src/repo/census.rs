@@ -619,6 +619,35 @@ mod tests {
     }
 
     #[test]
+    fn an_absent_anchor_cannot_be_discharged_because_the_read_never_ran() {
+        // #878's F1: `outstanding.retain` (the anchor's ONLY discharge, `census.rs:343`) sits
+        // inside the `Ok(bytes)` arm of the read `match`, so a `NotFound` read must leave the
+        // anchor outstanding. Neither sibling anchor test drives this arm: the unreadable-anchor
+        // test hits `Unreachable` first, and the out-of-scope-anchor test never reaches the
+        // `match` at all. Here the anchor IS in scope and simply missing from disk, which is the
+        // one combination that tells a `retain` placed on the read path apart from one placed on
+        // the scope check - moving it above the `match` (discharging on scope alone) leaves every
+        // other test in this module green and only reddens here.
+        //
+        // Reachable in a CHECKOUT only: `repo::all_files` prefers `git ls-files`, which lists a
+        // tracked-but-deleted path so it reaches this exact `NotFound` arm; the nix sandbox has no
+        // git and its filesystem-walk fallback never offers a path absent from disk. So this
+        // guards `just hygiene`, the pre-commit hook and `cargo xtask <gate>` - not the nix leg.
+        let at = tree("anchor-absent", &[("a.rs", "x\n")]);
+
+        let refused = census_in(&at.0, &["a.rs", "anchor.rs"], &[]).inspect(&["anchor.rs"], everything, |_, _| {});
+
+        match refused {
+            Err(Refusal::NotJudged { path, discovered }) => {
+                assert_eq!(path, "anchor.rs");
+                assert_eq!(discovered, 2);
+            }
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(inspected) => panic!("an absent anchor produced a verdict: {}", inspected.verdict()),
+        }
+    }
+
+    #[test]
     fn a_predicate_that_matched_nothing_refuses_even_with_no_anchor_declared() {
         // The regression a mutation of #419 found: deleting a gate's `== 0` floor in favour of
         // `must_judge` is only free if an EMPTY anchor set still refuses a scan that judged

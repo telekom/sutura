@@ -1,0 +1,19 @@
+diff --git a/xtask/src/repo/census.rs b/xtask/src/repo/census.rs
+index 9df3da78..f0a478aa 100644
+--- a/xtask/src/repo/census.rs
++++ b/xtask/src/repo/census.rs
+@@ -334,13 +334,11 @@ impl Census {
+                 out_of_scope = out_of_scope.saturating_add(1);
+                 continue;
+             }
++            outstanding.retain(|anchor| anchor != rel);
+             match std::fs::read(self.root.join(rel)) {
+                 Ok(bytes) => {
+                     read_bytes = read_bytes.saturating_add(bytes.len());
+                     judge(rel, &bytes);
+-                    // Discharged by the READ, above the closure's reach. This line running only
+-                    // under a caller-supplied `Judged` arm is what made an unreadable anchor pass.
+-                    outstanding.retain(|anchor| anchor != rel);
+                     judged = judged.saturating_add(1);
+                 }
+                 // Absent is not unreachable - `repo::walk`'s own split at its `read_dir`, made
