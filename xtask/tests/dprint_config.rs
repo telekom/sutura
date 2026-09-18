@@ -1,6 +1,6 @@
 //! The dprint exclusion list is pinned, because a formatter's blind spot grows in silence.
 //!
-//! NINE PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`
+//! TEN PATHS ARE EXCLUDED AND EACH NAMES A MECHANISM a reformat would break: `check-api-docs`
 //! byte-compares the generated pages against a fresh generation, `check-skills` reads
 //! content-hash-locked imports and reported 23 as local forks the one time dprint saw them,
 //! `check-gate-classification` and `check-venues` match table rows as exact lines that cell padding
@@ -8,7 +8,10 @@
 //! readable diff against upstream, and `charts/*/templates/**` is Helm's Go template syntax, which
 //! is not valid YAML and which the pinned yaml plugin refuses to parse (measured: four parse
 //! errors across `charts/sutura/templates/**` alone) - `helm lint`/`helm template` are what checks
-//! those files, never this formatter. `dprint.json` argues each in place.
+//! those files, never this formatter. `charts/*/testdata/golden/**` is a tenth for the same reason
+//! one layer down: those files ARE valid YAML, and dprint reindents `capabilities.drop` in every
+//! one of them (measured) - a golden a formatter can silently change is worse than one it cannot
+//! parse, because nothing here re-renders it to notice. `dprint.json` argues each in place.
 //!
 //! THE SIX THAT WERE DEFERRED WORK ARE GONE, by the owner's decision. `dprint.json` called them
 //! "work in flight" and "a follow-up, not a policy" - a rule with no mechanism - and they hid 32
@@ -40,6 +43,7 @@ const EXCLUDED: &[&str] = &[
     ".agents/**",
     "docs/api/**",
     "charts/*/templates/**",
+    "charts/*/testdata/golden/**",
     "examples/single-player/catalog/**",
     "examples/authored-sql/catalog/**",
     "docs/implementation-plan-identity-and-services.md",
