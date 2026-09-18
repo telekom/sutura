@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Issue 760 evaluated whether the deployment-held machine-to-machine credential behind SharedServiceUser should become a Google agent identity. Read against Google's own pages, an agent identity's only documented consumer is Vertex AI Agent Engine, not the BigQuery data APIs; the identity-federation support matrix - the page that says which services accept federated identities - is silent on agent identities. So there is no documented basis to claim BigQuery accepts one, none on offer for an external runner, and the federated path stays.">
+        <meta name="description" content="A research spike in the method of ADR 0016, measured against the SemanticCatalog port - the OKF Frictionless Table Schema (version 1) carries a table's column set and its structural foreign keys and nothing of a metric layer, so an adapter over it is a declaring source that provides the physical model and descriptions and declares the join, the measure, the grain and the anchor out.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/what-agent-identity-can-carry/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/what-okf-can-carry/">
       
       
-        <link rel="prev" href="../rdbms-catalog-guidance/">
+        <link rel="prev" href="../what-agent-identity-can-carry/">
       
       
-        <link rel="next" href="../what-okf-can-carry/">
+        <link rel="next" href="../adr/0001-first-party-semantic-models/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>What an agent identity can carry for this deployment's BigQuery credential - and the decision that nothing changes - sutura</title>
+        <title>What an OKF-style markdown/yaml catalog can carry, and the measure it cannot - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential" class="md-skip">
+        <a href="#what-an-okf-style-markdownyaml-catalog-can-carry" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              What an agent identity can carry for this deployment's BigQuery credential - and the decision that nothing changes
+              What an OKF-style markdown/yaml catalog can carry, and the measure it cannot
             
           </span>
         </div>
@@ -810,6 +810,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../what-agent-identity-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What an agent identity can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -829,7 +857,7 @@
   <span class="md-ellipsis">
     
   
-    What an agent identity can carry
+    What an OKF-style catalog can carry
   
 
     
@@ -847,7 +875,7 @@
   <span class="md-ellipsis">
     
   
-    What an agent identity can carry
+    What an OKF-style catalog can carry
   
 
     
@@ -873,10 +901,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-this-is-not-restated" class="md-nav__link">
+  <a href="#what-was-measured-against" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this is NOT, restated
+        What was measured against
       
     </span>
   </a>
@@ -884,10 +912,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-was-read-and-what-each-source-actually-says" class="md-nav__link">
+  <a href="#the-vocabulary-this-names-and-its-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What was read, and what each source actually says
+        The vocabulary this names, and its version
       
     </span>
   </a>
@@ -895,10 +923,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-two-answers" class="md-nav__link">
+  <a href="#what-the-vocabulary-actually-carries-field-by-field" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The two answers
+        What the vocabulary actually carries, field by field
       
     </span>
   </a>
@@ -906,10 +934,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-decision" class="md-nav__link">
+  <a href="#the-mapping" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The decision
+        The mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conclusion-and-what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusion, and what it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
       
     </span>
   </a>
@@ -931,34 +981,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../what-okf-can-carry/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    What an OKF-style catalog can carry
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2927,10 +2949,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#what-this-is-not-restated" class="md-nav__link">
+  <a href="#what-was-measured-against" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this is NOT, restated
+        What was measured against
       
     </span>
   </a>
@@ -2938,10 +2960,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-was-read-and-what-each-source-actually-says" class="md-nav__link">
+  <a href="#the-vocabulary-this-names-and-its-version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What was read, and what each source actually says
+        The vocabulary this names, and its version
       
     </span>
   </a>
@@ -2949,10 +2971,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-two-answers" class="md-nav__link">
+  <a href="#what-the-vocabulary-actually-carries-field-by-field" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The two answers
+        What the vocabulary actually carries, field by field
       
     </span>
   </a>
@@ -2960,10 +2982,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-decision" class="md-nav__link">
+  <a href="#the-mapping" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The decision
+        The mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conclusion-and-what-it-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conclusion, and what it costs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
       
     </span>
   </a>
@@ -3001,73 +3045,247 @@
   
 
 
-<h1 id="what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential">What an agent identity can carry for this deployment's BigQuery credential<a class="headerlink" href="#what-an-agent-identity-can-carry-for-this-deployments-bigquery-credential" title="Permanent link">&para;</a></h1>
-<p>Status: an <strong>evaluation</strong>, and the deliverable of issue #760. The question was whether the
-machine-to-machine credential this deployment holds for BigQuery - the one that sits behind
-<code>sutura_domain::identity::credential::Presented::SharedServiceUser</code>, <em>"the deployment's own identity
-for this source, which is not the asker's"</em> - should become a Google <strong>agent identity</strong> rather than a
-federated service account. This record is the answer, read off Google's own documentation rather than
-reasoned about, and the answer is <strong>no, on the documented surface it cannot, so the federated path
-stays.</strong></p>
-<h2 id="what-this-is-not-restated">What this is NOT, restated<a class="headerlink" href="#what-this-is-not-restated" title="Permanent link">&para;</a></h2>
-<p>An agent identity is a <strong>workload</strong> identity. It is tied to an <em>agent's</em> lifecycle and says which
-<strong>machine</strong> is asking; it does not represent, impersonate or carry a <strong>human</strong> end user. It therefore
-does not advance leg 2 - <em>a source executing as the asking subject</em> - at all. This evaluation is only
-about the deployment's own credential, and it is the same distinction the issue drew:
-<code>AGENTS.md</code>'s leg 2 belongs to #378 and #376, not to any change to <code>SharedServiceUser</code>.</p>
-<h2 id="what-was-read-and-what-each-source-actually-says">What was read, and what each source actually says<a class="headerlink" href="#what-was-read-and-what-each-source-actually-says" title="Permanent link">&para;</a></h2>
-<p>Two Google pages, both read on 2026-09-18 rather than quoted from memory.</p>
-<p><strong>1. Identify the primitive - <code>docs.cloud.google.com/iam/docs/workload-identities</code>, "Identities for
-workloads".</strong> Under the heading <em>Agent identities</em> it says, verbatim:</p>
-<blockquote>
-<p>"An agent identity is a Google-managed identity for agentic workloads. An agent identity is attested
-and tied to the lifecycle of the agent, which provides a more secure way to manage agent access to
-Google Cloud resources than using service accounts. Existing access management controls through IAM
-support agent identity to enable strong governance."</p>
-</blockquote>
-<p>And the page's only pointer for how to use one is:</p>
-<blockquote>
-<p>"To learn more about agent identities and how to use them, see [Use agent identity with <strong>Vertex AI Agent Engine</strong>]."</p>
-</blockquote>
-<p>That single pointer is the decisive fact: <strong>the only documented consumer of an agent identity is Vertex
-AI Agent Engine</strong> - a GCP-resident agent runtime. The page does not list BigQuery (or any data API) as
-a consumer, and gives no API surface for obtaining or presenting an agent identity to one.</p>
-<p><strong>2. Where services that accept federated identities are enumerated -
-<code>docs.cloud.google.com/iam/docs/federated-identity-supported-services</code>, "Identity federation: products
-and limitations".</strong> This is the page the issue named as the place to read whether BigQuery accepts a
-federated identity at all. Its <strong>BigQuery</strong> row records launch stage <strong>GA</strong> and, for the Google Cloud
-API column, <strong>"No known limitations"</strong> for <em>identity federation</em>. But the page is about <strong>Workforce
-and Workload Identity Federation</strong> - the federated-identity products - and it says nothing about
-<strong>agent identities</strong>, which are a distinct, newer primitive. The matrix is silent on them.</p>
-<h2 id="the-two-answers">The two answers<a class="headerlink" href="#the-two-answers" title="Permanent link">&para;</a></h2>
-<p><strong>1. Does BigQuery accept an agent identity?</strong> Not as documented. The read surface shows agent
-identities are tied to Vertex AI Agent Engine; neither the workload-identities page nor the federation
-support matrix states that BigQuery (or any data API this repository calls) can accept one as a
-principal. This is the issue's own early-termination condition, and it fires: on the documented
-surface there is no basis to claim BigQuery accepts an agent identity.</p>
-<p><strong>2. Is it obtainable in the venues this runs in?</strong> Independently of (1), an agent identity is
-"attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
-This deployment's exchange path runs from a <strong>GitHub Actions OIDC token</strong> on an external runner
-(<code>crates/sutura-exec-bigquery/src/sts.rs</code>'s one hop, <code>.exchange(workload.audience(),
-workload.scope(), assertion)</code>). Nothing in the read documentation describes issuing an agent identity
-to a runner outside Google's agent platform. Even if BigQuery accepted one, obtainability in CI is
-unestablished, and the CI answer is the one the leg-2 harness depends on.</p>
-<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
-<p><strong>The federated path stays, and the change this issue offered is declined.</strong> The deployment's
-BigQuery credential remains <code>SharedServiceUser</code> over Workload Identity Federation - already keyless,
-no service-account key file. The attestation-and-lifecycle improvement an agent identity would bring
-is not available to this venue on the documented surface, and there is no false claim in the tree to
-correct by shipping one. No code changes. <code>crates/sutura-exec-bigquery/src/sts.rs</code> is untouched, as
-the issue required until step 1 was answered.</p>
-<p>This does not close the door if Google later documents a BigQuery (or general data-API) acceptance of
-agent identities: the gate is a documented consumer, and the moment one exists this evaluation is
-worth re-reading, with the same two unknowns asked again against that new surface.</p>
+<h1 id="what-an-okf-style-markdownyaml-catalog-can-carry">What an OKF-style markdown/yaml catalog can carry<a class="headerlink" href="#what-an-okf-style-markdownyaml-catalog-can-carry" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>a finding, and the deliverable</strong> of issue #153's first task. The roadmap lists <em>"OKF style
+markdown/yaml"</em> beside the Wren-style vocabulary this repository already reads through
+<code>sutura-catalog-local</code>. This record is the ADR-0016-shaped answer to the question that decides the
+adapter's whole shape: <strong>can the OKF vocabulary express a complete semantic model as this repository
+defines one, or only part of one?</strong> The answer is <em>only part of one</em> - it is strictly narrower than
+Wren - and the consequence is the same as ADR 0016's: an adapter that <strong>declares</strong> which of the
+domain's kinds it provides and which it does not, and is tested against that declaration, rather than
+an adapter held to the golden contract.</p>
+<h2 id="what-was-measured-against">What was measured against<a class="headerlink" href="#what-was-measured-against" title="Permanent link">&para;</a></h2>
+<p>Read out of the port rather than out of the prose, exactly as ADR 0016 does. <code>SemanticCatalog::load</code>
+returns a <code>PinnedDefinitions</code>; its halves are a <code>Definitions</code> and a <code>Knowledge</code>, and
+<code>Definitions::assemble</code> is the only constructor of the first. So <em>can an OKF source express our model</em>
+is really <em>can it fill these fields and survive these checks</em>:</p>
+<table>
+<thead>
+<tr>
+<th>What a complete semantic model supplies</th>
+<th>The type in <code>sutura-domain</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a physical table and the column set it exposes</td>
+<td><code>Model</code> - <code>ModelName</code>, <code>SourceName</code>, <code>TableName</code>, <code>BTreeSet&lt;ColumnName&gt;</code>, <code>Description</code></td>
+</tr>
+<tr>
+<td>a join</td>
+<td><code>Relationship</code> - a name, two <code>(ModelName, ColumnName)</code> endpoints, and a <code>JoinType</code> of <code>OneToOne</code>, <code>ManyToOne</code> or <code>OneToMany</code></td>
+</tr>
+<tr>
+<td>what a metric measures</td>
+<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code></td>
+</tr>
+<tr>
+<td>a predicate that is part of what the metric means</td>
+<td><code>Vec&lt;RequiredFilter&gt;</code> - <code>Equals</code>, <code>NotEquals</code>, <code>IsTrue</code>, <code>IsNotNull</code></td>
+</tr>
+<tr>
+<td>when, and at what resolution</td>
+<td><code>ColumnName</code> plus a <code>BTreeSet&lt;Grain&gt;</code></td>
+</tr>
+<tr>
+<td>what it may be broken down by</td>
+<td><code>Dimension</code> - a column, optionally <code>via</code> one relationship, optionally an allowlist of at most <code>MAX_VALUES_PER_DIMENSION</code> values</td>
+</tr>
+<tr>
+<td>the number it produced when it was certified</td>
+<td><code>Option&lt;Anchor&gt;</code> - a <code>TimeRange</code> and a value as text</td>
+</tr>
+<tr>
+<td>what a reader has to know</td>
+<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, each with a <code>Referent</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>Definitions::assemble</code> refuses a dimension reached through a relationship whose declared cardinality
+may duplicate rows, as <code>JoinWouldDuplicateRows</code>; and every field above is a type with no free-text SQL
+anywhere in it - <code>Measure</code> has no <code>expression:</code> key and no <code>Option&lt;String&gt;</code> at any depth.</p>
+<h2 id="the-vocabulary-this-names-and-its-version">The vocabulary this names, and its version<a class="headerlink" href="#the-vocabulary-this-names-and-its-version" title="Permanent link">&para;</a></h2>
+<p>The roadmap's <em>OKF style</em> is the <strong>Open Knowledge Foundation's Frictionless Data</strong> vocabulary. The
+schema against which an on-disk catalog is written is the <strong>Frictionless Table Schema specification,
+version 1</strong>, updated <strong>2021-10-05</strong> (authors Paul Walsh and Rufus Pollock), served at
+<code>specs.frictionlessdata.io/table-schema/</code>, with its JSON Schema at <code>specs.frictionlessdata.io/schemas/table-schema.json</code>.
+The descriptor is a JSON object (expressible as the <code>fields:</code> block of YAML frontmatter) that <strong>must</strong>
+contain a <code>fields</code> array and may contain <code>missingValues</code>, <code>primaryKey</code> and <code>foreignKeys</code>. Each field
+descriptor must contain <code>name</code> and may contain <code>title</code>, <code>description</code>, <code>example</code>, <code>type</code>, <code>format</code>,
+<code>constraints</code>, and <code>rdfType</code>. This is the exact published vocabulary and version read for this record.</p>
+<h2 id="what-the-vocabulary-actually-carries-field-by-field">What the vocabulary actually carries, field by field<a class="headerlink" href="#what-the-vocabulary-actually-carries-field-by-field" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Table Schema property</th>
+<th>Level</th>
+<th>What it is</th>
+<th>What it also is not</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fields</code></td>
+<td>schema</td>
+<td>an ordered array of field descriptors</td>
+<td>one per physical column; nothing identifies a <em>fact</em> or a <em>metric</em></td>
+</tr>
+<tr>
+<td><code>name</code> (required)</td>
+<td>field</td>
+<td>the column name</td>
+<td>the repository's <code>ColumnName</code> is a validated newtype; <code>name</code> is a bare string with no parse contract</td>
+</tr>
+<tr>
+<td><code>title</code>, <code>description</code>, <code>example</code></td>
+<td>field</td>
+<td>human-readable prose and a sample value</td>
+<td>free text - no referent-bearing <code>Knowledge</code> entity, no <code>NoteBody</code> cap, no <code>Referent</code></td>
+</tr>
+<tr>
+<td><code>type</code></td>
+<td>field</td>
+<td><em>the logical data type</em>: <code>string</code>, <code>number</code>, <code>integer</code>, <code>boolean</code>, <code>object</code>, <code>array</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, <code>year</code>, …</td>
+<td><strong>a data type, not a measure.</strong> There is no <code>Aggregate</code>, no <code>Ratio</code>, no <code>CountIf</code>, no metric vocabulary anywhere in the spec</td>
+</tr>
+<tr>
+<td><code>format</code></td>
+<td>field</td>
+<td>a string refining <code>type</code> (e.g. <code>email</code>, <code>uri</code>, <code>uuid</code>, a strptime <code>PATTERN</code>)</td>
+<td>a physical representation hint, not a semantic predicate</td>
+</tr>
+<tr>
+<td><code>constraints</code></td>
+<td>field</td>
+<td>value-validation: <code>required</code>, <code>unique</code>, <code>minLength</code>, <code>maxLength</code>, <code>minimum</code>, <code>maximum</code>, <code>pattern</code>, <code>enum</code></td>
+<td><strong>not</strong> a <code>RequiredFilter</code>. These constrain the data file's <em>values</em>, evaluated on the logical representation; they are not predicates "that are part of what the metric MEANS"</td>
+</tr>
+<tr>
+<td><code>primaryKey</code></td>
+<td>schema</td>
+<td>a field or field list that uniquely identifies each row</td>
+<td>equivalent to <code>required: true</code> on those fields; it is a uniqueness fact, not a join</td>
+</tr>
+<tr>
+<td><code>foreignKeys</code></td>
+<td>schema</td>
+<td><code>fields</code> → <code>reference.resource</code> / <code>reference.fields</code></td>
+<td><strong>declares no cardinality.</strong> There is no OneToMany / ManyToOne / OneToOne marker anywhere in the descriptor</td>
+</tr>
+</tbody>
+</table>
+<p>Two absences carry all the weight, and they are the ones ADR 0016 taught this repository to look for
+first.</p>
+<p><strong>Measure is absent entirely - there is nothing to refuse, and that is the stricter statement.</strong> The
+Table Schema type system is the json-schema type set, which is about the shape of cell values, not
+what a metric measures. There is no <code>expression</code> key, no dialect-tagged raw string, no independently
+authored aggregation function, and no metric or semantic-model entity type at all. ADR 0016's refusal</p>
+<ul>
+<li><em>a measure carried as a raw expression string in a foreign dialect is half a definition</em> - does not
+  fire here because there is no slot for a measure to be carried badly in. The correct <code>capabilities()</code>
+  statement is therefore a <strong>declared absence</strong> of the metric layer, not a refusal of a bad shape. The
+  repo's rule that a default is indistinguishable from a decision is not engaged because no default is
+  offered.</li>
+</ul>
+<p><strong>A <code>foreignKey</code> licenses no dimension, because its cardinality is defaulted, not declared.</strong> The
+descriptor names which local fields reference which remote fields and resource, and stops there. It
+cannot distinguish a one-to-one from a one-to-many, so a relationship loaded through it would offer no
+answer to the <code>JoinWouldDuplicateRows</code> check - a relationship whose cardinality may duplicate rows is
+exactly the one the assembler refuses to reach a dimension through. ADR 0016 refused DataHub's <code>N_N</code>
+default for this reason; Table Schema does not even default - it omits the property, which is a
+default of "not stated", and therefore licenses nothing.</p>
+<h2 id="the-mapping">The mapping<a class="headerlink" href="#the-mapping" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>The semantic-model field</th>
+<th>What Table Schema offers</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Model</code> (table + columns)</td>
+<td>one <em>resource</em> per table, <code>fields[].name/type/description</code> per column</td>
+<td><strong>provides</strong></td>
+</tr>
+<tr>
+<td><code>Description</code></td>
+<td><code>title</code> / <code>description</code> free text</td>
+<td><strong>provides</strong></td>
+</tr>
+<tr>
+<td><code>Relationship</code> (join)</td>
+<td><code>foreignKeys</code> - structural endpoints, no cardinality</td>
+<td><strong>declares, and does not license</strong> - loadable only where the join is not reached through a dimension</td>
+</tr>
+<tr>
+<td><code>Measure</code></td>
+<td>none</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>RequiredFilter</code></td>
+<td><code>constraints</code> - value validation, not meaning</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>Grain</code> + time</td>
+<td>no time-resolution vocabulary</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>Dimension</code> with <code>via</code> / allowlist</td>
+<td>a plain column name; no <code>via</code>, no allowlist</td>
+<td><strong>partial</strong> - a bare column, no reached-through-relationship dimension</td>
+</tr>
+<tr>
+<td><code>Anchor</code></td>
+<td>none</td>
+<td><strong>absent, declared</strong></td>
+</tr>
+<tr>
+<td><code>Knowledge</code> with <code>Referent</code></td>
+<td>free-text <code>description</code> only</td>
+<td><strong>partial</strong> - descriptions travel; referent-bearing phrases/caveats/worked examples do not</td>
+</tr>
+</tbody>
+</table>
+<h2 id="conclusion-and-what-it-costs">Conclusion, and what it costs<a class="headerlink" href="#conclusion-and-what-it-costs" title="Permanent link">&para;</a></h2>
+<p><strong>A strictly narrower source than Wren, and therefore the cheapest connector - by declaration.</strong> It can
+carry the physical model and the prose, and structural foreign keys that license no dimension; it
+cannot carry a metric, a required filter, a grain, an anchor, or a reachable-through-relationship
+dimension. The issue anticipated exactly this: <em>"a vocabulary that turns out to be strictly narrower
+than Wren's is a fine outcome - it is one <code>declaring</code> registry entry, three universal cells, and its
+declaration in front of a reviewer."</em> The adapter over it is a <strong>declaring</strong> <code>SemanticCatalog</code> whose
+<code>capabilities()</code> names the physical model, the descriptions and (unlicensed) join columns as provided
+and everything else as a deliberate absence - the shape <code>sutura-catalog-datahub</code> and
+<code>sutura-catalog-local</code> already establish - and it is tested against that declaration in both
+directions (it provides what it declares, and the bundle agrees that what it does not declare does not
+arrive).</p>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong>Was this really OKF, and not Wren?</strong> The two are different published vocabularies - this repository
+already reads the Wren-style element set through <code>sutura-catalog-local</code>'s <code>kind</code>-bearing documents
+with a <code>definition</code> digest over a canonical form, and the roadmap names <em>OKF style</em> as the second,
+separate vocabulary "beside" it. Table Schema is the OKF's own schema language and is unambiguous to
+pin. A caution is that the roadmap's word <em>style</em> leaves room for a vocabulary that is OKF-inspired
+rather than the literal Table Schema; the finding pins the literal Table Schema v1 because it is the
+one published, versioned thing a reader can re-check, and a record that names no version is one nobody
+can re-check.</p>
+<p><strong>Is an adapter that provides only the physical model worth shipping at all?</strong> Yes, for the reason
+the describing half of a <code>declaring</code> catalog exists: a source that provides tables and descriptions but
+no metric is a legitimate narrow source, and <code>Definitions::assemble</code> refuses nothing it does not
+provide. Its value is the same as any catalog a deployment already vends - it turns a directory of
+OKF-described tables into something <code>load</code> can pin and validate - even though the metric layer has to
+be authored elsewhere.</p>
 <h2 id="limits-stated">Limits, stated<a class="headerlink" href="#limits-stated" title="Permanent link">&para;</a></h2>
-<p>Written against two publicly readable Google pages on 2026-09-18. It does not test anything against a
-live pool - it is the decision record the issue asked for, not a live verification. The claim "the
-only documented consumer is Vertex AI Agent Engine" is a claim about what the <strong>documented surface</strong>,
-as read on that date, ties agent identities to; a Google product change after that date is not covered
-by it.</p>
+<p>Written read-only, against the published Table Schema specification (version 1, updated 2021-10-05)
+and the <code>SemanticCatalog</code>/<code>Definitions</code> port in this repository, not against any provisioned instance.
+Two claims are open to a live check and should be before an adapter ships: (a) whether any real catalogs
+in the wild populate <code>foreignKeys</code> in a way this repository would choose to load as a declared, unlicensed
+join rather than refuse, and (b) whether the free-text <code>description</code> is dense enough to justify loading it
+as <code>Knowledge</code> descriptions rather than leaving it to the consuming prompt. Neither changes the shape
+decision this record makes.</p>
 
 
 
