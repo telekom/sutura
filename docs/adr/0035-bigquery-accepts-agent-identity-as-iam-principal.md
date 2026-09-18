@@ -13,11 +13,12 @@ Google's IAM documentation establishes agent identities as first-class principal
 
 > **Principal identifiers for allow policies** (IAM Principal Identifiers page):
 
-> | Principal type | Identifier |
-> | --- | --- |
+> | Principal type     | Identifier                                                 |
+> | ------------------ | ---------------------------------------------------------- |
 > | **Agent identity** | `principal://TRUST_DOMAIN/resources/SERVICE/RESOURCE_PATH` |
 
 > Examples:
+>
 > - Vertex AI Agent Engine (organization): `principal://agents.global.org-123456789012.system.id.goog/resources/aiplatform/projects/9876543210/locations/us-central1/reasoningEngines/my-test-agent`
 > - Gemini Enterprise: `principal://agents.global.org-123456789012.system.id.goog/resources/discoveryengine/projects/9876543210/locations/global/collections/default_collection/engines/my-test-agent`
 
@@ -32,12 +33,15 @@ Source: [Agent Identity overview](https://docs.cloud.google.com/iam/docs/agent-i
 Critically, the page on authenticating with an agent's own authority uses BigQuery as an **explicit example** of a Google Cloud service that accepts agent identity bindings:
 
 > To grant an agent access to a resource, run the following command:
+>
 > ```
 > gcloud SERVICE add-iam-policy-binding RESOURCE_NAME \
 >     --member="PRINCIPAL_IDENTIFIER" \
 >     --role="ROLE"
 > ```
+>
 > Replace the following:
+>
 > - *SERVICE*: The Google Cloud service (for example, `storage` or `bigquery`).
 
 Source: [Authenticate using an agent's own authority](https://docs.cloud.google.com/iam/docs/auth-agent-own-identity), section "Grant access to agents", last updated 2026-09-16.
@@ -85,12 +89,12 @@ In this case, BigQuery accepts that agent identity as a principal via the `princ
 
 The current sutura path for BigQuery (WIF via STS exchange in `sutura-exec-bigquery/src/sts.rs`) authenticates **as a workload identity** — a service account obtained by exchanging a federated token for a Google Cloud access token. This is the correct path for **all** deployment scenarios:
 
-| Deployment | Mechanism | Agent identity needed? |
-| --- | --- | --- |
-| GitHub Actions CI | WIF pool + OIDC token → STS → service account token | No — agent identity is unavailable on non-Google-Cloud runtimes |
-| Cloud Run (agent) | Agent identity (SPIFFE + X.509) → access token | No — the agent identity itself is the credential; WIF is not needed |
-| Vertex AI Agent Engine (agent) | Agent identity (SPIFFE + X.509) → access token | No — the agent identity itself is the credential; WIF is not needed |
-| Compute Engine (non-agent) | Service account (attached to VM) → access token | No — this is the legacy service-account path |
+| Deployment                     | Mechanism                                           | Agent identity needed?                                              |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
+| GitHub Actions CI              | WIF pool + OIDC token → STS → service account token | No — agent identity is unavailable on non-Google-Cloud runtimes     |
+| Cloud Run (agent)              | Agent identity (SPIFFE + X.509) → access token      | No — the agent identity itself is the credential; WIF is not needed |
+| Vertex AI Agent Engine (agent) | Agent identity (SPIFFE + X.509) → access token      | No — the agent identity itself is the credential; WIF is not needed |
+| Compute Engine (non-agent)     | Service account (attached to VM) → access token     | No — this is the legacy service-account path                        |
 
 The agent identity does not replace WIF; it is an **alternative credential mechanism available on different deployment surfaces**. The fundamental distinction:
 
@@ -113,14 +117,14 @@ These are non-competing paths that serve different deployment geometries. The cu
 
 ## Sources consulted
 
-| Page | URL | Key claim |
-| --- | --- | --- |
-| Agent Identity overview | https://docs.cloud.google.com/iam/docs/agent-identity-overview | Agent identity integrated with IAM; list of supported services; SPIFFE identity format; mTLS credential binding |
-| Authenticate using an agent's own authority | https://docs.cloud.google.com/iam/docs/auth-agent-own-identity | Agent identity for Google Cloud services; BigQuery named as example SERVICE for `add-iam-policy-binding` |
-| Principal identifiers | https://docs.cloud.google.com/iam/docs/principal-identifiers | Agent identity as first-class allow-policy principal (`principal://` format) |
-| BigQuery control access to resources with IAM | https://docs.cloud.google.com/bigquery/docs/control-access-to-resources-iam | BigQuery IAM; no mention of agent identities (documentation gap) |
-| BigQuery authentication | https://docs.cloud.google.com/bigquery/docs/authentication | Standard auth paths (service accounts, ADC, OAuth); no mention of agent identities (documentation gap) |
-| Workforce identity federation (contrast) | https://cloud.google.com/iam/docs/workforce-identity-federation | Not agent identity — about workforce pools for human users |
-| Workload identity federation (contrast) | https://cloud.google.com/iam/docs/workload-identity-federation | Not agent identity — about workload pools for non-Google-Cloud workloads (CI, Kubernetes) |
+| Page                                          | URL                                                                         | Key claim                                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Agent Identity overview                       | https://docs.cloud.google.com/iam/docs/agent-identity-overview              | Agent identity integrated with IAM; list of supported services; SPIFFE identity format; mTLS credential binding |
+| Authenticate using an agent's own authority   | https://docs.cloud.google.com/iam/docs/auth-agent-own-identity              | Agent identity for Google Cloud services; BigQuery named as example SERVICE for `add-iam-policy-binding`        |
+| Principal identifiers                         | https://docs.cloud.google.com/iam/docs/principal-identifiers                | Agent identity as first-class allow-policy principal (`principal://` format)                                    |
+| BigQuery control access to resources with IAM | https://docs.cloud.google.com/bigquery/docs/control-access-to-resources-iam | BigQuery IAM; no mention of agent identities (documentation gap)                                                |
+| BigQuery authentication                       | https://docs.cloud.google.com/bigquery/docs/authentication                  | Standard auth paths (service accounts, ADC, OAuth); no mention of agent identities (documentation gap)          |
+| Workforce identity federation (contrast)      | https://cloud.google.com/iam/docs/workforce-identity-federation             | Not agent identity — about workforce pools for human users                                                      |
+| Workload identity federation (contrast)       | https://cloud.google.com/iam/docs/workload-identity-federation              | Not agent identity — about workload pools for non-Google-Cloud workloads (CI, Kubernetes)                       |
 
 Note: The "federation support matrix" page originally linked from issue #760 concerns workload and workforce identity federation, **not** agent identities. Agent identity is a distinct mechanism from both.
