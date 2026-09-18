@@ -60,6 +60,12 @@ const PUBLISH: (&str, &str) = ("cachix-push.yml", "cross-build");
 /// The venue that still builds everything that ships: file, job.
 const RELEASE: (&str, &str) = ("release.yml", "build");
 
+/// The optimised build, file and job - `github.com/telekom/sutura#685`. Read by
+/// [`nix_build_targets`] rather than [`matrix_target`]: this job names its four targets as `nix
+/// build .#sutura-<target>-performance` lines in a shell script, not a `strategy.matrix`, and
+/// nothing here asks it to become one just to be read the same way `release.yml` is.
+const RELEASE_PERFORMANCE: (&str, &str) = ("release-performance.yml", "build");
+
 /// One cell per failure axis, and the order is the canonical one.
 ///
 /// `x86_64-unknown-linux-musl` isolates the static-allocator C risk on the host architecture;
@@ -113,7 +119,57 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
             Some(_) => {}
         }
     }
+
+    let (file, job) = RELEASE_PERFORMANCE;
+    let path = root.join(WORKFLOWS).join(file);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match nix_build_targets(&text, job) {
+            None => found.push(format!(
+                "{file}: no `nix build .#sutura-<target>-performance` line found in job `{job}` \
+                 - the optimised build's cross matrix is gone"
+            )),
+            Some(items) if items.iter().map(String::as_str).ne(FULL.iter().copied()) => found.push(format!(
+                "{file}: job `{job}` does not build the full published set - expected {FULL:?} \
+                 in that order, found {items:?}"
+            )),
+            Some(_) => {}
+        },
+        Err(error) => found.push(format!("{file} could not be read: {error}")),
+    }
     found
+}
+
+/// The triples named by `nix build .#sutura-<target>-performance` lines inside job `job`, in the
+/// order they appear.
+///
+/// A second reader rather than a second [`matrix_target`] shape: [`RELEASE_PERFORMANCE`]'s job
+/// names its targets in a shell script rather than a `strategy.matrix`, and this reads that
+/// script instead of asking the workflow to grow a matrix only this gate would use.
+fn nix_build_targets(text: &str, job: &str) -> Option<Vec<String>> {
+    let header = format!("  {job}:");
+    let start = text.lines().position(|line| line.trim_end() == header)?.saturating_add(1);
+    let mut items = Vec::new();
+    for line in text.lines().skip(start) {
+        let trimmed = line.trim_start();
+        let indent = line.len().saturating_sub(trimmed.len());
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // The next job, or the next top-level key: this job's span is over.
+        if indent <= 2 {
+            break;
+        }
+        let Some(rest) = trimmed.strip_prefix("nix build .#sutura-") else {
+            continue;
+        };
+        let Some(token) = rest.split_whitespace().next() else {
+            continue;
+        };
+        if let Some(target) = token.strip_suffix("-performance") {
+            items.push(target.to_owned());
+        }
+    }
+    if items.is_empty() { None } else { Some(items) }
 }
 
 /// One venue's `strategy.matrix.target`: where it is, and what it says.
@@ -195,7 +251,7 @@ fn items_after(text: &str, offset: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     /// A synthetic root carrying all three matrices, so a test can break exactly one of them.
     ///
@@ -214,7 +270,27 @@ mod tests {
             )
             .expect("write a workflow");
         }
+        // Clean by default - the optimised build's own shape, not a `strategy.matrix`. Tests of
+        // that row overwrite this file directly, the way `a_matrix_in_another_job_is_not_read`
+        // overwrites one of the three above.
+        write_release_performance(&root, super::FULL);
         root
+    }
+
+    /// `release-performance.yml`'s `build` job, in the shape `nix_build_targets` reads: `nix
+    /// build .#sutura-<target>-performance` lines rather than a `strategy.matrix`.
+    fn write_release_performance(root: &Path, triples: &[&str]) {
+        let mut lines = String::new();
+        for triple in triples {
+            lines.push_str("          nix build .#sutura-");
+            lines.push_str(triple);
+            lines.push_str("-performance -L -o result\n");
+        }
+        std::fs::write(
+            root.join(super::WORKFLOWS).join(super::RELEASE_PERFORMANCE.0),
+            format!("jobs:\n  build:\n    steps:\n      - run: |\n{lines}"),
+        )
+        .expect("write the optimised build workflow");
     }
 
     /// A block sequence at the column the real files use.
@@ -371,6 +447,54 @@ mod tests {
         let path = root.join(super::WORKFLOWS).join(super::LINK.0);
         std::fs::write(&path, "jobs:\n  link:\n    strategy:\n      fail-fast: false\n")
             .expect("write a link job with no matrix");
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("cross matrix is gone"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// `github.com/telekom/sutura#685`: the venue this row exists to stop being invisible.
+    #[test]
+    fn a_reduced_optimised_build_is_refused() {
+        let root = sound_root("performance-reduced", &reduced(), &reduced(), &full());
+        write_release_performance(&root, super::REDUCED);
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("release-performance.yml"), "{found:?}");
+        assert!(found[0].contains("full published set"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// A `nix build .#sutura-<target>-performance` line reordered is a change, not a no-op - the
+    /// same order-sensitivity [`matrix_target`]'s own rows hold.
+    #[test]
+    fn a_reordered_optimised_build_is_refused() {
+        let root = sound_root("performance-reordered", &reduced(), &reduced(), &full());
+        write_release_performance(
+            &root,
+            &[
+                "aarch64-unknown-linux-gnu",
+                "x86_64-unknown-linux-gnu",
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-musl",
+            ],
+        );
+        let found = super::problems(&root);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("release-performance.yml"), "{found:?}");
+        drop_root(&root);
+    }
+
+    /// No `nix build .#sutura-*-performance` line at all reads as clean to a rule written as a
+    /// refusal, the same reason [`a_missing_matrix_is_refused`] exists for the other three rows.
+    #[test]
+    fn a_missing_optimised_build_is_refused() {
+        let root = sound_root("performance-missing", &reduced(), &reduced(), &full());
+        std::fs::write(
+            root.join(super::WORKFLOWS).join(super::RELEASE_PERFORMANCE.0),
+            "jobs:\n  build:\n    steps:\n      - run: echo nothing to build\n",
+        )
+        .expect("write a build job with no optimised targets");
         let found = super::problems(&root);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].contains("cross matrix is gone"), "{found:?}");

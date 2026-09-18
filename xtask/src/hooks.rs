@@ -154,6 +154,13 @@ pub(crate) struct Hook {
     /// both were claimed by a row, so the rule that reads only `always_run` passed over the same
     /// defect written the other way.
     pub(crate) filtered: bool,
+    /// The raw `files:` pattern, or empty if this hook declares none.
+    ///
+    /// `pub(crate)` because `crate::fuzz` reads it for a third question this file does not ask:
+    /// whether the fuzz hook's own filter reaches every crate a target actually names. Captured
+    /// as text rather than compiled, for the same reason nothing else here is - a second parser
+    /// of this file's regex syntax is not what this module exists to add.
+    pub(crate) files: String,
 }
 
 impl Hook {
@@ -331,6 +338,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
                 stages: defaults.clone(),
                 always_run: false,
                 filtered: false,
+                files: String::new(),
             });
             continue;
         }
@@ -345,7 +353,12 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             hook.always_run = value.trim() == "true";
             continue;
         }
-        if trimmed.starts_with("files:") || trimmed.starts_with("types:") {
+        if let Some(value) = trimmed.strip_prefix("files:") {
+            hook.filtered = true;
+            value.trim().clone_into(&mut hook.files);
+            continue;
+        }
+        if trimmed.starts_with("types:") {
             hook.filtered = true;
             continue;
         }
@@ -415,9 +428,14 @@ fn stages(list: &str) -> Vec<String> {
         .collect()
 }
 
-/// Stays inline rather than moving to `hooks/tests.rs`, deliberately: `test-causality` collapses
-/// a relocated split's `Moved::Partly` into plain `Green`, so a genuinely new test in a moved file
-/// reads as passing on base rather than as `NotRun` - `github.com/telekom/sutura#775`.
+/// Stays inline rather than moving to `hooks/tests.rs`, deliberately: relocating an EXISTING test
+/// out of this file loses its history on base, and `causality::base::BaseOutcome` now reports that
+/// as `GreenAfterAPartialMove` - a FAILED verdict, `"some of the tests this diff added never ran on
+/// base"` (`causality/base.rs:175`) - rather than the silent `Green` `Moved::Partly` once collapsed
+/// into (`github.com/telekom/sutura#775`, fixed by `github.com/telekom/sutura#788`, `8eb0c51d`). A
+/// brand-new sibling test file stays unaffected either way: nothing of it is found at base, so it
+/// takes the untouched `Moved::Nothing -> Green` arm (`causality/base.rs:184`). The citation here
+/// is about the convention's cost, not #775's defect, which no longer exists.
 #[cfg(test)]
 mod tests {
     use crate::Verdict;

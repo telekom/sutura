@@ -28,8 +28,8 @@ becomes decorative.
 
 ## The four properties
 
-Three columns, deliberately. The middle one is the design; the last one says whether anything holds
-it in the code that is here now.
+Each row names the property, the mechanism it is meant to rest on, and whether that mechanism
+holds it in the code that is here now.
 
 | Property                        | The mechanism it rests on                                                                                                                                       | Status                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,6 +62,18 @@ pinned bundle, not the identity.
 [polyglot](https://github.com/tobilg/polyglot) on the line from a modelled question to executed SQL,
 and says which parts we mean to build.
 
+## Where to start
+
+| You want to                                  | Read                                  |
+| -------------------------------------------- | ------------------------------------- |
+| Install it and ask a question                | [Getting started](getting-started.md) |
+| Know what the words on the tool surface mean | [Concepts](concepts.md)               |
+| Ask the short questions first                | [Questions and answers](qa.md)        |
+| Understand the shape of the system           | [Architecture](architecture.md)       |
+| Read the Rust API                            | [API reference](api/index.md)         |
+
+To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
+
 ## Status
 
 The query path is built, and it supports exactly one combination: **metadata from a catalogue of
@@ -92,18 +104,6 @@ and still read every row as one identity. Arrow results are also still ahead. Fe
 the splitter, two executions and the combiner all run in a published build, because the engine
 declares `Warehouse::EXECUTES_LEGS`. [The HTTP surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
-
-## Where to start
-
-| You want to                                  | Read                                  |
-| -------------------------------------------- | ------------------------------------- |
-| Install it and ask a question                | [Getting started](getting-started.md) |
-| Know what the words on the tool surface mean | [Concepts](concepts.md)               |
-| Ask the short questions first                | [Questions and answers](qa.md)        |
-| Understand the shape of the system           | [Architecture](architecture.md)       |
-| Read the Rust API                            | [API reference](api/index.md)         |
-
-To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
 
 ## Feedback and reporting
 

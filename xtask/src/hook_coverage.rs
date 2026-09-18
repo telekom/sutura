@@ -148,7 +148,9 @@ const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
 mod surfaces;
 
-use surfaces::{SURFACES, Surface};
+// `pub(crate)`: `crate::fuzz` reaches the row through this re-export, `surfaces` staying private.
+pub(crate) use surfaces::SURFACES;
+use surfaces::Surface;
 /// How this gate was invoked.
 struct Invocation {
     /// The base ref whose diff against `HEAD` is the change under judgement.

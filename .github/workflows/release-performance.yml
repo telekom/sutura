@@ -140,32 +140,33 @@ jobs:
           # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
           nix build .#checks.x86_64-linux.shipped-features -L
 
-      - name: Build both targets (release-performance)
+      # FOUR targets, the same set `release.yml`'s matrix builds - glibc and musl, on each
+      # architecture. `github.com/telekom/sutura#685` step 2: the musl pair was matrix-only,
+      # already resolvable at `nix build` before this step named it here.
+      - name: Build all four targets (release-performance)
         run: |
           set -eu
-          nix build .#sutura-x86_64-unknown-linux-gnu-performance  -L -o result-x86_64
-          nix build .#sutura-aarch64-unknown-linux-gnu-performance -L -o result-aarch64
+          nix build .#sutura-x86_64-unknown-linux-gnu-performance   -L -o result-x86_64-unknown-linux-gnu
+          nix build .#sutura-aarch64-unknown-linux-gnu-performance  -L -o result-aarch64-unknown-linux-gnu
+          nix build .#sutura-x86_64-unknown-linux-musl-performance  -L -o result-x86_64-unknown-linux-musl
+          nix build .#sutura-aarch64-unknown-linux-musl-performance -L -o result-aarch64-unknown-linux-musl
 
       # The point of the profile is a different binary. Print the sizes so the run is
       # evidence of that rather than an assertion about it.
       - name: Report what was produced
         run: |
           set -eu
-          for f in result-x86_64/bin/sutura result-aarch64/bin/sutura; do
-            printf '%-32s %s bytes\n' "$f" "$(wc -c < "$f")"
+          for f in result-*/bin/sutura; do
+            printf '%-40s %s bytes\n' "$f" "$(wc -c < "$f")"
           done
-          result-x86_64/bin/sutura --version
+          result-x86_64-unknown-linux-gnu/bin/sutura --version
 
       - name: Package with checksums
         run: |
           set -eu
           mkdir -p dist stage
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            case "$target" in
-              x86_64-*)  src=result-x86_64 ;;
-              aarch64-*) src=result-aarch64 ;;
-            esac
-            install -m755 "$src/bin/sutura" stage/sutura
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            install -m755 "result-${target}/bin/sutura" stage/sutura
             name="sutura-${target}-performance"
             tar -C stage -czf "dist/${name}.tar.gz" sutura
             ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )

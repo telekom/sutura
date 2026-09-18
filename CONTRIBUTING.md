@@ -230,8 +230,11 @@ be tested without a warehouse, and a test asserting on source text proves nothin
 
 `just validate` is the only thing that counts as verified, because its nix checks build a
 git-derived copy of the tree - so `git add -N` a new file immediately, or it compiles locally and
-does not exist in the sandbox. Gate stages, what each one covers and where a green run means less
-than it looks are all in
+does not exist in the sandbox. It does not run `check-default-features` or
+`check-default-feature-tests`, though - `just gates` does, per `github.com/telekom/sutura#866`'s
+option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
+not the link gap, since neither links - the four `cross` builds stay the authority on a musl link.
+Gate stages, what each one covers and where a green run means less than it looks are all in
 [the `gates` skill](https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md).
 
 ## Pull requests
