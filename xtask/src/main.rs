@@ -68,6 +68,7 @@ mod threshold_expect;
 mod unused_deps;
 #[cfg(test)]
 mod validated_base;
+mod vendor_count;
 mod venues;
 mod warm_start;
 mod workflows;

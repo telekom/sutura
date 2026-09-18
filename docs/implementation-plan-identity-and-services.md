@@ -985,6 +985,7 @@ economise.
    | `unused-deps` | every member manifest and that member's own Rust |
    | `check-unreachable-public-modules` | every member crate's Rust, and every first-party crate's Rust, for which `pub` module has no cross-first-party reference (#131) |
    | `check-arrow` | `Cargo.lock` and `devco/arrow-majors-allow` |
+   | `check-vendor-count` | `VENDOR.md`'s mimalloc row, `Cargo.toml` and `REUSE.toml` |
    | `check-shared-client` | `Cargo.lock` |
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
    | `check-serde-parse` | the Rust under `crates/` |
