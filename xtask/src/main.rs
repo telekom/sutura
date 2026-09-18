@@ -178,13 +178,37 @@ fn usage() {
 /// One place, because three gates read the workspace graph and each wants the same `--locked`
 /// guarantee: a gate must not be the thing that rewrites `Cargo.lock`.
 fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
+    run_cargo_metadata(None, extra)
+}
+
+/// `cargo metadata` against a manifest OTHER than this process's own -
+/// `boundaries::second_workspace`'s reason: `fuzz/Cargo.toml`'s empty `[workspace]` table makes
+/// it a workspace root of its own, which the plain call above never resolves regardless of `extra`.
+fn cargo_metadata_at(manifest: &std::path::Path, extra: &[&str]) -> Result<serde_json::Value, String> {
+    run_cargo_metadata(Some(manifest), extra)
+}
+
+/// The one process invocation both callers above share.
+fn run_cargo_metadata(manifest: Option<&std::path::Path>, extra: &[&str]) -> Result<serde_json::Value, String> {
     // `env!("CARGO")` looks equivalent and is not: it bakes cargo's absolute store path into
     // the binary at compile time, which put the whole cargo closure into the shipped package's
     // runtime closure and made the build non-reproducible. Cargo sets this variable whenever it
     // invokes us, so the runtime lookup is the same value with none of that.
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"));
-    let output = std::process::Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--locked"])
+    let mut command = std::process::Command::new(cargo);
+    command.args(["metadata", "--format-version", "1", "--locked"]);
+    if let Some(manifest) = manifest {
+        command.arg("--manifest-path").arg(manifest);
+        // A satellite manifest's own Cargo.lock names crates the ROOT vendor directory never
+        // vendors (`libfuzzer-sys`, for `fuzz/`'s), so the network-isolated nix sandbox bakes a
+        // second one and hands us its path here - `flake.nix`'s `fuzzVendorDir` comment carries
+        // the reason two separate directories rather than one merged registry. Unset everywhere
+        // else, so a developer's shell keeps resolving over the network exactly as it does today.
+        if let Ok(vendor) = std::env::var("SUTURA_SATELLITE_CARGO_VENDOR_DIR") {
+            command.env("CARGO_HOME", vendor);
+        }
+    }
+    let output = command
         .args(extra)
         .output()
         .map_err(|e| format!("could not run cargo metadata: {e}"))?;

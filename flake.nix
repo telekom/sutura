@@ -386,6 +386,19 @@
           cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
         }) cargoLinkEnv cargoWarmStart;
 
+        # `fuzz/`'s OWN vendor directory, for the one thing `checks.hygiene` needs it for:
+        # `check-boundaries` reads `fuzz/Cargo.toml`'s graph as a second, DECLARED cargo workspace
+        # (`xtask/src/boundaries/second_workspace.rs`, `telekom/sutura#863`), and the network-isolated
+        # sandbox has no registry to resolve `libfuzzer-sys` from - `cargoVendorDir` above is crane's
+        # vendor dir for the ROOT lock only, and never contains it. Vendored separately rather than
+        # merged into the same directory: the two lockfiles can pin different versions of a shared
+        # crate, and one combined `[source]` block can only point `crates-io` at one directory.
+        # `xtask/src/main.rs`'s `run_cargo_metadata` is the other half - it points `CARGO_HOME` at
+        # this directory for a satellite manifest ONLY, and only when this variable is set, so a
+        # developer's shell (which sets nothing here) keeps resolving fuzz's graph over the network
+        # exactly as it does today.
+        fuzzVendorDir = craneLib.vendorCargoDeps { src = ./fuzz; };
+
         # The allocator's C as a derivation per target, and the opt level that MUST match what
         # cc-rs computes for the cargo profile it is linked into. In `nix/mimalloc.nix` (the
         # cleanest seam - reads neither crane, the flake inputs, nor the source filter).
@@ -588,6 +601,10 @@
             doCheck = false;
             # `check-jscpd` shells to `jscpd`; same expression as `apps.jscpd` (issue #474).
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd ];
+            # `fuzzVendorDir`'s own comment carries the reason: `check-boundaries` reads
+            # `fuzz/Cargo.toml`'s graph here, and only here among the ten checks, because only
+            # `hygiene` runs against `wholeTree` rather than the root-only filtered source.
+            SUTURA_SATELLITE_CARGO_VENDOR_DIR = fuzzVendorDir;
             buildPhaseCargoCommand = ''
               cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
             '';
