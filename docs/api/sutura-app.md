@@ -2199,6 +2199,21 @@ reason. The mutable state is inside a `Mutex` guarding the per-subject map.
 #### Methods
 
 ```rust
+pub fn headroom_bytes(&self, now: Instant) -> Option<u64>
+```
+
+The tightest remaining headroom across every subject this ledger is currently tracking, or
+`None` where no ceiling is configured (`docs/adr/0030`'s "absent means no budget").
+
+**Deployment-wide, never per-subject** - ADR-0015 Decision 5 types every metric label
+parameter as `&'static str` precisely so request-owned text (a `Subject`'s own identifier
+included) cannot become one, so this reports the worst case across every subject rather than
+naming which one it is. A subject not yet in the map, or whose window has elapsed, has its
+full ceiling as headroom - so an empty or fully-expired map reports the ceiling itself, never
+`None` and never zero, the same "absent rather than zero" discipline `sutura-http`'s own
+metrics module already applies to a gauge with no meaningful value.
+
+```rust
 pub fn new(budget: Option<SpendBudget>) -> Self
 ```
 

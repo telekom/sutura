@@ -153,6 +153,33 @@ impl SpendLedger {
         window.spent_bytes = projected;
         Charge::Admitted
     }
+
+    /// The tightest remaining headroom across every subject this ledger is currently tracking, or
+    /// `None` where no ceiling is configured (`docs/adr/0030`'s "absent means no budget").
+    ///
+    /// **Deployment-wide, never per-subject** - ADR-0015 Decision 5 types every metric label
+    /// parameter as `&'static str` precisely so request-owned text (a [`Subject`]'s own identifier
+    /// included) cannot become one, so this reports the worst case across every subject rather than
+    /// naming which one it is. A subject not yet in the map, or whose window has elapsed, has its
+    /// full ceiling as headroom - so an empty or fully-expired map reports the ceiling itself, never
+    /// `None` and never zero, the same "absent rather than zero" discipline `sutura-http`'s own
+    /// metrics module already applies to a gauge with no meaningful value.
+    #[must_use]
+    pub fn headroom_bytes(&self, now: Instant) -> Option<u64> {
+        let budget = self.budget?;
+        // The guard's construction and its one use merged into one expression, per
+        // `clippy::significant_drop_tightening` - unlike `charge`, nothing here re-borrows across
+        // branches, so there is no reason to hold it a statement longer than the read.
+        let tightest = self
+            .windows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|window| now.saturating_duration_since(window.started_at) < budget.window)
+            .map(|window| budget.ceiling_bytes.saturating_sub(window.spent_bytes))
+            .min();
+        Some(tightest.unwrap_or(budget.ceiling_bytes))
+    }
 }
 
 #[cfg(test)]
@@ -228,5 +255,45 @@ mod tests {
         // Alice is now fully spent for the window; bob has never been charged and is unaffected.
         assert!(matches!(ledger.charge(&subject("alice"), 1, now), Charge::Refused { .. }));
         assert_eq!(ledger.charge(&subject("bob"), 1_000, now), Charge::Admitted);
+    }
+
+    #[test]
+    fn no_budget_configured_reports_no_headroom_value_at_all() {
+        // Unlimited is `None`, never a very large number - the same "absent means unlimited"
+        // reading `SpendBudget::new`'s own doc gives the ceiling.
+        let ledger = SpendLedger::no_budget();
+        assert_eq!(ledger.headroom_bytes(Instant::now()), None);
+    }
+
+    #[test]
+    fn an_untouched_ledger_reports_the_full_ceiling_as_headroom() {
+        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
+        assert_eq!(ledger.headroom_bytes(Instant::now()), Some(1_000));
+    }
+
+    #[test]
+    fn headroom_is_the_tightest_subject_not_the_average() {
+        // Deterministic against `.min()` versus a mean, and NOT against `.next()`/the first entry
+        // a `HashMap` iterator yields - that order is unspecified and randomised per-process, so a
+        // mutation to `.next()` survives some fraction of runs here rather than every one. The name
+        // says only what this cell can actually hold.
+        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
+        let now = Instant::now();
+        assert_eq!(ledger.charge(&subject("alice"), 100, now), Charge::Admitted);
+        assert_eq!(ledger.charge(&subject("bob"), 900, now), Charge::Admitted);
+        // Alice has 900 left, bob has 100 left - the gauge must read bob's, the worse case.
+        assert_eq!(ledger.headroom_bytes(now), Some(100));
+    }
+
+    #[test]
+    fn a_charge_past_the_window_no_longer_narrows_the_reported_headroom() {
+        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
+        let now = Instant::now();
+        assert_eq!(ledger.charge(&subject("alice"), 900, now), Charge::Admitted);
+        assert_eq!(ledger.headroom_bytes(now), Some(100));
+        let after_window = now + Duration::from_secs(61);
+        // Alice's window has elapsed; nothing has re-charged her yet, so she is back at full
+        // headroom rather than still reading as the tightest subject.
+        assert_eq!(ledger.headroom_bytes(after_window), Some(1_000));
     }
 }
