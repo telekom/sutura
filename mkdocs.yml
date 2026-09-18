@@ -226,6 +226,7 @@ nav:
           - The iamcredentials impersonation hop: adr/0032-the-iamcredentials-impersonation-hop.md
           - A closed enum over the shipped warehouse kinds: adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
           - The twin-root link between leg 1 and the pool: adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
+          - WIF stays the load-bearing mechanism for BigQuery; agent identity is an optional addition: adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md
