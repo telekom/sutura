@@ -1,11 +1,26 @@
 ---
-title: BigQuery accepts a Google-managed agent identity as an IAM principal
-description: Google Cloud IAM supports agent identities as first-class allow-policy principals; the agent-identity auth page lists BigQuery as an example SERVICE for `add-iam-policy-binding`. The WIF path stays for GitHub Actions CI because agent identity is unavailable outside supported Google Cloud runtimes.
+title: WIF stays the load-bearing mechanism for BigQuery; agent identity is an optional addition
+description: sutura's primary use case is a human asking through an AI harness, and that path executes as the asking subject through the WIF/STS exchange in every deployment scenario, GitHub Actions CI included. Google Cloud IAM separately accepts a Google-managed agent identity as a first-class allow-policy principal - the agent-identity auth page lists BigQuery as an example SERVICE for `add-iam-policy-binding` - but that is an optional credential available on three Google Cloud runtimes, and it changes WHO asks rather than whose identity the source executes as.
 ---
 
-# BigQuery accepts a Google-managed agent identity as an IAM principal
+# WIF stays the load-bearing mechanism for BigQuery; agent identity is an optional addition
 
 Status: **accepted.** Evidence gathered 2026-09-18 from Google Cloud documentation.
+
+## Why WIF is load-bearing, and what agent identity does not change
+
+sutura's primary use case is a human asking a question through an AI harness (an MCP client), and
+leg 2 for that path - a source executing AS the asking subject - already runs on WIF: the STS +
+`iamcredentials` exchange in `sutura-exec-bigquery/src/sts.rs`, per source, in every deployment
+scenario. That is the load-bearing mechanism, not a CI-only fallback.
+
+Agent identity, examined below, does not compete for that role. **It changes WHO asks, not WHOSE
+identity the source executes as.** An agent identity is a workload identity tied to the agent's own
+lifecycle - functionally analogous to a service account or a WIF-exchanged credential - so it
+occupies the same slot as WIF rather than filling one WIF is missing. It is an optional addition,
+available only on the three Google Cloud runtimes below, never the direction of travel for the
+asking-subject path. The rest of this record establishes that BigQuery accepts it as a principal at
+all, which is a real finding, and keeps it scoped to what it is.
 
 ## Decision 1: BigQuery accepts agent identity as a principal (quotable)
 
@@ -60,7 +75,12 @@ This record does not decide **which Google Cloud service hosts the agent**. The 
 
 An agent identity is **tied to the resource where the agent is hosted** (the SPIFFE ID encodes the resource path). If the agent runs on an unsupported runtime, it does not have an agent identity to present - not a BigQuery limitation, but a platform limitation.
 
-## Decision 2: CI vs. production
+## Decision 2: where agent identity exists, and what the asking-subject path needs
+
+The split below is **not** CI-versus-production. A GitHub Actions runner and a supported Google
+Cloud runtime both run the same asking-subject path on WIF; what differs by runtime is only
+whether an agent identity exists at all as an *alternative credential for the agent's own calls*.
+Agent identity is never a substitute for the per-subject exchange leg 2 needs, on any runtime.
 
 ### 2a. CI (GitHub Actions runner) - agent identity is unavailable
 
@@ -75,7 +95,7 @@ A GitHub Actions runner has no Google Cloud-attached SPIFFE ID, no auto-provisio
 
 **Therefore: a GitHub Actions runner cannot hold or present an agent identity. The WIF (workload identity federation) path remains the correct mechanism for CI.** WIF (via identity pools and OIDC tokens) is specifically designed for non-Google-Cloud workloads to authenticate to Google Cloud - exactly the GitHub Actions → GCP pattern.
 
-### 2b. Production (agent on a supported runtime) - agent identity is available
+### 2b. A supported Google Cloud runtime - agent identity is available for the agent's own calls
 
 If the agent runs on Vertex AI Agent Engine (or Gemini Enterprise, or Cloud Run with agent-platform features), it has an agent identity by default:
 
@@ -83,27 +103,36 @@ If the agent runs on Vertex AI Agent Engine (or Gemini Enterprise, or Cloud Run 
 
 Source: [Agent Identity overview](https://docs.cloud.google.com/iam/docs/agent-identity-overview), section "How Agent Identity works".
 
-In this case, BigQuery accepts that agent identity as a principal via the `principal://` identifier pattern established in the IAM allow policy framework.
+In this case, BigQuery accepts that agent identity as a principal via the `principal://` identifier pattern established in the IAM allow policy framework. That principal is the **agent's own**, not the asking subject's - it authenticates the agent to Google Cloud, and does not answer who a BigQuery query then executes as.
 
-## Decision 3: The WIF path stays; agent identity is a production-side concern only
+## Decision 3: WIF is the load-bearing mechanism everywhere; agent identity is optional where it exists
 
-The current sutura path for BigQuery (WIF via STS exchange in `sutura-exec-bigquery/src/sts.rs`) authenticates **as a workload identity** - a service account obtained by exchanging a federated token for a Google Cloud access token. This is the correct path for **all** deployment scenarios:
+The current sutura path for BigQuery (WIF via STS exchange in `sutura-exec-bigquery/src/sts.rs`) authenticates **as a workload identity** - a service account obtained by exchanging a federated token for a Google Cloud access token. This is the correct path for **all** deployment scenarios, including the primary one - a human asking through an AI harness:
 
-| Deployment                     | Mechanism                                           | Agent identity needed?                                              |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
-| GitHub Actions CI              | WIF pool + OIDC token → STS → service account token | No - agent identity is unavailable on non-Google-Cloud runtimes     |
-| Cloud Run (agent)              | Agent identity (SPIFFE + X.509) → access token      | No - the agent identity itself is the credential; WIF is not needed |
-| Vertex AI Agent Engine (agent) | Agent identity (SPIFFE + X.509) → access token      | No - the agent identity itself is the credential; WIF is not needed |
-| Compute Engine (non-agent)     | Service account (attached to VM) → access token     | No - this is the legacy service-account path                        |
+| Deployment                     | Mechanism the deployment authenticates ITSELF with  | Touches the asking-subject exchange (leg 2)?                                     |
+| ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| GitHub Actions CI              | WIF pool + OIDC token → STS → service account token | No - orthogonal to leg 2, which runs WIF/STS regardless                          |
+| Cloud Run (agent)              | Agent identity (SPIFFE + X.509) → access token      | No - agent identity is the deployment's own credential; leg 2 still runs WIF/STS |
+| Vertex AI Agent Engine (agent) | Agent identity (SPIFFE + X.509) → access token      | No - agent identity is the deployment's own credential; leg 2 still runs WIF/STS |
+| Compute Engine (non-agent)     | Service account (attached to VM) → access token     | No - legacy service-account path, also orthogonal to leg 2                       |
 
 The agent identity does not replace WIF; it is an **alternative credential mechanism available on different deployment surfaces**. The fundamental distinction:
 
 - **WIF** answers: "How does a non-Google-Cloud workload authenticate to Google Cloud?"
 - **Agent identity** answers: "How does an agent hosted on Google Cloud authenticate to other Google Cloud services?"
 
-These are non-competing paths that serve different deployment geometries. The current WIF/STS path (keyless, no service-account key material) already handles the CI case. For production deployments on a supported agent runtime, the agent identity would be the simpler path (no external exchange needed), but that is a **future option**, not a current replacement.
+These are non-competing paths that serve different deployment geometries, and neither is about the
+asking-subject exchange this product's leg 2 needs. The current WIF/STS path (keyless, no
+service-account key material) already handles every deployment, CI included. If sutura ever runs
+on a supported agent runtime, agent identity could replace WIF as the way the **deployment itself**
+authenticates to Google Cloud - a separate credential-acquisition detail on the runtime side - but
+that is an optional addition available there, never a change to the per-subject exchange in
+`sutura-exec-bigquery/src/sts.rs`. The asking-subject path still runs on WIF regardless.
 
-**What sutura already does is correct for its current scope.** The `SharedServiceUser` credential path via `sutura-exec-bigquery/src/sts.rs` is the right mechanism for WIF-based deployments (including CI). If sutura ever deploys directly as a Vertex AI Agent, the agent identity would be a separate credential acquisition path on the runtime side - not a change to the exchange logic.
+**What sutura already does is correct for its current scope, and for the primary use case.** The
+`SharedServiceUser` credential path via `sutura-exec-bigquery/src/sts.rs` is the right mechanism for
+a human asking through an AI harness, on every deployment surface including CI. Agent identity does
+not change that; it is orthogonal to it.
 
 ## Limits
 
