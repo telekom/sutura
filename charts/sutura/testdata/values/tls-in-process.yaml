@@ -1,0 +1,14 @@
+# TLS terminated BY this process (`tls.enabled: true`), the other branch of
+# `sutura.requireOffHostPosture`'s TLS check from `minimal.yaml`'s `security.tlsTermination:
+# ingress`. Exercises the tls volume/mount, the two `SUTURA__SERVER__TLS_*` env vars, and
+# `SUTURA__SECURITY__TLS_TERMINATION: in-process` set implicitly rather than read from
+# `security.tlsTermination` (left empty here on purpose - `deployment.yaml`'s `if
+# .Values.tls.enabled ... else if .Values.security.tlsTermination` picks the first branch only
+# when the second is also unset).
+environment: staging
+security:
+  accessToken:
+    secretName: sutura-access-token
+tls:
+  enabled: true
+  secretName: sutura-tls
