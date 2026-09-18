@@ -66,9 +66,18 @@ pub struct ServiceState {
     /// **`None` here means the series does not exist**, not that it reads zero - the same "absent
     /// rather than zero" discipline `docs/adr/0015` already applies to the engine memory pool
     /// series: a spend ceiling nobody configured is unlimited, and a zero-forever gauge would read
-    /// as a deployment permanently one byte from refusing everything. Updated from the question
-    /// route after every answered call, never from `/metrics` itself - Decision 1 of that record is
-    /// why the scrape handler's own state carries no [`crate::surface::Surface`] to poll.
+    /// as a deployment permanently one byte from refusing everything. Updated from the `POST
+    /// /v1/query` route after every call it answers, never from `/metrics` itself - Decision 1 of
+    /// that record is why the scrape handler's own state carries no [`crate::surface::Surface`] to
+    /// poll.
+    ///
+    /// **Not pushed from a served agent surface.** `sutura-mcp` answers through the same
+    /// `Surface::answer` and charges the same ledger, but it carries no dependency on this crate -
+    /// and must not, since a transport does not link another transport - so nothing on that path
+    /// can reach this field. `docs/adr/0015`'s amendment records the consequence: on a deployment
+    /// serving both surfaces with a ceiling configured, this gauge holds its boot-time reading (the
+    /// full ceiling) while the agent surface alone drains the ledger, until the next HTTP query
+    /// pushes a fresh one. Not fixed here.
     spend_headroom: Option<Gauge>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
@@ -305,10 +314,12 @@ impl ServiceState {
     /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a
     /// ceiling configured at all.
     ///
-    /// Called by the query route after a call to [`crate::surface::Surface::answer`], never by the
-    /// metrics route: a scrape must not poll the ledger itself, only read what a request already
-    /// pushed. A `None` reading - either no ceiling configured, or this deployment's own
-    /// composition never attached one - leaves the gauge untouched rather than fabricating zero.
+    /// Called by the `POST /v1/query` route after a call to [`crate::surface::Surface::answer`],
+    /// never by the metrics route: a scrape must not poll the ledger itself, only read what a
+    /// request already pushed. **No agent-surface route calls this** - see [`ServiceState`]'s
+    /// `spend_headroom` field doc for the limit that leaves. A `None` reading - either no ceiling
+    /// configured, or this deployment's own composition never attached one - leaves the gauge
+    /// untouched rather than fabricating zero.
     pub(crate) fn record_spend_headroom(&self, headroom_bytes: Option<u64>) {
         if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, headroom_bytes) {
             gauge.set(bytes);

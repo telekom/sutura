@@ -159,10 +159,14 @@ pub trait Surface: Send + Sync + 'static {
     /// ledger itself - true whether or not a question just ran, and unaffected by which question
     /// it was - so putting it on the outcome would mean every constructor of a caller-facing
     /// answer or refusal had to carry a number that has nothing to do with what was asked, for no
-    /// reader of the wire body. A transport reads this once after a call to poll the ledger it
-    /// already touched, never to answer a scrape: `docs/adr/0015`'s "a scrape must not make the
-    /// service work" is why the metrics endpoint's own state never holds a [`Surface`] at all, so
-    /// nothing here may be read from there.
+    /// reader of the wire body. A transport that reads it after a call to poll the ledger it
+    /// already touched may push it into a gauge, but nothing here reaches every transport this
+    /// port has: `sutura-http` reads this after every call its `POST /v1/query` route answers and
+    /// pushes what it reads, but a served agent surface (`sutura-mcp`) answers through this same
+    /// method and this crate must not know it exists to push anything there - a transport does not
+    /// depend on another transport. **Never to answer a scrape either way**: `docs/adr/0015`'s "a
+    /// scrape must not make the service work" is why the metrics endpoint's own state never holds
+    /// a [`Surface`] at all, so nothing here may be read from there.
     ///
     /// **Deployment-wide by construction, never per-subject** - see [`crate::spend::SpendLedger::headroom_bytes`]
     /// for why a value naming which subject is tight cannot exist on this port either: ADR-0015
