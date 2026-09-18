@@ -113,6 +113,7 @@ sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
 sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
+sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }

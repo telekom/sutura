@@ -54,6 +54,7 @@
 //! prose travels (descriptions/tags) and none of the referent-bearing kinds is read.
 
 pub mod document;
+pub mod fixture;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
