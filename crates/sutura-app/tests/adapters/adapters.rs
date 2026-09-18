@@ -279,9 +279,7 @@ impl CatalogUnderTest for sutura_catalog_datahub::DataHubCatalog<sutura_catalog_
 /// non-duplicating joins and declares the metric/grain/cardinality as may-provide kinds; a metric
 /// whose measure is an expression string is reported-not-defined. The universal cells hold because
 /// the fixture bundle is measured against the adapter's declaration.
-impl CatalogUnderTest for sutura_catalog_openmetadata::OpenMetadataCatalog<
-    sutura_catalog_openmetadata::fixture::FixtureReader,
-> {
+impl CatalogUnderTest for sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader> {
     const NAME: &'static str = "openmetadata";
 
     fn open() -> Self {
@@ -646,9 +644,7 @@ macro_rules! registered {
         $cell!(
             openmetadata,
             declaring,
-            sutura_catalog_openmetadata::OpenMetadataCatalog<
-                sutura_catalog_openmetadata::fixture::FixtureReader
-            >
+            sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
         );
     };
 
