@@ -112,3 +112,16 @@ pub(super) const PRODUCTION_CALLER: &str = concat!(
     "thread 'audit::tests::the_added_one' panicked at crates/x/src/lib.rs:3:5:\n",
     "error: test run failed\n",
 );
+
+/// A run whose text is a genuine COMPILE failure: the tree under the mutation never reached any
+/// test, so nothing here attests either way about `the_added_one` - `#855`'s leading hypothesis
+/// for a wrong verdict was a nested build compiling nothing, and this is that shape.
+pub(super) const DID_NOT_COMPILE: &str = concat!(
+    "error[E0061]: this function takes 1 argument but 0 arguments were supplied\n",
+    "error: could not compile `sutura-cli` (lib) due to 1 previous error\n",
+);
+
+/// A run whose filter matched no test at all - orphaned by the patch (the mutation moved or
+/// deleted the cell's own item) rather than killed by it, the fourth shape `could_not_attest`
+/// covers alongside a compile or manifest failure.
+pub(super) const NO_TESTS_TO_RUN: &str = "error: no tests to run\n";

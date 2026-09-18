@@ -6,7 +6,8 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
-    arrow_major, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped, unused_deps, warm_start,
+    arrow_major, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped, unused_deps,
+    vendor_count, warm_start,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -53,6 +54,39 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: arrow_major::run,
+    },
+    Task {
+        // Beside `check-arrow` for the same reason: a comparison between a named row and the
+        // named files repeating its number, the same shape as the allowlist-versus-lock check
+        // one row up. `Reads::Code`, per that payload's own rule: `VENDOR.md`, `Cargo.toml` and
+        // `REUSE.toml` are prose, but none of them sits under `docs/`, and a `docs/*.md` diff
+        // cannot change any of the three - "prose OUTSIDE docs/ is on this side too".
+        name: "check-vendor-count",
+        description: "VENDOR.md's mimalloc row cardinal matches its own enumeration and Cargo.toml/REUSE.toml's repeated count",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            // A genuine cardinal-versus-enumeration mismatch (2 said, 1 enumerated) - the
+            // own-rule seed `registry::Falsifier`'s doc asks for. Seeding `VENDOR.md` ALONE
+            // was reviewed and measured wrong: `falsifier_tree`'s own `Cargo.toml` carries no
+            // mimalloc mention and writes no `REUSE.toml` at all, so BOTH repeaters land on the
+            // absent-input floor (`SiteFinding::Absent`) rather than the substantive comparison
+            // - measured, deleting the comparison outright left the sweep's own
+            // `Verdict::Fail` assertion PASSING, exactly the masked-refusal shape
+            // `github.com/telekom/sutura#371` exists to catch. Seeding a matching-but-wrong
+            // cardinal into both repeaters removes the mask: each reads a real value (two), so
+            // the row's own mismatch is the only thing left standing between this tree and a
+            // clean bill.
+            seeds: &[
+                (
+                    "VENDOR.md",
+                    "| `vendor/mimalloc_rust/**` | up | MIT | abc | 2026-01-01 | Two local changes. (1) one thing. |\n",
+                ),
+                ("Cargo.toml", "[workspace]\nmembers = []\n# two local changes\n"),
+                ("REUSE.toml", "# two local changes\n"),
+            ],
+            in_scope: Some("VENDOR.md"),
+        },
+        run: vendor_count::run,
     },
     Task {
         // Beside `check-shared-client` because it is the same shape again: one declaration, read

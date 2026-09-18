@@ -226,6 +226,11 @@ serde_json = { workspace = true }
 # second thing to keep in step.
 sutura-runtime = { workspace = true, features = ["test-capture"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+# `tower::util::ServiceExt::oneshot`, for driving an assembled `sutura_http::router` over `/mcp`
+# in `serve::tests::agent_identity` - the same shape `sutura_mcp`'s own hermetic tests drive the
+# transport with. A dev-dependency (and a dev-edge of an already-linked crate), so it adds nothing
+# to the shipped-features set. `util` is the feature `oneshot` lives in.
+tower = { workspace = true, features = ["util"] }
 # `tests/served.rs`'s harness client, for the one thing `served/harness.rs`'s own hand-rolled
 # plaintext parser does not cover: a request to a REAL server it did not write -
 # `nix/keycloak-tier.nix`'s own Keycloak, over its token endpoint and its JWKS document. Folded in

@@ -652,20 +652,28 @@ per-case opt-out this module used to say it owed is **not** owed: there is no ca
 null order a conforming source may legitimately answer differently.
 
 **What the null row does NOT detect, measured rather than assumed.** It is NOT a check on our
-statement of the placement. The layer collapses `NULLS LAST` away for every target whose
-default is already nulls-last, which is all three adapters bound to these packs - so deleting
-`ordered_nulls_last`'s `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's rendered SQL
-**byte-identical**, and the only dialect whose text changes is `BigQuery`, which has no binding
-here. Their engines then order nulls last on their own. `crates/sutura-sql`'s
-`every_order_by_states_nulls_last` is what holds our statement of it, and it holds the AST
-rather than an answer.
+statement of the placement, for `DuckDB`, Postgres and the `datafusion` engine: their own
+default is already nulls-last, so deleting `ordered_nulls_last`'s `nulls_first: Some(false)`
+leaves `DuckDB`'s and Postgres's rendered SQL **byte-identical** (`datafusion` renders none to
+compare) and all three still order nulls last on their own. `crates/sutura-sql`'s
+`every_order_by_states_nulls_last` is what holds our statement of it for those three, and it
+holds the AST rather than an answer.
+
+**`BigQuery` is the one bound adapter this does not hold for, and binding it changed nothing
+about that.** `GoogleSQL`'s own default is nulls-FIRST - the opposite direction - which is why
+`ordered_nulls_last`'s explicit clause is the only dialect text it actually changes. But
+`BigQuery`'s binding (`crates/sutura-exec-bigquery/tests/conformance.rs`,
+`telekom/sutura#710`) runs over a CANNED transport that answers every case from the corpus's
+own `Case::expected` rows rather than a live endpoint - see that file's own header - so this
+behaviour still proves nothing about a real `GoogleSQL` engine's own ordering, in either
+direction, for this adapter.
 
 **What it DOES buy, which is two things and neither is that one.** Through
-`crate::Behaviour::Order` it pins the three engines' own default null ordering - most
+`crate::Behaviour::Order` it pins the three REAL engines' own default null ordering - most
 usefully `datafusion`'s, whose `sort_by` supplies `nulls_first: false` from a default that a
-version bump could change with no diff of ours - so it is a **dependency regression detector**.
-Through `crate::Behaviour::Content` it is a claim about OUR code: a null key must be a GROUP
-and not a row a join or a filter dropped, which is the failure class
+version bump could change with no diff of ours - so it is a **dependency regression detector**
+for those three. Through `crate::Behaviour::Content` it is a claim about OUR code: a null key
+must be a GROUP and not a row a join or a filter dropped, which is the failure class
 `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 
 # Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
@@ -681,9 +689,11 @@ four totals came back is ours to assert regardless of anybody's locale.
 **What this does NOT decide.** It is an opt-out from one assertion, not a statement of which
 collation is correct - there is no such statement anywhere in this crate, and none is added
 here. And it is not evidence of a defect found: `DuckDB`, Postgres and the engine all default
-to byte order today, so this case is currently green with the assertion left in too; the field
-exists so a future adapter's own default does not need to become one before this corpus can
-say why it is not a fault.
+to byte order today, so this case would be currently green with the assertion left in too, for
+those three; the field exists so a future adapter's own default does not need to become one
+before this corpus can say why it is not a fault. `BigQuery` is bound and answers this case
+too, but `Behaviour::Order` already skips it by `order_is_asserted`, so nothing here has
+measured what a real `GoogleSQL` collation would do with it.
 
 ### `struct Case`
 
@@ -912,10 +922,12 @@ per adapter; nothing here panics, so a pack can also be called directly.
   sees only that a call failed. `a_leg_is_refused` is written around that limit rather than
   through it - see its own doc.
 - **That `BigQueryWarehouse`'s real endpoint prices a dry run correctly.** It is the only
-  adapter declaring `Warehouse::PRICES_DRY_RUN` true, and it has no `crate::execute_packs`
-  binding (`telekom/sutura#710`), so `a_preflight_that_accepts_is_followed_by_an_answer`'s new
-  estimate check never runs against it - only against the three adapters that always declare
-  `false` and always answer `None`.
+  adapter declaring `Warehouse::PRICES_DRY_RUN` true, and its `crate::execute_packs` binding
+  (`telekom/sutura#710`, `crates/sutura-exec-bigquery/tests/conformance.rs`) now DOES run
+  `a_preflight_that_accepts_is_followed_by_an_answer`'s estimate check against it - but over a
+  CANNED transport, never a live endpoint, so a real `BigQuery` project silently answering
+  `None` would still pass. Every other bound adapter declares `false` and always answers
+  `None`.
 
 ### `fn labels_are_the_plans_own`
 

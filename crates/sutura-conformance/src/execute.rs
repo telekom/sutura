@@ -24,10 +24,12 @@
 //!   sees only that a call failed. [`a_leg_is_refused`] is written around that limit rather than
 //!   through it - see its own doc.
 //! - **That `BigQueryWarehouse`'s real endpoint prices a dry run correctly.** It is the only
-//!   adapter declaring `Warehouse::PRICES_DRY_RUN` true, and it has no [`crate::execute_packs`]
-//!   binding (`telekom/sutura#710`), so [`a_preflight_that_accepts_is_followed_by_an_answer`]'s new
-//!   estimate check never runs against it - only against the three adapters that always declare
-//!   `false` and always answer `None`.
+//!   adapter declaring `Warehouse::PRICES_DRY_RUN` true, and its [`crate::execute_packs`] binding
+//!   (`telekom/sutura#710`, `crates/sutura-exec-bigquery/tests/conformance.rs`) now DOES run
+//!   [`a_preflight_that_accepts_is_followed_by_an_answer`]'s estimate check against it - but over a
+//!   CANNED transport, never a live endpoint, so a real `BigQuery` project silently answering
+//!   `None` would still pass. Every other bound adapter declares `false` and always answers
+//!   `None`.
 
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};

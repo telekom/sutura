@@ -39,6 +39,14 @@
     // chart's own templates. `helm lint`/`helm template` are what checks these; this repository's
     // YAML formatter was never going to be one of them.
     "charts/*/templates/**",
+    // `helm template` OUTPUT, committed as goldens and reviewed as a diff (#149 branch 2).
+    // Measured the same way as the exclusion above: dprint's yaml plugin reindents this
+    // chart's `capabilities.drop` list (`- ALL` gains two spaces) in every one of these
+    // files, which is a golden that churns on a formatter run rather than on a chart change.
+    // `charts/sutura/testdata/values/**` is untouched by dprint (checked) and stays covered
+    // by `format-text`, because it is hand-authored and dprint's own style IS what it is
+    // written in.
+    "charts/*/testdata/golden/**",
     // FIXTURE DATA, not prose: the markdown catalog a `SemanticCatalog` reads, whose whole content
     // is pinned by a digest in `crates/sutura-app/tests/golden/catalogs.rs`. Measured: dprint's
     // only change to these files is ONE BLANK LINE after the YAML frontmatter, not a word, and the

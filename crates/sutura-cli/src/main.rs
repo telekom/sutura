@@ -56,8 +56,9 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// Which allocator this binary was linked against, for `doctor`.
 ///
 /// A string rather than a probe: the honest runtime proof is `MIMALLOC_VERBOSE=1`, which makes
-/// mimalloc itself announce its version and options on stderr. This line only says what was
-/// compiled in.
+/// mimalloc itself announce its version, options AND the guarded sample rate on stderr - the
+/// rate is a runtime choice (`MIMALLOC_GUARDED_SAMPLE_RATE`) and belongs there, not in a
+/// compile-time `const`. This line says only what was compiled in.
 ///
 /// THE MAJOR SERIES, NOT THE PATCH LEVEL. The version lives in two places already
 /// (`VENDOR.md`'s drift-hazard paragraph: `nix/mimalloc.nix`'s `mimallocVersion` and the
@@ -65,8 +66,13 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// `3.5.3` would be a third copy that goes stale on the next patch bump with nothing to notice -
 /// which is exactly how this line came to say `2.x` while shipping 3.5.0 through 3.5.3. `3.x`
 /// cannot drift on a patch release, so it is the only number safe to hold by recall.
+///
+/// `guarded` names the compile-time posture next to `secure`: guard-page sampling is compiled
+/// in and dormant (`nix/mimalloc.nix` and `build.rs` both carry `MI_GUARDED=1` with an explicit
+/// zero default rate), armed only by an operator setting `MIMALLOC_GUARDED_SAMPLE_RATE` - this
+/// string does not claim it is armed, only that the capability shipped.
 const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
-    "mimalloc 3.x (secure)"
+    "mimalloc 3.x (secure, guarded)"
 } else {
     "system"
 };
@@ -567,6 +573,6 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn allocator_name_reports_the_series_mimalloc_links() {
-        assert_eq!(super::ALLOCATOR_NAME, "mimalloc 3.x (secure)");
+        assert_eq!(super::ALLOCATOR_NAME, "mimalloc 3.x (secure, guarded)");
     }
 }

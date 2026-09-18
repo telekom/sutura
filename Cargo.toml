@@ -546,7 +546,7 @@ schemars = { version = "1.2", default-features = false, features = ["derive", "s
 #
 # VENDORED, not taken from the registry: the published `libmimalloc-sys` bundles an older
 # mimalloc than the one we ship. `VENDOR.md` records the upstream, the tag, the hash and the
-# four local changes to the build script and both manifests.
+# six local changes to the build script and both manifests.
 #
 # `secure` is the deliberate half of this, and the reason it is on is argued where the
 # allocator is wired up, in `crates/sutura-cli/src/main.rs`.

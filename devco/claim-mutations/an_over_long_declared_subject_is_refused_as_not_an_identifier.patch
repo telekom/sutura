@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-config/src/sources/workload_identity.rs b/crates/sutura-config/src/sources/workload_identity.rs
+index 3ae9967e..17fbb8d5 100644
+--- a/crates/sutura-config/src/sources/workload_identity.rs
++++ b/crates/sutura-config/src/sources/workload_identity.rs
+@@ -57,7 +57,7 @@ impl WorkloadIdentityConfig {
+         let mut parsed = std::collections::BTreeMap::new();
+         for (subject, target) in impersonate {
+             let subject = sutura_domain::identity::SubjectKey::parse(subject)
+-                .map_err(|cause| InvalidWorkloadIdentity::ImpersonationSubject { cause })?;
++                .map_err(|_| InvalidWorkloadIdentity::NotAnAccount)?;
+             let target = WorkloadIdentitySa::parse(target)?;
+             if parsed.insert(subject, target).is_some() {
+                 return Err(InvalidWorkloadIdentity::DuplicateImpersonationSubject);

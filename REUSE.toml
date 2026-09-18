@@ -70,7 +70,7 @@ SPDX-FileCopyrightText = "the sutura authors"
 SPDX-License-Identifier = "Apache-2.0"
 
 # The vendored allocator wrapper: the two Rust crates around mimalloc. `VENDOR.md` records the
-# upstream, the commit, the date and the four local changes; this records the licence in the form a
+# upstream, the commit, the date and the six local changes; this records the licence in the form a
 # tool reads. MIT, and the copyright line is upstream's own from `LICENSE.txt`, not a guess.
 [[annotations]]
 path = "vendor/mimalloc_rust/**"

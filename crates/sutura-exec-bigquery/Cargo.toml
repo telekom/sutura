@@ -193,6 +193,11 @@ serde_norway = { workspace = true }
 # `Cargo.lock` - only link time on this crate's own test binary.
 rcgen = { workspace = true }
 rustls = { workspace = true }
+# The conformance packs, which `tests/conformance.rs` binds this adapter to over a canned transport
+# - see that file for why no tier and no `wire` feature is needed to make the binding honest. A
+# DEV-dependency and never more: the harness holds this adapter to the port's contract, and nothing
+# shipped should be able to reach it.
+sutura-conformance = { workspace = true }
 
 [lints]
 workspace = true

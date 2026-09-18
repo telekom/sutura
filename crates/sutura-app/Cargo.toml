@@ -49,6 +49,11 @@ sutura-exec-duckdb = { workspace = true }
 # `fixtures` for `PostgresWarehouse::local_config`, which the adapters harness below opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
+# A third DATA SOURCE, and the one with no local venue at all - `crates/sutura-app/tests/adapters/
+# adapters.rs`'s own `NoLocalTier` reports it unavailable unconditionally, so this suite links the
+# type and dials nothing. Default features only: no `wire`, no outbound stack, because nothing here
+# ever opens one.
+sutura-exec-bigquery = { workspace = true }
 # THE engine, and what the golden suite executes with. Also the far side of the differential test:
 # one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
 # statement that is valid SQL with different semantics is the bug class that catches.
@@ -70,6 +75,16 @@ serde_norway = { workspace = true }
 # without needing one of each data system in CI. It never re-emits, so it cannot introduce the
 # parser-differential problem that makes translation unusable on the query path.
 polyglot-sql = { workspace = true }
+
+# Forwards `sutura-exec-bigquery`'s own default-off `fixtures`, and exists for exactly one reason:
+# `#[cfg(feature = ..)]` reads the CURRENT crate's features, so `NoLocalTier`'s `impl JobTransport`
+# in `tests/adapters/adapters.rs` has no direct way to ask whether that trait's `apply` method - itself
+# `#[cfg(feature = "fixtures")]` in the crate that defines it - exists in this build. Declaring the
+# same name here and forwarding it is what lets one `#[cfg(feature = "fixtures")]` gate both sides
+# without the two ever being asked to agree by hand. Every gate here passes `--all-features`, which
+# turns both on together; nothing shipped reads a feature this crate declares only for its own tests.
+[features]
+fixtures = ["sutura-exec-bigquery/fixtures"]
 
 [lints]
 workspace = true

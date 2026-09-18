@@ -2,7 +2,7 @@
 
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
@@ -87,15 +87,32 @@ fn lock_fixture_load(config: &tokio_postgres::Config) -> FixtureLoadGuard {
     FixtureLoadGuard { runtime, client }
 }
 
-/// Loads the single-player example into the provisioned Postgres tier and returns settings that
-/// make the composed binary reach it over verified TLS - alongside the [`FixtureLoadGuard`] the
-/// caller must hold for as long as its own test still asks the served binary anything.
+/// What loading the single-player example into the provisioned tier produced: everything a
+/// `sources:` entry needs to reach the SAME data over `kind: "postgres"`, alongside the
+/// [`FixtureLoadGuard`] the caller must hold for as long as its own test still asks the served
+/// binary anything.
+///
+/// Split out of [`settings`] so `super::two_kind` can load the same tier under a source NAME of
+/// its own choosing, beside a `files` source, rather than reaching this file's `LOCAL_SOURCE`
+/// entry - the whole point of that case is two DIFFERENT kinds in one deployment, not two
+/// deployments that each happen to be single-kind.
+pub(crate) struct LoadedTier {
+    pub(crate) guard: FixtureLoadGuard,
+    pub(crate) port: u16,
+    pub(crate) user: String,
+    pub(crate) password_file: PathBuf,
+    pub(crate) database: String,
+    pub(crate) anchor: String,
+}
+
+/// Loads the single-player example's CSVs into the provisioned Postgres tier under `loader_source`
+/// and returns what a caller needs to declare a `kind: "postgres"` source that reaches them.
 ///
 /// `None` is the ordinary no-tier outcome that every adapter fixture uses. Once discovery finds the
 /// endpoint, every credential and TLS value is required: a half-provisioned tier is a failing test,
-/// not an absent one. The password is copied to this case's temporary directory because a real
+/// not an absent one. The password is copied to this case's own scratch directory because a real
 /// source declaration names a file rather than carrying secret text in the settings tree.
-pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
+pub(crate) fn load_into_tier(case: &str, loader_source: &str) -> Option<LoadedTier> {
     let found = sutura_dev::provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "postgres");
     let endpoint = found.endpoint()?;
     let required =
@@ -117,7 +134,7 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     // documentation for why releasing it here, once the load loop returns, is not enough.
     let guard = lock_fixture_load(&loader_config);
     {
-        let source = SourceName::parse(LOCAL_SOURCE).expect("the example source name parses");
+        let source = SourceName::parse(loader_source).expect("the fixture's own loader source name parses");
         let reason = AcknowledgementReason::parse("the served Postgres example uses one fixture role")
             .expect("the fixture reason is an acknowledgement");
         let posture = SourcePosture::SharedServiceUser {
@@ -155,28 +172,54 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
         .write_all(password.as_bytes())
         .expect("the Postgres case's password file is writable");
 
-    let sources = format!(
-        "  {LOCAL_SOURCE}:\n    \
+    Some(LoadedTier {
+        guard,
+        port: endpoint.port(),
+        user,
+        password_file,
+        database,
+        anchor,
+    })
+}
+
+/// One `sources:` entry declaring `loaded` as `name`, over verified TLS.
+pub(crate) fn source_entry(name: &str, loaded: &LoadedTier) -> String {
+    format!(
+        "  {name}:\n    \
            kind: \"postgres\"\n    \
            host: \"127.0.0.1\"\n    \
            port: {}\n    \
-           database: \"{database}\"\n    \
-           user: \"{user}\"\n    \
+           database: \"{}\"\n    \
+           user: \"{}\"\n    \
            password_file: \"{}\"\n    \
            transport_mode: \"verified\"\n    \
-           transport_anchors: \"{anchor}\"\n    \
+           transport_anchors: \"{}\"\n    \
            posture: \"shared-service-user\"\n",
-        endpoint.port(),
-        password_file.display(),
-    );
+        loaded.port,
+        loaded.database,
+        loaded.user,
+        loaded.password_file.display(),
+        loaded.anchor,
+    )
+}
+
+/// Loads the single-player example into the provisioned Postgres tier and returns settings that
+/// make the composed binary reach it over verified TLS as [`LOCAL_SOURCE`] - alongside the
+/// [`FixtureLoadGuard`] the caller must hold for as long as its own test still asks the served
+/// binary anything.
+///
+/// `None` is the ordinary no-tier outcome [`load_into_tier`] returns it for.
+pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
+    let loaded = load_into_tier(case, LOCAL_SOURCE)?;
+    let sources = source_entry(LOCAL_SOURCE, &loaded);
     let settings = settings_over(
         &example_root().join("catalog"),
-        &data,
+        &example_root().join("data"),
         LOOPBACK,
         &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
         &sources,
     );
-    Some((settings, guard))
+    Some((settings, loaded.guard))
 }
 
 /// [`settings`], plus `docs/adr/0013`'s raw tool turned on - `examples/raw-sql`'s showcase.

@@ -33,20 +33,28 @@
 //! null order a conforming source may legitimately answer differently.
 //!
 //! **What the null row does NOT detect, measured rather than assumed.** It is NOT a check on our
-//! statement of the placement. The layer collapses `NULLS LAST` away for every target whose
-//! default is already nulls-last, which is all three adapters bound to these packs - so deleting
-//! `ordered_nulls_last`'s `nulls_first: Some(false)` leaves `DuckDB`'s and Postgres's rendered SQL
-//! **byte-identical**, and the only dialect whose text changes is `BigQuery`, which has no binding
-//! here. Their engines then order nulls last on their own. `crates/sutura-sql`'s
-//! `every_order_by_states_nulls_last` is what holds our statement of it, and it holds the AST
-//! rather than an answer.
+//! statement of the placement, for `DuckDB`, Postgres and the `datafusion` engine: their own
+//! default is already nulls-last, so deleting `ordered_nulls_last`'s `nulls_first: Some(false)`
+//! leaves `DuckDB`'s and Postgres's rendered SQL **byte-identical** (`datafusion` renders none to
+//! compare) and all three still order nulls last on their own. `crates/sutura-sql`'s
+//! `every_order_by_states_nulls_last` is what holds our statement of it for those three, and it
+//! holds the AST rather than an answer.
+//!
+//! **`BigQuery` is the one bound adapter this does not hold for, and binding it changed nothing
+//! about that.** `GoogleSQL`'s own default is nulls-FIRST - the opposite direction - which is why
+//! `ordered_nulls_last`'s explicit clause is the only dialect text it actually changes. But
+//! `BigQuery`'s binding (`crates/sutura-exec-bigquery/tests/conformance.rs`,
+//! `telekom/sutura#710`) runs over a CANNED transport that answers every case from the corpus's
+//! own [`Case::expected`] rows rather than a live endpoint - see that file's own header - so this
+//! behaviour still proves nothing about a real `GoogleSQL` engine's own ordering, in either
+//! direction, for this adapter.
 //!
 //! **What it DOES buy, which is two things and neither is that one.** Through
-//! [`crate::Behaviour::Order`] it pins the three engines' own default null ordering - most
+//! [`crate::Behaviour::Order`] it pins the three REAL engines' own default null ordering - most
 //! usefully `datafusion`'s, whose `sort_by` supplies `nulls_first: false` from a default that a
-//! version bump could change with no diff of ours - so it is a **dependency regression detector**.
-//! Through [`crate::Behaviour::Content`] it is a claim about OUR code: a null key must be a GROUP
-//! and not a row a join or a filter dropped, which is the failure class
+//! version bump could change with no diff of ours - so it is a **dependency regression detector**
+//! for those three. Through [`crate::Behaviour::Content`] it is a claim about OUR code: a null key
+//! must be a GROUP and not a row a join or a filter dropped, which is the failure class
 //! `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 //!
 //! # Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
@@ -62,9 +70,11 @@
 //! **What this does NOT decide.** It is an opt-out from one assertion, not a statement of which
 //! collation is correct - there is no such statement anywhere in this crate, and none is added
 //! here. And it is not evidence of a defect found: `DuckDB`, Postgres and the engine all default
-//! to byte order today, so this case is currently green with the assertion left in too; the field
-//! exists so a future adapter's own default does not need to become one before this corpus can
-//! say why it is not a fault.
+//! to byte order today, so this case would be currently green with the assertion left in too, for
+//! those three; the field exists so a future adapter's own default does not need to become one
+//! before this corpus can say why it is not a fault. `BigQuery` is bound and answers this case
+//! too, but `Behaviour::Order` already skips it by `order_is_asserted`, so nothing here has
+//! measured what a real `GoogleSQL` collation would do with it.
 
 #![expect(
     clippy::expect_used,
@@ -381,12 +391,13 @@ pub fn leg_case() -> LegCase {
 /// one NULL group key in the corpus.
 ///
 /// **The null group is expected LAST.** Read the module header for what that detects and what it
-/// does not: it is NOT a check on our own statement of `ASC NULLS LAST`, because for all three
-/// bound adapters the placement is their engine's own default and deleting our statement of it
-/// changes neither their SQL nor their answer. What the order assertion pins is those engines'
-/// defaults - `datafusion`'s `sort_by` most of all, since a version bump could change it with no
-/// diff of ours - and what the CONTENT assertion pins is ours: a null key is a GROUP rather than a
-/// row a join or a filter dropped.
+/// does not: it is NOT a check on our own statement of `ASC NULLS LAST` for `DuckDB`, Postgres or
+/// the `datafusion` engine, because the placement is their own default and deleting our statement
+/// of it changes neither their SQL nor their answer - `BigQuery` is the one bound adapter that is
+/// NOT true of, and its own binding does not exercise a real endpoint to show it either way. What
+/// the order assertion pins is those three engines' defaults - `datafusion`'s `sort_by` most of
+/// all, since a version bump could change it with no diff of ours - and what the CONTENT
+/// assertion pins is ours: a null key is a GROUP rather than a row a join or a filter dropped.
 fn total_by_region_and_day() -> Case {
     let plan = QueryPlan::new(
         source(),
@@ -411,9 +422,9 @@ fn total_by_region_and_day() -> Case {
             vec![text("east"), text("2026-01-02"), Value::Integer(150)],
             vec![text("north"), text("2026-01-01"), Value::Integer(400)],
             vec![text("north"), text("2026-01-02"), Value::Integer(1300)],
-            // LAST, because the plan claims `ASC NULLS LAST` - which for all three bound adapters
-            // is their own engine's default rather than something our rendering adds. See this
-            // function's doc.
+            // LAST, because the plan claims `ASC NULLS LAST` - which for `DuckDB`, Postgres and
+            // the `datafusion` engine is their own default rather than something our rendering
+            // adds. See this function's doc.
             vec![Value::Null, text("2026-01-01"), Value::Integer(50)],
         ],
     );
@@ -471,13 +482,16 @@ fn mean_by_day() -> Case {
 
 /// `SUM` by day over a column whose total lands exactly on `i64::MAX`: the WIDE integer class.
 ///
-/// **The whole point is which Rust type each adapter arrives through, and that all three arrive at
-/// the same cell anyway.** `sum` over a 64-bit integer column is a different type in each of the
-/// three bound adapters - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, and the engine
-/// reads the shared fixture as `Decimal256` - so before this case the only measure in the corpus was small enough that
-/// every one of those arms was interchangeable with a 32-bit read. Each adapter keeps a
-/// narrowing arm for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists all
-/// three), and nothing exercised one.
+/// **The whole point is which Rust type each adapter arrives through, and that all of them arrive
+/// at the same cell anyway.** `sum` over a 64-bit integer column is a different type in each
+/// bound adapter - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, the engine reads the
+/// shared fixture as `Decimal256`, and `BigQuery`'s own `NUMERIC`/`BIGNUMERIC` field is the same
+/// shape by name - so before this case the only measure in the corpus was small enough that every
+/// one of those arms was interchangeable with a 32-bit read. Each adapter keeps a narrowing arm
+/// for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists them), and this case
+/// is what exercises one over the pack - `BigQuery`'s through its own canned answer rather than a
+/// live endpoint, since its binding runs no real `SUM`; see `crates/sutura-exec-bigquery/tests/
+/// conformance.rs`.
 ///
 /// **`i64::MAX` rather than a merely large number, and that is a falsifier rather than a flourish.**
 /// `i64::MAX` is `2^63 - 1`, which has 63 significant bits and therefore **no exact `f64`** - it

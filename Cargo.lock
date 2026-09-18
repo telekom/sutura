@@ -3815,6 +3815,7 @@ dependencies = [
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
+ "sutura-exec-bigquery",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
  "sutura-exec-postgres",
@@ -3889,6 +3890,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-postgres",
+ "tower",
  "tracing",
  "ureq",
 ]
@@ -3954,6 +3956,7 @@ dependencies = [
  "serde_norway",
  "sutura-app",
  "sutura-catalog-local",
+ "sutura-conformance",
  "sutura-domain",
  "sutura-exec-datafusion",
  "sutura-semantic",

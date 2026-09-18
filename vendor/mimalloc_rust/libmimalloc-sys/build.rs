@@ -92,6 +92,32 @@ fn main() {
 
     if env::var_os("CARGO_FEATURE_SECURE").is_some() {
         build.define("MI_SECURE", "4");
+        // ---- LOCAL CHANGE (sutura). Guarded mode: compiled in, dormant by default. ----
+        //
+        // Must match `nix/mimalloc.nix`'s `cc` invocation exactly, or the two link paths
+        // disagree on allocator security behaviour - `VENDOR.md`'s version-drift hazard,
+        // extended to compile-time posture. `MI_GUARDED` overrides its own gate in
+        // `include/mimalloc/types.h` (`MI_DEBUG && !defined(NDEBUG)`, which this release
+        // build never satisfies): with no active guard page, upstream's guarded mode costs
+        // close to nothing next to plain release mode, so it ships compiled in rather than
+        // as a separate build. `MI_DEFAULT_GUARDED_SAMPLE_RATE=0` is written explicitly even
+        // though it is upstream's own current default, so a future upstream flip cannot
+        // silently arm guard pages in a binary that never asked for them - arming is a
+        // per-deployment runtime choice, `MIMALLOC_GUARDED_SAMPLE_RATE=<N>`, observable
+        // afterwards via `MIMALLOC_VERBOSE=1`.
+        build.define("MI_GUARDED", "1");
+        build.define("MI_DEFAULT_GUARDED_SAMPLE_RATE", "0");
+        // ---- LOCAL CHANGE (sutura). Byte-precise overflow check, restored under MI_SECURE=4. ----
+        //
+        // Must match `nix/mimalloc.nix`'s `cc` invocation exactly, for the reason its own
+        // comment gives: 3.5.0 redefined `MI_SECURE=4` to mean level 3 and moved
+        // byte-precise buffer-overflow checking to level 5, so without this define
+        // `include/mimalloc/types.h`'s auto-enable (`MI_SECURE>=5 || MI_DEBUG>=1`) never
+        // fires under the level we build at, and padding checks on free are coarser than
+        // the `MI_SECURE=4` line implies. Placed in this block, not unconditionally, because
+        // it compensates for what `MI_SECURE` means here - defining it with `MI_SECURE`
+        // unset would enable a check that has nothing to be byte-precise about.
+        build.define("MI_PADDING_CHECK_BYTES", "1");
     }
 
     if target_os == "windows" && env::var_os("CARGO_FEATURE_WIN_DIRECT_TLS").is_some() {
