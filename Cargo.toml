@@ -31,6 +31,11 @@ members = [
   # no allowlist and no anchor - `docs/what-okf-can-carry.md` is the finding, `#153` the issue. A
   # DECLARING source, measured against its own declaration rather than the golden oracle.
   "crates/sutura-catalog-okf",
+  # THE RICHEST of the three measured metadata sources (DataHub / Table Schema / OpenMetadata), and
+  # still a DECLARING connector: it needs a service, and it keeps two half-a-definition slots.
+  # Declared, not defaulted; measured against its own declaration rather than the golden oracle -
+  # `docs/what-openmetadata-can-carry.md` is the finding, `#152` the issue.
+  "crates/sutura-catalog-openmetadata",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
   # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
