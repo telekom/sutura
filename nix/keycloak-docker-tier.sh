@@ -92,15 +92,18 @@ cmd_start() {
   export CLIENT_SECRET
 
   # A uniquely named container: the worktree is not known to docker, so the name carries a random
-  # tail and the id is what matters. An OS-chosen host port (no host half) per ADR 0009. No docker
-  # healthcheck: the image's bash ships without /dev/tcp network redirections, so a raw-TCP port
-  # probe inside the container fails even when the server is up - readiness is instead polled from
-  # the HOST against the published discovery endpoint (below), the same surface the self-proof reads.
+  # tail and the id is what matters. An OS-chosen host port, bound to `127.0.0.1` ONLY (the
+  # `ip::containerPort` form) - a bare `-p <port>` would bind 0.0.0.0 + [::] and expose this
+  # unauthenticated `start-dev` server on every host interface, so the loopback boundary this
+  # script's header states is the BIND, not just the published issuer URL. No docker healthcheck:
+  # the image's bash ships without /dev/tcp network redirections, so a raw-TCP port probe inside
+  # the container fails even when the server is up - readiness is instead polled from the HOST
+  # against the published discovery endpoint (below), the same surface the self-proof reads.
   CID="$(docker run -d --name "sutura-kc-$$-$HOSTNAME" \
     -e KC_BOOTSTRAP_ADMIN_USERNAME="$ADMIN_USER" \
     -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
     -e KC_HTTP_ENABLED=true \
-    -p "$CONTAINER_INTERNAL_PORT" \
+    -p "127.0.0.1::$CONTAINER_INTERNAL_PORT" \
     "$IMAGE" start-dev --health-enabled=true)"
   echo "$CID" > "$ID_FILE"
   echo "keycloak-docker-tier: starting $CID (provisioning may take a minute for a cold image pull)"
