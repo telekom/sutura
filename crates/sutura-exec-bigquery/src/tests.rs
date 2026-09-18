@@ -402,18 +402,18 @@ fn a_dry_run_really_asks_the_endpoint_before_it_says_accepted() {
 
 #[test]
 fn prices_dry_run_is_checked_against_this_adapters_own_dry_run_path() {
-    // BigQuery has no `execute_packs!` binding (`telekom/sutura#710`), so
+    // BigQuery's `execute_packs!` binding (`telekom/sutura#710`,
+    // `crates/sutura-exec-bigquery/tests/conformance.rs`) DOES now run
     // `sutura_conformance::execute::a_preflight_that_accepts_is_followed_by_an_answer`'s own
-    // `estimated_bytes.is_some() != W::PRICES_DRY_RUN` comparison - the one thing that reads this
-    // declaration - never runs against this adapter, only against the three the binding covers,
-    // all of which declare `false`. This is that same comparison, against the fake standing in
-    // for an endpoint that priced the dry run, so `BigQueryWarehouse`'s own `true` is not the one
-    // declaration nothing checks.
+    // `estimated_bytes.is_some() != W::PRICES_DRY_RUN` comparison against this adapter - but over
+    // a CANNED transport, never a live endpoint. This cell is the same comparison against the
+    // fake standing in for an endpoint that priced the dry run, kept beside the pack rather than
+    // retired by it: it is what makes `BigQueryWarehouse`'s own `true` checked even where the
+    // pack binding did not exist, and the pack binding still does not reach a live endpoint.
     //
     // **What this does NOT cover**: whether the REAL endpoint always prices one. The fake is told
-    // to here; a live endpoint that silently stopped would still agree with this cell, which is
-    // the same limit `telekom/sutura#710`'s option 1 (a credentialled venue) would close and this
-    // one does not.
+    // to here; a live endpoint that silently stopped would still agree with this cell, and the
+    // pack's own canned fixture no more reaches a live endpoint than this one does.
     let warehouse = open(Recording::empty().estimating(2048), shared_posture());
     let answered = warehouse
         .dry_run(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())

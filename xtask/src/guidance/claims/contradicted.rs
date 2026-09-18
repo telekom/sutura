@@ -642,22 +642,24 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
         // github.com/telekom/sutura#159. The conformance packs record's own *Consequences* section
         // asks for the gate this evidence names, which then shipped: `xtask/src/conformance.rs`
-        // holds every registered data system to the packs or requires it declared unbound. Three
-        // adapters (`duckdb`, `postgres`, the `datafusion` engine) bind `execute_packs!` today.
+        // holds every registered data system to the packs or requires it declared unbound. Four
+        // adapters (`duckdb`, `postgres`, the `datafusion` engine, `bigquery` -
+        // `telekom/sutura#710`) bind `execute_packs!` today.
         name: "the conformance packs are unbuilt",
         wordings: &["accepted as the shape. None of it is built."],
         evidence: &[Evidence {
             path: "xtask/src/conformance.rs",
             holds: "Every registered data system is held to the conformance packs",
         }],
-        instead: "`crates/sutura-conformance` and `execute_packs!` exist, three data systems bind \
+        instead: "`crates/sutura-conformance` and `execute_packs!` exist, four data systems bind \
                   them, and `xtask/src/conformance.rs` (`check-conformance-bindings`) holds the \
                   registration in step. What is still unbuilt: a per-pack timing aggregate and \
                   the `cargo-insta` unreferenced-snapshot check (both planned further down, not \
                   built), the three named corpus cases (remote-dimension filter with an orphan \
-                  key, zero-denominator ratio, `CountDistinct` over two join keys), the corpus \
-                  itself (code today, not the files this record specifies), and a fourth \
-                  adapter, `sutura-exec-bigquery`, that IS built and not yet bound",
+                  key, zero-denominator ratio, `CountDistinct` over two join keys), and the \
+                  corpus itself (code today, not the files this record specifies). The fourth \
+                  adapter, `sutura-exec-bigquery`, binds over a canned transport rather than a \
+                  live endpoint - `crates/sutura-exec-bigquery/tests/conformance.rs`",
         only: &[],
         // 0012 states the old status line and amends it directly below.
         except: &["docs/adr/0012-conformance-packs-for-inputs-and-adapters.md"],

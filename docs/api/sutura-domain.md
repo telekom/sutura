@@ -11219,15 +11219,17 @@ binary, and this feature adds no crate. Cargo's own resolution is the mechanism;
 fail if a composition root turned the feature on.
 
 **An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.** Three are live: `sutura-exec-duckdb`'s `UBigInt` and
+than as the range question it is.** Four are live: `sutura-exec-duckdb`'s `UBigInt` and
 `HugeInt` arms and `sutura-exec-datafusion`'s `UInt64` arm answer `Value::Integer` while the
-value fits an `i64` and `Value::Text` when it does not, and `sutura-exec-postgres` answers a
-scale-0 `NUMERIC` as `Value::Integer` where the other two answer a `Decimal` as
-`Value::Text`. Under the display form all three compared EQUAL, and that was the RECORDED
-reason for the display form. Here they are `ContentDisagreement::Multiplicity` - *one side
-answered a row 1 time(s) and the other 0* - naming neither the fallback nor the overflow behind
-it. So a `Multiplicity` over a wide count or a decimal column is a range question first: check
-whether one side overflowed its `i64` before looking for a wrong number.
+value fits an `i64` and `Value::Text` when it does not; `sutura-exec-postgres` answers a
+scale-0 `NUMERIC` the same way against a `Decimal`; and `sutura-exec-bigquery` answers its own
+`NUMERIC`/`BIGNUMERIC` fields the identical way, added once its `execute_packs!` binding
+(`telekom/sutura#710`) exercised the same class its own corpus already carried. Under the
+display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+Here they are `ContentDisagreement::Multiplicity` - *one side answered a row 1 time(s) and the
+other 0* - naming neither the fallback nor the overflow behind it. So a `Multiplicity` over a
+wide count or a decimal column is a range question first: check whether one side overflowed
+its `i64` before looking for a wrong number.
 
 #### `struct RealTolerance`
 

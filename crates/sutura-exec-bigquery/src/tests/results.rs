@@ -24,12 +24,21 @@ fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
         // would otherwise disagree about a metric.
         (FieldType::Bool, Cell::Text(String::from("true")), Value::Integer(1)),
         (FieldType::Bool, Cell::Text(String::from("false")), Value::Integer(0)),
-        // An exact decimal stays TEXT. Turning it into a double is how a total that was correct in the
-        // data system stops being correct in an answer.
+        // A fractional decimal stays TEXT. Turning it into a double is how a total that was correct
+        // in the data system stops being correct in an answer.
         (
             FieldType::Numeric,
             Cell::Text(String::from("12345.67")),
             Value::Text(String::from("12345.67")),
+        ),
+        // A whole-number decimal that FITS an `i64` widens to `Integer`, exactly as
+        // `sutura-exec-postgres`'s own `numeric_cell` does for the same shape - see `rowset.rs`.
+        (FieldType::Numeric, Cell::Text(String::from("42")), Value::Integer(42)),
+        // One too wide for an `i64` stays TEXT rather than losing precision.
+        (
+            FieldType::Numeric,
+            Cell::Text(String::from("9223372036854775808")),
+            Value::Text(String::from("9223372036854775808")),
         ),
         // A date is re-rendered from a parse, so a malformed one is an error rather than text that
         // looks like a date downstream.

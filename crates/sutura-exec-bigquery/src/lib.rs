@@ -330,11 +330,12 @@ where
     /// Whether an accepted pre-flight's own estimate agrees with what [`Warehouse::PRICES_DRY_RUN`]
     /// declares.
     ///
-    /// **The same comparison `sutura_conformance::execute`'s pack makes** over the three adapters
-    /// `execute_packs!` binds - none of which is this one (`telekom/sutura#710`) - named here so it
-    /// can be checked against this adapter's own dry-run path without that binding. A live
-    /// endpoint's own guarantee that it always prices one is still unverified; this only compares
-    /// what an already-answered pre-flight carried against the declaration.
+    /// **The same comparison `sutura_conformance::execute`'s pack now also makes over this
+    /// adapter** (`telekom/sutura#710`, `crates/sutura-exec-bigquery/tests/conformance.rs`) - kept
+    /// here as well so it can be checked against this adapter's own dry-run path without going
+    /// through a fixture at all. A live endpoint's own guarantee that it always prices one is
+    /// still unverified by either cell; this only compares what an already-answered pre-flight
+    /// carried against the declaration.
     #[must_use]
     pub const fn dry_run_estimate_agrees_with_its_declaration(estimated_bytes: Option<EstimatedBytes>) -> bool {
         estimated_bytes.is_some() == <Self as Warehouse>::PRICES_DRY_RUN
