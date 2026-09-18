@@ -49,6 +49,12 @@ assertion; its issuer and audience live on the transit proof, not on a `security
 block, and this boot refusal does not reach it. The runtime claim check still applies to any source
 that declares expectations, whatever the inbound mode.
 
+**The runtime check is opt-in, and a source that declares nothing is unguarded.** The claim check
+only fires when a source declares BOTH `expected_issuer` and `expected_audience` (the
+`PartialExpectation` variant refuses a lone half). A source that declares neither keeps the
+pre-hardening behaviour - its exchange runs with no twin-root check at all - so a deployment that
+means to verify the twin root must declare the pair on every impersonating source.
+
 **The decode trusts the token's well-formedness, not its signature.** `jwt_payload` reads `iss`/`aud`
 out of the payload without cryptographic verification. That is safe here because the input is the
 document leg 1 already verified end to end; it is a stated limit, not a shortcut, and the reason only
