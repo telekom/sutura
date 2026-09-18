@@ -425,15 +425,15 @@ cross_dataset_res = gcp.bigquery.Dataset(
     "cross-dataset",
     dataset_id=cross_dataset,
     location=cross_dataset_location,
-    # A dataset id is unique per project, so a replacement (location is immutable) must delete the
-    # old one first; the venue is disposable by design, nothing in it outlives a run. Delete-first
-    # needs contents-on-destroy too: a per-run table can outlive the run that made it (the loader
-    # expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a non-empty dataset
-    # unless `deleteContents=true`.
+    # Delete-first needs contents-on-destroy too: a per-run table can outlive the run that made it
+    # (the loader expires its tables 24 h later), and BigQuery refuses `datasets.delete` on a
+    # non-empty dataset unless `deleteContents=true`. `delete_contents_on_destroy` is a Dataset
+    # RESOURCE argument, not a `ResourceOptions` one - it belongs beside `location`, and only
+    # `provider` / `delete_before_replace` belong in `opts`.
+    delete_contents_on_destroy=True,
     opts=pulumi.ResourceOptions(
         provider=gcp_provider,
         delete_before_replace=True,
-        delete_contents_on_destroy=True,
     ),
 )
 gcp.bigquery.DatasetIamMember(

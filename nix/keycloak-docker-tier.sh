@@ -92,30 +92,18 @@ cmd_start() {
   export CLIENT_SECRET
 
   # A uniquely named container: the worktree is not known to docker, so the name carries a random
-  # tail and the id is what matters. An OS-chosen host port (no host half) per ADR 0009.
+  # tail and the id is what matters. An OS-chosen host port (no host half) per ADR 0009. No docker
+  # healthcheck: the image's bash ships without /dev/tcp network redirections, so a raw-TCP port
+  # probe inside the container fails even when the server is up - readiness is instead polled from
+  # the HOST against the published discovery endpoint (below), the same surface the self-proof reads.
   CID="$(docker run -d --name "sutura-kc-$$-$HOSTNAME" \
     -e KC_BOOTSTRAP_ADMIN_USERNAME="$ADMIN_USER" \
     -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
     -e KC_HTTP_ENABLED=true \
-    --health-cmd 'bash -c "printf \"GET /health/ready HTTP/1.0\r\n\r\n\" >&0; grep -q \"HTTP/1.0 200\" < /dev/tcp/127.0.0.1/9000"' \
-    --health-interval 3s --health-timeout 5s --health-retries 40 \
     -p "$CONTAINER_INTERNAL_PORT" \
     "$IMAGE" start-dev --health-enabled=true)"
   echo "$CID" > "$ID_FILE"
   echo "keycloak-docker-tier: starting $CID (provisioning may take a minute for a cold image pull)"
-
-  # Prove the server is answerable before kcadm - the image does a cold JVM start.
-  for _ in $(seq 1 60); do
-    if docker inspect --format '{{.State.Health.Status}}' "$CID" 2>/dev/null | grep -q healthy; then
-      break
-    fi
-    sleep 3
-  done
-  if ! docker inspect --format '{{.State.Health.Status}}' "$CID" 2>/dev/null | grep -q healthy; then
-    echo "keycloak-docker-tier: $CID did not become healthy in time" >&2
-    docker logs "$CID" 2>&1 | tail -40 >&2 || true
-    exit 1
-  fi
 
   HOST_PORT="$(docker port "$CID" "$CONTAINER_INTERNAL_PORT/tcp" | sed -n 's#.*:\([0-9]*\)$#\1#p' | head -1)"
   if [ -z "$HOST_PORT" ]; then
@@ -123,6 +111,25 @@ cmd_start() {
     exit 1
   fi
   ISSUER="http://127.0.0.1:$HOST_PORT/realms/$REALM"
+
+  # Prove the server is answerable before kcadm - the image does a cold JVM start, and readiness is
+  # judged from THIS host against the published discovery endpoint, the same surface the self-proof
+  # reads. The master realm is bootstrapped before the server serves, so a 200 here means admin is
+  # reachable too.
+  ready=no
+  for _ in $(seq 1 60); do
+    if curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
+      "http://127.0.0.1:$HOST_PORT/realms/master/.well-known/openid-configuration" 2>/dev/null | grep -q 200; then
+      ready=yes
+      break
+    fi
+    sleep 3
+  done
+  if [ "$ready" != yes ]; then
+    echo "keycloak-docker-tier: $CID did not become ready in time" >&2
+    docker logs "$CID" 2>&1 | tail -40 >&2 || true
+    exit 1
+  fi
 
   # kcadm inside the container, against the container's own loopback. Syntax mirrors the nix tier
   # exactly so the two venues provision the same realm, the same confidential client (audience
