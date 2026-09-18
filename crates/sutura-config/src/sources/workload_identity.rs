@@ -99,18 +99,23 @@ impl WorkloadIdentityConfig {
                 return Err(InvalidWorkloadIdentity::DuplicateImpersonationSubject);
             }
         }
+        // **The twin-root link is a PAIR, telekom/sutura#817 - both or neither.** A source that
+        // declares only one expectation names a half the broker's boot comparison and the mint
+        // claim check both refuse to act on, so a lone value would be a declaration nothing enforces:
+        // the exact gap #817 exists to close. Reject it here, at the boundary that can.
+        // (`assertion_matches_expectations` and `build_broker` both require both `Some`, and a
+        // partial declaration is not "a bit of a link" - it is a documented expectation the runtime
+        // quietly ignores.)
         let (expected_issuer, expected_audience) = match (expected_issuer, expected_audience) {
             (None, None) => (None, None),
-            (issuer, audience) => (
-                issuer
-                    .map(crate::IssuerUrl::parse)
-                    .transpose()
-                    .map_err(|cause| InvalidWorkloadIdentity::ExpectedIssuer { cause })?,
-                audience
-                    .map(WifAudience::parse)
-                    .transpose()
-                    .map_err(|cause| InvalidWorkloadIdentity::ExpectedAudience { cause: Box::new(cause) })?,
+            (Some(issuer), Some(audience)) => (
+                Some(crate::IssuerUrl::parse(issuer).map_err(|cause| InvalidWorkloadIdentity::ExpectedIssuer { cause })?),
+                Some(
+                    WifAudience::parse(audience)
+                        .map_err(|cause| InvalidWorkloadIdentity::ExpectedAudience { cause: Box::new(cause) })?,
+                ),
             ),
+            _ => return Err(InvalidWorkloadIdentity::PartialExpectation),
         };
         Ok(Self {
             audience: WifAudience::parse(audience.as_ref())?,
@@ -332,6 +337,17 @@ pub enum InvalidWorkloadIdentity {
         #[source]
         cause: Box<Self>,
     },
+    /// A declaration named ONE of the pool's two expectations. The twin-root link is a PAIR
+    /// (`telekom/sutura#817`) - both or neither - because the boot comparison and the mint claim
+    /// check both act only when both are present. A lone value is a documented expectation nothing
+    /// enforces, which is exactly the gap #817 exists to close, so it is refused here at the
+    /// boundary that can see the declaration whole.
+    #[error(
+        "`sources.<alias>.workload_identity` declares only one of `expected_issuer` and \
+         `expected_audience` - the twin-root link needs both or neither, so a lone value is \
+         refused rather than silently unenforced"
+    )]
+    PartialExpectation,
 }
 
 #[cfg(test)]
@@ -489,9 +505,24 @@ mod tests {
             "https://www.googleapis.com/auth/bigquery.readonly",
             &std::collections::BTreeMap::new(),
             Some("not-an-https-url"),
-            None,
+            Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc"),
         )
         .expect_err("a pool issuer that is not an absolute https URI is refused");
         assert!(matches!(err, super::InvalidWorkloadIdentity::ExpectedIssuer { .. }));
+    }
+    #[test]
+    fn a_declared_lone_expectation_is_refused() {
+        // A declaration that names ONLY ONE of the pool's two expectations is refused at parse,
+        // not silently half-enforced: both the boot comparison and the mint claim check act only
+        // when both halves are present (telekom/sutura#817).
+        let err = WorkloadIdentityConfig::parse_with_expectations(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+            "https://www.googleapis.com/auth/bigquery.readonly",
+            &std::collections::BTreeMap::new(),
+            Some("https://accounts.google.com"),
+            None,
+        )
+        .expect_err("a lone expected_issuer without expected_audience is refused");
+        assert!(matches!(err, super::InvalidWorkloadIdentity::PartialExpectation));
     }
 }

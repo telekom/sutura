@@ -181,14 +181,20 @@ impl WorkloadIdentity {
             // the declared pool - refuse it rather than pass the exchange a document it will decline.
             return false;
         };
-        payload
+        let issuer_ok = payload
             .get("iss")
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|iss| iss == expected_issuer)
-            && payload
-                .get("aud")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|aud| aud == expected_audience)
+            .is_some_and(|iss| iss == expected_issuer);
+        // `aud` is matched SET-wise, not as a bare string: leg 1 verifies a document whose `aud`
+        // may be a single value OR an array (jsonwebtoken's `Audience::Multiple` subset match),
+        // so a declared expected_audience is accepted whenever it is one of the document's
+        // audiences - the identical subset semantics leg 1 already applies.
+        let audience_ok = match payload.get("aud") {
+            Some(serde_json::Value::String(single)) => single == expected_audience,
+            Some(serde_json::Value::Array(many)) => many.iter().any(|entry| entry.as_str() == Some(expected_audience)),
+            _ => false,
+        };
+        issuer_ok && audience_ok
     }
 }
 /// Decodes a compact JWT's payload segment as a JSON object, without verifying it.

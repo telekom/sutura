@@ -874,3 +874,54 @@ fn a_source_with_expectations_accepts_a_subject_token_that_carries_them() {
         .expect("a subject token carrying the declared pool values is exchanged");
     assert!(matches!(minted, Minted::Granted { .. }));
 }
+
+/// A compact JWT whose `aud` claim is an ARRAY carrying the value - the shape leg 1 accepts via
+/// jsonwebtoken's `Audience::Multiple` subset match and the twin-root link must too.
+fn assertion_with_array_aud(iss: &str, aud: &str) -> String {
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"iss":"{iss}","aud":["{aud}"]}}"#));
+    format!("e30.{payload}.placeholder-signature")
+}
+
+#[test]
+fn a_source_with_expectations_refuses_a_subject_token_whose_audience_alone_differs() {
+    // Pins the AUDIENCE half of the twin-root check (telekom/sutura#817), which a mutation review
+    // found unpinned: the issuer matches the pool's, but the audience does not, so the document is
+    // one leg 1 could verify but the pool would decline - refused before any exchange.
+    let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
+        .measured_against(Frozen(A_FIXED_NOW))
+        .impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(
+                String::from("//iam.googleapis.com/.../providers/sso"),
+                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+            )
+            .with_expectations(Some(String::from(A_POOL_ISSUER)), Some(String::from(A_POOL_AUDIENCE))),
+        );
+    // Issuer matches; audience is a DIFFERENT value.
+    let token = assertion_with(A_POOL_ISSUER, "//iam.googleapis.com/some-other-audience");
+    let failure = broker
+        .mint(&caller(Some(&token)), &SourceSet::of(source("warehouse")))
+        .expect_err("a subject token whose audience differs while its issuer matches is refused");
+    assert!(matches!(failure, ExchangeUnusable::PoolExpectation));
+}
+
+#[test]
+fn a_source_with_expectations_accepts_a_subject_token_with_an_array_audience_that_carries_the_value() {
+    // The audience match is SET-wise, as leg 1's is: a document whose `aud` is an ARRAY that
+    // includes the declared pool audience is accepted, not refused for being an array.
+    let broker = WorkloadIdentityBroker::empty(FakeExchange::minting_one_lasting(3_600))
+        .measured_against(Frozen(A_FIXED_NOW))
+        .impersonating(
+            source("warehouse"),
+            WorkloadIdentity::of(
+                String::from("//iam.googleapis.com/.../providers/sso"),
+                String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+            )
+            .with_expectations(Some(String::from(A_POOL_ISSUER)), Some(String::from(A_POOL_AUDIENCE))),
+        );
+    let token = assertion_with_array_aud(A_POOL_ISSUER, A_POOL_AUDIENCE);
+    let minted = broker
+        .mint(&caller(Some(&token)), &SourceSet::of(source("warehouse")))
+        .expect("a subject token whose array audience carries the declared pool value is exchanged");
+    assert!(matches!(minted, Minted::Granted { .. }));
+}
