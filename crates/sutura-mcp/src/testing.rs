@@ -36,7 +36,7 @@ use sutura_domain::identity::{
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
@@ -145,13 +145,9 @@ pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> Pin
 ///
 /// One bundle, two callers, two different catalogs: `revenue` stays open so every caller can still
 /// ask the ordinary question, and `finance_only` is what tells the two callers apart through
-/// `SliceView`'s per-identity filter. The mirror of `sutura_http`'s identity e2e fixture, so the two
+/// `ScopedView`'s per-identity filter. The mirror of `sutura_http`'s identity e2e fixture, so the two
 /// transports prove the same property with the same shape.
 pub(crate) fn bundle_with_a_restricted_metric() -> PinnedDefinitions {
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{Aggregate, AudienceId, ModelName, TableName};
-    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion};
-
     let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),

@@ -40,8 +40,9 @@ use super::{ProvenanceContent, bundle_content};
 // the schema's `description`, which is text a MODEL reads before it calls the tool - so the doc
 // comment on a wire type is caller-facing prose and the reasoning about the type goes here. The one
 // below is written for that reader.
-/// This tool takes no arguments. It returns the whole of what this deployment measures, and there is
-/// nothing to filter or select: send an empty object.
+/// This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
+/// to what the calling principal may see: there is nothing to filter or select, so send an empty
+/// object.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[expect(
