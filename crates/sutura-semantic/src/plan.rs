@@ -490,6 +490,15 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
 /// Returns whether case 1 applies, and the [`FactTop`](sutura_domain::plan::FactTop) to attach to
 /// the fact leg if so - `None` otherwise, whether because there is no `top` at all or because
 /// case 2 applies instead.
+///
+/// **Measured unreachable from any question `plan()` actually dispatches here for.** Reaching this
+/// function at all requires a remote dimension among `resolution.keys` OR `resolution.filters`
+/// (`every_dimension`, this module) - that is `plan()`'s own Mono/Federated split. Case 1 requires
+/// the opposite of both: `include_unmatched` needs zero remote filters, and "every answer key is
+/// `Fact`" needs zero remote group-by keys. The two conditions cannot both hold, so this always
+/// returns `(false, None)` in production; only a constructed `FederatedPlan` in a test reaches the
+/// orchestration this feeds. `github.com/telekom/sutura#890` is the trace and the two ways to close
+/// it - cut the pushdown, or change what this is computed from.
 fn case_1(
     top: Option<Top>,
     include_unmatched: bool,
