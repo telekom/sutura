@@ -5462,6 +5462,7 @@ not `Clone` either - nothing needs to clone a startup refusal.
 - `DuplicateImpersonationSubject` - Two declared `impersonate` keys compare equal - the same subject declared twice, with no way to tell which service account was meant.
 - `ExpectedIssuer` - A declared `expected_issuer` is not a usable `https` issuer.
 - `ExpectedAudience` - A declared `expected_audience` is not a usable provider audience.
+- `PartialExpectation` - A declaration named ONE of the pool's two expectations. The twin-root link is a PAIR (`telekom/sutura#817`) - both or neither - because the boot comparison and the mint claim check both act only when both are present. A lone value is a documented expectation nothing enforces, which is exactly the gap #817 exists to close, so it is refused here at the boundary that can see the declaration whole.
 
 ##### Implements
 
