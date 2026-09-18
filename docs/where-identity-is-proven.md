@@ -500,7 +500,10 @@ adapter, asserting the account each leg became;
 `the_deployments_own_identity_is_neither_principal` is the control, the same read under the
 credential the transport itself holds, without which an exchange that did nothing at all would pass.
 
-**The state is `yes`**, held by a run somebody observed. On 2026-09-16 a `workflow_dispatch` of
+**The state is `yes`**, held by a run somebody observed. That success depended on
+`sts.googleapis.com`/`iamcredentials.googleapis.com` being enabled OUT OF BAND (this repository's
+Pulumi now enables them itself, so a fresh `up` reproduces the grant rather than assuming it). On
+2026-09-16 a `workflow_dispatch` of
 `.github/workflows/bigquery-exchanged-identity.yml` concluded `success` (run
 https://github.com/telekom/sutura/actions/runs/35076526218): the nextest log shows
 `each_principal_is_who_this_source_says_it_is_executing_as` PASS, whose assertion is

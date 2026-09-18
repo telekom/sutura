@@ -167,6 +167,12 @@ _usage = gcp.projects.Service(
     opts=pulumi.ResourceOptions(provider=gcp_provider),
 )
 API_BOOTSTRAP = [_usage]
+# ENABLING AN API IS PROJECT-WIDE, NOT WORKLOAD-SCOPED. `gcp.projects.Service` turns the API on for
+# every resource in this project, and `disable_on_destroy=False` keeps it on after a `down`. These
+# enables by themselves grant nothing - the per-principal `roles/iam.workloadIdentityUser` bindings
+# below hold that - but they are the blast radius of this stack: once `sts`/`iamcredentials` are on,
+# any project member can call them. That is the accepted cost of a project dedicated to the
+# identity/e2e venue and must not be copy-pasted onto a shared project.
 for _api in [
     "bigquery.googleapis.com",
     "iam.googleapis.com",
