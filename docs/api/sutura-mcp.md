@@ -990,8 +990,9 @@ from. Invisible means absent, and it is the transport's job to build the view, n
 
 ### `use DescribeCatalogArgs`
 
-This tool takes no arguments. It returns the whole of what this deployment measures, and there is
-nothing to filter or select: send an empty object.
+This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
+to what the calling principal may see: there is nothing to filter or select, so send an empty
+object.
 
 ### `use DimensionContent`
 
@@ -1048,8 +1049,9 @@ puts a root doc comment into the schema's `description`, which is text a MODEL r
 pub struct DescribeCatalogArgs
 ```
 
-This tool takes no arguments. It returns the whole of what this deployment measures, and there is
-nothing to filter or select: send an empty object.
+This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
+to what the calling principal may see: there is nothing to filter or select, so send an empty
+object.
 
 ##### Implements
 
