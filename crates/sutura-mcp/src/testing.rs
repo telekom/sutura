@@ -36,7 +36,9 @@ use sutura_domain::identity::{
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName,
+};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
