@@ -1643,3 +1643,39 @@ for the second half of that claim. `checks.one-binary` reads `crossPackages."${b
 `-performance` suffix, so neither gate builds or reads a `release-performance` target; both are
 release-profile only. `github.com/telekom/sutura#685`'s own binaries slice (musl at
 `release-performance`) is a separate, matrix-only fix that does not touch either gate either.
+
+## Eighteenth amendment, 2026-09-18: the fifth amendment's table now has a home on the map page, held by a gate
+
+The fifth amendment's four rows lived only in this record. `github.com/telekom/sutura#81` asked for
+the decision to be findable from `docs/where-identity-is-proven.md` itself - the page `AGENTS.md`
+names as *"which venue may be cited for which identity claim"* - so a reader does not have to already
+know this ADR exists. That page's *The venues* table now carries a fifth column, `Allowed to claim`,
+quoting the fifth amendment's rows where they still apply:
+
+- **A fake at the port**: *"every outcome the port can produce, including each refusal"*.
+- **A real dataset under a shared key**: *"BigQuery accepts what we generate, and the rows agree
+  with the engine"*.
+- **A served binary under a verified human caller**: *"that a human subject's own identity reaches
+  the source"* - the successor row to the fifth amendment's workforce cell, still `nowhere yet`.
+- Every other venue's cell reads `-`: the decision is a BigQuery-identity decision and does not
+  reach the venues it never named.
+
+**The fifth amendment's third row does not appear as a quotation, and that is the correction this
+amendment records rather than elides.** It read *"Two distinct principals against a row access
+policy"*, allowed to claim *"two principals, two answers - the mechanism, not the identity class"*.
+The Fourteenth amendment above withdrew that cell: *"sutura does not re-verify a source's row-level
+security... sutura's narrower and provable claim - that the job ran as the asking subject - is leg
+2's exchange, not this cell's row comparison."* The venue that survives it, *A real token exchange,
+and two grants*, keeps the same insight pointed at what is actually proven: a distinct principal's
+own exchange resolves to a distinct account - the mechanism, not the row grant. Its `Allowed to
+claim` cell says so and names the withdrawal rather than repeating a wording that no longer holds.
+
+**The mechanism, stated so the next reader does not have to trust this paragraph.** `cargo xtask
+check-venues` (`xtask/src/venues/page.rs`) already held the venues table's header to an exact match
+so an added column cannot silently change what an existing cell means; widening it to five columns
+meant widening that match and the row parser together, both covered by
+`venues::tests::the_real_page_is_what_this_gate_is_for` and the fixture suite beside it. **What the
+gate does NOT hold**: `Allowed to claim` is free prose, read only far enough to keep the table
+parseable - like `What it costs`, no verdict vocabulary applies to it, and nothing checks that its
+wording agrees with the *Which venue answers which claim* matrix below it. That agreement is
+review's, the same limit this page's own foot already states for `Where it runs`.
