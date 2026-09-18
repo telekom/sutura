@@ -135,29 +135,29 @@ cmd_start() {
     fi
     sleep 2
   done
-  $KC create realms --config /opt/keycloak/bin/kcadm.json --server "http://localhost:$CONTAINER_INTERNAL_PORT" \
+  $KC create realms --server "http://localhost:$CONTAINER_INTERNAL_PORT" \
     -s realm="$REALM" -s enabled=true >/dev/null
 
-  CLIENT_UUID="$($KC create clients --config /opt/keycloak/bin/kcadm.json -r "$REALM" \
+  CLIENT_UUID="$($KC create clients -r "$REALM" \
     -s clientId="$CLIENT" -s enabled=true -s publicClient=false \
     -s directAccessGrantsEnabled=true -s standardFlowEnabled=false -s secret="$CLIENT_SECRET" \
     -s "protocolMappers=[{\"name\":\"resource-audience\",\"protocol\":\"openid-connect\",\"protocolMapper\":\"oidc-audience-mapper\",\"consentRequired\":false,\"config\":{\"included.custom.audience\":\"$RESOURCE_AUDIENCE\",\"id.token.claim\":\"false\",\"access.token.claim\":\"true\",\"introspection.token.claim\":\"true\"}}]" \
     -i)"
   for capability_scope in $CAPABILITY_SCOPES; do
-    SCOPE_UUID="$($KC create client-scopes --config /opt/keycloak/bin/kcadm.json -r "$REALM" \
+    SCOPE_UUID="$($KC create client-scopes -r "$REALM" \
       -s name="$capability_scope" -s protocol=openid-connect \
       -s "attributes={\"include.in.token.scope\":\"true\",\"display.on.consent.screen\":\"false\"}" \
       -i)"
     $KC update "clients/$CLIENT_UUID/default-client-scopes/$SCOPE_UUID" \
-      --config /opt/keycloak/bin/kcadm.json -r "$REALM" >/dev/null
+      -r "$REALM" >/dev/null
   done
 
   for subject in $SUBJECTS; do
-    $KC create users --config /opt/keycloak/bin/kcadm.json -r "$REALM" \
+    $KC create users -r "$REALM" \
       -s username="$subject" -s enabled=true -s emailVerified=true \
       -s email="$subject@example.com" -s firstName="$subject" -s lastName=fixture \
       -s "requiredActions=[]" >/dev/null
-    $KC set-password --config /opt/keycloak/bin/kcadm.json -r "$REALM" \
+    $KC set-password -r "$REALM" \
       --username "$subject" --new-password "$(subject_password "$subject")" >/dev/null
   done
 
