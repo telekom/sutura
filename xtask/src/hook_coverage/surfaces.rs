@@ -138,7 +138,6 @@ pub(crate) fn fuzzed_tree_paths() -> &'static [&'static str] {
         .map_or(&[], |surface| surface.paths)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::SURFACES;

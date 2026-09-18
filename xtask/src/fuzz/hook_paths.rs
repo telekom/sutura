@@ -50,7 +50,6 @@
 //! failure mode the check DOES catch - a surface that simply omits the crate, the exact shape
 //! #867 measured - is the one that actually happened.
 
-
 /// A first-party crate a target reaches: its source spelling and its surface spelling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SourceCrate {
@@ -66,12 +65,30 @@ struct SourceCrate {
 /// the harness actually declares, so a crate this list names but the manifest drops is not a
 /// target's obligation.
 const FIRST_PARTY: &[SourceCrate] = &[
-    SourceCrate { source: "sutura_domain", tree: "crates/sutura-domain" },
-    SourceCrate { source: "sutura_http", tree: "crates/sutura-http" },
-    SourceCrate { source: "sutura_sql", tree: "crates/sutura-sql" },
-    SourceCrate { source: "sutura_config", tree: "crates/sutura-config" },
-    SourceCrate { source: "sutura_catalog_local", tree: "crates/sutura-catalog-local" },
-    SourceCrate { source: "sutura_exec_bigquery", tree: "crates/sutura-exec-bigquery" },
+    SourceCrate {
+        source: "sutura_domain",
+        tree: "crates/sutura-domain",
+    },
+    SourceCrate {
+        source: "sutura_http",
+        tree: "crates/sutura-http",
+    },
+    SourceCrate {
+        source: "sutura_sql",
+        tree: "crates/sutura-sql",
+    },
+    SourceCrate {
+        source: "sutura_config",
+        tree: "crates/sutura-config",
+    },
+    SourceCrate {
+        source: "sutura_catalog_local",
+        tree: "crates/sutura-catalog-local",
+    },
+    SourceCrate {
+        source: "sutura_exec_bigquery",
+        tree: "crates/sutura-exec-bigquery",
+    },
 ];
 
 /// The crate trees the fuzz manifest declares as path dependencies.
@@ -146,11 +163,7 @@ pub(super) type Reach<'a> = (&'a str, Vec<&'static str>);
 /// halves of the check independently - the same seam `hook_coverage`'s own `touched` draws
 /// between the table and the question asked of it. The live row is passed by the caller:
 /// [`crate::fuzz::run`] hands `crate::hook_coverage::surfaces::fuzzed_tree_paths()`.
-pub(super) fn gaps(
-    fuzz_hook_files: &str,
-    fuzzed_tree: &[&str],
-    targets: &[Reach<'_>],
-) -> Vec<Gap> {
+pub(super) fn gaps(fuzz_hook_files: &str, fuzzed_tree: &[&str], targets: &[Reach<'_>]) -> Vec<Gap> {
     let mut gaps = Vec::new();
     let mut seen = Vec::new();
     for (target, crates) in targets {
@@ -160,10 +173,18 @@ pub(super) fn gaps(
             }
             seen.push(*crate_tree);
             if !regex_names(fuzz_hook_files, crate_tree) {
-                gaps.push(Gap { crate_tree, surface: "fuzz hook files:", target: String::from(*target) });
+                gaps.push(Gap {
+                    crate_tree,
+                    surface: "fuzz hook files:",
+                    target: String::from(*target),
+                });
             }
             if !surface_names(fuzzed_tree, crate_tree) {
-                gaps.push(Gap { crate_tree, surface: "fuzzed tree surface", target: String::from(*target) });
+                gaps.push(Gap {
+                    crate_tree,
+                    surface: "fuzzed tree surface",
+                    target: String::from(*target),
+                });
             }
         }
     }
@@ -192,7 +213,8 @@ mod tests {
 
     #[test]
     fn manifest_crates_keeps_only_path_dependencies() {
-        let manifest = "[dependencies]\nlibfuzzer-sys = \"0.4\"\nsutura-sql = { path = \"../crates/sutura-sql\" }\nserde_json = \"1\"\n";
+        let manifest =
+            "[dependencies]\nlibfuzzer-sys = \"0.4\"\nsutura-sql = { path = \"../crates/sutura-sql\" }\nserde_json = \"1\"\n";
         assert_eq!(manifest_crates(manifest), vec!["crates/sutura-sql"]);
     }
 
@@ -207,7 +229,10 @@ mod tests {
     fn a_use_of_a_crate_not_in_the_manifest_is_not_an_obligation() {
         let universe = vec!["crates/sutura-domain"];
         let crates = source_crates(&source(&["sutura_exec_bigquery::x"]), &universe);
-        assert!(crates.is_empty(), "a crate the harness cannot build is not a target's obligation");
+        assert!(
+            crates.is_empty(),
+            "a crate the harness cannot build is not a target's obligation"
+        );
     }
 
     #[test]
@@ -230,7 +255,11 @@ mod tests {
         let tree = surface(&["crates/sutura-sql"]);
         assert_eq!(
             gaps(regex, &tree, &targets),
-            vec![Gap { crate_tree: "crates/sutura-sql", surface: "fuzz hook files:", target: String::from("sql_expression") }],
+            vec![Gap {
+                crate_tree: "crates/sutura-sql",
+                surface: "fuzz hook files:",
+                target: String::from("sql_expression")
+            }],
         );
     }
 
@@ -242,8 +271,16 @@ mod tests {
         assert_eq!(
             gaps(regex, &tree, &targets),
             vec![
-                Gap { crate_tree: "crates/sutura-exec-bigquery", surface: "fuzz hook files:", target: String::from("bigquery_answer") },
-                Gap { crate_tree: "crates/sutura-exec-bigquery", surface: "fuzzed tree surface", target: String::from("bigquery_answer") },
+                Gap {
+                    crate_tree: "crates/sutura-exec-bigquery",
+                    surface: "fuzz hook files:",
+                    target: String::from("bigquery_answer")
+                },
+                Gap {
+                    crate_tree: "crates/sutura-exec-bigquery",
+                    surface: "fuzzed tree surface",
+                    target: String::from("bigquery_answer")
+                },
             ],
         );
     }

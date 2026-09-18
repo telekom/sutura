@@ -42,8 +42,8 @@
 use std::collections::BTreeSet;
 
 use crate::Verdict;
-use crate::repo;
 use crate::hooks;
+use crate::repo;
 
 mod hook_paths;
 
@@ -477,14 +477,20 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             .find(|hook| hook.id == "fuzz")
             .map(|hook| hook.files),
         Err(error) => {
-            eprintln!("xtask check-fuzz: {} is unreadable ({error}) - the reach of the `fuzz` pre-commit hook is one of the obligations this gate holds", hooks::CONFIG);
+            eprintln!(
+                "xtask check-fuzz: {} is unreadable ({error}) - the reach of the `fuzz` pre-commit hook is one of the obligations this gate holds",
+                hooks::CONFIG
+            );
             return Verdict::Fail;
         }
     };
     // No `fuzz` hook is fail-closed: the reach of the local regression half is ungated, which
     // is the same defect as a target no hook sees packaged as a reference-style defect.
     let Some(regex) = fuzz_regex else {
-        eprintln!("xtask check-fuzz: {} declares no `fuzz` hook - the reach of the local regression half is ungated", hooks::CONFIG);
+        eprintln!(
+            "xtask check-fuzz: {} declares no `fuzz` hook - the reach of the local regression half is ungated",
+            hooks::CONFIG
+        );
         return Verdict::Fail;
     };
     let gaps = {
@@ -773,11 +779,9 @@ mod tests {
     #[test]
     fn every_crate_the_targets_reach_is_named_by_both_hook_surfaces() {
         let Some(root) = repo::root() else { return };
-        let manifest =
-            std::fs::read_to_string(root.join(MANIFEST)).expect("the fuzz manifest is readable");
+        let manifest = std::fs::read_to_string(root.join(MANIFEST)).expect("the fuzz manifest is readable");
         let universe = hook_paths::manifest_crates(&manifest);
-        let config =
-            std::fs::read_to_string(root.join(hooks::CONFIG)).expect("the hook config is readable");
+        let config = std::fs::read_to_string(root.join(hooks::CONFIG)).expect("the hook config is readable");
         let fuzz_regex = crate::hooks::hooks(&config)
             .into_iter()
             .find(|hook| hook.id == "fuzz")
@@ -794,15 +798,8 @@ mod tests {
                 targets.push((name, hook_paths::source_crates(&source, &universe)));
             }
         }
-        let borrowed: Vec<hook_paths::Reach<'_>> = targets
-            .iter()
-            .map(|(name, crates)| (name.as_str(), crates.clone()))
-            .collect();
-        let gaps = hook_paths::gaps(
-            &fuzz_regex,
-            crate::hook_coverage::surfaces::fuzzed_tree_paths(),
-            &borrowed,
-        );
+        let borrowed: Vec<hook_paths::Reach<'_>> = targets.iter().map(|(name, crates)| (name.as_str(), crates.clone())).collect();
+        let gaps = hook_paths::gaps(&fuzz_regex, crate::hook_coverage::surfaces::fuzzed_tree_paths(), &borrowed);
         assert!(
             gaps.is_empty(),
             "every crate a target reaches must be named by both hook surfaces: {gaps:?}"
