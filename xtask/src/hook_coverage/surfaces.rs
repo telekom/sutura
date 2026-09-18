@@ -79,7 +79,7 @@ pub(super) const SURFACES: &[Surface] = &[
     },
     Surface {
         // The surface the `fuzz` pre-commit hook claims: the `fuzz/` harness tree plus the crates
-        // the five targets' headers name. It is a separate row from "Rust source" on purpose - the
+        // the six targets' headers name. It is a separate row from "Rust source" on purpose - the
         // hook's `files:` never inspects all `*.rs`, only this reach, so claiming the broader row
         // would report a permanent gap there. A change at the boundary of both surfaces is covered
         // when every hook claiming EACH ran, which is the same all-must-run rule.
@@ -106,6 +106,8 @@ pub(super) const SURFACES: &[Surface] = &[
             "crates/sutura-catalog-local/**",
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
+            "crates/sutura-config/**",
+            "crates/sutura-exec-bigquery/src/wire/**",
         ],
         hooks: &["fuzz"],
         reached_by: "fuzz-smoke",
@@ -122,6 +124,20 @@ pub(super) const SURFACES: &[Surface] = &[
         reached_by: "lint-text",
     },
 ];
+
+/// The `"fuzzed tree"` surface row's path list, by label.
+///
+/// `Surface` is `pub(super)`, so a crate-wide reader (`crate::fuzz::hook_paths`) reaches the row
+/// through this one function rather than the table: `hook_coverage` and the fuzz gate read the
+/// same paths from the same place, and [`THE_TABLE`](SURFACES)' own test keeps the label present
+/// and unique.
+pub(crate) fn fuzzed_tree_paths() -> &'static [&'static str] {
+    SURFACES
+        .iter()
+        .find(|surface| surface.label == "fuzzed tree")
+        .map_or(&[], |surface| surface.paths)
+}
+
 
 #[cfg(test)]
 mod tests {

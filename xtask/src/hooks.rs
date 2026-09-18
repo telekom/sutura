@@ -154,6 +154,15 @@ pub(crate) struct Hook {
     /// both were claimed by a row, so the rule that reads only `always_run` passed over the same
     /// defect written the other way.
     pub(crate) filtered: bool,
+    /// The RAW `files:` regex, as declared - the text a diff path is matched against.
+    ///
+    /// `pub(crate)` because `crate::fuzz::hook_paths` asks the SAME parser a different question
+    /// than `crate::hook_coverage` does: whether the `fuzz` hook's `files:` regex actually NAMES
+    /// a crate the harness reaches. Stored raw (never compiled - xtask carries no regex
+    /// dependency) because matching is a textual containment question: `crates/<name>` appears
+    /// inside it. Empty for a hook that declares no `files:`, which is the `unconditional()`
+    /// shape and can name nothing by construction.
+    pub(crate) files: String,
 }
 
 impl Hook {
@@ -331,6 +340,7 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
                 stages: defaults.clone(),
                 always_run: false,
                 filtered: false,
+                files: String::new(),
             });
             continue;
         }
@@ -345,7 +355,12 @@ pub(crate) fn hooks(text: &str) -> Vec<Hook> {
             hook.always_run = value.trim() == "true";
             continue;
         }
-        if trimmed.starts_with("files:") || trimmed.starts_with("types:") {
+        if let Some(value) = trimmed.strip_prefix("files:") {
+            hook.filtered = true;
+            hook.files = String::from(value.trim());
+            continue;
+        }
+        if trimmed.starts_with("types:") {
             hook.filtered = true;
             continue;
         }

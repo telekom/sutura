@@ -146,7 +146,7 @@ const MEASURED_STAGES: &[&str] = &[hooks::COMMIT, hooks::PUSH];
 /// for it to run against.
 const UNMEASURED_STAGES: &[&str] = &["commit-msg"];
 
-mod surfaces;
+pub(crate) mod surfaces;
 
 use surfaces::{SURFACES, Surface};
 /// How this gate was invoked.

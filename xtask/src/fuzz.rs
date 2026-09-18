@@ -43,6 +43,9 @@ use std::collections::BTreeSet;
 
 use crate::Verdict;
 use crate::repo;
+use crate::hooks;
+
+mod hook_paths;
 
 /// The fuzz crate's manifest, relative to the repository root.
 const MANIFEST: &str = "fuzz/Cargo.toml";
@@ -280,6 +283,7 @@ fn report(
     in_release: &[(usize, &str)],
     locked: bool,
     aborts: bool,
+    gaps: &[hook_paths::Gap],
 ) -> Verdict {
     let mut failures = Vec::new();
     if sources.is_empty() {
@@ -326,6 +330,17 @@ fn report(
             "{RELEASE_WORKFLOW}:{line} invokes the fuzzer (`{form}`) - a fuzz job there is one `needs:` away from deciding whether a tag ships, and the first finding on a fresh random path would then block every release. {WORKFLOW} runs it on the same `v*` tag as a separate run, which no release job can depend on"
         ));
     }
+    // The two local hook surfaces are as much a target's obligation as the manifest, the seed
+    // and the matrix: a crate a target reaches that NEITHER the fuzz hook's `files:` regex nor
+    // the "fuzzed tree" surface names is one a contributor editing it fires no local hook for.
+    // `hook_paths::gaps` computed them over the real surfaces; here they become the gate's
+    // verdict, one line per omission naming the crate, the venue and the target that reaches it.
+    for gap in gaps {
+        failures.push(format!(
+            "{} is reached by `{}` but {} never names it - a change to that crate fires no local fuzz hook, and `check-fuzz` is what holds the two hook surfaces to the harness's reach",
+            gap.crate_tree, gap.target, gap.surface
+        ));
+    }
     if !locked {
         failures.push(format!(
             "{LOCK} is absent - a fuzz run against an unlocked graph is not reproducible"
@@ -338,7 +353,7 @@ fn report(
     }
     if failures.is_empty() {
         println!(
-            "xtask check-fuzz: ok - {} target(s) declared, seeded and named in the workflow matrix",
+            "xtask check-fuzz: ok - {} target(s) declared, seeded and named in the workflow matrix and both hook surfaces",
             sources.len()
         );
         return Verdict::Pass;
@@ -351,7 +366,10 @@ fn report(
     eprintln!("A fuzz invocation in the release workflow belongs in .github/workflows/fuzz.yml,");
     eprintln!("which runs on the same tag without a release job depending on it. Otherwise: add");
     eprintln!("the target to fuzz/Cargo.toml, seed fuzz/seeds/<target>/, and name it in the");
-    eprintln!("matrix of .github/workflows/fuzz.yml. An entry in fuzz/dictionaries/<target>.dict is");
+    eprintln!("matrix of .github/workflows/fuzz.yml, and name each crate the target reaches in");
+    eprintln!("BOTH the `fuzz` hook's `files:` regex in .pre-commit-config.yaml and the `fuzzed");
+    eprintln!("tree` paths in xtask/src/hook_coverage/surfaces.rs. An entry in");
+    eprintln!("fuzz/dictionaries/<target>.dict is");
     eprintln!("`name=\"value\"`, escaping only \\\\, \\\" and \\xAB. `just fuzz-smoke` replays what is");
     eprintln!("committed.");
     Verdict::Fail
@@ -448,6 +466,42 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
+
+    // The two local hook surfaces, read at their own seams: the pre-commit config by the ONE
+    // parser in `crate::hooks`, and the fuzzed-tree row by `hook_coverage`'s crate-visible
+    // re-export. A config that declares no `fuzz` hook is fail-closed the way every other read
+    // here is - a hook file this gate cannot find is one whose reach it cannot hold.
+    let fuzz_regex = match std::fs::read_to_string(root.join(hooks::CONFIG)) {
+        Ok(text) => crate::hooks::hooks(&text)
+            .into_iter()
+            .find(|hook| hook.id == "fuzz")
+            .map(|hook| hook.files),
+        Err(error) => {
+            eprintln!("xtask check-fuzz: {} is unreadable ({error}) - the reach of the `fuzz` pre-commit hook is one of the obligations this gate holds", hooks::CONFIG);
+            return Verdict::Fail;
+        }
+    };
+    // No `fuzz` hook is fail-closed: the reach of the local regression half is ungated, which
+    // is the same defect as a target no hook sees packaged as a reference-style defect.
+    let Some(regex) = fuzz_regex else {
+        eprintln!("xtask check-fuzz: {} declares no `fuzz` hook - the reach of the local regression half is ungated", hooks::CONFIG);
+        return Verdict::Fail;
+    };
+    let gaps = {
+        // The crate universe is the harness manifest's own path dependencies, so a target
+        // reaches a crate ONLY if the harness can build it - `check-boundaries`' second
+        // workspace owns that a crate is reachable, this owns that the surfaces say so.
+        let universe = hook_paths::manifest_crates(&manifest);
+        let mut targets = Vec::new();
+        for name in &sources {
+            if let Ok(source) = std::fs::read_to_string(root.join(TARGETS_DIR).join(format!("{name}.rs"))) {
+                let crates = hook_paths::source_crates(&source, &universe);
+                targets.push((name.as_str(), crates));
+            }
+        }
+        hook_paths::gaps(&regex, crate::hook_coverage::surfaces::fuzzed_tree_paths(), &targets)
+    };
+
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -459,6 +513,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             &in_release,
             locked,
             aborts,
+            &gaps,
         ),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
@@ -493,6 +548,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Pass, "a coherent set must pass");
     }
@@ -509,6 +565,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "an unbuilt target must fail");
     }
@@ -525,6 +582,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a target CI never runs must fail");
     }
@@ -541,6 +599,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "an unseeded target must fail");
     }
@@ -558,6 +617,7 @@ mod tests {
                 &[],
                 locked,
                 aborts,
+                &[],
             );
             assert!(verdict == Verdict::Fail, "an unlocked or unwinding harness must fail");
         }
@@ -597,6 +657,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a dictionary libFuzzer refuses must fail");
     }
@@ -663,6 +724,7 @@ mod tests {
             &[(41, "run-fuzz.sh")],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a fuzz job inside the release workflow must fail");
     }
@@ -698,6 +760,52 @@ mod tests {
         assert!(
             release_invocations(&release).is_empty(),
             "the release workflow must not run the fuzzer - see RELEASE_WORKFLOW for why"
+        );
+    }
+
+    /// The two local hook surfaces must AGREE with the harness's own reach: a crate any target
+    /// binds to that the pre-commit `fuzz` hook's `files:` regex and the "fuzzed tree" surface
+    /// omit is the #867 shape - the target is declared, seeded and in the matrix, so `check-fuzz`
+    /// passed, but a contributor editing that crate fires no local hook. This is the gate that
+    /// closed it, read over the real tree exactly as `run()` does; it would have reddened before
+    /// `sutura-config` and `sutura-exec-bigquery` entered both surfaces, which is what makes it a
+    /// test rather than a sentence (AGENTS.md: a guard that cannot fail looks like coverage).
+    #[test]
+    fn every_crate_the_targets_reach_is_named_by_both_hook_surfaces() {
+        let Some(root) = repo::root() else { return };
+        let manifest =
+            std::fs::read_to_string(root.join(MANIFEST)).expect("the fuzz manifest is readable");
+        let universe = hook_paths::manifest_crates(&manifest);
+        let config =
+            std::fs::read_to_string(root.join(hooks::CONFIG)).expect("the hook config is readable");
+        let fuzz_regex = crate::hooks::hooks(&config)
+            .into_iter()
+            .find(|hook| hook.id == "fuzz")
+            .map(|hook| hook.files)
+            .expect("the config declares the `fuzz` hook - check-hook-fix names its shape");
+
+        // Read each target's crates off its own source, the same derivation `run()` uses.
+        let mut targets = Vec::new();
+        for entry in std::fs::read_dir(root.join(TARGETS_DIR)).expect("the targets dir exists") {
+            let path = entry.expect("a readable entry").path();
+            if path.extension().is_some_and(|x| x == "rs") {
+                let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+                let source = std::fs::read_to_string(&path).expect("a target's source is readable");
+                targets.push((name, hook_paths::source_crates(&source, &universe)));
+            }
+        }
+        let borrowed: Vec<hook_paths::Reach<'_>> = targets
+            .iter()
+            .map(|(name, crates)| (name.as_str(), crates.clone()))
+            .collect();
+        let gaps = hook_paths::gaps(
+            &fuzz_regex,
+            crate::hook_coverage::surfaces::fuzzed_tree_paths(),
+            &borrowed,
+        );
+        assert!(
+            gaps.is_empty(),
+            "every crate a target reaches must be named by both hook surfaces: {gaps:?}"
         );
     }
 }
