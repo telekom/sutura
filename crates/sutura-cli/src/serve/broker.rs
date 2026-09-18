@@ -105,8 +105,10 @@ pub(crate) fn build_broker(
         for (alias, source) in registry.each() {
             if let Some(workload) = source.workload_identity()
                 && let (Some(expected_issuer), Some(expected_audience)) = (
-                    workload.expected_issuer().map(|iss| iss.as_str()),
-                    workload.expected_audience().map(|aud| aud.as_str()),
+                    workload.expected_issuer().map(sutura_config::IssuerUrl::as_str),
+                    workload
+                        .expected_audience()
+                        .map(sutura_config::sources::workload_identity::WifAudience::as_str),
                 )
                 && (expected_issuer != accepted_issuer || expected_audience != accepted_audience)
             {
@@ -147,8 +149,14 @@ pub(crate) fn build_broker(
                 )
                 .with_impersonation(impersonate)
                 .with_expectations(
-                    workload.expected_issuer().map(|iss| iss.as_str()).map(String::from),
-                    workload.expected_audience().map(|aud| aud.as_str()).map(String::from),
+                    workload
+                        .expected_issuer()
+                        .map(sutura_config::IssuerUrl::as_str)
+                        .map(String::from),
+                    workload
+                        .expected_audience()
+                        .map(sutura_config::sources::workload_identity::WifAudience::as_str)
+                        .map(String::from),
                 ),
             ));
         }

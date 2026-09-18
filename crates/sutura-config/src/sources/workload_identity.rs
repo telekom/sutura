@@ -471,11 +471,11 @@ mod tests {
         )
         .expect("a declared pool issuer and audience parse");
         assert_eq!(
-            id.expected_issuer().map(|iss| iss.as_str()),
+            id.expected_issuer().map(crate::inbound::primitive::IssuerUrl::as_str),
             Some("https://accounts.google.com")
         );
         assert_eq!(
-            id.expected_audience().map(|aud| aud.as_str()),
+            id.expected_audience().map(super::WifAudience::as_str),
             Some("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/sutura/providers/oidc")
         );
     }

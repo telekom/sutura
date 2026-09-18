@@ -184,11 +184,11 @@ impl WorkloadIdentity {
         };
         payload
             .get("iss")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .is_some_and(|iss| iss == expected_issuer)
             && payload
                 .get("aud")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .is_some_and(|aud| aud == expected_audience)
     }
 }
