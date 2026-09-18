@@ -1,20 +1,21 @@
-//! Which triples each venue's cross matrix builds, held here rather than by the three literals.
+//! Which triples each venue's cross matrix builds, held here rather than by the four literals.
 //!
 //! Ordinary CI builds a REDUCED set - one cell per failure axis - on every event, and the FULL
-//! four survive only where a release is built. That is three literals in three files that have to
+//! four survive only where a release is built. That is four literals in four files that have to
 //! agree, and until this module the only thing choosing was an inline `${{ A && B || C }}` on
 //! `strategy.matrix.target` that no structural gate read. `check-workflows`, `check-shipped-binaries`
 //! and `max-lines` all stayed green on a 4-on-PR regression, because they ask whether references
 //! resolve, whether the shipped set agrees, and how long a file is - none of which is *which
 //! triples a venue builds*.
 //!
-//! # The three sets, and why each is where it is
+//! # The four sets, and why each is where it is
 //!
 //! | Venue | Matrix | Why |
 //! | --- | --- | --- |
 //! | `cross-link.yml`'s `link` | [`REDUCED`] | one cell per failure axis, on every event |
 //! | `cachix-push.yml`'s `cross-build` | [`REDUCED`] | it fills the cache those legs substitute |
 //! | `release.yml`'s `build` | [`FULL`] | full coverage is MOVED here, not removed |
+//! | `release-performance.yml`'s `build` | [`FULL`] | the optimised build ships the same set |
 //!
 //! The third row is the one that makes the reduction safe, so it is the row a reader should check
 //! first: `release.yml`'s `publish` asserts that exactly four artefacts arrived, so a link failure
@@ -27,7 +28,7 @@
 //! * **One set, on every ordinary-CI event.** An event-scoped `${{ }}` on `cross-link.yml`'s
 //!   matrix is refused outright. A per-event set is exactly how the full four reached a pull
 //!   request before, and with both events on the same list a ternary could only mislead.
-//! * **Which triples, order-sensitively, in all three files.** A dropped cell, an added cell, a
+//! * **Which triples, order-sensitively, in all four files.** A dropped cell, an added cell, a
 //!   reordering or a swap reddens - so does the drift between `cross-link.yml` and
 //!   `cachix-push.yml` that would publish a closure no leg reads, or build a leg nothing publishes.
 //! * **That the full set still exists somewhere.** [`RELEASE`] is the anchor; without it every
@@ -82,7 +83,7 @@ const FULL: &[&str] = &[
     "aarch64-unknown-linux-musl",
 ];
 
-/// Every way the three cross matrices can have stopped agreeing with the decision above.
+/// Every way the four cross matrices can have stopped agreeing with the decision above.
 pub(super) fn problems(root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     for ((file, job), expected, role) in [
@@ -253,7 +254,8 @@ fn items_after(text: &str, offset: usize) -> Vec<String> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    /// A synthetic root carrying all three matrices, so a test can break exactly one of them.
+    /// A synthetic root carrying all four venues' matrices, so a test can break exactly one of
+    /// them.
     ///
     /// Named per test rather than shared: the files are written into, and two tests sharing one
     /// root would pass or fail depending on which ran first.
@@ -318,7 +320,7 @@ mod tests {
     /// this same call, so `&& false` on any of them reddens one of the tests below rather than
     /// none - which is the difference between testing the predicate and testing the refusal.
     #[test]
-    fn the_production_tree_holds_the_three_sets() {
+    fn the_production_tree_holds_the_four_sets() {
         let root = crate::repo::root().expect("repo root");
         let found = super::problems(&root);
         assert!(found.is_empty(), "the production cross matrices have drifted: {found:?}");

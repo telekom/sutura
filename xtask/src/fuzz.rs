@@ -306,7 +306,7 @@ fn hook_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result
             if hook_paths::missing_from_hook(&crate_dir, &hook_files) {
                 gaps.push(format!(
                     "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which the `fuzz` hook's \
-                     `files:` pattern in {} does not reach - a change there triggers no smoke replay",
+                     `files:` pattern in {} never names - a change there triggers no smoke replay",
                     crate::hooks::CONFIG
                 ));
             }

@@ -37,6 +37,10 @@ pub(super) fn target_crates(source: &str) -> BTreeSet<String> {
 }
 
 /// Is `crate_dir` (e.g. `sutura-exec-bigquery`) absent from a `files:` pattern's raw text?
+///
+/// A raw substring, not a regex match: it holds "the crate's directory is mentioned somewhere in
+/// the pattern", not "the pattern's regex actually reaches every file under it". A planted
+/// `crates/<crate_dir>/nothing-real.rs` reference would read as present.
 pub(super) fn missing_from_hook(crate_dir: &str, files: &str) -> bool {
     !files.contains(&format!("crates/{crate_dir}/"))
 }

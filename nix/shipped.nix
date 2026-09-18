@@ -574,10 +574,12 @@ let
 
     # WHICH FEATURES A PUBLISHED BINARY CARRIES, asserted from inside the binary.
     #
-    # `nix/shipped.nix` decides that the shipped binary is built with every feature `allFeatures`
-    # names (`:123`) - `tls`, `bigquery`, `postgres` and `datahub`, none of which is a cargo
-    # DEFAULT (`sutura-cli`'s manifest declares no `default` key at all). Each of the four pulls a
-    # rustls closure with `ring` in it, and two of the four release triples are musl. Issue #111
+    # `nix/shipped.nix` decides that the shipped binary is built with every feature `features`
+    # names (`:123`, the shipped authority `nativeFor`/`crossFor` read - not `allFeatures` at
+    # `:110`, which only feeds `allFeaturesProbes`): `bigquery`, `postgres`, `tls`, `datahub` and
+    # `agent` - five, none of which is a cargo DEFAULT (`sutura-cli`'s manifest declares no
+    # `default` key at all). Four of them - `tls`, `bigquery`, `postgres` and `datahub` - each pull
+    # a rustls closure with `ring` in it, and two of the four release triples are musl. Issue #111
     # asks for that to be a STATED choice rather than one somebody discovers, and a comment is not
     # a mechanism - so this is the mechanism.
     #
