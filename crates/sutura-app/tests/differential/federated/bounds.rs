@@ -235,6 +235,7 @@ fn execute(case: Case) -> Measurement {
         BUDGET,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeiling::DEFAULT,
     )
     .map(sutura_app::Answered::into_outcome);
     census.record(&name, &result);
