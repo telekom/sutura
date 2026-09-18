@@ -79,7 +79,7 @@ pub(super) const SURFACES: &[Surface] = &[
     },
     Surface {
         // The surface the `fuzz` pre-commit hook claims: the `fuzz/` harness tree plus the crates
-        // the five targets' headers name. It is a separate row from "Rust source" on purpose - the
+        // the six targets' headers name. It is a separate row from "Rust source" on purpose - the
         // hook's `files:` never inspects all `*.rs`, only this reach, so claiming the broader row
         // would report a permanent gap there. A change at the boundary of both surfaces is covered
         // when every hook claiming EACH ran, which is the same all-must-run rule.
@@ -103,6 +103,8 @@ pub(super) const SURFACES: &[Surface] = &[
             "crates/sutura-http/src/inbound/token.rs",
             "crates/sutura-http/src/inbound/keys.rs",
             "crates/sutura-http/src/inbound/keys/**",
+            "crates/sutura-exec-bigquery/src/wire.rs",
+            "crates/sutura-exec-bigquery/src/wire/**",
             "crates/sutura-catalog-local/**",
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
