@@ -245,89 +245,32 @@ none existed. Two things the write-up settles that this paragraph had guessed at
   a longer road, which means the bound is a control over a panic reachable from ordinary authored
   SQL rather than a quarantine for malformed input, and it is worth more than this record claimed.
 
-The removal condition is the one the parenthesis guard below already states, and the guard in
-`check` now carries it: a released `polyglot-sql` with the fix, this workspace bumped to it, and
-the seed still green under `just fuzz-smoke` with the guard gone.
+The removal condition for the `NonAscii` guard just above is the one the parenthesis guard used
+to state: a released `polyglot-sql` with the fix, this workspace bumped to it, and the seed still
+green under `just fuzz-smoke` with the guard gone. `polyglot-sql` 0.12.0 - this workspace's pin
+since [#589](https://github.com/telekom/sutura/issues/589) - already carries a fix for this panic
+too (`tobilg/polyglot#452`'s commit is an ancestor of the `v0.12.0` tag), but removing this guard is
+its own decision on its own terms: #589 was scoped to the parenthesis loop below, and `NonAscii`
+stays in place until its removal is verified the same way.
 
-**The parser does not return on a parenthesis with no closer, so the fragment is bounded to closed
-parentheses.** Found by the `sql_expression` fuzz target as a 26-byte timeout and reduced to six
-characters, `a.:S1(`: `.:` reads the next word as a custom data type, and the argument loop in the
-pinned `polyglot-sql 0.9.2` `Parser::parse_data_type` breaks only on `check(TokenType::RParen)` -
-which answers `false` at the end of the token stream, while `advance()` past the end returns the
-last token *without* moving the cursor. The loop therefore cannot terminate, and every turn of it
-does `*last = format!("{} {}", last, token.text)`. **One upstream defect, two report shapes:** it
-reads as a timeout while that string is being copied and as an out-of-memory once the string is
-large, and `MAX_DEPTH` cannot see either because no tree is ever built. Under `panic = "abort"`
-unbounded work on an authored fragment is the process never coming back, which on the query surface
-is a denial of service rather than a slow load.
+**Amendment, #589: the parenthesis guard described in this section is gone.** `polyglot-sql`'s
+`Parser::parse_data_type` used to loop forever on an unclosed parenthesis - `a.:S1(` was the whole
+repro - so `ExpressionError::UnclosedParenthesis` refused the condition, asking the AUTHORING
+dialect's tokenizer rather than counting characters, for the same reason the comment guard above
+does: a naive count of `(` against `)` fails open on `mrr_eur.:S1(')'`, where the closing character
+sits inside a string literal. Fixed upstream by `tobilg/polyglot#447`, released in 0.12.0. The
+fragments `crates/sutura-sql/src/expression/tests/unbounded.rs` replays now return a real parse
+error - `ExpressionError::Unparsable` - in place of the deleted guard's own refusal, and the guard,
+its `TODO`, the variant and this section's account of its mechanics are gone with it. What survives
+is the ceiling below: it was never this guard's to cover, and 0.12.0 does not retire it.
 
-`ExpressionError::UnclosedParenthesis` refuses the enabling condition every scan-to-a-closer loop in
-that parser needs, which is why the bound is on the class rather than on the route the first
-artifact took. **The question is asked of the TOKENS the authoring dialect produces and not of the
-text**, and that is the load-bearing half: a count of `(` against `)` fails open exactly the way the
-comment-delimiter count did, one character class over, because in `mrr_eur.:S1(')'` the two
-characters balance - one `(`, one `)` - while the `)` is a string literal the tokenizer hands over
-as a single token and never as an `RParen`. Asking the tokenizer costs nothing that was not going to
-be spent and has no second scanner to disagree with about dollar-quoting. A `)` with no opener is
-deliberately left to the parser, which errors and returns.
-
-**The construct is the wrong axis, and that is measured rather than argued.** Two more artifacts -
-a second timeout and an out-of-memory, both under 27 bytes - reproduce the same non-return, and all
-three carry `.:`, which invited a bound on the construct instead. `.:` is neither necessary nor
-sufficient on the pinned 0.9.2: `mrr_eur.:S1(9)` parses and returns, so refusing the construct
-would refuse a harmless spelling, while `CAST(mrr_eur AS S1(9` loops with no `.:` in it at all, so
-it would still miss one. `mrr_eur::S1(`, `mrr_eur::DECIMAL(` and `mrr_eur::STRUCT(a` all error and
-return, so an earlier wording here that named `::` beside `CAST` was wrong about that half. Nor is
-the closer's *character* the axis: an unclosed `[`, an unclosed `<`, and both inside a `CAST`, all
-error and return, so what the parser cannot leave is an open parenthesis and nothing else.
-
-The failing inputs are quarantined as the committed seeds
-`fuzz/seeds/sql_expression/unclosed-paren-timeout`, `unclosed-paren-timeout-in-subscript` and
-`unclosed-paren-oom`, byte-identical to their artifacts, so `just fuzz-smoke` replays them on every
-run. **The defect belongs upstream and this does not fix it:** the bound refuses the pathological
-fragment before it reaches that parser, and any other caller of `polyglot-sql` in any other project
-is unaffected by it.
-
-**The bound has no accepted cost of the comment refusal's kind, and an earlier wording here claimed
-one.** It said the guard accepts the same class - a parenthesis inside a string literal, refused for
-being unbalanced in the text - and that is refuted by measurement:
-`SUM(CASE WHEN status = '(' THEN mrr_eur END)` is **accepted**, while the `'--'` spelling of the same
-fragment is refused by the comment guard. Reading the TOKENS is what removes the cost, which is the
-paragraph above's whole point; the comment refusal pays it because it reads TEXT and may not ask the
-tokenizer where a literal ends. What this guard refuses beyond the pathological set is a fragment
-that is text-balanced but token-unbalanced - `mrr_eur.:S1(')'` - and the parse would have rejected
-that anyway. So: a parenthesis inside a string literal is accepted, unlike a comment delimiter
-inside one. The accepted case is asserted, so a repair towards the sentence that used to stand here
-is red rather than stricter - and that assertion is the one the suite did not have. A naive count
-was already caught in the *other* over-refusal direction, by
-`a_fragment_that_escapes_its_own_parentheses_is_refused_naming_a_position` over `SUM(mrr_eur))`, an
-extra CLOSER; what that cell notices is one refusal arriving instead of another, which a
-stricter-but-correct guard could also produce. Nothing held a fragment a count refuses while it is a
-fragment a catalog would really write.
-
-**What the bound does not cover.** It does not reach the defect: a `polyglot-sql` caller that is not
-this module is exposed exactly as before, and a second caller inside this repository would be too.
-It bounds the parenthesis and nothing else, so a future upstream loop scanning for a different
-closer is outside it - none of the bracket and angle spellings above loops today, and that is a
-measurement of one pinned version rather than a property of the parser. And where the fragment does
-not TOKENIZE the guard says nothing at all and the parse it falls through to is what terminates;
-that holds because the parse tokenizes before it descends, which nothing mechanical enforces and no
-cell can prove, since a base tree with no guard returns on those inputs too.
-
-It also asks a DIFFERENT entry point from the one it is guarding, which the wording above hides by
-saying *the tokenizer the parse is about to run*: that is true of the type and not of the call. The
-guard calls `Dialect::tokenize`, which is `Tokenizer::tokenize` over `Token`; the parse goes
-`Dialect::parse` to a private `parse_with_guard` to `Tokenizer::tokenize_for_parser`, the same state
-machine and the same config instantiated over `ParserToken`, behind an input-size check this call
-does not make. What holds their parenthesis depths equal is the dependency's own
-`guard::token_guard_tests`, over one balanced input, comparing the two streams' guard *verdicts*
-rather than the streams - so nothing in this repository holds it.
-
-**And it bounds non-termination, not superlinear work, which is a second class the same target
-found.** A 900 s run on the guarded tree crashed nothing and timed nothing out, and wrote three
-`slow-unit` artifacts of 287, 354 and 388 bytes. **None of them is refused here:** each tokenizes
-with its parentheses balanced, so this guard passes it, and each then reaches the parse and *comes
-back* - with a parse error, after the work is already spent. Measured one input at a time, the parse
+**Measured against the pinned `polyglot-sql 0.9.2`, before #589's bump - see the amendment after
+this section for what re-measuring it at 0.12.0 found.** The bound (now gone, above) stopped
+non-termination and not superlinear work, which is a second class the same target found. A 900 s
+run on the guarded tree crashed nothing and timed nothing out, and wrote three
+`slow-unit` artifacts of 287, 354 and 388 bytes. **None of them was refused:** each tokenized
+with its parentheses balanced, so the parenthesis guard passed it, and each then reached the parse
+and *came back* - with a parse error, after the work is already spent. Measured one input at a time, the parse
 alone in a release build with no sanitizer: **0.79 s, 13.1 s and 14.6 s**, and every figure in this
 section is +-10% run to run because a concurrent build moves it. Through the fuzz harness, which is
 ASan plus sancov, the same three cost 12.7 s, 209.4 s and 224.7 s - a ~16x
@@ -387,6 +330,27 @@ in `fuzz/seeds/<target>/` and runs as a pre-commit hook, so a 225 s seed takes t
 seconds to minutes and makes committing unusable. The reduced forms are cheap enough to commit -
 0.2 to 0.3 s each - and are still not committed, because with no bound there is nothing for a
 replay to be a regression against: it would assert that a parse still returns slowly.
+
+**Amendment, #589: re-measured at 0.12.0, and the specific route above is no longer superlinear -
+which does not close the class.** The original 287/354/388-byte `slow-unit` artifacts were never
+committed (the paragraph above states why), so they could not be replayed byte-for-byte; what is
+re-measured here is the ADR's own reconstruction, `("IF~" * k) + "I?{"`, in the same scratch-binary
+harness the seed table in #589 used. At 0.9.2 it reproduces the original curve - 0.78 s at k=20,
+3.0 s at k=22, 12.0 s at k=24 (75 bytes), consistent with the 0.79-14.6 s range above within the
+stated +-10%. **At 0.12.0 the same construction returns in under a millisecond through k=24, and
+in 25 ms at k=400 (~1.2 KB, past `MAX_FRAGMENT_LEN`)** - not merely faster, but no longer growing
+superlinearly with `k` at all. `tobilg/polyglot#447`'s own description names both fixes together
+("make end of input unmissable to the parser, **and stop IF backtracking exponentially**"), which
+is consistent with one upstream change closing both the non-termination bug #589 tracks and this
+specific backtracking route.
+
+**That still does not retire this section.** Two things are unverified: whether the *original*
+287/354/388-byte artifacts - lost to history rather than reproduced - behave the same as the
+reconstruction, and whether the sixteen-word sweep that found `IF` uniquely superlinear at 0.9.2
+would name a different word at 0.12.0 - neither was re-run. No wall-clock bound exists here either
+way, the reasoning two paragraphs below is unchanged by a faster `IF`, and this remains a
+measurement of one pinned version rather than a property of the parser - now doubly so, since the
+property it measured has apparently moved once already.
 
 ### The fragment is bounded in depth as well as in length
 

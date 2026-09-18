@@ -122,12 +122,20 @@ fn the_parse_check_cannot_tell_the_two_bucket_shapes_apart() {
 #[test]
 fn every_order_by_states_nulls_last() {
     // **The measurement behind the null-placement fix, pinned against the layer rather than
-    // taken from it.** The layer OMITS `NULLS LAST` where it is already the target's default
-    // (`DuckDB`, Postgres, `ClickHouse`), so those three keep rendering no keyword even though
-    // the generated AST carries `nulls_first: Some(false)` - and `BigQuery`'s default is the
-    // other way (nulls first), which is exactly why it is the one that must see the keyword.
-    // Saying "all four render `NULLS LAST`" would be false about the first three, and this
-    // test is what keeps the honest claim: the AST always names it, and `BigQuery` spells it.
+    // taken from it.** The layer OMITS `NULLS LAST` where it is already the target's fixed
+    // default (Postgres, `ClickHouse`), so those two keep rendering no keyword even though the
+    // generated AST carries `nulls_first: Some(false)` - and `BigQuery`'s default is the other
+    // way (nulls first), which is exactly why it is one of the two that must see the keyword.
+    //
+    // `DuckDB` joined `BigQuery` in the `polyglot-sql` release #589 bumped to: its null ordering
+    // moved out of the layer's fixed-default table (`generator.rs`'s own comment: "DuckDB
+    // deliberately isn't in the default-elision group... its NULL ordering is configurable at
+    // runtime"), so the layer now states the keyword for `DuckDB` too rather than assuming its
+    // session default. Measured directly against the version before that bump and the one after:
+    // `DuckDB` used to omit it like Postgres and `ClickHouse`, and now does not - same SQL
+    // semantics (`DuckDB`'s actual default is still `NULLS LAST`), more explicit text. Saying
+    // "all four render it" would still be false about the two that keep omitting, and this test
+    // is what keeps the honest claim.
     let column = super::column(&PlanColumn::new(
         TableName::parse("orders").expect("a test table is a table"),
         ColumnName::parse("customer_key").expect("a test column is a column"),
@@ -141,14 +149,13 @@ fn every_order_by_states_nulls_last() {
         let sql = render(&ast, dialect).expect("an ORDER BY renders");
         assert!(sql.contains("ORDER BY"), "{dialect}: {sql}");
         match dialect {
-            // The one whose default puts nulls first. The keyword is what makes it agree with
-            // the engine and the other three; absent it, this question answers in a different
-            // order on BigQuery than on every other data system.
-            Dialect::BigQuery => assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}"),
-            // `NULLS LAST` is these three's own default, so the layer collapses it away. The
-            // placement is still stated in the AST (`ordered_nulls_last`) and this arm confirms
-            // the collapse is the layer's doing rather than our omission.
-            Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => {
+            // BigQuery's default puts nulls first; DuckDB's null ordering is no longer treated
+            // as fixed by the layer. Both need the keyword to agree with the AST.
+            Dialect::BigQuery | Dialect::DuckDb => assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}"),
+            // `NULLS LAST` is still these two's own fixed default, so the layer collapses it
+            // away. The placement is still stated in the AST (`ordered_nulls_last`) and this arm
+            // confirms the collapse is the layer's doing rather than our omission.
+            Dialect::Postgres | Dialect::ClickHouse => {
                 assert!(
                     !sql.contains("NULLS"),
                     "{dialect} unexpectedly spelled a null placement: {sql}"
