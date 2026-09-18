@@ -108,12 +108,9 @@ use problems::page_problems;
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Venues)) {
-        Ok(listing) => listing,
-        Err(why) => {
-            eprintln!("xtask check-venues: FAILED - {}", why.describe());
-            return Verdict::Fail;
-        }
+    let Some(root) = repo::root() else {
+        eprintln!("xtask check-venues: FAILED - could not determine the repo root");
+        return Verdict::Fail;
     };
     let Ok(page) = std::fs::read_to_string(root.join(PAGE)) else {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
@@ -130,7 +127,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         acceptance_problems.extend(acceptance::scan(workflow, job, &text));
     }
 
-    let tests = test_names(&root, &files);
+    let tests = match test_names() {
+        Ok(tests) => tests,
+        Err(why) => {
+            eprintln!("xtask check-venues: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
     if tests.len() < 100 {
         eprintln!(
             "xtask check-venues: found {} test(s) in the workspace - the scan is broken, not the page",
@@ -875,11 +878,8 @@ Not built.
         // The gate over the tree rather than over a fixture: the assertion that goes red when
         // somebody edits the page, which the fixtures above cannot do.
         let root = crate::repo::root().expect("the repo root");
-        let (_root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::Venues))
-            .expect("could not list the repo");
         let page = std::fs::read_to_string(root.join(PAGE)).expect(PAGE);
-        let tests = super::test_names(&root, &files);
+        let tests = super::test_names().expect("the tree is readable");
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");
         let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
         assert!(tests.len() >= 100, "found {} tests - the scan is broken", tests.len());

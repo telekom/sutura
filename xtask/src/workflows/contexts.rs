@@ -235,36 +235,35 @@ pub(super) struct OrdinaryCi {
 
 impl OrdinaryCi {
     /// Derive the roots and walk them.
+    ///
+    /// The read used to happen in a second loop over a plain `Vec<String>` the transitional door
+    /// handed back - a `.take(n)` written there would have moved with no comparison here to
+    /// notice. [`repo::Census::inspect`] performs the read itself now, so the loop lives inside
+    /// it; `found` is sorted afterwards to keep the deterministic order the old `paths.sort()`
+    /// gave the reach walk.
     pub(super) fn read(root: &Path) -> Self {
         let mut unreadable = Vec::new();
+        let mut found: Vec<(String, String)> = Vec::new();
+        let census = repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"]);
         // The walk's own finding lands in the channel this reader already publishes: a workflow
         // directory it cannot enumerate leaves every job below classified by nothing.
-        let mut paths = match repo::collect_files(root, &root.join(".github/workflows"), &["yml", "yaml"])
-            .into_listing(repo::Unmigrated::Workflows)
-        {
-            Ok((_root, found)) => found,
-            Err(why) => {
-                unreadable.push(why.describe());
-                Vec::new()
-            }
-        };
-        paths.sort();
+        if let Err(why) = census.inspect(&[], everything, |rel, bytes| match std::str::from_utf8(bytes) {
+            Ok(text) => found.push((rel.to_owned(), String::from(text))),
+            Err(_not_utf8) => unreadable.push(format!(
+                "{rel} could not be read, so any job it declares is classified by nothing: stream did not \
+                 contain valid UTF-8"
+            )),
+        }) {
+            unreadable.push(why.describe());
+        }
+        found.sort_by(|(a, _), (b, _)| a.cmp(b));
         let mut roots = Vec::new();
-        for rel in &paths {
-            let text = match std::fs::read_to_string(root.join(rel)) {
-                Ok(text) => text,
-                Err(error) => {
-                    unreadable.push(format!(
-                        "{rel} could not be read, so any job it declares is classified by nothing: {error}"
-                    ));
-                    continue;
-                }
-            };
-            if !gates_on_an_event(&text) {
+        for (rel, text) in &found {
+            if !gates_on_an_event(text) {
                 continue;
             }
             let file = rel.rsplit('/').next().unwrap_or(rel);
-            roots.push(reach::Reached::workflow(file, text));
+            roots.push(reach::Reached::workflow(file, text.clone()));
         }
         Self {
             closure: reach::Closure::from_roots(root, roots),
@@ -282,6 +281,12 @@ impl OrdinaryCi {
         out.extend(self.closure.drift());
         out
     }
+}
+
+/// This gate's [`repo::Scope`]: `collect_files` already filtered to `yml`/`yaml`, so every subject
+/// the census offers is in scope.
+const fn everything(_rel: &str) -> bool {
+    true
 }
 
 /// Does this workflow run on an event whose run reports a context that could gate a merge?
@@ -524,6 +529,30 @@ mod tests {
             read.refusals
         );
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+    }
+
+    #[test]
+    fn an_unreachable_workflows_subtree_refuses_instead_of_reading_zero_files() {
+        // `github.com/telekom/sutura#414`: the read used to be a second loop over a plain
+        // `Vec<String>` this reader held - a narrowing written there had nothing to notice. It now
+        // lives inside `Census::inspect`, so an unreachable subtree is a recorded refusal rather
+        // than a smaller, silent workflow set.
+        use std::os::unix::fs::PermissionsExt as _;
+        let scratch = std::env::temp_dir().join(format!("sutura-contexts-unreachable-{}", std::process::id()));
+        let workflows = scratch.join(".github/workflows");
+        std::fs::create_dir_all(workflows.join("blocked")).expect("the scratch tree");
+        std::fs::write(workflows.join("readable.yml"), WORKFLOW).expect("the readable workflow");
+        std::fs::set_permissions(workflows.join("blocked"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000 on the subtree");
+
+        let read = super::OrdinaryCi::read(&scratch);
+        let unreachable = read.unreachable();
+
+        std::fs::set_permissions(workflows.join("blocked"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        std::fs::remove_dir_all(&scratch).expect("the scratch tree");
+
+        assert!(unreachable.iter().any(|line| line.contains("blocked")), "{unreachable:?}");
     }
 
     #[test]

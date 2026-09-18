@@ -267,14 +267,7 @@ struct Sources {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Conformance)) {
-        Ok(listing) => listing,
-        Err(why) => {
-            eprintln!("xtask check-conformance-bindings: FAILED - {}", why.describe());
-            return Verdict::Fail;
-        }
-    };
-    match judge(&root, &files) {
+    match judge() {
         Ok(report) => {
             for line in report {
                 println!("{line}");
@@ -294,8 +287,8 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 /// The whole rule: read both declarations, reconcile them, and render one verdict.
-fn judge(root: &Path, files: &[String]) -> Result<Report, Report> {
-    let sources = collect(root, files).map_err(|why| vec![why])?;
+fn judge() -> Result<Report, Report> {
+    let sources = collect().map_err(|why| vec![why])?;
     let (registry, entries) = read_registry(&sources).map_err(|why| vec![why])?;
     let harness = one(&sources.definitions, scan::PACKS_MACRO)
         .and_then(|path| owner(&path).ok_or_else(|| format!("{path} is not inside a crate")))
@@ -314,7 +307,12 @@ fn judge(root: &Path, files: &[String]) -> Result<Report, Report> {
 }
 
 /// One pass over every `.rs` file under `crates/`, plus every manifest there.
-fn collect(root: &Path, files: &[String]) -> Result<Sources, String> {
+///
+/// The loop used to run over the caller's `files: &[String]` from the transitional census door -
+/// a `.take(n)` written there had nothing here to notice. [`repo::Census::inspect`] performs the
+/// walk AND the read now, scoped to [`in_scope`], so a file this gate cannot read refuses the
+/// whole scan (`repo::Refusal::Unreachable`) instead of being reported as a smaller one.
+fn collect() -> Result<Sources, String> {
     let mut found = Sources {
         read: 0,
         registries: Vec::new(),
@@ -322,20 +320,32 @@ fn collect(root: &Path, files: &[String]) -> Result<Sources, String> {
         bindings: Vec::new(),
         dirs: BTreeMap::new(),
     };
-    for rel in files {
-        if let Some(dir) = manifest_dir(root, rel)? {
-            drop(found.dirs.insert(dir.0, dir.1));
-            continue;
-        }
-        if !is_crate_rust(rel) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
-            // Not skipped. A file in scope this gate cannot read is a file it did not judge.
-            return Err(format!("could not read {rel}, which is in scope"));
-        };
-        found.read = found.read.saturating_add(1);
-        inspect(rel, &text, &mut found)?;
+    let mut error: Option<String> = None;
+    let census = repo::all_files().map_err(|why| why.describe())?;
+    census
+        .inspect(&[], in_scope, |rel, bytes| {
+            if error.is_some() {
+                return;
+            }
+            if let Some(dir) = manifest_dir(rel, bytes) {
+                match dir {
+                    Ok(dir) => drop(found.dirs.insert(dir.0, dir.1)),
+                    Err(why) => error = Some(why),
+                }
+                return;
+            }
+            let Ok(text) = std::str::from_utf8(bytes) else {
+                error = Some(format!("{rel} is not valid UTF-8, which is in scope"));
+                return;
+            };
+            found.read = found.read.saturating_add(1);
+            if let Err(why) = inspect(rel, text, &mut found) {
+                error = Some(why);
+            }
+        })
+        .map_err(|why| why.describe())?;
+    if let Some(why) = error {
+        return Err(why);
     }
     if found.read == 0 {
         return Err(format!(
@@ -347,6 +357,18 @@ fn collect(root: &Path, files: &[String]) -> Result<Sources, String> {
         return Err(format!("no manifest under {CRATES} declares a package name"));
     }
     Ok(found)
+}
+
+/// This gate's [`repo::Scope`]: a manifest directly under a crate, or a `.rs` file inside one.
+fn in_scope(rel: &str) -> bool {
+    is_manifest(rel) || is_crate_rust(rel)
+}
+
+/// Is `rel` a crate's own `Cargo.toml` - directly under `crates/<name>/`, not a nested one?
+fn is_manifest(rel: &str) -> bool {
+    rel.strip_prefix(CRATES)
+        .and_then(|rest| rest.strip_suffix("/Cargo.toml"))
+        .is_some_and(|dir| !dir.contains('/'))
 }
 
 /// One file's contribution to the scan.
@@ -523,14 +545,18 @@ fn one(found: &[String], needle: &str) -> Result<String, String> {
 }
 
 /// The package name and directory a `crates/<dir>/Cargo.toml` declares, if this path is one.
-fn manifest_dir(root: &Path, rel: &str) -> Result<Option<Declared>, String> {
-    let Some(dir) = rel.strip_prefix(CRATES).and_then(|rest| rest.strip_suffix("/Cargo.toml")) else {
-        return Ok(None);
-    };
+fn manifest_dir(rel: &str, bytes: &[u8]) -> Option<Result<Declared, String>> {
+    let dir = rel.strip_prefix(CRATES).and_then(|rest| rest.strip_suffix("/Cargo.toml"))?;
     if dir.contains('/') {
-        return Ok(None);
+        return None;
     }
-    let text = std::fs::read_to_string(root.join(rel)).map_err(|e| format!("could not read {rel}: {e}"))?;
+    Some(manifest_declared(rel, dir, bytes))
+}
+
+/// The package name a crate's own manifest declares, once [`manifest_dir`] has decided `rel` is
+/// one.
+fn manifest_declared(rel: &str, dir: &str, bytes: &[u8]) -> Result<Declared, String> {
+    let text = std::str::from_utf8(bytes).map_err(|_not_utf8| format!("{rel} is not valid UTF-8"))?;
     // The manifest half of *is this test EMITTED*. Autodiscovery is what makes a file under
     // `tests/` a target at all, so a crate that turns it off leaves every binding this gate reads
     // there in a file nothing compiles - the same class as the three text shapes `scan` refuses,
@@ -553,7 +579,7 @@ fn manifest_dir(root: &Path, rel: &str) -> Result<Option<Declared>, String> {
         .and_then(|rest| rest.trim_start().strip_prefix('='))
         .map(|rest| rest.trim().trim_matches('"').to_owned())
         .ok_or_else(|| format!("{rel} declares no package name"))?;
-    Ok(Some((name, format!("{CRATES}{dir}/"))))
+    Ok((name, format!("{CRATES}{dir}/")))
 }
 
 /// The crate directory a repo-relative path is inside, with its trailing `/`.
@@ -593,10 +619,8 @@ mod tests {
     /// both declarations were found: one registry, one packs macro, and bindings under `tests/`.
     #[test]
     fn the_declarations_in_this_tree_are_found_by_the_needles_this_gate_keys_on() {
-        let (root, files) = repo::all_files()
-            .and_then(|census| census.into_listing(repo::Unmigrated::Conformance))
-            .expect("the tests run inside the repo");
-        let sources = super::collect(&root, &files).expect("this tree is in scope");
+        let root = repo::root().expect("the tests run inside the repo");
+        let sources = super::collect().expect("this tree is in scope");
         let found: Vec<&str> = sources.registries.iter().map(|site| site.path.as_str()).collect();
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(sources.definitions.len(), 1, "{:?}", sources.definitions);
@@ -624,14 +648,30 @@ mod tests {
     /// is the failure mode a gate exists to prevent and the least likely to be noticed, because a
     /// scan that read nothing has nothing to disagree with.
     ///
-    /// Called with an empty file list rather than by moving the tree, which is what makes it a
-    /// cell and not a manual experiment.
+    /// A scratch tree rather than an empty file list, which is what makes it a cell over a real
+    /// walk rather than a manual experiment with a narrowed argument - `collect` takes none to
+    /// narrow now.
     #[test]
     fn a_scan_that_read_no_rust_is_a_failure_and_not_a_clean_tree() {
-        let (root, _files) = repo::all_files()
-            .and_then(|census| census.into_listing(repo::Unmigrated::Conformance))
-            .expect("the tests run inside the repo");
-        let Err(why) = super::collect(&root, &[]) else {
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture changes cwd: run under just test for one process per test"
+        );
+        let root = std::env::temp_dir().join(format!("sutura-conformance-no-rust-{}", std::process::id()));
+        let _cleanup_before = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("crates/example")).expect("the scratch tree");
+        std::fs::write(root.join("flake.nix"), "{ }\n").expect("a root marker");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the other root marker");
+        std::fs::write(root.join("crates/example/Cargo.toml"), "[package]\nname = \"example\"\n")
+            .expect("a manifest with no Rust beside it");
+
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&root).expect("enter the fixture");
+        let result = super::collect();
+        std::env::set_current_dir(original).expect("restore before asserting");
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
+
+        let Err(why) = result else {
             panic!("a scan that read nothing is not a verdict")
         };
         assert!(why.contains("was read, so this gate checked nothing"), "{why}");

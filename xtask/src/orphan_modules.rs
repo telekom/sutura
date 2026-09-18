@@ -47,7 +47,7 @@
 use crate::Verdict;
 use crate::repo;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// A finding: one `pub` module that no first-party crate references.
 struct Orphan {
@@ -55,8 +55,8 @@ struct Orphan {
     module: String,
 }
 
-/// `(package name, its repo-relative `.rs` files)` for the first-party packages.
-type CrateSources = Vec<(String, Vec<String>)>;
+/// `(package name, the `pub mod` idents it declares)` for the first-party library crates.
+type LibraryCrates = Vec<(String, BTreeSet<String>)>;
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
@@ -76,10 +76,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // Every first-party package, keyed by package name, with its `.rs` files (repo-relative).
-    let mut crate_sources: CrateSources = Vec::new();
-    // The crates that declare library modules: `(package name, crate dir)`.
-    let mut library_crates: Vec<(String, PathBuf)> = Vec::new();
+    // The corpus is every first-party `.rs` file concatenated, so a module is reachable when any
+    // crate names it - including the owner's own `crate::…` references. Built in the SAME pass
+    // that finds each crate's `pub mod` declarations now: a second walk over the same directory
+    // used to re-read every file to find them, and both walks held a plain `Vec` a `.take(n)`
+    // could narrow with nothing here to notice.
+    let mut corpus = String::new();
+    // The crates that declare library modules, with what each one declares.
+    let mut library_crates: LibraryCrates = Vec::new();
     for package in packages {
         let name = package.get("name").and_then(|n| n.as_str()).unwrap_or("<unnamed>").to_owned();
         let Some(manifest) = package.get("manifest_path").and_then(|p| p.as_str()) else {
@@ -88,52 +92,30 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         let Some(crate_dir) = Path::new(manifest).parent() else {
             continue;
         };
-        let files = match listing(&root, crate_dir) {
-            Ok(files) => files,
+        match crate_pass(&root, crate_dir) {
+            Ok(Some(pass)) => {
+                corpus.push('\n');
+                corpus.push_str(&pass.text);
+                library_crates.push((name, pass.declared));
+            }
+            // a non-library crate with no `.rs`; nothing to hold reachability for
+            Ok(None) => {}
             Err(why) => {
                 eprintln!("xtask unreachable-public-modules: FAILED - {name}: {why}");
                 return Verdict::Fail;
-            }
-        };
-        if files.is_empty() {
-            continue; // a non-library crate with no `.rs`; nothing to hold reachability for
-        }
-        crate_sources.push((name.clone(), files));
-        library_crates.push((name, crate_dir.to_path_buf()));
-    }
-
-    // The corpus is every first-party `.rs` file concatenated, so a module is reachable when any
-    // crate names it - including the owner's own `crate::…` references.
-    let mut corpus = String::new();
-    for (_ident, files) in &crate_sources {
-        corpus.push('\n');
-        for rel in files {
-            match std::fs::read_to_string(root.join(rel)) {
-                Ok(text) => corpus.push_str(&text),
-                Err(why) => {
-                    eprintln!("xtask unreachable-public-modules: FAILED - {rel}: {why}");
-                    return Verdict::Fail;
-                }
             }
         }
     }
 
     let mut findings: Vec<Orphan> = Vec::new();
     let mut checked = 0_usize;
-    for (name, crate_dir) in &library_crates {
-        let declared = match public_mods_in(&root, crate_dir) {
-            Ok(v) => v,
-            Err(why) => {
-                eprintln!("xtask unreachable-public-modules: FAILED - {name}: {why}");
-                return Verdict::Fail;
-            }
-        };
+    for (name, declared) in &library_crates {
         for module in declared {
             checked = checked.saturating_add(1);
-            if !reached_as_segment(&corpus, &module) {
+            if !reached_as_segment(&corpus, module) {
                 findings.push(Orphan {
                     owner: name.clone(),
-                    module,
+                    module: module.clone(),
                 });
             }
         }
@@ -163,14 +145,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         );
         Verdict::Fail
     }
-}
-
-/// The `.rs` files under `dir`, as repo-relative paths, via the transitional census door.
-fn listing(root: &Path, dir: &Path) -> Result<Vec<String>, String> {
-    repo::collect_files(root, dir, &["rs"])
-        .into_listing(repo::Unmigrated::OrphanModules)
-        .map(|(_, files)| files)
-        .map_err(|why| why.describe())
 }
 
 /// Whether the identifier `name` appears in `text` used as a path segment.
@@ -219,37 +193,97 @@ const fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// Every `pub mod <ident>` declaration in a crate's `.rs` tree.
+/// One crate's contribution: its `.rs` text, concatenated, and every `pub mod <ident>` it
+/// declares. `None` when the crate has no `.rs` at all - a build-script-only crate, say - which is
+/// not a failure, just nothing to hold reachability for.
+struct CratePass {
+    /// The crate's `.rs` text, concatenated, for the reachability corpus.
+    text: String,
+    /// Every `pub mod <ident>` this crate declares.
+    declared: BTreeSet<String>,
+}
+
+/// Walk one crate's `.rs` tree once, building the corpus text and the `pub mod` declarations
+/// together.
 ///
-/// A `pub mod x;` or inline `pub mod x { ... }` declares a public module. `pub(crate) mod` is
-/// excluded because after the first `pub ` the next non-space token is `(`, not `mod`. Textual,
-/// with `unused_deps`'s trade: no compiler needed.
-fn public_mods_in(root: &Path, crate_dir: &Path) -> Result<BTreeSet<String>, String> {
-    let files = listing(root, crate_dir)?;
-    let mut out = BTreeSet::new();
-    for rel in &files {
-        let file = root.join(rel);
-        let text = std::fs::read_to_string(&file).map_err(|why| format!("could not read {}: {why}", file.display()))?;
-        for line in text.lines() {
+/// This used to be two walks over the same directory - one to build the corpus, a second
+/// (`public_mods_in`, since deleted) to re-read every file looking for declarations - and both
+/// held the transitional door's plain `Vec` in caller space. [`repo::Census::inspect`] performs
+/// the read once now; a `pub mod x;` or inline `pub mod x { ... }` declares a public module,
+/// `pub(crate) mod` excluded because after the first `pub ` the next non-space token is `(`, not
+/// `mod`. Textual, with `unused_deps`'s trade: no compiler needed.
+fn crate_pass(root: &Path, crate_dir: &Path) -> Result<Option<CratePass>, String> {
+    let mut text = String::new();
+    let mut declared = BTreeSet::new();
+    let mut error: Option<String> = None;
+    let census = repo::collect_files(root, crate_dir, &["rs"]);
+    let outcome = census.inspect(&[], everything, |rel, bytes| {
+        if error.is_some() {
+            return;
+        }
+        let Ok(file_text) = std::str::from_utf8(bytes) else {
+            error = Some(format!("{rel} is not valid UTF-8"));
+            return;
+        };
+        text.push_str(file_text);
+        for line in file_text.lines() {
             let trimmed = line.trim_start();
             let Some(rest) = trimmed.strip_prefix("pub ") else { continue };
-            // `pub(crate)` / `pub(super)` are excluded; only a bare identifier `mod` follows `pub `.
             let Some(body) = rest.strip_prefix("mod ") else { continue };
             let Some(ident) = body.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).next() else {
                 continue;
             };
-            if ident.is_empty() {
-                continue;
+            if !ident.is_empty() {
+                declared.insert(ident.to_owned());
             }
-            out.insert(ident.to_owned());
         }
+    });
+    if let Some(why) = error {
+        return Err(why);
     }
-    Ok(out)
+    match outcome {
+        Ok(_inspected) => Ok(Some(CratePass { text, declared })),
+        Err(repo::Refusal::Empty) => Ok(None),
+        Err(why) => Err(why.describe()),
+    }
+}
+
+/// This gate's [`repo::Scope`] for [`crate_pass`]: `collect_files` already filtered to `.rs`, so
+/// every subject the census offers is in scope.
+const fn everything(_rel: &str) -> bool {
+    true
 }
 
 #[cfg(test)]
 mod tests {
-    use super::reached_as_segment;
+    use super::{crate_pass, reached_as_segment};
+
+    #[test]
+    fn an_unreachable_subtree_refuses_the_crate_pass_instead_of_a_smaller_corpus() {
+        // `github.com/telekom/sutura#414`: the corpus used to be built by re-reading a `Vec`
+        // handed back by the transitional door, in a separate loop from the one that found each
+        // `pub mod` - both held a plain `Vec` a narrowing had nothing here to notice.
+        // `crate_pass` walks once through `Census::inspect`, so an unreachable subtree refuses
+        // the whole pass rather than shrinking the corpus.
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = std::env::temp_dir().join(format!("sutura-orphan-modules-unreachable-{}", std::process::id()));
+        let crate_dir = root.join("crates/thing");
+        std::fs::create_dir_all(crate_dir.join("src/blocked")).expect("the scratch tree");
+        std::fs::write(crate_dir.join("src/lib.rs"), "pub mod blocked;\n").expect("a readable file");
+        std::fs::set_permissions(crate_dir.join("src/blocked"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000 on the subtree");
+
+        let result = crate_pass(&root, &crate_dir);
+
+        std::fs::set_permissions(crate_dir.join("src/blocked"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
+
+        assert!(
+            result.is_err(),
+            "an unreachable subtree must refuse rather than a smaller corpus"
+        );
+    }
 
     #[test]
     fn a_module_used_as_a_path_prefix_is_referenced() {
