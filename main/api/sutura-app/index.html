@@ -4507,10 +4507,21 @@ sits there rather than here.</p>
 type's own signature, the same shape <code>sutura_domain::audit::AuditSink::record</code> uses for the same
 reason. The mutable state is inside a <code>Mutex</code> guarding the per-subject map.</p>
 <h4 id="methods_15">Methods<a class="headerlink" href="#methods_15" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SpendBudget</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">headroom_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">now</span><span class="p">:</span><span class="w"> </span><span class="nc">Instant</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">u64</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The tightest remaining headroom across every subject this ledger is currently tracking, or
+<code>None</code> where no ceiling is configured (<code>docs/adr/0030</code>'s "absent means no budget").</p>
+<p><strong>Deployment-wide, never per-subject</strong> - ADR-0015 Decision 5 types every metric label
+parameter as <code>&amp;'static str</code> precisely so request-owned text (a <code>Subject</code>'s own identifier
+included) cannot become one, so this reports the worst case across every subject rather than
+naming which one it is. A subject not yet in the map, or whose window has elapsed, has its
+full ceiling as headroom - so an empty or fully-expired map reports the ceiling itself, never
+<code>None</code> and never zero, the same "absent rather than zero" discipline <code>sutura-http</code>'s own
+metrics module already applies to a gauge with no meaningful value.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">budget</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">SpendBudget</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A ledger bounded by <code>budget</code>, or unbounded if <code>None</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">no_budget</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-86-1"><a id="__codelineno-86-1" name="__codelineno-86-1" href="#__codelineno-86-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">no_budget</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>No ceiling configured. Every question is admitted and nothing is counted - <code>docs/adr/0030</code>'s
 "absent means no budget, which is today's behaviour" read back as a constructor.</p>

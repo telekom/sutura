@@ -1512,10 +1512,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" class="md-nav__link">
+  <a href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-seven-deviations-from-the-sections-above" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Second amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+        Second amendment, 2026-09-11: what is built, what is deliberately not, and the seven deviations from the sections above
       
     </span>
   </a>
@@ -3029,10 +3029,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" class="md-nav__link">
+  <a href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-seven-deviations-from-the-sections-above" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Second amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+        Second amendment, 2026-09-11: what is built, what is deliberately not, and the seven deviations from the sections above
       
     </span>
   </a>
@@ -3382,12 +3382,14 @@ exist beforehand - so it uses <code>test-causality</code>'s stated-evidence path
   but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
   with the code.</li>
 </ul>
-<h2 id="second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above">Second amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above<a class="headerlink" href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-six-deviations-from-the-sections-above" title="Permanent link">&para;</a></h2>
+<h2 id="second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-seven-deviations-from-the-sections-above">Second amendment, 2026-09-11: what is built, what is deliberately not, and the seven deviations from the sections above<a class="headerlink" href="#second-amendment-2026-09-11-what-is-built-what-is-deliberately-not-and-the-seven-deviations-from-the-sections-above" title="Permanent link">&para;</a></h2>
 <p><strong>Built.</strong> <code>sutura-runtime::metrics</code> holds the registry behind a <code>RegistryBuilder</code> that is consumed,
 so the series set is frozen before it is shared and <code>Registry::render</code> takes no lock of any kind.
 <code>sutura-http::metrics::Metrics::install</code> registers the transport series; <code>ServiceState::new</code>
-registers <code>sutura_engine_worker_threads</code> (the width the engine was opened with) and
-<code>sutura_catalog_metrics</code> (the served bundle's governed coverage) against the same builder. <code>/metrics</code>
+registers <code>sutura_engine_worker_threads</code> (the width the engine was opened with),
+<code>sutura_catalog_metrics</code> (the served bundle's governed coverage) and, when a per-replica spend
+ceiling is configured, <code>sutura_spend_headroom_bytes</code> (the tightest remaining headroom across every
+subject that replica's ledger tracks) against the same builder. <code>/metrics</code>
 is mounted on the one listener outside the version prefix, behind <code>require_metrics_token</code> and outside
 the token gate, with its own limiter tier. <code>security.metrics_token</code> is parsed like <code>access_token</code>, and
 the boot refusals this record specifies are asserted in <code>sutura-config</code>. The tests this record asks
@@ -3428,6 +3430,18 @@ responses without parsing a body. A missing declaration is recorded as <code>int
    asks for a debug span, but the current router installs one info-level trace over every matched
    route. Scrapes are excluded from <code>sutura_questions_total</code>, not from request logs; at a
    fifteen-second scrape interval they therefore add four info request lines per minute.</li>
+<li><strong><code>sutura_spend_headroom_bytes</code> is registered conditionally, and pushed from one transport only.</strong>
+   Absent, never zero, where <code>governance.per_replica_spend_ceiling</code> is unconfigured - <code>ServiceState::new</code>
+   decides this by reading the surface's own reported value at construction rather than by naming the
+   settings key, so the two cannot drift. <code>/metrics</code> never polls it: the scrape handler's own state
+   still carries no <code>Surface</code> (Decision 1 is unweakened), so the value is instead pushed from the
+   <code>POST /v1/query</code> route, once per answered call, after <code>Surface::answer</code> returns. <strong>This is
+   incomplete for a served <code>agent</code>-enabled deployment</strong>: the agent surface answers through the same
+   port and the same ledger, but <code>sutura-mcp</code> has no dependency on <code>sutura-http</code> and structurally must
+   not - a transport does not link another transport - so nothing on that path pushes. A deployment
+   serving both surfaces with a ceiling configured sees the gauge hold its boot-time reading (the full
+   ceiling) while the ledger drains through agent-surface calls alone, until the next HTTP query
+   arrives. Not fixed here; tracked as a follow-up.</li>
 </ol>
 <p><strong>And the row the Consequences section said would arrive with the code has arrived:</strong>
 <code>.agents/skills/sutura/invariants/SKILL.md</code> carries <em>request text cannot mint a metric series</em>, held

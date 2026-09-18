@@ -4448,11 +4448,12 @@ series (Decision 5).</p>
 <h1 id="registration-is-boot-only-and-this-type-is-the-whole-of-it-here">Registration is boot-only, and this type is the WHOLE of it here<a class="headerlink" href="#registration-is-boot-only-and-this-type-is-the-whole-of-it-here" title="Permanent link">&para;</a></h1>
 <p><code>Metrics::install</code> is the only place in this crate that registers a series, and it takes a
 <code>sutura_runtime::metrics::RegistryBuilder</code> to do it - never a built
-<code>sutura_runtime::metrics::Registry</code>. The two series whose value is the deployment rather than a
-request - <code>sutura_engine_worker_threads</code> and <code>sutura_catalog_metrics</code> - are registered against
-the same builder by <code>crate::state::ServiceState::new</code>, which is the one place that has both the
-settings and the served bundle. A built registry cannot be registered against, so the set is
-closed once the builder is consumed.</p>
+<code>sutura_runtime::metrics::Registry</code>. Three series whose value is the deployment rather than a
+request - <code>sutura_engine_worker_threads</code>, <code>sutura_catalog_metrics</code> and, when a per-replica spend
+ceiling is configured, <code>sutura_spend_headroom_bytes</code> - are registered against the same builder by
+<code>crate::state::ServiceState::new</code>, which is the one place that has both the settings and the
+served bundle. A built registry cannot be registered against, so the set is closed once the
+builder is consumed.</p>
 <h1 id="what-this-does-not-hold">What this does NOT hold<a class="headerlink" href="#what-this-does-not-hold" title="Permanent link">&para;</a></h1>
 <p>The three engine-pool series <code>docs/adr/0015</code> specifies - reserved bytes, the limit and refusals -
 are deliberately absent, following that record's own <em>absent rather than zero</em>: the pool bounds
