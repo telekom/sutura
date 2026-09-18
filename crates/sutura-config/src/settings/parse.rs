@@ -6,6 +6,8 @@
 //! Nothing here is `pub` - these are helpers `Settings::parse` calls, moved to a sibling module so
 //! the file that describes the posture is not also the file that parses a thousand lines of it.
 
+use sutura_domain::plan::RowCeiling;
+
 use super::SettingsError;
 use crate::environment::Environment;
 use crate::governance::SpendBudget;
@@ -195,6 +197,16 @@ pub(super) fn parse_spend_budget(raw: &RawSettings) -> Result<Option<SpendBudget
         .as_ref()
         .map(|ceiling| SpendBudget::parse(ceiling.bytes, ceiling.window_seconds).map_err(|cause| SettingsError::Bound { cause }))
         .transpose()
+}
+
+/// The `top` row ceiling this deployment certifies over - `RowCeiling::DEFAULT` when
+/// `governance.top_row_ceiling` is absent, which is every deployment's behaviour before this key
+/// existed (`github.com/telekom/sutura#777`).
+pub(super) fn parse_row_ceiling(raw: &RawSettings) -> Result<RowCeiling, SettingsError> {
+    raw.governance.top_row_ceiling.map_or_else(
+        || Ok(RowCeiling::DEFAULT),
+        |rows| RowCeiling::parse(rows).map_err(|cause| SettingsError::RowCeiling { cause }),
+    )
 }
 
 /// The two keys that shape the agent-facing prompt.

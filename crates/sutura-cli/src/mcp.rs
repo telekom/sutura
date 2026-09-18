@@ -205,7 +205,13 @@ where
     // nothing counting them, while the HTTP surface took a slot from `runtime.max_concurrent_queries`
     // for every one of its own. `Admission::from_settings` is what stops the two keys being read
     // from different places.
-    let service = started(catalog, opened, settings.runtime(), settings.spend_budget())?;
+    let service = started(
+        catalog,
+        opened,
+        settings.runtime(),
+        settings.spend_budget(),
+        settings.row_ceiling(),
+    )?;
     // Read off the SERVICE rather than a second catalog load: `service.definitions()` is the exact
     // bundle `Surface::answer` computes against, so what this composes the prompt over cannot drift
     // from what it certifies over - `telekom/sutura#776`.

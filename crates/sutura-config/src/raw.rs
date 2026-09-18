@@ -242,6 +242,10 @@ pub(crate) struct RawGovernance {
     /// `Settings::parse` to have an opinion about.
     #[serde(default)]
     pub(crate) per_replica_spend_ceiling: Option<RawSpendCeiling>,
+    /// How many rows a `top` answer is certified over before it is refused - `RowCeiling::DEFAULT`
+    /// (`MAX_ROWS`) when absent, which is every deployment's behaviour before this key existed.
+    #[serde(default)]
+    pub(crate) top_row_ceiling: Option<u32>,
 }
 
 /// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.

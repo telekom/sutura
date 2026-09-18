@@ -450,6 +450,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.runtime(),
                 settings.server().request_timeout(),
                 settings.spend_budget(),
+                settings.row_ceiling(),
             ),
             #[cfg(feature = "bigquery")]
             crate::sources::Opened::BigQuery(opened) => answered(
@@ -459,6 +460,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.runtime(),
                 settings.server().request_timeout(),
                 settings.spend_budget(),
+                settings.row_ceiling(),
             ),
             #[cfg(feature = "postgres")]
             crate::sources::Opened::Postgres(opened) => answered(
@@ -468,6 +470,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.runtime(),
                 settings.server().request_timeout(),
                 settings.spend_budget(),
+                settings.row_ceiling(),
             ),
         }
     })())
@@ -517,6 +520,7 @@ pub(crate) fn started<W>(
     opened: crate::sources::OpenedWith<W>,
     runtime: sutura_config::RuntimeSettings,
     spend_budget: Option<sutura_config::SpendBudget>,
+    row_ceiling: sutura_domain::plan::RowCeiling,
 ) -> Result<Composed<W>, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -532,7 +536,7 @@ where
         opened.broker,
         runtime.working_set().bytes().get() as u64,
     )
-    .map(|service| service.with_spend_ledger(spend_ledger))
+    .map(|service| service.with_spend_ledger(spend_ledger).with_row_ceiling(row_ceiling))
     .map_err(|cause| format!("{}\nthis bundle is not fit to serve", render(&cause)))?;
     if let Some(attached) = opened.attached {
         sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(service.definitions()), &attached)
@@ -553,12 +557,13 @@ fn answered<W>(
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
     spend_budget: Option<sutura_config::SpendBudget>,
+    row_ceiling: sutura_domain::plan::RowCeiling,
 ) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let service = started(catalog, opened, runtime, spend_budget)?;
+    let service = started(catalog, opened, runtime, spend_budget, row_ceiling)?;
     // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller, and
     // the identity the data system is reached under is the process's own.
     //
