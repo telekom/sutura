@@ -412,10 +412,18 @@ where
                 let DescribeCatalogArgs {} = catalog(request)?;
                 // `asked.context()` is the caller this request's own verification established - the
                 // same value the port's `answer` and `run_sql` doors carry. Scoping the catalog by it
-                // is what `docs/adr/0028` means by invisible-at-both-doors on the agent surface: one
-                // verified caller's view of the bundle is not another's. `scoped_for` maps an absent
-                // or process-owner caller to `Subject::TheDeploymentItself`, which reads as the whole
-                // bundle, so a stdio operator sees exactly what they saw before.
+                // makes THIS door per-caller: one verified caller's view of the bundle is not
+                // another's. `scoped_for` maps an absent or process-owner caller to
+                // `Subject::TheDeploymentItself`, which reads as the whole bundle, so a stdio operator
+                // sees exactly what they saw before.
+                //
+                // **The limit, stated here rather than discovered later:** this is the CATALOG door
+                // only. On the served agent surface the `initialize.instructions` prompt is rendered
+                // ONCE over the whole bundle (`crates/sutura-cli/src/serve/agent.rs` ->
+                // `sutura_app::prompt::render`) and still names every metric - an audience-restricted
+                // one included - to every verified caller. So issue #148's disclosure is closed at
+                // this door and REMAINS OPEN at the prompt door on the same surface; scoping that
+                // prompt per-caller through the same `ScopedView` is the follow-up.
                 describe(&self.service, asked.context(), self.prose)
             }
             Capability::AskMetric => {
@@ -654,12 +662,20 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// cannot reach it - that would be a different process. The same judgement
 /// `sutura_http::routes::v1::catalog` makes, for the same reason.
 ///
-/// **The view is the caller's - `docs/adr/0028`.** A caller sees only the metrics its mapped
-/// audiences name, mirrored from `sutura_http::routes::v1::catalog`'s `CatalogBody::of(&view, …)`.
+/// **The view is the caller's at this door - `docs/adr/0028`.** A caller sees only the metrics its
+/// mapped audiences name, mirrored from `sutura_http::routes::v1::catalog`'s `CatalogBody::of(&view, …)`.
 /// `scoped_for` reads an absent or process-owner caller as `Subject::TheDeploymentItself`, which
 /// maps to the whole bundle, so an operator in stdio mode still sees exactly what they always saw;
 /// a verified caller sees the bundle cut to their grant. That the renderer CANNOT skip the scope is
 /// the point of taking `&ScopedView` rather than a bare `&PinnedDefinitions`.
+///
+/// **And the door this does NOT close, named so the claim is not overstated.** The served agent
+/// surface also carries an `initialize.instructions` prompt, rendered once over the WHOLE bundle in
+/// `crates/sutura-cli/src/serve/agent.rs` (`sutura_app::prompt::render`) - its metrics section names
+/// every metric, an audience-restricted one included, to every verified caller. So `docs/adr/0028`'s
+/// invisible-at-both-doors holds of `describe_catalog` and `answer` here, and NOT of the served
+/// prompt; `docs/adr/0028`'s own "the prompt renderer has no served endpoint" is the sentence this
+/// transport makes stale. Scoping that prompt through the same `ScopedView` is the follow-up.
 ///
 /// **No audit record either, and that is deliberate rather than an omission.**
 /// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
