@@ -25,6 +25,12 @@ members = [
   # specifies it and `github.com/telekom/sutura#151` is the issue. Like `sutura-catalog-datahub` it
   # is a DECLARING source, measured against its own declaration rather than the golden oracle.
   "crates/sutura-catalog-rdbms",
+  # THE CHEAPEST metadata connector, and the second on-disk vocabulary: a catalog over a directory
+  # of OKF Frictionless Table Schema descriptors. It provides structure and descriptions and declares
+  # no join (a Table Schema foreign key licences no relationship), no measure, no filter, no grain,
+  # no allowlist and no anchor - `docs/what-okf-can-carry.md` is the finding, `#153` the issue. A
+  # DECLARING source, measured against its own declaration rather than the golden oracle.
+  "crates/sutura-catalog-okf",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
   # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
@@ -101,6 +107,7 @@ sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
 sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
+sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }

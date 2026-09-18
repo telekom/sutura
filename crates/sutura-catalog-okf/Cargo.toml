@@ -1,0 +1,18 @@
+[package]
+name = "sutura-catalog-okf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A SemanticCatalog adapter over a directory of OKF Frictionless Table Schema descriptors - the cheapest connector."
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+serde_norway = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

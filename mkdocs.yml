@@ -189,6 +189,7 @@ nav:
       - The wave-one E2E showcase: showcase-datahub-bigquery.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - What an agent identity can carry: what-agent-identity-can-carry.md
+      - What an OKF-style catalog can carry: what-okf-can-carry.md
       - Decisions:
           - First-party semantic models: adr/0001-first-party-semantic-models.md
           - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md

@@ -39,6 +39,11 @@ sutura-catalog-datahub = { workspace = true }
 # and `github.com/telekom/sutura#151` is the issue. Measured against its own declaration like
 # `sutura-catalog-datahub`. `docs/adr/0016`.
 sutura-catalog-rdbms = { workspace = true }
+# The second on-disk vocabulary: a DECLARING catalog over a directory of OKF Table Schema
+# descriptors. It provides structure and descriptions and declares the join, the measure, the
+# filter, the grain, the allowlist, the anchor and the knowledge out - `docs/what-okf-can-carry.md`,
+# `#153`. Measured against its own declaration like `sutura-catalog-datahub`. `docs/adr/0016`.
+sutura-catalog-okf = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.
