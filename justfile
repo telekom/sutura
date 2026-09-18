@@ -756,6 +756,14 @@ doctor:
 keycloak-tier *args:
     nix run .#keycloak-tier -- {{ args }}
 
+# The identity provider's docker tier, by hand: `just keycloak-docker-tier start|stop|status`.
+# The example / optional-CI venue on a machine with a docker daemon, provisioning the same realm,
+# client and two subjects as the nix tier through the image's own `kcadm.sh` - see
+# `nix/keycloak-docker-tier.sh` for its boundary (http-on-loopback, not the strict `https://` issuer
+# the nix tier serves).
+keycloak-docker-tier *args:
+    bash nix/keycloak-docker-tier.sh {{ args }}
+
 # `credentials` prints the three `export` lines the adapter needs and refuses if nothing is
 # provisioned (#455): `FixtureCredential::from_env` has no fallback. `just test` evaluates them
 # through `nix/with-tier.sh`. NOT a step before committing, and a tier started here survives a suite
