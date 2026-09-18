@@ -36,6 +36,7 @@ external timeout killed them, twice, 50 minutes apart.
 | `just test` / `just causality` / `just ship-check` and every pre-commit tier block, no output | `timeout 20 docker info; echo $?` - **124 means wedged**, and `SKIP=rust-tests` will not help because the hang is not in the hook's own step. Then `df -h` before restarting anything: a restart cannot fix a host out of space, and the bounded paths print that advice where a hang cannot |
 | stray processes accumulate | the probe kills its child, not the child's descendants; `docker` CLI plugins outlive it until the daemon recovers |
 | a gate hangs only AFTER provisioning starts | it should not any more - the readiness loop's `ps` carries the query budget, so this is a bug rather than the known shape |
+| `just validate` ends with `interrupted by the user`/signal 15, or `Killed: 9`, mid-`nix build`, with no exit file | not a hang - a KILL, and a non-verdict rather than a red: `df -h` first, `memory_pressure` second. `justfile:180-182` runs under `set -euo pipefail`, so the missing exit file is the expected shape of a killed build, not a second symptom (`github.com/telekom/sutura#405`) |
 
 Every wait on a docker child *that goes through `compose::docker`* is bounded, and the budgets are
 per KIND of call because one number cannot serve a pull and a status query:

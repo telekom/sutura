@@ -40,6 +40,7 @@ use std::path::Path;
 // lists the checks as peers, which argues for a sibling; against that, `flatten` below is the one
 // thing they share, and a child reads it while private. A peer would need it exported to all of
 // `guidance` to borrow it, which is a wider change than the one the placement buys.
+mod anchors;
 mod contradicted;
 mod counts;
 mod remedies;
@@ -218,6 +219,18 @@ fn wording_lines(text: &str, wording: &str) -> Vec<usize> {
 pub(super) fn contradicted_claims(root: &Path, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rule in CONTRADICTED {
+        // `github.com/telekom/sutura#603`: a shape check on the TABLE itself, ahead of
+        // `is_live` - a bare count is the wrong anchor whether or not the rest of the row still
+        // has its evidence.
+        for evidence in rule.evidence {
+            if anchors::is_a_bare_count(evidence.holds) {
+                problems.push(format!(
+                    "`{}` anchors on a bare count (`{}`) - a count belongs in a `Counted` row, \
+                     not a pinned `Evidence::holds`",
+                    rule.name, evidence.holds
+                ));
+            }
+        }
         if !rule.is_live(root) {
             continue;
         }

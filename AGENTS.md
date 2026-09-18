@@ -37,7 +37,9 @@ Those three plus secure-by-design are the definition of *correct* in review here
 
 - **`just validate` is the only thing that counts as verified**, and passes before a change is
   done. Its nix checks build a GIT-DERIVED copy of the tree - so `git add -N` a new file at once,
-  or it compiles under cargo and does not exist in the sandbox.
+  or it compiles under cargo and does not exist in the sandbox. It does not run
+  `check-default-features` or `check-default-feature-tests` - `just gates` does, per
+  `github.com/telekom/sutura#866`'s option 2, chosen 2026-09-18.
 - **Never run a bare `cargo clippy` / `cargo nextest`. Run `just lint` / `just test`.** The task IS
   the gate's invocation: a hand-written line loses `-D warnings`, which turns a
   `restriction`-category finding into a success. Fixing that alone still fails the gate.

@@ -41,6 +41,8 @@
 
 use std::collections::BTreeSet;
 
+mod hook_paths;
+
 use crate::Verdict;
 use crate::repo;
 
@@ -269,6 +271,56 @@ fn unparseable_entries(dictionary: &str) -> Vec<usize> {
         .collect()
 }
 
+/// `github.com/telekom/sutura#867`: every crate a target's source names, checked against both
+/// the `fuzz` pre-commit hook's `files:` pattern and the "fuzzed tree" surface's `paths` - fails
+/// closed if either reader that answers those two questions comes back empty.
+fn hook_crate_gaps(root: &std::path::Path, sources: &BTreeSet<String>) -> Result<Vec<String>, String> {
+    let hooks_config = std::fs::read_to_string(root.join(crate::hooks::CONFIG)).map_err(|error| {
+        format!(
+            "{} is unreadable - the fuzz hook's own filter could not be checked: {error}",
+            crate::hooks::CONFIG
+        )
+    })?;
+    let hook_files = crate::hooks::hooks(&hooks_config)
+        .into_iter()
+        .find(|hook| hook.id == "fuzz")
+        .map(|hook| hook.files)
+        .ok_or_else(|| {
+            format!(
+                "{} declares no `fuzz` hook - its `files:` reach could not be checked",
+                crate::hooks::CONFIG
+            )
+        })?;
+    let surface_paths = crate::hook_coverage::SURFACES
+        .iter()
+        .find(|surface| surface.hooks.contains(&"fuzz"))
+        .map(|surface| surface.paths)
+        .ok_or_else(|| String::from("no surface in xtask/src/hook_coverage/surfaces.rs claims the `fuzz` hook"))?;
+
+    let mut gaps = Vec::new();
+    for name in sources {
+        let Ok(source) = std::fs::read_to_string(root.join(TARGETS_DIR).join(format!("{name}.rs"))) else {
+            continue;
+        };
+        for crate_dir in hook_paths::target_crates(&source) {
+            if hook_paths::missing_from_hook(&crate_dir, &hook_files) {
+                gaps.push(format!(
+                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which the `fuzz` hook's \
+                     `files:` pattern in {} never names - a change there triggers no smoke replay",
+                    crate::hooks::CONFIG
+                ));
+            }
+            if hook_paths::missing_from_surface(&crate_dir, surface_paths) {
+                gaps.push(format!(
+                    "{TARGETS_DIR}/{name}.rs imports `{crate_dir}`, which no row in \
+                     xtask/src/hook_coverage/surfaces.rs claims"
+                ));
+            }
+        }
+    }
+    Ok(gaps)
+}
+
 /// The verdict, given everything read off the tree.
 fn report(
     sources: &BTreeSet<String>,
@@ -280,8 +332,10 @@ fn report(
     in_release: &[(usize, &str)],
     locked: bool,
     aborts: bool,
+    hook_gaps: &[String],
 ) -> Verdict {
     let mut failures = Vec::new();
+    failures.extend(hook_gaps.iter().cloned());
     if sources.is_empty() {
         failures.push(format!("{TARGETS_DIR} holds no target - a green fuzz run over nothing"));
     }
@@ -448,6 +502,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let locked = root.join(LOCK).is_file();
     let aborts = aborts_on_panic(&manifest);
     let in_release = release_invocations(&release);
+    let hook_gaps = match hook_crate_gaps(&root, &sources) {
+        Ok(gaps) => gaps,
+        Err(message) => {
+            eprintln!("xtask check-fuzz: {message}");
+            return Verdict::Fail;
+        }
+    };
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,
@@ -459,6 +520,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             &in_release,
             locked,
             aborts,
+            &hook_gaps,
         ),
         Err(message) => {
             eprintln!("xtask check-fuzz: {message}");
@@ -493,6 +555,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Pass, "a coherent set must pass");
     }
@@ -509,6 +572,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "an unbuilt target must fail");
     }
@@ -525,6 +589,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a target CI never runs must fail");
     }
@@ -541,6 +606,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "an unseeded target must fail");
     }
@@ -558,6 +624,7 @@ mod tests {
                 &[],
                 locked,
                 aborts,
+                &[],
             );
             assert!(verdict == Verdict::Fail, "an unlocked or unwinding harness must fail");
         }
@@ -597,6 +664,7 @@ mod tests {
             &[],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a dictionary libFuzzer refuses must fail");
     }
@@ -663,6 +731,7 @@ mod tests {
             &[(41, "run-fuzz.sh")],
             true,
             true,
+            &[],
         );
         assert!(verdict == Verdict::Fail, "a fuzz job inside the release workflow must fail");
     }
