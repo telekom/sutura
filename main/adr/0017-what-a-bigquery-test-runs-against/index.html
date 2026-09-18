@@ -5073,6 +5073,39 @@ for the second half of that claim. <code>checks.one-binary</code> reads <code>cr
 <code>-performance</code> suffix, so neither gate builds or reads a <code>release-performance</code> target; both are
 release-profile only. <code>github.com/telekom/sutura#685</code>'s own binaries slice (musl at
 <code>release-performance</code>) is a separate, matrix-only fix that does not touch either gate either.</p>
+<h2 id="eighteenth-amendment-2026-09-18-the-fifth-amendments-table-now-has-a-home-on-the-map-page-held-by-a-gate">Eighteenth amendment, 2026-09-18: the fifth amendment's table now has a home on the map page, held by a gate<a class="headerlink" href="#eighteenth-amendment-2026-09-18-the-fifth-amendments-table-now-has-a-home-on-the-map-page-held-by-a-gate" title="Permanent link">&para;</a></h2>
+<p>The fifth amendment's four rows lived only in this record. <code>github.com/telekom/sutura#81</code> asked for
+the decision to be findable from <code>docs/where-identity-is-proven.md</code> itself - the page <code>AGENTS.md</code>
+names as <em>"which venue may be cited for which identity claim"</em> - so a reader does not have to already
+know this ADR exists. That page's <em>The venues</em> table now carries a fifth column, <code>Allowed to claim</code>,
+quoting the fifth amendment's rows where they still apply:</p>
+<ul>
+<li><strong>A fake at the port</strong>: <em>"every outcome the port can produce, including each refusal"</em>.</li>
+<li><strong>A real dataset under a shared key</strong>: <em>"BigQuery accepts what we generate, and the rows agree
+  with the engine"</em>.</li>
+<li><strong>A served binary under a verified human caller</strong>: <em>"that a human subject's own identity reaches
+  the source"</em> - the successor row to the fifth amendment's workforce cell, still <code>nowhere yet</code>.</li>
+<li>Every other venue's cell reads <code>-</code>: the decision is a BigQuery-identity decision and does not
+  reach the venues it never named.</li>
+</ul>
+<p><strong>The fifth amendment's third row does not appear as a quotation, and that is the correction this
+amendment records rather than elides.</strong> It read <em>"Two distinct principals against a row access
+policy"</em>, allowed to claim <em>"two principals, two answers - the mechanism, not the identity class"</em>.
+The Fourteenth amendment above withdrew that cell: <em>"sutura does not re-verify a source's row-level
+security... sutura's narrower and provable claim - that the job ran as the asking subject - is leg
+2's exchange, not this cell's row comparison."</em> The venue that survives it, <em>A real token exchange,
+and two grants</em>, keeps the same insight pointed at what is actually proven: a distinct principal's
+own exchange resolves to a distinct account - the mechanism, not the row grant. Its <code>Allowed to
+claim</code> cell says so and names the withdrawal rather than repeating a wording that no longer holds.</p>
+<p><strong>The mechanism, stated so the next reader does not have to trust this paragraph.</strong> <code>cargo xtask
+check-venues</code> (<code>xtask/src/venues/page.rs</code>) already held the venues table's header to an exact match
+so an added column cannot silently change what an existing cell means; widening it to five columns
+meant widening that match and the row parser together, both covered by
+<code>venues::tests::the_real_page_is_what_this_gate_is_for</code> and the fixture suite beside it. <strong>What the
+gate does NOT hold</strong>: <code>Allowed to claim</code> is free prose, read only far enough to keep the table
+parseable - like <code>What it costs</code>, no verdict vocabulary applies to it, and nothing checks that its
+wording agrees with the <em>Which venue answers which claim</em> matrix below it. That agreement is
+review's, the same limit this page's own foot already states for <code>Where it runs</code>.</p>
 
 
 

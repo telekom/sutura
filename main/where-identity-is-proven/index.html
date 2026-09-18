@@ -3511,6 +3511,11 @@ venue's task is one no job invokes. The rules raise the cost of the overstatemen
 make it impossible, and only a run named beside a <code>yes</code> does that.</p>
 </div>
 <h2 id="the-venues">The venues<a class="headerlink" href="#the-venues" title="Permanent link">&para;</a></h2>
+<p>Issue #81 decided <strong>what each venue is allowed to claim</strong>, and <code>docs/adr/0017</code>'s fifth amendment
+renders it - four rows, quoted verbatim. <code>Allowed to claim</code> below is that decision's short form
+against the CURRENT venues, <code>-</code> where a venue is outside it. It is prose, not a verdict: the gated
+per-claim answer is the <em>Which venue answers which claim</em> matrix in the next section, and this
+column only points a reader of the venues table at it.</p>
 <table>
 <thead>
 <tr>
@@ -3518,6 +3523,7 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <th>Where it runs</th>
 <th>What it costs</th>
 <th>Reached by</th>
+<th>Allowed to claim</th>
 </tr>
 </thead>
 <tbody>
@@ -3526,48 +3532,56 @@ make it impossible, and only a run named beside a <code>yes</code> does that.</p
 <td>in process, every run</td>
 <td>nothing</td>
 <td><code>just test</code>, <code>just validate</code></td>
+<td>"every outcome the port can produce, including each refusal"</td>
 </tr>
 <tr>
 <td><strong>A mock issuer in the sandbox</strong></td>
 <td>in process, every run</td>
 <td>nothing - no network, no docker, no secret</td>
 <td><code>just test</code>, <code>just validate</code></td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>A provisioned Postgres source</strong></td>
 <td>in process, every run - against a real postmaster nix stands up in the same sandbox</td>
 <td>nothing - no secret and no docker; <code>nix/postgres-tier.nix</code> says so in its own header</td>
 <td><code>just test</code>, <code>just validate</code></td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>A provisioned Keycloak realm</strong></td>
 <td>in process, on the paths that touch it - a JVM the tier boots inside the job</td>
 <td>nothing - no secret and no docker; <code>nix/keycloak-tier.nix</code> says so in its own header</td>
 <td><code>just keycloak-served-test</code>, <code>just e2e-datahub-bigquery</code></td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>A real dataset under a shared key</strong></td>
 <td>a GitHub environment, on demand</td>
 <td>a service-account key and a billing project</td>
 <td><code>just bigquery-acceptance</code>, <code>just e2e-datahub-bigquery</code></td>
+<td>"BigQuery accepts what we generate, and the rows agree with the engine"</td>
 </tr>
 <tr>
 <td><strong>A real enterprise identity provider</strong></td>
 <td>nowhere yet</td>
 <td>a provider to configure and somebody to configure it</td>
 <td>not built</td>
+<td>-</td>
 </tr>
 <tr>
 <td><strong>A real token exchange, and two grants</strong></td>
 <td>a GitHub environment, on demand</td>
 <td>a hosted run resolved both principals to their own accounts - <strong>the pool is provisioned and the two subject assertions are minted at job time</strong></td>
 <td><code>just bigquery-exchanged-identity</code></td>
+<td>issue #81's own row here - "two principals, two answers ... the mechanism, not the identity class" - named a row access policy; that cell was withdrawn (<code>docs/adr/0017</code>'s fourteenth amendment). What survives is narrower and still the same insight: a distinct principal's exchange resolves to a distinct account - the mechanism, not the row grant</td>
 </tr>
 <tr>
 <td><strong>A served binary under a verified human caller</strong></td>
 <td>nowhere yet</td>
 <td>a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them <code>iam.workloadIdentityUser</code>, and a hosted run to demand it</td>
 <td>not built</td>
+<td>"that a human subject's own identity reaches the source"</td>
 </tr>
 </tbody>
 </table>
@@ -4342,6 +4356,9 @@ the granted answer's <code>executed_as: impersonation-at-source</code>, not the 
   well. That the task runs <em>this</em> venue's tests is still review's.</li>
 <li><code>just validate</code> runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.</li>
+<li><code>Allowed to claim</code> is a summary of the claims matrix, never a second gate on it - <code>-</code> is honest for
+  a venue outside issue #81's decision, and a summary that outruns its own matrix cells is the drift
+  this page exists to catch.</li>
 </ul>
 
 
