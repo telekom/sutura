@@ -788,11 +788,12 @@ mod corpus_shape {
     /// below the key count and nothing else is.
     ///
     /// What the row it guards buys is stated where the corpus states it, and it is NOT a check on
-    /// our own null-placement rendering: for all three bound adapters the placement is their
-    /// engine's own default, so deleting `sutura_sql`'s statement of it changes neither their SQL
-    /// nor their answer. It is an upstream-default regression detector plus, through
-    /// `Behaviour::Content`, a claim about our grouping - that a null key is a GROUP and not a row
-    /// something dropped.
+    /// our own null-placement rendering for `DuckDB`, Postgres or the `datafusion` engine: the
+    /// placement is their own default, so deleting `sutura_sql`'s statement of it changes neither
+    /// their SQL nor their answer - `BigQuery` is the one bound adapter that is not true of, and
+    /// its canned binding does not show it either way. It is an upstream-default regression
+    /// detector for those three plus, through `Behaviour::Content`, a claim about our grouping -
+    /// that a null key is a GROUP and not a row something dropped.
     #[test]
     fn a_null_group_key_is_expected_and_expected_last() {
         let mut null_keyed_rows = 0_usize;

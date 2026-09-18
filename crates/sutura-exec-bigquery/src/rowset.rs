@@ -43,12 +43,19 @@ where
                 .map(Value::Real)
                 .map_err(|cause| BigQueryError::NotFinite { column: column(), cause })
         }
-        // **Both stay TEXT, and the arms are joined because the behaviour really is one arm.** For
-        // a string that is trivial; for an exact decimal it is the whole point - turning `NUMERIC`
-        // into an `f64` here is how a total that was correct in the data system stops being
-        // correct in an answer, which is the same sentence `sutura-exec-duckdb` carries on its own
-        // `Decimal` arm.
-        FieldType::Numeric | FieldType::String => Ok(Value::Text(text)),
+        // A string is trivial TEXT.
+        FieldType::String => Ok(Value::Text(text)),
+        // **An exact decimal that HAPPENS to be a whole number widens to `Integer`, and anything
+        // else stays TEXT** - `sutura-exec-postgres`'s own `numeric_cell` makes the identical call
+        // for the identical reason: an `i64` parse fails on a fractional text (`"12345.67"`) or on
+        // one too wide for it, so it is the honest fallback rather than a second decimal check.
+        // Turning a `NUMERIC` into an `f64` unconditionally is how a total that was correct in the
+        // data system stops being correct in an answer, which is the same sentence
+        // `sutura-exec-duckdb`'s own `Decimal` arm carries - but staying TEXT for a value every
+        // other bound adapter answers as `Integer` is the disagreement `telekom/sutura#710`'s own
+        // conformance binding measured: BigQuery is the first adapter this pack runs against whose
+        // `SUM` can widen to `NUMERIC` for one row and stay exact for another in the same column.
+        FieldType::Numeric => Ok(text.parse::<i64>().map_or_else(|_| Value::Text(text), Value::Integer)),
         // `Integer(0 | 1)`, because the domain's `Value` has no boolean and `sutura-exec-duckdb`
         // answers a `BOOLEAN` the same way. Agreeing matters here: the example catalog counts a
         // `churned_in_month` flag, so the two adapters would otherwise disagree about a metric.

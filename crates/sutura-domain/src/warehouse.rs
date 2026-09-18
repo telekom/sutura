@@ -384,8 +384,9 @@ pub trait Warehouse {
     /// named as missing: without it, an adapter that returned `Some(0)` where it never priced
     /// anything, or `None` where it could, would be indistinguishable from one that got the
     /// distinction right. **The pack checks this constant against what `dry_run` actually returns,
-    /// for every adapter it binds** - it is not itself a proof that `BigQuery`'s real endpoint
-    /// prices correctly, since `BigQuery` has no `execute_packs!` binding to run the check against.
+    /// for every adapter it binds, `BigQuery` included since `telekom/sutura#710`** - it is not
+    /// itself a proof that `BigQuery`'s real endpoint prices correctly, since that binding runs
+    /// over a canned transport rather than a live one.
     const PRICES_DRY_RUN: bool = false;
 
     /// The name a plan uses to select this adapter.

@@ -49,6 +49,7 @@ use sutura_domain::model::TableName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::Warehouse;
+use sutura_exec_bigquery::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobRows, JobTransport};
 use sutura_exec_postgres::fixture::FixtureCredential;
 
 /// The version the goldens are pinned under.
@@ -379,6 +380,64 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
     }
 }
 
+/// Never returned in practice: `available()` reports `bigquery` unavailable unconditionally, and
+/// every cell this suite expands over the axis checks that before it ever asks [`NoLocalTier`]
+/// anything. A typed `Err` rather than a panic all the same, because `clippy::panic_in_result_fn`
+/// asks every `Result`-returning method here to answer that way regardless.
+#[derive(Debug, thiserror::Error)]
+#[error("`available()` reports `bigquery` unavailable, so no cell should ever reach this transport")]
+pub(crate) struct NeverAsked;
+
+/// The transport [`DataSystemUnderTest`] instantiates `BigQueryWarehouse` over here - never asked
+/// anything, for [`NeverAsked`]'s own reason.
+pub(crate) struct NoLocalTier;
+
+impl JobTransport for NoLocalTier {
+    type Error = NeverAsked;
+
+    fn run(&self, _request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+        Err(NeverAsked)
+    }
+
+    fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
+        Err(NeverAsked)
+    }
+
+    fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
+        Err(NeverAsked)
+    }
+
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(NeverAsked)
+    }
+}
+
+/// `BigQuery`: the one data system with no LOCAL venue at all, and the reason `available()` is not
+/// merely defaulted `true` and wrong for it.
+///
+/// `DuckDB` and `DataFusion` are always here; `Postgres` sometimes is, once a tier answers.
+/// `BigQuery` is cloud-only - there is no `nix/bigquery-tier.nix` and could not honestly be one - so
+/// this is the first entry that answers `available()` `false` unconditionally rather than from a
+/// discovery read, and every cell this axis is expanded over (the anchor check, the executed
+/// corpus, agreement with the engine) skips it the same way it already skips an undiscovered
+/// Postgres. **This adapter's OWN corpus is not this axis at all** -
+/// `crates/sutura-exec-bigquery/tests/conformance.rs` binds it to `sutura-conformance`'s packs over
+/// an in-process canned transport, which is what `execute_packs!`'s own registry gate requires a
+/// bound adapter's crate to be named here for - `docs/adr/0012`'s *one registration, not two*,
+/// closing `telekom/sutura#710`.
+impl DataSystemUnderTest for sutura_exec_bigquery::BigQueryWarehouse<NoLocalTier> {
+    const NAME: &'static str = "bigquery";
+
+    fn available() -> bool {
+        false
+    }
+
+    fn open(_pinned: &PinnedDefinitions) -> Self {
+        panic!("`available()` guards the Open of every bigquery cell")
+    }
+}
+
 /// A per-process counter, so each `open` in one test process gets a distinct schema name.
 fn schema_counter() -> usize {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -482,14 +541,15 @@ where
 ///
 /// # `data_systems: $cell` - `$cell!(name, Adapter)`
 ///
-/// `Adapter` implements [`DataSystemUnderTest`]. **Three entries, in two different kinds of thing
+/// `Adapter` implements [`DataSystemUnderTest`]. **Four entries, in two different kinds of thing
 /// behind one port**, which is the whole reason the port takes a `QueryPlan` rather than a
 /// statement. `DataFusion` is THE ENGINE: the plan becomes a logical plan over Arrow and no SQL is
-/// generated, so a dialect bug is unreachable on that path. `DuckDB` and `Postgres` are DATA SOURCES:
-/// the plan is rendered into their dialect's SQL and pushed down. All three are `Warehouse`
-/// implementations and the corpus does not know which it is talking to. Of the two sources, only
-/// `Postgres` needs a provisioned tier to execute, so its cells skip where discovery answers no
-/// endpoint - see [`DataSystemUnderTest::available`].
+/// generated, so a dialect bug is unreachable on that path. `DuckDB`, `Postgres` and `BigQuery` are
+/// DATA SOURCES: the plan is rendered into their dialect's SQL and pushed down. All four are
+/// `Warehouse` implementations and the corpus does not know which it is talking to. Of the three
+/// sources, `Postgres` needs a provisioned tier to execute and `BigQuery` needs a cloud project this
+/// suite never has, so both skip where [`DataSystemUnderTest::available`] answers `false` -
+/// `Postgres` from a discovery read, `BigQuery` unconditionally.
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
@@ -542,6 +602,11 @@ macro_rules! registered {
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
         $cell!(postgres, sutura_exec_postgres::PostgresWarehouse);
+        // CLOUD-ONLY, and the reason `available()` answers `false` unconditionally: see the impl.
+        $cell!(
+            bigquery,
+            sutura_exec_bigquery::BigQueryWarehouse<crate::adapters::NoLocalTier>
+        );
     };
 
     (dialects: $cell:ident) => {

@@ -444,8 +444,9 @@ capability declaration without touching a pack body.
   each entry's crate taken from the first path segment of the adapter type it names - because a
   hand-written list of adapters is a second thing to keep true. Two candidate sources were rejected
   and the reasons generalise: `Warehouse` implementors cannot be told apart from the fakes by any
-  text scan, and crate membership counts a crate nobody registered (`sutura-exec-bigquery` is
-  exactly that). It holds both directions, and it also holds the two properties the per-adapter and
+  text scan, and crate membership counts a crate nobody registered - `sutura-exec-bigquery` was
+  exactly that when this record was written, and `telekom/sutura#710` is the registration and the
+  binding that closed it. It holds both directions, and it also holds the two properties the per-adapter and
   whole-suite nextest selectors rest on and nothing enforced - the binding's file name and its
   wrapper module - which is why `telekom/sutura#135` wants the same gate.
 
