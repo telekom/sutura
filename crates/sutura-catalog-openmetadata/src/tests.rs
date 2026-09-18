@@ -1,6 +1,6 @@
 //! The decision half of the `OpenMetadata` adapter, held against its declaration.
 //!
-//! Every cell reads a fake reader over RECORDED documents (a JSON snapshot), never mocked HTTP —
+//! Every cell reads a fake reader over RECORDED documents (a JSON snapshot), never mocked HTTP -
 //! the port's own rule. The corpus is the narrow/normal case the finding names: models,
 //! descriptions and a declared non-duplicating join, with metrics whose measures are expression
 //! strings and so stay reported-not-defined.
@@ -85,8 +85,8 @@ fn relationship_carrying(relationship_type: Option<&str>) -> Snapshot {
 
 /// THE requirement that makes this adapter work alone at all.
 ///
-/// A bundle of models, descriptions and one declared non-duplicating join — with the metric left
-/// reported-not-defined — must LOAD and validate: `Definitions::assemble` has no minimum-metric
+/// A bundle of models, descriptions and one declared non-duplicating join - with the metric left
+/// reported-not-defined - must LOAD and validate: `Definitions::assemble` has no minimum-metric
 /// refusal, so a bundle with zero metrics still assembles, pins and validates.
 #[test]
 fn a_bundle_of_models_and_no_metrics_loads_and_validates() {
@@ -157,8 +157,8 @@ fn a_table_without_a_description_is_refused() {
     }
 }
 
-/// Content for a kind this adapter did not declare it can represent — a many-to-many
-/// relationship — fails the load, naming it.
+/// Content for a kind this adapter did not declare it can represent - a many-to-many
+/// relationship - fails the load, naming it.
 ///
 /// `JoinType` has no many-to-many shape; `OpenMetadata` declares cardinality when present, and a
 /// row-duplicating one licenses no join here.

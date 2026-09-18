@@ -4,8 +4,8 @@
 //! `OpenMetadata` serves its entities inside a `REST` envelope with more fields than any one consumer
 //! cares about, and a document that claimed to be that envelope while refusing every field it did not
 //! name would be a false promise the moment a real response arrived. So the shapes here are the
-//! adapter's own canonical statement of the entity CONTENT a reader must extract and decode — the
-//! decision side of `docs/what-openmetadata-can-carry.md`'s transport note — and `deny_unknown_fields`
+//! adapter's own canonical statement of the entity CONTENT a reader must extract and decode - the
+//! decision side of `docs/what-openmetadata-can-carry.md`'s transport note - and `deny_unknown_fields`
 //! holds over THIS shape and over the recorded fixtures a reader decodes, rather than over
 //! `OpenMetadata`'s envelope. A real HTTP reader maps the service's document into one of these.
 //!
@@ -17,8 +17,8 @@
 //! rule.
 //!
 //! `RelationshipType` mirrors `OpenMetadata`'s cardinality enumeration: `ONE_TO_ONE`, `MANY_TO_ONE`,
-//! `ONE_TO_MANY` are non-duplicating and license a `JoinType`, while `MANY_TO_MANY` — or a silent
-//! absence — licences nothing and is refused by the conversion, because `JoinType` has no
+//! `ONE_TO_MANY` are non-duplicating and license a `JoinType`, while `MANY_TO_MANY` - or a silent
+//! absence - licences nothing and is refused by the conversion, because `JoinType` has no
 //! many-to-many shape and a relationship nobody vouched for licenses no join. The fields are private
 //! with accessors, per the workspace's `check-boundaries` rule that a library crate's types are its
 //! contract; an untyped value (a `name`, a `column`, a `service`) is parsed during the conversion,
@@ -30,7 +30,7 @@ use serde::Deserialize;
 
 /// Everything a reader fetched, before any of it is converted.
 ///
-/// `deny_unknown_fields` here too — the three entity groups are the whole of what a reader must
+/// `deny_unknown_fields` here too - the three entity groups are the whole of what a reader must
 /// extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -162,8 +162,8 @@ impl StructuralRelationship {
 /// What a `Metric` entity supplies.
 ///
 /// **Deliberately minimal and deliberately un-analysed at conversion.** `metricType` is decidable
-/// but the bound column is not resolvable from `metricExpression` / `measures[].expression` — free
-/// text in a foreign dialect — and a measure carried as such is reported and not defined. The metric
+/// but the bound column is not resolvable from `metricExpression` / `measures[].expression` - free
+/// text in a foreign dialect - and a measure carried as such is reported and not defined. The metric
 /// is decoded (so the reported-not-defined cell can prove it is carried and ignored) and never
 /// minted into a domain `Metric`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

@@ -233,6 +233,7 @@ nav:
           - sutura-catalog-local: api/sutura-catalog-local.md
           - sutura-catalog-datahub: api/sutura-catalog-datahub.md
           - sutura-catalog-okf: api/sutura-catalog-okf.md
+          - sutura-catalog-openmetadata: api/sutura-catalog-openmetadata.md
           - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md

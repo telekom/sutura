@@ -11,8 +11,8 @@ A `SemanticCatalog` over an `OpenMetadata` deployment: the richest of the three 
 sources, and still a **declaring** one.
 
 `docs/what-openmetadata-can-carry.md` is the finding that decides this adapter's whole shape.
-`OpenMetadata` carries a typed metric entity and declared relationship cardinality — both richer
-than `DataHub` or `Frictionless Table Schema` — but keeps **two half-a-definition slots**: a measure's
+`OpenMetadata` carries a typed metric entity and declared relationship cardinality - both richer
+than `DataHub` or `Frictionless Table Schema` - but keeps **two half-a-definition slots**: a measure's
 aggregation-to-column binding lives in `measures[].expression` / `metricExpression.code` as free
 text in a dialect set (`SQL`/`Java`/`JavaScript`/`Python`/`External`) that does not intersect this
 repository's typed `Term`, and the required filter is a raw SQL `where`. ADR 0016's refusal fires
@@ -22,7 +22,7 @@ certify a foreign dialect's free text.
 So this adapter is a `CatalogKind::Declaring` source that provides the physical model, the
 descriptions, and the declared non-duplicating joins, and treats the kind it cannot faithfully
 express exactly as the finding says: a metric whose measure is an expression string is
-**reported and not defined** — its `metricType` is decidable but its bound column is not
+**reported and not defined** - its `metricType` is decidable but its bound column is not
 resolvable from the foreign text, so it is decoded and set aside, never minted into a domain
 `Measure`. `capabilities()` declares the deployment-dependent kinds (`Metrics`, `Grains` reached
 through those metrics, and `Cardinality` observed only through a dimension reached via a
@@ -32,7 +32,7 @@ relationship) as **declared-and-empty may-provide kinds**, the 0011 state
 # What is built here, and what is NOT
 
 This crate contains everything `OpenMetadataCatalog` DECIDES about the documents a reader
-extracts. It is tested against a fake reader that serves recorded documents — the port gets a fake,
+extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
 not mocked HTTP. `SnapshotReader` is the seam a real reader over `OpenMetadata`'s `REST` API
 (`/api/v1/tables`, `/api/v1/metrics`, …) implements, with a bearer credential; that HTTP reader is
 deliberately NOT in this first PR, so the crate stays green (a service has no network in the nix
@@ -44,7 +44,7 @@ sandbox). The `http` reader + the live provisioned leg are the recorded follow-u
 `columns[]` becomes a model, its `description` the model's description, and a `tableConstraint` /
 `foreignKey` whose `relationshipType` is declared `ONE_TO_ONE` / `MANY_TO_ONE` / `ONE_TO_MANY` a
 relationship. A relationship whose cardinality is absent **or** `MANY_TO_MANY` is refused naming
-it — this is the pleasant surprise the finding records: `OpenMetadata` declares cardinality when it
+it - this is the pleasant surprise the finding records: `OpenMetadata` declares cardinality when it
 is there and stays silent when it is not, so an undeclared relationship licenses nothing, and a
 row-duplicating one is refused by this adapter rather than defaulted in either direction. A bundle
 whose relationships are all unconstrained therefore carries none, lawfully.
@@ -53,8 +53,8 @@ whose relationships are all unconstrained therefore carries none, lawfully.
 carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
 not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
 `metricType` + `granularity` + `dimensions[].type` are read, but `Measure` is minted only where a
-column binding resolves to a domain `Term` without certifying a foreign dialect's free text — which
-the recorded fixtures deliberately do not — so today those kinds arrive empty and the expression
+column binding resolves to a domain `Term` without certifying a foreign dialect's free text - which
+the recorded fixtures deliberately do not - so today those kinds arrive empty and the expression
 strings stay reported-not-defined, exactly as the ADR 0016 refusal demands.
 
 `RequiredFilters`, `AllowedValues` and `Anchors` are not declared at all: the filter is a raw SQL
@@ -114,7 +114,7 @@ A catalog read from an `OpenMetadata` deployment's documents.
 
 Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
 one per composition and a generic keeps the chosen reader visible. It carries the deployment's
-source mapping — which service/database alias answers to which `SourceName` — and the declared
+source mapping - which service/database alias answers to which `SourceName` - and the declared
 name and version it is recorded under.
 
 ### Methods
@@ -141,8 +141,8 @@ The ingestion shape a `super::SnapshotReader` returns: what this adapter needs f
 `OpenMetadata` serves its entities inside a `REST` envelope with more fields than any one consumer
 cares about, and a document that claimed to be that envelope while refusing every field it did not
 name would be a false promise the moment a real response arrived. So the shapes here are the
-adapter's own canonical statement of the entity CONTENT a reader must extract and decode — the
-decision side of `docs/what-openmetadata-can-carry.md`'s transport note — and `deny_unknown_fields`
+adapter's own canonical statement of the entity CONTENT a reader must extract and decode - the
+decision side of `docs/what-openmetadata-can-carry.md`'s transport note - and `deny_unknown_fields`
 holds over THIS shape and over the recorded fixtures a reader decodes, rather than over
 `OpenMetadata`'s envelope. A real HTTP reader maps the service's document into one of these.
 
@@ -154,8 +154,8 @@ this shape is tested against a fake reader that serves recorded documents, which
 rule.
 
 `RelationshipType` mirrors `OpenMetadata`'s cardinality enumeration: `ONE_TO_ONE`, `MANY_TO_ONE`,
-`ONE_TO_MANY` are non-duplicating and license a `JoinType`, while `MANY_TO_MANY` — or a silent
-absence — licences nothing and is refused by the conversion, because `JoinType` has no
+`ONE_TO_MANY` are non-duplicating and license a `JoinType`, while `MANY_TO_MANY` - or a silent
+absence - licences nothing and is refused by the conversion, because `JoinType` has no
 many-to-many shape and a relationship nobody vouched for licenses no join. The fields are private
 with accessors, per the workspace's `check-boundaries` rule that a library crate's types are its
 contract; an untyped value (a `name`, a `column`, a `service`) is parsed during the conversion,
@@ -169,7 +169,7 @@ pub struct Snapshot
 
 Everything a reader fetched, before any of it is converted.
 
-`deny_unknown_fields` here too — the three entity groups are the whole of what a reader must
+`deny_unknown_fields` here too - the three entity groups are the whole of what a reader must
 extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect.
 
 #### Methods
@@ -322,8 +322,8 @@ pub struct Metric
 What a `Metric` entity supplies.
 
 **Deliberately minimal and deliberately un-analysed at conversion.** `metricType` is decidable
-but the bound column is not resolvable from `metricExpression` / `measures[].expression` — free
-text in a foreign dialect — and a measure carried as such is reported and not defined. The metric
+but the bound column is not resolvable from `metricExpression` / `measures[].expression` - free
+text in a foreign dialect - and a measure carried as such is reported and not defined. The metric
 is decoded (so the reported-not-defined cell can prove it is carried and ignored) and never
 minted into a domain `Metric`.
 
@@ -362,7 +362,7 @@ The metric's name.
 The recorded fixture corpus and the fake reader that serves it.
 
 This is the only `SnapshotReader` implementor today, and it is the **fake** the port is tested
-against — recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
+against - recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
 declared non-duplicating join, plus one metric whose measure is an expression string; the metric
 is carried and never minted, because its bound column is not resolvable from a foreign-dialect
 expression (the reported-not-defined half this crate's declaration promises).
@@ -393,6 +393,6 @@ pub fn over_fixture_source(name: sutura_domain::model::SourceName, version: sutu
 
 An `OpenMetadataCatalog` over the recorded corpus.
 
-The source mapping answers the one service the corpus names — `warehouse` — with the deployment's
+The source mapping answers the one service the corpus names - `warehouse` - with the deployment's
 declared source, which is what lets a model on that platform be opened. This is the constructor
 the conformance registry uses to register the adapter.

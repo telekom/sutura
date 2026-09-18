@@ -1,7 +1,7 @@
 //! The recorded fixture corpus and the fake reader that serves it.
 //!
 //! This is the only [`SnapshotReader`] implementor today, and it is the **fake** the port is tested
-//! against — recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
+//! against - recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
 //! declared non-duplicating join, plus one metric whose measure is an expression string; the metric
 //! is carried and never minted, because its bound column is not resolvable from a foreign-dialect
 //! expression (the reported-not-defined half this crate's declaration promises).
@@ -52,7 +52,7 @@ impl SnapshotReader for FixtureReader {
 
 /// An [`OpenMetadataCatalog`] over the recorded corpus.
 ///
-/// The source mapping answers the one service the corpus names — `warehouse` — with the deployment's
+/// The source mapping answers the one service the corpus names - `warehouse` - with the deployment's
 /// declared source, which is what lets a model on that platform be opened. This is the constructor
 /// the conformance registry uses to register the adapter.
 pub fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> OpenMetadataCatalog<FixtureReader> {

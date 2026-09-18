@@ -2,8 +2,8 @@
 //! sources, and still a **declaring** one.
 //!
 //! `docs/what-openmetadata-can-carry.md` is the finding that decides this adapter's whole shape.
-//! `OpenMetadata` carries a typed metric entity and declared relationship cardinality — both richer
-//! than `DataHub` or `Frictionless Table Schema` — but keeps **two half-a-definition slots**: a measure's
+//! `OpenMetadata` carries a typed metric entity and declared relationship cardinality - both richer
+//! than `DataHub` or `Frictionless Table Schema` - but keeps **two half-a-definition slots**: a measure's
 //! aggregation-to-column binding lives in `measures[].expression` / `metricExpression.code` as free
 //! text in a dialect set (`SQL`/`Java`/`JavaScript`/`Python`/`External`) that does not intersect this
 //! repository's typed `Term`, and the required filter is a raw SQL `where`. ADR 0016's refusal fires
@@ -13,7 +13,7 @@
 //! So this adapter is a `CatalogKind::Declaring` source that provides the physical model, the
 //! descriptions, and the declared non-duplicating joins, and treats the kind it cannot faithfully
 //! express exactly as the finding says: a metric whose measure is an expression string is
-//! **reported and not defined** — its `metricType` is decidable but its bound column is not
+//! **reported and not defined** - its `metricType` is decidable but its bound column is not
 //! resolvable from the foreign text, so it is decoded and set aside, never minted into a domain
 //! `Measure`. `capabilities()` declares the deployment-dependent kinds (`Metrics`, `Grains` reached
 //! through those metrics, and `Cardinality` observed only through a dimension reached via a
@@ -23,7 +23,7 @@
 //! # What is built here, and what is NOT
 //!
 //! This crate contains everything [`OpenMetadataCatalog`] DECIDES about the documents a reader
-//! extracts. It is tested against a fake reader that serves recorded documents — the port gets a fake,
+//! extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
 //! not mocked HTTP. [`SnapshotReader`] is the seam a real reader over `OpenMetadata`'s `REST` API
 //! (`/api/v1/tables`, `/api/v1/metrics`, …) implements, with a bearer credential; that HTTP reader is
 //! deliberately NOT in this first PR, so the crate stays green (a service has no network in the nix
@@ -35,7 +35,7 @@
 //! `columns[]` becomes a model, its `description` the model's description, and a `tableConstraint` /
 //! `foreignKey` whose `relationshipType` is declared `ONE_TO_ONE` / `MANY_TO_ONE` / `ONE_TO_MANY` a
 //! relationship. A relationship whose cardinality is absent **or** `MANY_TO_MANY` is refused naming
-//! it — this is the pleasant surprise the finding records: `OpenMetadata` declares cardinality when it
+//! it - this is the pleasant surprise the finding records: `OpenMetadata` declares cardinality when it
 //! is there and stays silent when it is not, so an undeclared relationship licenses nothing, and a
 //! row-duplicating one is refused by this adapter rather than defaulted in either direction. A bundle
 //! whose relationships are all unconstrained therefore carries none, lawfully.
@@ -44,8 +44,8 @@
 //! carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
 //! not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
 //! `metricType` + `granularity` + `dimensions[].type` are read, but `Measure` is minted only where a
-//! column binding resolves to a domain `Term` without certifying a foreign dialect's free text — which
-//! the recorded fixtures deliberately do not — so today those kinds arrive empty and the expression
+//! column binding resolves to a domain `Term` without certifying a foreign dialect's free text - which
+//! the recorded fixtures deliberately do not - so today those kinds arrive empty and the expression
 //! strings stay reported-not-defined, exactly as the ADR 0016 refusal demands.
 //!
 //! `RequiredFilters`, `AllowedValues` and `Anchors` are not declared at all: the filter is a raw SQL
@@ -133,7 +133,7 @@ pub enum OpenMetadataError {
 ///
 /// Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
 /// one per composition and a generic keeps the chosen reader visible. It carries the deployment's
-/// source mapping — which service/database alias answers to which [`SourceName`] — and the declared
+/// source mapping - which service/database alias answers to which [`SourceName`] - and the declared
 /// name and version it is recorded under.
 #[derive(Debug, Clone)]
 pub struct OpenMetadataCatalog<R> {
@@ -306,8 +306,8 @@ where
     const KIND: CatalogKind = CatalogKind::Declaring;
 
     /// Provides `Structure`, `Descriptions` and `Relationships` unconditionally, and declares
-    /// `Metrics`, `Grains` and `Cardinality` as **declared-and-empty may-provide kinds** — the 0011
-    /// state [`DefinitionCapabilities::of_may_provide`] adds — because whether a bundle carries any of
+    /// `Metrics`, `Grains` and `Cardinality` as **declared-and-empty may-provide kinds** - the 0011
+    /// state [`DefinitionCapabilities::of_may_provide`] adds - because whether a bundle carries any of
     /// them is the deployment's decision (it defined a metric whose binding resolves, or it did not).
     /// `checked_against`'s `Unprovided` direction exempts them, so a metric-free deployment is
     /// servable; their presence, the day it resolves, is still covered by the declared half.
