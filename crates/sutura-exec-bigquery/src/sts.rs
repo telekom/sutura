@@ -24,12 +24,11 @@
 //! arrives at that port as [`crate::wire::StsOverHttp`], behind the default-off `wire` feature, so the
 //! outbound TLS stack stays a decision a composition root makes.
 
+use base64::Engine as _;
 use std::collections::BTreeMap;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Duration;
-use base64::Engine as _;
-
 
 use sutura_domain::identity::{
     CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectKey,
