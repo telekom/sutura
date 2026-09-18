@@ -185,10 +185,13 @@ struct Target {
 
 /// Locate `jobs.<job>.strategy.matrix.target` inside `text`.
 ///
-/// Job-scoped rather than "the first `matrix:` in the file", because two of the three files hold
-/// more than one job and a whole-file scan would read the wrong one - silently, and green. The job
-/// header is the line `  <job>:` at the two-space column every job in this repository uses; the
-/// span ends at the next line indented two spaces or fewer that is not blank and not a comment.
+/// Job-scoped rather than "the first `matrix:` in the file", because three of the four files this
+/// module reads hold more than one job and a whole-file scan would read the wrong one - silently,
+/// and green. `release-performance.yml` is one of them: it holds `validate` AND `build`, and
+/// [`RELEASE_PERFORMANCE`] targets `build` - [`nix_build_targets`] stays job-scoped below for the
+/// same reason this function is. The job header is the line `  <job>:` at the two-space column
+/// every job in this repository uses; the span ends at the next line indented two spaces or fewer
+/// that is not blank and not a comment.
 fn matrix_target(text: &str, job: &str) -> Option<Target> {
     let header = format!("  {job}:");
     let start = text.lines().position(|line| line.trim_end() == header)? + 1;
@@ -423,8 +426,8 @@ mod tests {
         drop_root(&root);
     }
 
-    /// A matrix read out of the wrong job is the failure a whole-file scan would have: two of the
-    /// three files hold several jobs, and an earlier one carries its own matrix.
+    /// A matrix read out of the wrong job is the failure a whole-file scan would have: three of
+    /// the four files hold several jobs, and an earlier one carries its own matrix.
     #[test]
     fn a_matrix_in_another_job_is_not_read() {
         let root = sound_root("wrong-job", &reduced(), &reduced(), &full());
