@@ -271,6 +271,7 @@ fn the_boot_line_names_the_credential_cache_as_off_by_default() {
 /// The workload-identity block of an `impersonation-at-source` source that ALSO declares the issuer
 /// and STS audience its pool trusts (`telekom/sutura#817`'s seam), with values that differ from the
 /// direct leg-one ones the boot-refusal cell below sets up.
+#[cfg(feature = "bigquery")]
 fn wif_with_unmatching_expectations() -> &'static str {
     "    workload_identity:\n      audience: \
      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
