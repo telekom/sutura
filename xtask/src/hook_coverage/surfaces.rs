@@ -107,6 +107,7 @@ pub(super) const SURFACES: &[Surface] = &[
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
             "crates/sutura-config/**",
+            "crates/sutura-exec-bigquery/src/wire.rs",
             "crates/sutura-exec-bigquery/src/wire/**",
         ],
         hooks: &["fuzz"],
