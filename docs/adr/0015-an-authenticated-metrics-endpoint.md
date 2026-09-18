@@ -277,13 +277,15 @@ exist beforehand - so it uses `test-causality`'s stated-evidence path rather tha
   but the table's own rule is that a row arrives with its mechanism, and neither exists yet. It goes in
   with the code.
 
-## Second amendment, 2026-09-11: what is built, what is deliberately not, and the six deviations from the sections above
+## Second amendment, 2026-09-11: what is built, what is deliberately not, and the seven deviations from the sections above
 
 **Built.** `sutura-runtime::metrics` holds the registry behind a `RegistryBuilder` that is consumed,
 so the series set is frozen before it is shared and `Registry::render` takes no lock of any kind.
 `sutura-http::metrics::Metrics::install` registers the transport series; `ServiceState::new`
-registers `sutura_engine_worker_threads` (the width the engine was opened with) and
-`sutura_catalog_metrics` (the served bundle's governed coverage) against the same builder. `/metrics`
+registers `sutura_engine_worker_threads` (the width the engine was opened with),
+`sutura_catalog_metrics` (the served bundle's governed coverage) and, when a per-replica spend
+ceiling is configured, `sutura_spend_headroom_bytes` (the tightest remaining headroom across every
+subject that replica's ledger tracks) against the same builder. `/metrics`
 is mounted on the one listener outside the version prefix, behind `require_metrics_token` and outside
 the token gate, with its own limiter tier. `security.metrics_token` is parsed like `access_token`, and
 the boot refusals this record specifies are asserted in `sutura-config`. The tests this record asks
@@ -325,6 +327,18 @@ responses without parsing a body. A missing declaration is recorded as `internal
    asks for a debug span, but the current router installs one info-level trace over every matched
    route. Scrapes are excluded from `sutura_questions_total`, not from request logs; at a
    fifteen-second scrape interval they therefore add four info request lines per minute.
+7. **`sutura_spend_headroom_bytes` is registered conditionally, and pushed from one transport only.**
+   Absent, never zero, where `governance.per_replica_spend_ceiling` is unconfigured - `ServiceState::new`
+   decides this by reading the surface's own reported value at construction rather than by naming the
+   settings key, so the two cannot drift. `/metrics` never polls it: the scrape handler's own state
+   still carries no `Surface` (Decision 1 is unweakened), so the value is instead pushed from the
+   `POST /v1/query` route, once per answered call, after `Surface::answer` returns. **This is
+   incomplete for a served `agent`-enabled deployment**: the agent surface answers through the same
+   port and the same ledger, but `sutura-mcp` has no dependency on `sutura-http` and structurally must
+   not - a transport does not link another transport - so nothing on that path pushes. A deployment
+   serving both surfaces with a ceiling configured sees the gauge hold its boot-time reading (the full
+   ceiling) while the ledger drains through agent-surface calls alone, until the next HTTP query
+   arrives. Not fixed here; tracked as a follow-up.
 
 **And the row the Consequences section said would arrive with the code has arrived:**
 `.agents/skills/sutura/invariants/SKILL.md` carries *request text cannot mint a metric series*, held
