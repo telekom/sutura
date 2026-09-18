@@ -35,7 +35,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::{Verdict, repo, repo::Unmigrated};
+use crate::{Verdict, repo};
 
 /// The minimum lines of a clone this gate reports (jscpd's `--min-lines`).
 ///
@@ -112,21 +112,22 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     // skipped half. `git ls-files '*.rs'` is the independent oracle - `report.statistics.total.sources`
     // drops files below `--min-tokens` (measured), so a sources floor would be counted off the same
     // threshold as the scan and would not be a floor at all.
-    let files = match repo::all_files() {
-        Ok(census) => match census.into_listing(Unmigrated::Jscpd) {
-            Ok((_root, files)) => files,
-            Err(why) => {
-                eprintln!("xtask check-jscpd: FAILED - {}", why.describe());
-                return Verdict::Fail;
-            }
-        },
+    let census = match repo::all_files() {
+        Ok(census) => census,
         Err(why) => {
             eprintln!("xtask check-jscpd: FAILED - {}", why.describe());
             return Verdict::Fail;
         }
     };
-    let rs_files: Vec<&str> = files.iter().map(String::as_str).filter(|f| is_rust(f)).collect();
-    if let Err(msg) = check_census(&rs_files, &config.ignore) {
+    let rs_files = match rust_files(census) {
+        Ok(rs_files) => rs_files,
+        Err(msg) => {
+            eprintln!("xtask check-jscpd: FAILED - {msg}");
+            return Verdict::Fail;
+        }
+    };
+    let rs_file_refs: Vec<&str> = rs_files.iter().map(String::as_str).collect();
+    if let Err(msg) = check_census(&rs_file_refs, &config.ignore) {
         eprintln!("xtask check-jscpd: FAILED - {msg}");
         return Verdict::Fail;
     }
@@ -145,7 +146,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    let allow = match load_allowlist(&root, &files) {
+    let allow = match load_allowlist(&root, &rs_files) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("xtask check-jscpd: FAILED - {e}");
@@ -170,6 +171,22 @@ fn is_rust(path: &str) -> bool {
     std::path::Path::new(path)
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
+}
+
+/// Every in-scope `.rs` path the census could actually READ, per `github.com/telekom/sutura#414`.
+///
+/// This used to be `files.iter().filter(|f| is_rust(f)).collect()` over the transitional door's
+/// plain `Vec`: caller-space code that could grow a `.take(n)` with nothing here to notice, and
+/// that never opened a file, so an in-scope `.rs` path this walk could not read was still counted
+/// as one of `check_census`'s subjects. `is_rust` is the census's [`repo::Scope`] now - the loop
+/// and the read both live inside `inspect`, and an unreadable in-scope file refuses the whole scan
+/// instead of being silently counted.
+fn rust_files(census: repo::Census) -> Result<Vec<String>, String> {
+    let mut rs_files: Vec<String> = Vec::new();
+    census
+        .inspect(&[], is_rust, |rel, _bytes| rs_files.push(rel.to_owned()))
+        .map(|_| rs_files)
+        .map_err(|why| why.describe())
 }
 
 /// The census floor: the gate must scan real Rust, and an `--ignore` glob must never match an
@@ -552,6 +569,7 @@ fn which(name: &str) -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
 
     fn frag(name: &str, start: u64) -> Fragment {
         Fragment {
@@ -677,6 +695,30 @@ mod tests {
             check_census(&["crates/a.rs", "dev/b.rs"], &[String::from("target/**")]),
             Ok(())
         );
+    }
+
+    #[test]
+    fn an_unreachable_subtree_refuses_instead_of_being_silently_dropped() {
+        // The gap the old `files.iter().filter(is_rust).collect()` left: it only ever looked at
+        // the NAMES `into_listing` handed back, with no way to notice that the walk itself lost a
+        // subtree - `chmod 000 .github/actions` producing `ok - 2 literal(s) across 8 file(s)` at
+        // exit 0 is #414's own measured instance of exactly this. `rust_files` now goes through
+        // `Census::inspect`, which refuses before counting anything.
+        let root = std::env::temp_dir().join(format!("jscpd-rust-files-unreachable-{}", std::process::id()));
+        let _cleanup_before = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sub")).expect("a scratch tree");
+        std::fs::write(root.join("a.rs"), "// fine\n").expect("a readable file");
+        std::fs::set_permissions(root.join("sub"), std::fs::Permissions::from_mode(0o000)).expect("chmod 000 on the subtree");
+
+        let census = repo::collect_files(&root, &root, &["rs"]);
+        let result = rust_files(census);
+
+        std::fs::set_permissions(root.join("sub"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        let _cleanup_after = std::fs::remove_dir_all(&root);
+
+        let err = result.expect_err("an unreachable subtree must refuse the scan, not shrink its count");
+        assert!(err.contains("sub"), "{err}");
     }
 
     #[test]
