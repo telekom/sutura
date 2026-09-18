@@ -21,7 +21,7 @@
 
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::Grain;
-use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::pinned::view::ScopedView;
 
 use super::prose::{self, Carried};
 use super::{ProvenanceContent, bundle_content};
@@ -66,9 +66,12 @@ pub struct DescribeCatalogArgs {}
 /// are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
 /// missing field would show up as a missing call rather than as a silent divergence.
 ///
-/// Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes no request context
-/// and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
-/// returns: it is the *pinned* bundle, the same one every answer is computed from.
+/// **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
+/// SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
+/// given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
+/// audiences (which `describe` reads and this constructor takes as a [`ScopedView`]) decide which
+/// metrics the listing holds, while the bundle underneath is the same one every answer is computed
+/// from. Invisible means absent, and it is the transport's job to build the view, never this type's.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a
@@ -114,24 +117,29 @@ pub struct DimensionContent {
 }
 
 impl CatalogContent {
-    /// The reader's view of a pinned bundle, under the prose setting this deployment was started
-    /// with.
+    /// The reader's view of one pinned bundle, under the prose setting this deployment was started
+    /// with and under the caller this read is for.
     ///
     /// **A named constructor rather than a `From`, and the argument is the reason.** A conversion
     /// reachable without the setting fails OPEN - it ships the prose of a deployment that asked for
     /// none, which is the defect this function exists to close, and it is how that defect arrived
     /// here. A second argument cannot be left out.
     ///
+    /// **The view is the second reason a `From` would be wrong, and it is the one `docs/adr/0028`
+    /// exists to close.** A caller may see only the metrics its granted audiences name; rendering
+    /// from a bare `&PinnedDefinitions` would hand every caller the whole bundle again, which is
+    /// the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
+    /// this builder cannot reach `SemanticCatalog::load` - a per-caller filter stays off the
+    /// request path as a property of the type, never a call the renderer happens to omit.
+    ///
     /// It also asks nothing of the setting itself: [`Carried::under`] and `prose::notice` are the
     /// crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
     /// without the operator's decision, and a third `CatalogProse` spelling is a compile error in
     /// both rather than an `else` arm here.
     #[must_use]
-    pub fn of(pinned: &PinnedDefinitions, prose: CatalogProse) -> Self {
-        let metrics = pinned
-            .definitions()
+    pub fn of(view: &ScopedView<'_>, prose: CatalogProse) -> Self {
+        let metrics = view
             .metrics()
-            .values()
             .map(|metric| MetricContent {
                 name: String::from(metric.name().as_str()),
                 description: Carried::under(prose, metric.description()),
@@ -157,7 +165,7 @@ impl CatalogContent {
             })
             .collect();
         Self {
-            provenance: bundle_content(pinned),
+            provenance: bundle_content(view.pinned()),
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,

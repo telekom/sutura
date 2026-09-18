@@ -410,7 +410,13 @@ where
                 // has no fields, and what it proves is that the caller sent nothing this tool does not
                 // declare.
                 let DescribeCatalogArgs {} = catalog(request)?;
-                describe(&self.service, self.prose)
+                // `asked.context()` is the caller this request's own verification established - the
+                // same value the port's `answer` and `run_sql` doors carry. Scoping the catalog by it
+                // is what `docs/adr/0028` means by invisible-at-both-doors on the agent surface: one
+                // verified caller's view of the bundle is not another's. `scoped_for` maps an absent
+                // or process-owner caller to `Subject::TheDeploymentItself`, which reads as the whole
+                // bundle, so a stdio operator sees exactly what they saw before.
+                describe(&self.service, asked.context(), self.prose)
             }
             Capability::AskMetric => {
                 let query = question(request)?;
@@ -641,12 +647,19 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
     RenderedCause::of(error).into_error_data()
 }
 
-/// The pinned bundle, as a tool result.
+/// The pinned bundle, as THIS caller's view, rendered as a tool result.
 ///
 /// **No blocking pool and no data system**, which is why this is not `async` and takes no slot: it
 /// reads a bundle that was pinned and validated at startup and has not changed since. A catalog edit
 /// cannot reach it - that would be a different process. The same judgement
 /// `sutura_http::routes::v1::catalog` makes, for the same reason.
+///
+/// **The view is the caller's - `docs/adr/0028`.** A caller sees only the metrics its mapped
+/// audiences name, mirrored from `sutura_http::routes::v1::catalog`'s `CatalogBody::of(&view, …)`.
+/// `scoped_for` reads an absent or process-owner caller as `Subject::TheDeploymentItself`, which
+/// maps to the whole bundle, so an operator in stdio mode still sees exactly what they always saw;
+/// a verified caller sees the bundle cut to their grant. That the renderer CANNOT skip the scope is
+/// the point of taking `&ScopedView` rather than a bare `&PinnedDefinitions`.
 ///
 /// **No audit record either, and that is deliberate rather than an omission.**
 /// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
@@ -655,7 +668,11 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
 /// Whether reading the catalog is itself worth a record is a real question and the answer would be a
 /// third `RecordedOutcome` variant, which is a change to what a record means rather than a field added
 /// to one.
-fn describe<S>(service: &Arc<S>, prose: sutura_app::prompt::CatalogProse) -> CallToolResult
+fn describe<S>(
+    service: &Arc<S>,
+    context: &sutura_domain::identity::RequestContext,
+    prose: sutura_app::prompt::CatalogProse,
+) -> CallToolResult
 where
     S: Surface,
 {
@@ -663,12 +680,16 @@ where
     // `#266`: the text block honoured it while `structured_content` beside it carried every
     // description, so a deployment that had withheld its catalog prose shipped it anyway to any
     // client reading the structured half. `CatalogContent::of` cannot be called without the answer.
-    let content = CatalogContent::of(service.definitions(), prose);
-    let mut result = CallToolResult::success(vec![ContentBlock::text(content.as_text())]);
+    //
+    // And the view is built here, from the caller this request's own verification resolved - see the
+    // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
+    let view = sutura_app::scoped_for(service.definitions(), context);
+    let listing = CatalogContent::of(&view, prose);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
     // to say so.
-    result.structured_content = serde_json::to_value(&content).ok();
+    result.structured_content = serde_json::to_value(&listing).ok();
     result
 }
 
