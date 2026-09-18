@@ -3419,8 +3419,9 @@ capability declaration without touching a pack body.</p>
   each entry's crate taken from the first path segment of the adapter type it names - because a
   hand-written list of adapters is a second thing to keep true. Two candidate sources were rejected
   and the reasons generalise: <code>Warehouse</code> implementors cannot be told apart from the fakes by any
-  text scan, and crate membership counts a crate nobody registered (<code>sutura-exec-bigquery</code> is
-  exactly that). It holds both directions, and it also holds the two properties the per-adapter and
+  text scan, and crate membership counts a crate nobody registered - <code>sutura-exec-bigquery</code> was
+  exactly that when this record was written, and <code>telekom/sutura#710</code> is the registration and the
+  binding that closed it. It holds both directions, and it also holds the two properties the per-adapter and
   whole-suite nextest selectors rest on and nothing enforced - the binding's file name and its
   wrapper module - which is why <code>telekom/sutura#135</code> wants the same gate.</p>
 <p><strong>What it compares is a written INVOCATION and its position, never an emitted test name, and the

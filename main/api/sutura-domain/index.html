@@ -10823,15 +10823,17 @@ but <code>checks.shipped-features</code> establishes that kind of claim by readi
 binary, and this feature adds no crate. Cargo's own resolution is the mechanism; no gate would
 fail if a composition root turned the feature on.</p>
 <p><strong>An adapter's own variant fallback is now a disagreement, and it reads as a wrong row rather
-than as the range question it is.</strong> Three are live: <code>sutura-exec-duckdb</code>'s <code>UBigInt</code> and
+than as the range question it is.</strong> Four are live: <code>sutura-exec-duckdb</code>'s <code>UBigInt</code> and
 <code>HugeInt</code> arms and <code>sutura-exec-datafusion</code>'s <code>UInt64</code> arm answer <code>Value::Integer</code> while the
-value fits an <code>i64</code> and <code>Value::Text</code> when it does not, and <code>sutura-exec-postgres</code> answers a
-scale-0 <code>NUMERIC</code> as <code>Value::Integer</code> where the other two answer a <code>Decimal</code> as
-<code>Value::Text</code>. Under the display form all three compared EQUAL, and that was the RECORDED
-reason for the display form. Here they are <code>ContentDisagreement::Multiplicity</code> - <em>one side
-answered a row 1 time(s) and the other 0</em> - naming neither the fallback nor the overflow behind
-it. So a <code>Multiplicity</code> over a wide count or a decimal column is a range question first: check
-whether one side overflowed its <code>i64</code> before looking for a wrong number.</p>
+value fits an <code>i64</code> and <code>Value::Text</code> when it does not; <code>sutura-exec-postgres</code> answers a
+scale-0 <code>NUMERIC</code> the same way against a <code>Decimal</code>; and <code>sutura-exec-bigquery</code> answers its own
+<code>NUMERIC</code>/<code>BIGNUMERIC</code> fields the identical way, added once its <code>execute_packs!</code> binding
+(<code>telekom/sutura#710</code>) exercised the same class its own corpus already carried. Under the
+display form all four compare EQUAL, and that was the RECORDED reason for the display form.
+Here they are <code>ContentDisagreement::Multiplicity</code> - <em>one side answered a row 1 time(s) and the
+other 0</em> - naming neither the fallback nor the overflow behind it. So a <code>Multiplicity</code> over a
+wide count or a decimal column is a range question first: check whether one side overflowed
+its <code>i64</code> before looking for a wrong number.</p>
 <h4 id="struct-realtolerance"><code>struct RealTolerance</code><a class="headerlink" href="#struct-realtolerance" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-568-1"><a id="__codelineno-568-1" name="__codelineno-568-1" href="#__codelineno-568-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RealTolerance</span>
 </span></code></pre></div>

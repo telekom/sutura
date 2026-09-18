@@ -2910,11 +2910,12 @@ statement is rendered from a name that parsed, and <em>no arbitrary SQL entry po
 </span></code></pre></div>
 <p>Whether an accepted pre-flight's own estimate agrees with what <code>Warehouse::PRICES_DRY_RUN</code>
 declares.</p>
-<p><strong>The same comparison <code>sutura_conformance::execute</code>'s pack makes</strong> over the three adapters
-<code>execute_packs!</code> binds - none of which is this one (<code>telekom/sutura#710</code>) - named here so it
-can be checked against this adapter's own dry-run path without that binding. A live
-endpoint's own guarantee that it always prices one is still unverified; this only compares
-what an already-answered pre-flight carried against the declaration.</p>
+<p><strong>The same comparison <code>sutura_conformance::execute</code>'s pack now also makes over this
+adapter</strong> (<code>telekom/sutura#710</code>, <code>crates/sutura-exec-bigquery/tests/conformance.rs</code>) - kept
+here as well so it can be checked against this adapter's own dry-run path without going
+through a fixture at all. A live endpoint's own guarantee that it always prices one is
+still unverified by either cell; this only compares what an already-answered pre-flight
+carried against the declaration.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_fixture</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">csv</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Loaded</span><span class="o">&lt;&lt;</span><span class="n">T</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="o">&gt;</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Replaces one table in the connection's dataset with the rows of a committed fixture CSV.</p>
