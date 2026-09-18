@@ -25,20 +25,13 @@ fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
         (FieldType::Bool, Cell::Text(String::from("true")), Value::Integer(1)),
         (FieldType::Bool, Cell::Text(String::from("false")), Value::Integer(0)),
         // A fractional decimal stays TEXT. Turning it into a double is how a total that was correct
-        // in the data system stops being correct in an answer.
+        // in the data system stops being correct in an answer. The whole-number/too-wide arms of
+        // this same `Numeric` mapping have their own contract, in
+        // `a_whole_number_decimal_widens_to_integer_and_anything_else_stays_text`, below.
         (
             FieldType::Numeric,
             Cell::Text(String::from("12345.67")),
             Value::Text(String::from("12345.67")),
-        ),
-        // A whole-number decimal that FITS an `i64` widens to `Integer`, exactly as
-        // `sutura-exec-postgres`'s own `numeric_cell` does for the same shape - see `rowset.rs`.
-        (FieldType::Numeric, Cell::Text(String::from("42")), Value::Integer(42)),
-        // One too wide for an `i64` stays TEXT rather than losing precision.
-        (
-            FieldType::Numeric,
-            Cell::Text(String::from("9223372036854775808")),
-            Value::Text(String::from("9223372036854775808")),
         ),
         // A date is re-rendered from a parse, so a malformed one is an error rather than text that
         // looks like a date downstream.
@@ -62,6 +55,35 @@ fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
         other => panic!("expected a real, got {other:?}"),
     }
     drop(warehouse);
+}
+
+#[test]
+fn a_whole_number_decimal_widens_to_integer_and_anything_else_stays_text() {
+    // **This adapter's own contract for a `NUMERIC`/`BIGNUMERIC` cell, named on its own** rather
+    // than as a row of the table above: `sutura-exec-postgres`'s own `numeric_cell` makes the
+    // identical call for the identical reason (an `i64` parse fails on a fractional text or on one
+    // too wide for it), so a `NUMERIC` column whose `SUM` widens for one row and stays exact for
+    // another - `telekom/sutura#710`'s conformance binding is what measured this adapter
+    // disagreeing with that contract - answers `Integer` and `Text` from the SAME column type,
+    // never a double.
+    let mapped = |text: &str| {
+        BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Numeric, Cell::Text(String::from(text))))
+            .unwrap_or_else(|e| panic!("{text} should map: {e}"))
+            .rows()
+            .first()
+            .and_then(|row| row.first())
+            .cloned()
+    };
+    // Fits an `i64` exactly: widens.
+    assert_eq!(mapped("42"), Some(Value::Integer(42)));
+    assert_eq!(mapped("0"), Some(Value::Integer(0)));
+    // Wider than an `i64`: stays exact text rather than losing precision.
+    assert_eq!(
+        mapped("9223372036854775808"),
+        Some(Value::Text(String::from("9223372036854775808")))
+    );
+    // Fractional: stays exact text rather than becoming a lossy double.
+    assert_eq!(mapped("12345.67"), Some(Value::Text(String::from("12345.67"))));
 }
 
 #[test]
