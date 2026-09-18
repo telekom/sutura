@@ -85,14 +85,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 /// from the output altogether. And because `Enrolled`'s field is private to
 /// `refusals::declared`, this function has no set to narrow and `run` has no argument to shorten.
 fn over(enrolled: Enrolled<'_>) -> Verdict {
-    let (root, files) = match repo::all_files().and_then(|census| census.into_listing(repo::Unmigrated::Refusals)) {
-        Ok(listing) => listing,
-        Err(why) => {
-            eprintln!("xtask check-refusal-coverage: FAILED - {}", why.describe());
-            return Verdict::Fail;
-        }
+    let Some(root) = repo::root() else {
+        eprintln!("xtask check-refusal-coverage: FAILED - could not determine the repo root");
+        return Verdict::Fail;
     };
-    match enrolled.each(|subject| check(subject, &root, &files)) {
+    match enrolled.each(|subject| check(subject, &root)) {
         Ok(verdict) => verdict,
         Err(why) => {
             eprintln!("xtask check-refusal-coverage: FAILED - {why}");
@@ -101,8 +98,14 @@ fn over(enrolled: Enrolled<'_>) -> Verdict {
     }
 }
 
-/// Keep every evidence set and every exception list independent, using the same file listing.
-fn check(subject: &Subject, root: &Path, files: &[String]) -> Verdict {
+/// One subject's whole evidence pass, over its own fresh census walk.
+///
+/// **A census per subject, not one walk shared across all of them.** [`repo::Census::inspect`]
+/// consumes itself, so sharing one walk across [`registry::ENROLLED`]'s five subjects would mean
+/// going back to a plain `Vec` the loop over subjects could narrow between calls - exactly the
+/// shape `github.com/telekom/sutura#414` is closing. A gate walking the tree five times over one
+/// `just hygiene` run is the cost of five independent witnesses instead of one narrowable list.
+fn check(subject: &Subject, root: &Path) -> Verdict {
     let declared = match Declared::read(subject, root) {
         Ok(names) => names,
         Err(message) => {
@@ -117,7 +120,13 @@ fn check(subject: &Subject, root: &Path, files: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
-    let evidence = name_evidence(subject, root, files, &declared);
+    let evidence = match name_evidence(subject, root, &declared) {
+        Ok(evidence) => evidence,
+        Err(why) => {
+            eprintln!("xtask check-refusal-coverage: FAILED - {}", why.describe());
+            return Verdict::Fail;
+        }
+    };
     report(subject, &declared, &excused, &evidence)
 }
 
@@ -235,51 +244,60 @@ fn explain(subject: &Subject) {
 }
 
 /// Which files name which variants, censuses removed.
-fn name_evidence(subject: &Subject, root: &Path, files: &[String], declared: &Declared) -> Evidence {
+///
+/// The loop used to run over a plain `Vec<String>` (`files`), read once per subject from the
+/// transitional door - a `.take(n)` written there would have moved with no comparison here to
+/// notice. [`repo::Census::inspect`] owns the loop AND the read now, scoped to [`in_scope`], so
+/// this function never holds the sequence and an unreachable subtree refuses the whole scan
+/// instead of shrinking it.
+fn name_evidence(subject: &Subject, root: &Path, declared: &Declared) -> Result<Evidence, repo::Refusal> {
     let read = |rel: &str| -> Option<String> { std::fs::read_to_string(root.join(rel)).ok() };
     let mut found: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut censuses: BTreeSet<String> = BTreeSet::new();
     let mut scanned = 0_usize;
 
-    for rel in files {
-        let Some(named) = named_in(subject, root, rel, declared, &read) else {
-            continue;
+    let census = repo::all_files()?;
+    census.inspect(&[], in_scope, |rel, bytes| {
+        let Some(named) = named_in(subject, rel, bytes, declared, &read) else {
+            return;
         };
         scanned = scanned.saturating_add(1);
         if named.len() == declared.count() {
-            censuses.insert(rel.clone());
-            continue;
+            censuses.insert(rel.to_owned());
+            return;
         }
         for variant in named {
-            found.entry(variant).or_default().insert(rel.clone());
+            found.entry(variant).or_default().insert(rel.to_owned());
         }
-    }
-    Evidence {
+    })?;
+    Ok(Evidence {
         by_variant: found,
         censuses,
         scanned,
-    }
+    })
 }
 
-/// The variants this file names, or `None` when the file is out of scope.
+/// This gate's subject: a `.rs` or `.snap` file under `crates/`. The [`repo::Scope`] `inspect`
+/// runs the read against, so a file outside it is never opened for this gate at all.
+fn in_scope(rel: &str) -> bool {
+    rel.starts_with("crates/") && (has_extension(rel, "rs") || has_extension(rel, "snap"))
+}
+
+/// The variants this file names, or `None` when the census could not decode it as UTF-8 text.
+///
+/// `rel` is already known to be in [`in_scope`] - `inspect` would not have called this closure
+/// otherwise - so only the `.rs` vs `.snap` shape remains to decide here.
 fn named_in(
     subject: &Subject,
-    root: &Path,
     rel: &str,
+    bytes: &[u8],
     declared: &Declared,
     read: &regions::PostImage<'_>,
 ) -> Option<BTreeSet<String>> {
-    if !rel.starts_with("crates/") {
-        return None;
-    }
+    let text = std::str::from_utf8(bytes).ok()?;
     if has_extension(rel, "snap") {
-        let text = std::fs::read_to_string(root.join(rel)).ok()?;
-        return Some(mentioned(&text, declared.names()));
+        return Some(mentioned(text, declared.names()));
     }
-    if !has_extension(rel, "rs") {
-        return None;
-    }
-    let text = std::fs::read_to_string(root.join(rel)).ok()?;
     let scope = regions::scope(rel, read);
     let mut named = BTreeSet::new();
     for (index, line) in text.lines().enumerate() {
@@ -746,6 +764,42 @@ mod tests {
             dated: String::from(dated),
             why: String::from(why),
             line: 7,
+        }
+    }
+
+    #[test]
+    fn an_unreachable_subtree_refuses_the_evidence_scan_instead_of_shrinking_it() {
+        // `name_evidence` used to loop over a plain `Vec<String>` read once by `over` and shared
+        // across every enrolled subject: a narrowing written anywhere between that read and this
+        // loop had nothing here to notice. It now walks through `Census::inspect` itself, scoped
+        // to `in_scope`, so an unreachable subtree under `crates/` refuses the whole scan.
+        use std::os::unix::fs::PermissionsExt as _;
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture changes cwd: run under just test for one process per test"
+        );
+        let root = std::env::temp_dir().join(format!("refusals-unreachable-{}", std::process::id()));
+        let _cleanup_before = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("crates/example/blocked")).expect("a scratch tree");
+        std::fs::write(root.join("flake.nix"), "{ }\n").expect("a root marker");
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("the other root marker");
+        std::fs::write(root.join("crates/example/a.rs"), "fn a() { RefusalReason::Alpha; }\n").expect("a readable file");
+        std::fs::set_permissions(root.join("crates/example/blocked"), std::fs::Permissions::from_mode(0o000))
+            .expect("chmod 000 on the subtree");
+
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&root).expect("enter the fixture");
+        let result = super::name_evidence(&F_QUERY, &root, &declared());
+        std::env::set_current_dir(original).expect("restore before asserting");
+
+        std::fs::set_permissions(root.join("crates/example/blocked"), std::fs::Permissions::from_mode(0o700))
+            .expect("restore permissions so cleanup can remove the tree");
+        std::fs::remove_dir_all(&root).expect("remove the owned fixture");
+
+        match result {
+            Err(crate::repo::Refusal::Unreachable(subjects)) => assert_eq!(subjects.len(), 1, "{subjects:?}"),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(_evidence) => panic!("an unreachable subtree produced a verdict"),
         }
     }
 
