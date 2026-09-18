@@ -28,8 +28,8 @@ use std::collections::BTreeMap;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Duration;
+use base64::Engine as _;
 
-use base64::Engine;
 
 use sutura_domain::identity::{
     CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, SubjectKey,
