@@ -1,0 +1,16 @@
+# `metrics.serviceMonitor.enabled: true` - the only value that changes which Kinds this chart
+# renders (`templates/servicemonitor.yaml`'s own `{{- if }}`). Exercises the `ServiceMonitor`,
+# the metrics token's `SUTURA__SECURITY__METRICS_TOKEN` env var, and the `bearerTokenSecret`
+# reading the SAME Secret (`docs/adr/0015` Decision 1) - a drift between the two would be
+# visible in this one golden.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  tlsTermination: ingress
+  metricsToken:
+    secretName: sutura-metrics-token
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 15s

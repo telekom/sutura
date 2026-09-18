@@ -433,3 +433,91 @@ pub(crate) fn needs_exchanging_broker(engines: &sutura_app::Warehouses<AnyWareho
         .each()
         .any(|(_, warehouse)| matches!(warehouse, AnyWarehouse::BigQuery(_)))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use sutura_domain::catalog::{Definitions, Description, Model};
+    use sutura_domain::model::{ColumnName, ModelName};
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+
+    use super::{SourceName, TableName, trusted_tables};
+
+    /// One model as [`bundle`] takes it: its name, its source, its table.
+    type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+
+    /// A pinned bundle over exactly the models given - no relationships, no metrics, one column
+    /// each, because `trusted_tables` reads only a model's own source and table.
+    fn bundle(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
+        let column = ColumnName::parse("id").expect("a test column is a column");
+        let declared: Vec<Model> = models
+            .iter()
+            .map(|&(model, source, table)| {
+                Model::new(
+                    ModelName::parse(model).expect("a test model is a model"),
+                    SourceName::parse(source).expect("a test source is a source"),
+                    TableName::parse(table).expect("a test table is a table"),
+                    BTreeSet::from([column.clone()]),
+                    Description::default(),
+                )
+            })
+            .collect();
+        let definitions = Definitions::assemble(declared, vec![], vec![]).expect("the test bundle is consistent");
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions,
+            sutura_domain::knowledge::Knowledge::none(),
+            ContributionManifest::single(
+                SourceName::parse("catalog").expect("a test source is a source"),
+                Contribution::of(sutura_domain::capabilities::MetadataCapabilities::nothing()),
+            ),
+        )
+        .expect("the test definitions hash")
+    }
+
+    /// **The regression this guards.** `trusted_tables` must scope to exactly the slice it was
+    /// handed - a model on a source that slice does not name must not come back trusted, however
+    /// many models on OTHER declared sources are present in the same bundle. This is the one
+    /// property `sources.contains(&model.source()) || true` breaks: it stops excluding anything,
+    /// so every model in the bundle reads as trusted regardless of what this deployment actually
+    /// declared and opened - see this function's own doc for why that scoping is the whole point.
+    #[test]
+    fn trusted_tables_excludes_a_model_on_a_source_this_call_was_not_given() {
+        let declared = SourceName::parse("usage").expect("a test source is a source");
+        let pinned = bundle(&[
+            ("daily_usage", "usage", "fct_usage"),
+            ("shadow_model", "shadow", "fct_shadow"),
+        ]);
+
+        let trusted = trusted_tables(&pinned, &[&declared]);
+
+        assert_eq!(
+            trusted,
+            BTreeSet::from([TableName::parse("fct_usage").expect("a test table is a table")])
+        );
+    }
+
+    /// The same case one layer up: a bundle carrying a model from a source this deployment did not
+    /// declare must still be refused by `sutura_app::preflight::refuse_unattached`, not silently
+    /// served with no table attached behind it - the scenario `serve.rs`'s own doc on the `Mixed`
+    /// arm names as the reason this comparison runs at all.
+    #[test]
+    fn an_undeclared_source_model_is_refused_once_attached_and_served_tables_disagree() {
+        let declared = SourceName::parse("usage").expect("a test source is a source");
+        let pinned = bundle(&[
+            ("daily_usage", "usage", "fct_usage"),
+            ("shadow_model", "shadow", "fct_shadow"),
+        ]);
+
+        let attached = trusted_tables(&pinned, &[&declared]);
+        let served = sutura_app::preflight::served_tables(&pinned);
+
+        let refused = sutura_app::preflight::refuse_unattached(&served, &attached)
+            .expect_err("an undeclared source's table must not read as attached");
+        assert_eq!(
+            refused.missing(),
+            &BTreeSet::from([TableName::parse("fct_shadow").expect("a test table is a table")])
+        );
+    }
+}

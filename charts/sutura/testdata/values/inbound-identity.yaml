@@ -1,0 +1,13 @@
+# `security.inbound` on: this deployment now knows WHO is asking (leg 1), still with no
+# adapter executing AS that caller (leg 2 - see the chart README before reading this as
+# multi-tenant isolation). Exercises the inbound-keys volume/mount and
+# `SUTURA__SECURITY__INBOUND__KEY_SET_FILE`. `tlsTermination: sidecar` rather than
+# `minimal.yaml`'s `ingress`, so this golden also shows the OTHER declared value that
+# satisfies the same refusal.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  tlsTermination: sidecar
+  inbound:
+    keySetSecretName: sutura-inbound-keys

@@ -68,6 +68,9 @@ networked source is a round trip per anchor) and the `livenessProbe`, and config
   derived from `resources.limits`. A template that computes them from the container's own CPU
   and memory limits - closing the two traps `docs/serving.md` documents by name - is a separate,
   later change.
-- No `helm lint` / `kubeconform` gate and no golden `helm template` snapshots yet - also later.
+- `runtime.engineWorkerThreads`/`workingSetMaxBytes` staying plain values (above) is the only
+  gap left in `checks.helm-chart`: `helm lint`, the refusal render, and a golden `helm template`
+  snapshot per `charts/sutura/testdata/values/*.yaml` (diffed and validated by `kubeconform`
+  against two pinned Kubernetes versions) all run today - see `nix/helm-chart.nix`.
 - No Ingress: this chart declares no opinion about how traffic reaches the cluster edge: set
   `security.tlsTermination: ingress` and bring your own.
