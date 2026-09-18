@@ -158,6 +158,25 @@ pub(super) enum Cause {
     RestoreFailed { cell: String, why: String },
     /// Applied and run, and the run did not REPORT that cell failing - the mutation does not kill.
     NotKilled { cell: String },
+    /// The nested build under the mutation never reached a test at all - cargo could not resolve
+    /// the manifest, or the tree did not compile. Distinct from `NotKilled`: that is a build that
+    /// ran and the cell survived it, this is a build the gate never got a chance to run the cell
+    /// against, so it is not a verdict about the declaration at all.
+    BuildFailed { cell: String, why: String },
+}
+
+impl Cause {
+    /// Is this cause the gate FAILING TO MEASURE, rather than measuring and finding the
+    /// declaration wanting?
+    ///
+    /// The distinction [`report_refused`] exits on: every other cause is an author-actionable
+    /// defect in THIS diff's own declaration (a missing patch, a bijection mismatch, a rewritten
+    /// cell) and stays `Verdict::Fail`; this one is the gate's own precondition not holding, which
+    /// is the same non-verdict shape as `Verdict::Inconclusive` elsewhere in this gate - a subject
+    /// it did not reach, not a subject it read and rejected.
+    const fn unmeasured(&self) -> bool {
+        matches!(self, Self::BuildFailed { .. })
+    }
 }
 
 /// Why a mutated run did or did not kill its cell.
@@ -609,11 +628,11 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
     // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
     // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
-    let (_ok, text) = cargo_test(wt, target, &term, Tree::Reconstructed);
-    // CLASSIFY BEFORE RESTORE: the region the panic site is judged against must be the cell's
+    let (ok, text) = cargo_test(wt, target, &term, Tree::Reconstructed);
+    // ATTEST BEFORE RESTORE: the region the panic site is judged against must be the cell's
     // post-mutation file, because a mixed-file patch shifts its own test region's line numbers -
     // reading the HEAD image would compare a mutated `panicked at <line>` against the wrong region.
-    let verdict = classify_mutation(&text, added, &head_reader(wt));
+    let verdict = attest(ok, &text, cell, added, &head_reader(wt));
     // RESTORE IS ON EVERY PATH and a failed restore is the run's own failure: a tree left mutated
     // leaks this cell's mutation into the NEXT cell's run, whose isolation recompiles whatever is
     // on disk.
@@ -623,7 +642,30 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str) -> Result<()
             why,
         });
     }
-    match verdict {
+    verdict
+}
+
+/// The claim arm's own verdict on a mutated run - [`classify_mutation`]'s answer, gated by
+/// whether the run ever reached a test at all.
+///
+/// `classify_mutation` cannot tell "the cell ran and stayed green" from "the tree never compiled
+/// enough to run it" - by design, both leave it naming no failure for the cell, and its own tests
+/// pin that (`a_run_that_names_no_failure_is_not_a_kill` covers a compile error explicitly).
+/// Folding a build failure into `Cause::NotKilled` there would report *the mutation does not kill
+/// it* about a build the gate never attested to at all - measured on `#855`, where the CI venue's
+/// own contention made this the leading hypothesis for a DIFFERENT wrong verdict that turned out
+/// to have a different cause; this guard is shipped regardless, because a nested build failing for
+/// an unrelated reason is a real, separate way to reach the same false verdict. `ok` and `text` are
+/// exactly what [`cargo_test`] returns, so this is pure over its result and testable without a
+/// subprocess.
+fn attest(ok: bool, text: &str, cell: &str, added: &AddedTest, read: &PostImage<'_>) -> Result<(), Cause> {
+    if !ok && let Some(why) = base::could_not_attest(text) {
+        return Err(Cause::BuildFailed {
+            cell: cell.to_owned(),
+            why: why.to_owned(),
+        });
+    }
+    match classify_mutation(text, added, read) {
         MutationKill::Killed => Ok(()),
         MutationKill::NotAsserted => Err(Cause::NotKilled { cell: cell.to_owned() }),
         MutationKill::NotByAssertion { site } => Err(Cause::NotByAssertion {
@@ -691,30 +733,54 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
 }
 
 /// The arm refused: print every reason, then what the trailer does and does not do.
+///
+/// **THE VERDICT ITSELF SPLITS ON [`Cause::unmeasured`].** Every cause but `BuildFailed` is an
+/// author-actionable defect in what THIS diff declared, and stays `Verdict::Fail`. A run whose
+/// every cause is `BuildFailed` never measured anything - the gate's own precondition (a build
+/// that reaches the cell) did not hold - so it is `Verdict::Inconclusive`, the same non-verdict
+/// exit code `ci.yml` already tolerates elsewhere in this gate, printed to stdout the way every
+/// other `Inconclusive` arm in this gate is (`base::report::report_base`'s own convention: `Fail`
+/// prints to stderr, `Inconclusive` to stdout).
 pub(super) fn report_refused(causes: &[Cause]) -> Verdict {
-    for line in refused_lines(causes) {
-        eprintln!("{line}");
+    let unmeasured = !causes.is_empty() && causes.iter().all(Cause::unmeasured);
+    for line in refused_lines(causes, unmeasured) {
+        if unmeasured {
+            println!("{line}");
+        } else {
+            eprintln!("{line}");
+        }
     }
-    Verdict::Fail
+    if unmeasured { Verdict::Inconclusive } else { Verdict::Fail }
 }
 
 /// Every line the arm above prints, in order.
 ///
 /// PURE for the reason `super::remedies` learned twice: a printed sentence is prose that nothing
 /// derives, and the one thing that keeps a verdict honest is a test that reads its wording.
-fn refused_lines(causes: &[Cause]) -> Vec<String> {
-    let mut lines = vec![format!(
-        "xtask test-causality: FAILED - a `{TRAILER}` declaration did not hold"
-    )];
+fn refused_lines(causes: &[Cause], unmeasured: bool) -> Vec<String> {
+    let mut lines = vec![if unmeasured {
+        String::from("xtask test-causality: INCONCLUSIVE - a claim cell's mutation build never reached it")
+    } else {
+        format!("xtask test-causality: FAILED - a `{TRAILER}` declaration did not hold")
+    }];
     lines.extend(causes.iter().map(cause_line));
-    lines.extend([
-        String::new(),
-        String::from("The trailer is a CLAIM and this is the check that holds it. A claim cell is an"),
-        String::from("added test pinning behaviour the base tree already provides, proved only by a"),
-        String::from("committed mutation at `devco/claim-mutations/<test-fn-name>.patch` that makes the"),
-        String::from("test FAIL. Fix or drop the declaration - the undeclared path is unchanged and still"),
-        String::from("refuses a test that is green against the base behaviour."),
-    ]);
+    if unmeasured {
+        lines.extend([
+            String::new(),
+            String::from("The gate could not attest either way: the nested build under the mutation never"),
+            String::from("reached the cell, so this is NOT a verdict about the `Claim-Cell:` declaration -"),
+            String::from("re-run it, and if it recurs, read the build output above it in the log."),
+        ]);
+    } else {
+        lines.extend([
+            String::new(),
+            String::from("The trailer is a CLAIM and this is the check that holds it. A claim cell is an"),
+            String::from("added test pinning behaviour the base tree already provides, proved only by a"),
+            String::from("committed mutation at `devco/claim-mutations/<test-fn-name>.patch` that makes the"),
+            String::from("test FAIL. Fix or drop the declaration - the undeclared path is unchanged and still"),
+            String::from("refuses a test that is green against the base behaviour."),
+        ]);
+    }
     lines
 }
 
@@ -754,6 +820,11 @@ fn cause_line(cause: &Cause) -> String {
         }
         Cause::NotKilled { cell } => {
             format!("  not killed:  {cell}  (applied, run, and the cell did not fail - the mutation does not kill it)")
+        }
+        Cause::BuildFailed { cell, why } => {
+            format!(
+                "  could not attest: {cell}: {why}  (the mutated build never reached the cell - not a verdict about the declaration)"
+            )
         }
     }
 }

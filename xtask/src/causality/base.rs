@@ -221,6 +221,25 @@ fn did_not_compile(text: &str) -> bool {
         || text.contains("unresolved import")
 }
 
+/// Why a run's own text says it never reached a test at all - cargo could not resolve the
+/// manifest, or the tree did not compile - rather than a test that ran and either did or did not
+/// fail.
+///
+/// `pub(super)` for `claim`: the mutation arm needs to tell *nothing attests either way* from
+/// *the mutation does not kill it*, and that has to be the SAME predicate this run's own
+/// classification already uses, not a second one that could disagree about the same text.
+pub(super) fn could_not_attest(text: &str) -> Option<&'static str> {
+    if failed_to_resolve(text) {
+        Some("cargo could not resolve the manifest")
+    } else if did_not_compile(text) {
+        Some("the tree did not compile")
+    } else if names_no_tests(text) {
+        Some("the filter matched no test - orphaned by the patch, not killed by it")
+    } else {
+        None
+    }
+}
+
 /// Did the filter match nothing?
 ///
 /// nextest's `--no-tests` defaults to failing, which is what makes a scoped run fail CLOSED when
