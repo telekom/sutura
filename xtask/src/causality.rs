@@ -128,8 +128,8 @@ use provenance::{Commit, Moved, Reach};
 use relocation::{Claim, Images, Relocation};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
-    report_unreadable, report_unreverted,
+    report_nothing_to_revert, report_only_ignored, report_orphaned_modules, report_scope, report_silent, report_unnamed_tests,
+    report_unread_manifests, report_unreadable, report_unreverted,
 };
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
@@ -169,6 +169,8 @@ fn prove(
     scoped: &Scoped,
     coverage: &Coverage,
     reverted: &Attempts,
+    files: &[diff::ChangedFile],
+    read: &regions::PostImage<'_>,
 ) -> Verdict {
     let first = base_state(root, base, &separable.revert);
     let holding = separable.held();
@@ -188,6 +190,7 @@ fn prove(
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
     }
+    report_orphaned_modules(&first.remove, files, read);
     for f in &separable.held_back {
         println!("  held:      {f}  (carries its own tests)");
     }
@@ -583,7 +586,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                         &working_tree,
                         &base_tree,
                     );
-                    prove(&root, &at, &separable, &scoped, &coverage, &reach)
+                    prove(&root, &at, &separable, &scoped, &coverage, &reach, &files, &working_tree)
                 }
                 Scan::Unreadable(files) => report_unreadable(&files),
                 Scan::Enabled(refused) => report_enabled_tests(&refused),

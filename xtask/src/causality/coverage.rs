@@ -276,6 +276,18 @@ impl Coverage {
         }
     }
 
+    /// How many added tests the scope filter NAMED, before either run - the numerator every
+    /// wording this type prints shares, as a bare number rather than a sentence.
+    ///
+    /// `super::base::report` compares this against nextest's own `tests run` total: the filter
+    /// naming ten does not mean the base binary had ten functions of those names to run, and
+    /// `github.com/telekom/sutura#893` is the sentence that conflated the two.
+    pub(crate) const fn scoped_count(&self) -> usize {
+        match *self {
+            Self::Measured { measured, .. } | Self::Unknown { measured, .. } => measured,
+        }
+    }
+
     /// The tests the proof left out, by name.
     ///
     /// Empty while the denominator is unknown: a partial list of an unknown set reads as the
