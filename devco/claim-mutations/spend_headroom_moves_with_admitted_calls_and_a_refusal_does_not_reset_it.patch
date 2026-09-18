@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-http/src/routes/v1/query.rs b/crates/sutura-http/src/routes/v1/query.rs
+index 1ab5cced..d84e0770 100644
+--- a/crates/sutura-http/src/routes/v1/query.rs
++++ b/crates/sutura-http/src/routes/v1/query.rs
+@@ -329,7 +329,9 @@ pub(crate) async fn ask(
+     .await;
+     let outcome = match joined {
+         Ok((answered, headroom)) => {
+-            state.record_spend_headroom(headroom);
++            if false {
++                state.record_spend_headroom(headroom);
++            }
+             match answered {
+                 Ok(answered) => answered,
+                 Err(ref failure) => {
