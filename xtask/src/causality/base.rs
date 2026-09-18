@@ -386,24 +386,58 @@ pub(super) fn is_scoped(failure: &str, scoped: &[AddedTest]) -> bool {
 /// ratio, and `super::prove` did, ahead of the head run. `Coverage`'s measured wording takes the
 /// evidence rather than a preference, so a numerator no run earned does not compile.
 fn earned(outcome: &BaseOutcome, coverage: &Coverage) -> String {
-    coverage.measured(match *outcome {
+    coverage.measured(if reported_per_test(outcome) {
         // Both runs happened and reported per-test results, so the filterset's names are also
         // what was measured. `PerTestResults(())` is spellable here and nowhere else.
-        BaseOutcome::Green
-        | BaseOutcome::GreenAfterAMove { .. }
-        | BaseOutcome::GreenOverAnUnreachableRevert { .. }
-        | BaseOutcome::RedByAssertion { .. } => Attributed::PerTest(PerTestResults(())),
+        Attributed::PerTest(PerTestResults(()))
+    } else {
         // Nothing this diff added was measured on base: the tree did not build, the filter matched
         // none of them, no failure was attributable, or the run stopped on something else. A
         // partial move is here too, understated on purpose: its moved subset did run, but the
         // scope this outcome is about is the one that did not, and this module's own rule is that
         // the overstating direction must not compile.
-        BaseOutcome::RedOutsideTheDiff { .. }
-        | BaseOutcome::NotRun
-        | BaseOutcome::Unattributed
-        | BaseOutcome::DidNotResolve
-        | BaseOutcome::DidNotCompile
-        | BaseOutcome::GreenAfterAPartialMove { .. } => Attributed::Nothing,
+        Attributed::Nothing
+    })
+}
+
+/// Did this outcome come from a base run that reported PER-TEST results?
+///
+/// The four variants [`earned`] maps to [`Attributed::PerTest`], pulled out under a name of its
+/// own so `super::base::report` can ask the same question `earned` already answers rather than
+/// re-deriving a second match that could quietly disagree with it -
+/// `github.com/telekom/sutura#893`: the sentence a "measured" outcome prints still baked in the
+/// scope's own count, unchecked against what nextest's own run actually attempted.
+pub(super) const fn reported_per_test(outcome: &BaseOutcome) -> bool {
+    matches!(
+        outcome,
+        BaseOutcome::Green
+            | BaseOutcome::GreenAfterAMove { .. }
+            | BaseOutcome::GreenOverAnUnreachableRevert { .. }
+            | BaseOutcome::RedByAssertion { .. }
+    )
+}
+
+/// How many tests nextest's own `Summary` line says it RAN in this text - not skipped, not merely
+/// named by the filter, but the count whose bodies actually executed.
+///
+/// **Why this number is safe to compare against what the filter NAMED.** The gate's filterset is a
+/// whole-name match ([`super::scoped::Scoped::filterset`]), so a scoped name absent from the base
+/// binary contributes to neither `run` nor `skipped` - it does not exist there to be counted either
+/// way. That is exactly the ORPHANING trap [`BaseOutcome::NotRun`] already names for the
+/// all-or-nothing case, here made visible for a run that measured SOME of the scope and not all of
+/// it: `github.com/telekom/sutura#893` measured a run where 2 of 10 scoped names ran, `RedByAssertion`
+/// still fired on the one that failed, and the verdict printed `10 of 13 added tests measured`
+/// beside a `Summary` line that had already said otherwise.
+///
+/// `Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 0 skipped` is nextest's own wording as of
+/// 0.9.143; `1 test run:` is the singular the same line takes at exactly one.
+pub(super) fn tests_run(text: &str) -> Option<usize> {
+    text.lines().find_map(|line| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words.windows(3).find_map(|w| match w {
+            [n, "test" | "tests", "run:"] => n.parse().ok(),
+            _ => None,
+        })
     })
 }
 
@@ -415,7 +449,7 @@ pub(crate) use report::{report_base, tail};
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, Moved, Reverted, classify_base, earned, names_no_tests, report_base};
+    use super::{BaseOutcome, Moved, Reverted, classify_base, earned, names_no_tests, report_base, tests_run};
     use crate::Verdict;
     use crate::causality::fixtures::{UNRELATED_RED, audit_record, named, scoped};
     use crate::causality::place::AddedTest;
@@ -827,5 +861,20 @@ mod tests {
             "6 of 6 added tests measured"
         );
         assert_eq!(earned(&BaseOutcome::Green, &six), "6 of 6 added tests measured");
+    }
+
+    #[test]
+    fn tests_run_reads_nextests_own_summary_line() {
+        // #893's real base run, both the plural and the singular nextest prints at exactly one.
+        assert_eq!(
+            tests_run("     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 1727 skipped\n"),
+            Some(2)
+        );
+        assert_eq!(tests_run("    Summary [   0.1s] 1 test run: 1 passed\n"), Some(1));
+        assert_eq!(
+            tests_run("     Summary [   0.000s] 0 tests run: 0 passed, 1810 skipped\n"),
+            Some(0)
+        );
+        assert_eq!(tests_run("error[E0432]: unresolved import `crate::thing`"), None);
     }
 }

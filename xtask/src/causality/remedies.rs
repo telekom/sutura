@@ -42,9 +42,12 @@
 use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::coverage::{Attributed, Coverage};
+use crate::causality::diff::ChangedFile;
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::names::Ident;
+use crate::causality::place::{Declares, accounted_for};
 use crate::causality::provenance::Moved;
+use crate::causality::regions::PostImage;
 use crate::causality::scoped::Silent;
 
 /// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
@@ -143,6 +146,55 @@ fn unreverted_lines(build_inputs: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Say which `remove:` file declares a test module whose own file is ALSO in this diff.
+///
+/// **THE DEFECT THIS NAMES.** `github.com/telekom/sutura#893`'s second finding: eight cells the
+/// base run never even attempted were unmeasured for a structural reason nothing printed. The
+/// parent is NEW here - `remove:` means the base tree has no version of it at all - so a
+/// `#[cfg(test)] mod tests;` inside it has nothing to attach the child's tests to at base: not
+/// held at HEAD, not restored, simply never compiled. That is detectable from the diff alone and
+/// before either run: the parent is in `remove:`, [`accounted_for`] resolves its declaration to a
+/// candidate file, and that candidate is itself in this diff.
+///
+/// **What this does NOT cover.** A parent in `restore:` - an EXISTING file whose base version may
+/// already declare the same `mod`, so nothing here is orphaned by that reversion alone - and an
+/// INLINE `mod tests { .. }`, whose body arrives with the parent and needs no second file to
+/// exist. Both are silently skipped rather than guessed at.
+pub(super) fn report_orphaned_modules(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_>) {
+    for line in orphaned_lines(remove, files, read) {
+        println!("{line}");
+    }
+}
+
+/// Every line [`report_orphaned_modules`] prints, in order.
+///
+/// PURE for the reason every other line in this module is: a mutation of the `println!` above
+/// reddens nothing, and review is what holds it.
+fn orphaned_lines(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for &path in remove {
+        let Some(file) = files.iter().find(|f| &f.path == path) else {
+            continue;
+        };
+        let Some(text) = read(path) else {
+            continue;
+        };
+        let post: Vec<&str> = text.lines().collect();
+        let Some(Declares::OutOfLine(candidates)) = accounted_for(file, &post) else {
+            continue;
+        };
+        if let Some(child) = candidates
+            .into_iter()
+            .find(|candidate| files.iter().any(|f| &f.path == candidate))
+        {
+            lines.push(format!(
+                "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
+            ));
+        }
+    }
+    lines
+}
+
 /// What the filterset left out, and what stopped the total being established.
 ///
 /// Shared by the pre-run scope line and the inseparable verdict, because the LIST is the same
@@ -151,8 +203,13 @@ fn unreverted_lines(build_inputs: &[String]) -> Vec<String> {
 fn unmeasured_lines(coverage: &Coverage) -> Vec<String> {
     let mut lines = Vec::new();
     for name in coverage.unmeasured() {
+        // NOT "its file is kept at HEAD" - `github.com/telekom/sutura#893` found that claim false
+        // for a file `plan` pulls into `restore:` anyway, when a scoped test elsewhere reaches
+        // it: the file IS reverted, only this name never entered the filter that reversion is
+        // measured against. `Coverage` only ever checks scope membership, never file state, so
+        // the sentence says exactly that and nothing plan's later reach analysis could contradict.
         lines.push(format!(
-            "    not measured: {name}  (its file is kept at HEAD, so it has no base to be red against)"
+            "    not measured: {name}  (never named into the scope filter, so it has no base result to compare)"
         ));
     }
     for path in coverage.unestablished() {
@@ -527,9 +584,11 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 mod tests {
     use super::{
         Because, Coverage, Enabled, Ident, Moved, Unread, Verdict, moved_lines, no_base_behaviour, nothing_to_revert,
-        report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable, report_nothing_to_revert,
-        report_only_ignored, report_unnamed_tests, report_unread_manifests, report_unreadable, scope_lines,
+        orphaned_lines, report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable,
+        report_nothing_to_revert, report_only_ignored, report_unnamed_tests, report_unread_manifests, report_unreadable,
+        scope_lines,
     };
+    use crate::causality::fixtures::{changed, tree};
 
     /// A coverage value with nothing measured out of `total`.
     fn nothing_of(total: usize) -> Coverage {
@@ -760,5 +819,52 @@ mod tests {
             lines.iter().any(|line| line.contains("not measured: held")),
             "the filterset's omissions are named before the runs, as they were: {lines:?}"
         );
+    }
+
+    #[test]
+    fn a_remove_files_out_of_line_module_orphans_its_own_child_file() {
+        // #893's second defect: the parent is NEW here (`remove:`), so its `mod tests;` has
+        // nothing to attach to at base - the child never compiles there, whatever the base run's
+        // filter names. Detectable from the diff alone, with no run at all.
+        let parent = changed("xtask/src/fuzz/hook_paths.rs", 1, &["#[cfg(test)]", "mod tests;"]);
+        let child = changed("xtask/src/fuzz/hook_paths/tests.rs", 1, &["#[test]", "fn a_new_cell() {}"]);
+        let path = String::from("xtask/src/fuzz/hook_paths.rs");
+        let files = vec![parent, child];
+        let read = tree(&[
+            ("xtask/src/fuzz/hook_paths.rs", "#[cfg(test)]\nmod tests;\n"),
+            ("xtask/src/fuzz/hook_paths/tests.rs", "#[test]\nfn a_new_cell() {}\n"),
+        ]);
+        let lines = orphaned_lines(&[&path], &files, &read);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("xtask/src/fuzz/hook_paths/tests.rs"), "{lines:?}");
+        assert!(lines[0].contains("xtask/src/fuzz/hook_paths.rs"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_remove_file_whose_declared_module_is_not_in_the_diff_orphans_nothing() {
+        // The child is not part of this diff at all - an ordinary `mod tests;` reaching a file
+        // this branch never touched - so there is nothing here to name as orphaned.
+        let parent = changed("crates/x/src/a.rs", 1, &["#[cfg(test)]", "mod tests;"]);
+        let path = String::from("crates/x/src/a.rs");
+        let files = vec![parent];
+        let read = tree(&[("crates/x/src/a.rs", "#[cfg(test)]\nmod tests;\n")]);
+        assert_eq!(orphaned_lines(&[&path], &files, &read), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_inline_test_module_in_a_removed_file_orphans_nothing() {
+        // The body arrives WITH the parent, so there is no second file to be missing at base.
+        let parent = changed(
+            "crates/x/src/a.rs",
+            1,
+            &["#[cfg(test)]", "mod tests {", "    #[test]", "    fn t() {}", "}"],
+        );
+        let path = String::from("crates/x/src/a.rs");
+        let files = vec![parent];
+        let read = tree(&[(
+            "crates/x/src/a.rs",
+            "#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+        )]);
+        assert_eq!(orphaned_lines(&[&path], &files, &read), Vec::<String>::new());
     }
 }
