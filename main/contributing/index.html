@@ -3216,8 +3216,11 @@ with no added <code>.rs</code> line, and neither run can measure them - so state
 be tested without a warehouse, and a test asserting on source text proves nothing.</p>
 <p><code>just validate</code> is the only thing that counts as verified, because its nix checks build a
 git-derived copy of the tree - so <code>git add -N</code> a new file immediately, or it compiles locally and
-does not exist in the sandbox. Gate stages, what each one covers and where a green run means less
-than it looks are all in
+does not exist in the sandbox. It does not run <code>check-default-features</code> or
+<code>check-default-feature-tests</code>, though - <code>just gates</code> does, per <code>github.com/telekom/sutura#866</code>'s
+option 2, chosen 2026-09-18: those two close the compile-and-lint gap on the default feature set,
+not the link gap, since neither links - the four <code>cross</code> builds stay the authority on a musl link.
+Gate stages, what each one covers and where a green run means less than it looks are all in
 <a href="https://github.com/telekom/sutura/blob/main/.agents/skills/sutura/gates/SKILL.md">the <code>gates</code> skill</a>.</p>
 <h2 id="pull-requests">Pull requests<a class="headerlink" href="#pull-requests" title="Permanent link">&para;</a></h2>
 <p><strong><code>main</code> is the sole trunk.</strong> Pull requests are squashed, leaving one conventional commit for

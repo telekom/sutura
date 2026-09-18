@@ -350,10 +350,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#status" class="md-nav__link">
+  <a href="#where-to-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Status
+        Where to start
       
     </span>
   </a>
@@ -361,10 +361,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-start" class="md-nav__link">
+  <a href="#status" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to start
+        Status
       
     </span>
   </a>
@@ -2825,10 +2825,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#status" class="md-nav__link">
+  <a href="#where-to-start" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Status
+        Where to start
       
     </span>
   </a>
@@ -2836,10 +2836,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-start" class="md-nav__link">
+  <a href="#status" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to start
+        Status
       
     </span>
   </a>
@@ -2898,8 +2898,8 @@ every question still reads as one identity. No Arrow result envelope either. Eve
 site is marked <em>enforced today</em> or <em>design target</em> at the point it is made.</p>
 </div>
 <h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
-<p>Three columns, deliberately. The middle one is the design; the last one says whether anything holds
-it in the code that is here now.</p>
+<p>Each row names the property, the mechanism it is meant to rest on, and whether that mechanism
+holds it in the code that is here now.</p>
 <table>
 <thead>
 <tr>
@@ -2951,33 +2951,6 @@ pinned bundle, not the identity.</p>
 <p><a href="architecture/#where-the-parts-come-from">Where the parts come from</a> sets those two and
 <a href="https://github.com/tobilg/polyglot">polyglot</a> on the line from a modelled question to executed SQL,
 and says which parts we mean to build.</p>
-<h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
-<p>The query path is built, and it supports exactly one combination: <strong>metadata from a catalogue of
-markdown documents with YAML frontmatter in git, executed by the in-process engine over the CSV or
-Parquet files you point it at.</strong> A question naming a metric, a grain, a bounded range and some
-dimensions compiles to a plan and executes, and every metric that declares a certified number
-reproduces it before the bundle can be served.</p>
-<p>The plan can also be <em>rendered</em> as SQL for <code>DuckDB</code>, Postgres or <code>ClickHouse</code>, and there is a <code>DuckDB</code>
-adapter that pushes a statement down - but that adapter is a <strong>test dependency</strong>, not the runtime data
-source, and the shipped binary links neither it nor any driver. Which DATA SYSTEM is opened is a
-declaration - <code>sources.&lt;alias&gt;.kind</code>, the same tree the service reads - and which KINDS a given build
-can open is a compile-time decision: a published binary opens files, while <code>kind: bigquery</code> and
-<code>kind: postgres</code> need builds carrying their default-off features. A build without one refuses that
-kind by name rather than silently falling back.
-<a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
-is the table, and it is the section to read before assuming otherwise.</p>
-<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it
-is now one specific thing rather than four. There <em>is</em> a request context, a credential broker port
-with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
-declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere
-for a per-subject credential to arrive, both declare so, and the broker mints what an operator
-configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
-a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
-and still read every row as one identity. Arrow results are also still ahead. Federation is not:
-the splitter, two executions and the combiner all run in a published build, because the engine
-declares <code>Warehouse::EXECUTES_LEGS</code>. <a href="serving/">The HTTP surface</a> is not, and its bearer token authenticates the deployment rather than the caller.
-<a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3010,6 +2983,33 @@ declares <code>Warehouse::EXECUTES_LEGS</code>. <a href="serving/">The HTTP surf
 </tbody>
 </table>
 <p>To work <em>on</em> sutura, start at <a href="contributing/">Contributing</a> under <strong>Development</strong>.</p>
+<h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
+<p>The query path is built, and it supports exactly one combination: <strong>metadata from a catalogue of
+markdown documents with YAML frontmatter in git, executed by the in-process engine over the CSV or
+Parquet files you point it at.</strong> A question naming a metric, a grain, a bounded range and some
+dimensions compiles to a plan and executes, and every metric that declares a certified number
+reproduces it before the bundle can be served.</p>
+<p>The plan can also be <em>rendered</em> as SQL for <code>DuckDB</code>, Postgres or <code>ClickHouse</code>, and there is a <code>DuckDB</code>
+adapter that pushes a statement down - but that adapter is a <strong>test dependency</strong>, not the runtime data
+source, and the shipped binary links neither it nor any driver. Which DATA SYSTEM is opened is a
+declaration - <code>sources.&lt;alias&gt;.kind</code>, the same tree the service reads - and which KINDS a given build
+can open is a compile-time decision: a published binary opens files, while <code>kind: bigquery</code> and
+<code>kind: postgres</code> need builds carrying their default-off features. A build without one refuses that
+kind by name rather than silently falling back.
+<a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
+is the table, and it is the section to read before assuming otherwise.</p>
+<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it
+is now one specific thing rather than four. There <em>is</em> a request context, a credential broker port
+with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
+declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
+operations that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere
+for a per-subject credential to arrive, both declare so, and the broker mints what an operator
+configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
+a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
+and still read every row as one identity. Arrow results are also still ahead. Federation is not:
+the splitter, two executions and the combiner all run in a published build, because the engine
+declares <code>Warehouse::EXECUTES_LEGS</code>. <a href="serving/">The HTTP surface</a> is not, and its bearer token authenticates the deployment rather than the caller.
+<a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="feedback-and-reporting">Feedback and reporting<a class="headerlink" href="#feedback-and-reporting" title="Permanent link">&para;</a></h2>
 <p>For questions, feature ideas and bug reports, open an issue in the
 <a href="https://github.com/telekom/sutura/issues">issue tracker</a>. For a suspected vulnerability, report it

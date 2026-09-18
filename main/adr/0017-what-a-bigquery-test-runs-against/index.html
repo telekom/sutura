@@ -4944,6 +4944,15 @@ the same inputs - kept rather than removed, since a probe outside <code>checks</
 and removing it is a separate, smaller cleanup this amendment does not do. And the union's binary
 size - priced as unmeasured in <code>#685</code>'s own comments - is still unmeasured here; nothing in this
 change takes that measurement.</p>
+<h2 id="seventeenth-amendment-2026-09-18-the-sixteenth-amendment-overstated-what-the-two-gates-build">Seventeenth amendment, 2026-09-18: the Sixteenth amendment overstated what the two gates build<a class="headerlink" href="#seventeenth-amendment-2026-09-18-the-sixteenth-amendment-overstated-what-the-two-gates-build" title="Permanent link">&para;</a></h2>
+<p><code>github.com/telekom/sutura#685</code> measured it: <em>"<code>checks.one-binary</code> and <code>checks.shipped-features</code>
+themselves now build every release and release-performance target at this feature set"</em> is false
+for the second half of that claim. <code>checks.one-binary</code> reads <code>crossPackages."${b.bin}-${target}"</code>
+(<code>nix/shipped.nix:545</code>) - the unsuffixed key - and <code>checks.shipped-features</code> reads
+<code>nativeBinaries.${b.bin}</code> (<code>:659</code>), the native, unsuffixed key. Neither expression ever names the
+<code>-performance</code> suffix, so neither gate builds or reads a <code>release-performance</code> target; both are
+release-profile only. <code>github.com/telekom/sutura#685</code>'s own binaries slice (musl at
+<code>release-performance</code>) is a separate, matrix-only fix that does not touch either gate either.</p>
 
 
 
