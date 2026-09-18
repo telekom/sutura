@@ -65,13 +65,25 @@ pub(crate) const TASKS: &[Task] = &[
         description: "VENDOR.md's mimalloc row cardinal matches its own enumeration and Cargo.toml/REUSE.toml's repeated count",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
-            // A genuine cardinal-versus-enumeration mismatch (2 said, 1 enumerated), not an
-            // absent file - the own-rule seed `registry::Falsifier`'s doc asks for, over the
-            // weaker "VENDOR.md is missing" refusal the shared tree would otherwise produce.
-            seeds: &[(
-                "VENDOR.md",
-                "| `vendor/mimalloc_rust/**` | up | MIT | abc | 2026-01-01 | Two local changes. (1) one thing. |\n",
-            )],
+            // A genuine cardinal-versus-enumeration mismatch (2 said, 1 enumerated) - the
+            // own-rule seed `registry::Falsifier`'s doc asks for. Seeding `VENDOR.md` ALONE
+            // was reviewed and measured wrong: `falsifier_tree`'s own `Cargo.toml` carries no
+            // mimalloc mention and writes no `REUSE.toml` at all, so BOTH repeaters land on the
+            // absent-input floor (`SiteFinding::Absent`) rather than the substantive comparison
+            // - measured, deleting the comparison outright left the sweep's own
+            // `Verdict::Fail` assertion PASSING, exactly the masked-refusal shape
+            // `github.com/telekom/sutura#371` exists to catch. Seeding a matching-but-wrong
+            // cardinal into both repeaters removes the mask: each reads a real value (two), so
+            // the row's own mismatch is the only thing left standing between this tree and a
+            // clean bill.
+            seeds: &[
+                (
+                    "VENDOR.md",
+                    "| `vendor/mimalloc_rust/**` | up | MIT | abc | 2026-01-01 | Two local changes. (1) one thing. |\n",
+                ),
+                ("Cargo.toml", "[workspace]\nmembers = []\n# two local changes\n"),
+                ("REUSE.toml", "# two local changes\n"),
+            ],
             in_scope: Some("VENDOR.md"),
         },
         run: vendor_count::run,

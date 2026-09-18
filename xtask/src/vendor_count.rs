@@ -16,14 +16,22 @@
 //! # WHY THREE NAMED FILES, NOT A WALK OF THE TREE
 //!
 //! `check-arrow` reads two named files rather than every manifest in the workspace, and the
-//! argument carries over: the phrase `"<cardinal> local change(s)"` appears nowhere else in this
-//! tree today (`tests::the_real_tree_passes_this_gate` is the anchor that would catch it moving),
-//! and a repo-wide scan would pay to open every vendored byte in `vendor/mimalloc_rust/**` for a
-//! collision that has not happened. Widening [`OTHER_SITES`] is one line the day a third file
-//! starts repeating this count - narrower than a generic "cardinal near a count noun" rule, which
-//! `#865` itself warns off: two ADRs, an `xtask` table-column comment and a credential doc
-//! comment (mirrored into a generated page) all say "N local changes/fixes" for something else
-//! entirely, and a wider pattern would refuse every one of them.
+//! argument carries over: a repo-wide scan would pay to open every vendored byte in
+//! `vendor/mimalloc_rust/**` for a collision that has not happened, and finding a fourth
+//! repeater at all would need a generic "cardinal near a count noun" rule - narrower than that is
+//! `#865`'s own warning: two ADRs, an `xtask` table-column comment and a credential doc comment
+//! (mirrored into a generated page) all say "N local changes/fixes" for something else entirely,
+//! and a wider pattern would refuse every one of them.
+//!
+//! **`tests::the_real_tree_passes_this_gate` is an anchor over these three reads, and its
+//! coverage runs ONE DIRECTION.** [`run_in`] reads only `VENDOR.md` and [`OTHER_SITES`] - it
+//! never walks the tree - so the anchor catches the phrase LEAVING one of the three: delete a
+//! repeater's comment and [`check_site`] finds nothing to compare, and the real tree goes red.
+//! It cannot catch a FOURTH file ACQUIRING the same phrase with a different number - nothing here
+//! reads that file, so a planted mismatch elsewhere leaves the three named reads agreeing with
+//! each other and the anchor green. Measured: a fourth file stating "Seven local changes" left
+//! this gate at `ok`. Widening [`OTHER_SITES`] is one line the day a real fourth repeater shows
+//! up; nothing here would notice on its own.
 //!
 //! # WHAT IT DOES NOT CATCH
 //!
@@ -565,6 +573,45 @@ mod tests {
             "site-dropped",
             Some(&row("Six", SIX_ITEMS)),
             Some("no mention of any local changes here\n"),
+            Some("# the six local changes; this records the licence.\n"),
+        );
+        assert_eq!(run_in(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_present_row_whose_cell_states_no_cardinal_is_a_fault() {
+        // The header's own claim about "an unreadable cell", held: the row IS there, the cell IS
+        // read, and it names no cardinal - "Local" opens the cell with nothing before it, so
+        // `cardinal_before` has no preceding word to match. Enumerating exactly SIX items, with
+        // both repeaters ALSO stating six, is deliberate: a fabricated `(String::from("six"), 6)`
+        // standing in for the `[] => { .. }` refusal would then agree with everything else in the
+        // tree and this test would go from Fail to Pass under it - which is what makes the
+        // fixture prove the refusal rather than merely exercise the predicate.
+        let cell = format!(
+            "| `vendor/mimalloc_rust/**` | up | MIT | abc | 2026-01-01 | Local changes happened, uncounted. {SIX_ITEMS} |\n"
+        );
+        let root = tree(
+            "cell-no-cardinal",
+            Some(&cell),
+            Some("# six local changes to the build script and both manifests.\n"),
+            Some("# the six local changes; this records the licence.\n"),
+        );
+        assert_eq!(run_in(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn a_present_row_whose_cell_states_two_cardinals_is_a_fault() {
+        // The other half of the same claim: the cell is read and names TWO cardinals, which is
+        // as unusable as naming none. Same reasoning on the enumeration and the repeaters: a
+        // fabricated `(String::from("six"), 6)` standing in for `many => { .. }` would otherwise
+        // agree with everything else here too.
+        let cell = format!(
+            "| `vendor/mimalloc_rust/**` | up | MIT | abc | 2026-01-01 | Six local changes, or maybe five local changes. {SIX_ITEMS} |\n"
+        );
+        let root = tree(
+            "cell-two-cardinals",
+            Some(&cell),
+            Some("# six local changes to the build script and both manifests.\n"),
             Some("# the six local changes; this records the licence.\n"),
         );
         assert_eq!(run_in(&root), Verdict::Fail);

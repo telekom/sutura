@@ -84,12 +84,17 @@ fn a_capitalised_cardinal_still_passes_through_the_real_binary() {
 
 #[test]
 fn a_cardinal_versus_enumeration_mismatch_fails_through_the_real_binary() {
-    // VENDOR.md's own row: the cardinal says Seven, the cell still enumerates six items.
+    // VENDOR.md's own row: the cardinal says Seven, the cell still enumerates six items. Both
+    // repeaters ALSO say seven - reviewed and measured wrong when they said six, because that
+    // made this fixture a cross-file mismatch too, and it survived deleting the row's own
+    // cardinal-versus-enumeration comparison outright (the cross-file check caught it instead).
+    // Held now, by `desync_the_enumeration_alone_fails` (the unit-level twin of this cell) and
+    // by nothing else in either file.
     let root = tree(
         "internal-mismatch",
         Some(&row("Seven", SIX_ITEMS)),
-        Some("[workspace]\n# six local changes to the build script and both manifests.\n"),
-        Some("# the six local changes; this records the licence.\n"),
+        Some("[workspace]\n# seven local changes to the build script and both manifests.\n"),
+        Some("# the seven local changes; this records the licence.\n"),
     );
     let output = run(&root);
     std::fs::remove_dir_all(&root).expect("remove the owned fixture");
