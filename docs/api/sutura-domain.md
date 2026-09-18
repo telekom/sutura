@@ -6775,6 +6775,11 @@ the one place that decides the case and constructs this; nothing else may.
 needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
 position is enough.
 
+**The limit next to the claim: nothing constructs this outside a test.**
+`sutura_semantic::plan::case_1` is the one production caller, and it is measured unreachable
+from any question `sutura_semantic::plan::plan` actually dispatches to the federated path for -
+`github.com/telekom/sutura#890`.
+
 ### `use LegPlan`
 
 One source's share of a federated question.
@@ -7993,6 +7998,11 @@ the one place that decides the case and constructs this; nothing else may.
 `ranking` and not the `Federation` it came from, so a renderer
 needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
 position is enough.
+
+**The limit next to the claim: nothing constructs this outside a test.**
+`sutura_semantic::plan::case_1` is the one production caller, and it is measured unreachable
+from any question `sutura_semantic::plan::plan` actually dispatches to the federated path for -
+`github.com/telekom/sutura#890`.
 
 ##### Methods
 
