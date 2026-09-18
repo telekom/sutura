@@ -277,6 +277,24 @@ Not built.
     }
 
     #[test]
+    fn a_page_still_at_the_four_column_header_is_refused() {
+        // RED before issue #81 widened `VENUES_HEADER` to five columns: the header this
+        // repository's real page carried until then matched whole, so a page that never gained
+        // `Allowed to claim` parsed fine. The widened constant no longer recognises that line as
+        // the venues table's header at all - `table()`'s exact match is what the doc comment
+        // on `VENUES_HEADER` claims protects an existing cell's meaning, and this is the case
+        // that claim is about: a page frozen at four columns is invisible rather than silently
+        // read with its last cell's meaning moved.
+        let four_column = MAP.replace(
+            "| Venue | Where it runs | What it costs | Reached by | Allowed to claim |\n\
+             | --- | --- | --- | --- | --- |",
+            "| Venue | Where it runs | What it costs | Reached by |\n| --- | --- | --- | --- |",
+        );
+        let found = problems(&four_column);
+        assert!(found.iter().any(|p| p.contains("no venues table")), "{found:?}");
+    }
+
+    #[test]
     fn a_cell_that_states_a_sentence_instead_of_a_verdict_fails() {
         // RED WHEN WRITTEN, against the real page: `see below` and `painful to script` sat in the
         // real provider's column, so that venue's limit for two claims was a pointer and a cost
