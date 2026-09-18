@@ -128,8 +128,8 @@ use provenance::{Commit, Moved, Reach};
 use relocation::{Claim, Images, Relocation};
 use remedies::{
     report_enabled_tests, report_head_failure, report_moved, report_no_base_behaviour, report_not_separable,
-    report_nothing_to_revert, report_only_ignored, report_scope, report_silent, report_unnamed_tests, report_unread_manifests,
-    report_unreadable, report_unreverted,
+    report_nothing_to_revert, report_only_ignored, report_orphaned_modules, report_scope, report_silent, report_unnamed_tests,
+    report_unread_manifests, report_unreadable, report_unreverted,
 };
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
@@ -169,6 +169,8 @@ fn prove(
     scoped: &Scoped,
     coverage: &Coverage,
     reverted: &Attempts,
+    files: &[diff::ChangedFile],
+    read: &regions::PostImage<'_>,
 ) -> Verdict {
     let first = base_state(root, base, &separable.revert);
     let holding = separable.held();
@@ -188,6 +190,7 @@ fn prove(
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
     }
+    report_orphaned_modules(&first.remove, files, read);
     for f in &separable.held_back {
         println!("  held:      {f}  (carries its own tests)");
     }
@@ -540,10 +543,30 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         Plan::NotSeparable {
             files: inseparable,
             build_inputs,
-        } => report_not_separable(&inseparable, &Coverage::of(&[], &files, &working_tree), &build_inputs),
+        } => {
+            // A STRING CHECK ONLY: this reads the commit messages already in hand to say whether
+            // a `Claim-Cell:` trailer is declared, and builds nothing. This arm returns before
+            // `claim::Claim::of` is otherwise reached (below, inside `Plan::Separable`), so a
+            // declaration made on an inseparable diff would otherwise go unmentioned.
+            let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
+            report_not_separable(
+                &inseparable,
+                &Coverage::of(&[], &files, &working_tree),
+                &build_inputs,
+                claim_declared,
+            )
+        }
         Plan::Separable(separable) => {
             if separable.revert.is_empty() {
-                return report_nothing_to_revert(&Coverage::of(&[], &files, &working_tree), &separable.build_inputs);
+                // Same string check as the arm above: an incomplete claim declaration (trailer
+                // committed, patch not) has an empty `revert` and lands here rather than at
+                // `Plan::NotSeparable`, so it needs the same unconsulted-declaration line.
+                let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
+                return report_nothing_to_revert(
+                    &Coverage::of(&[], &files, &working_tree),
+                    &separable.build_inputs,
+                    claim_declared,
+                );
             }
             match Scan::of(&files, &separable.test_files, &working_tree) {
                 Scan::Runnable(scoped) => {
@@ -583,7 +606,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                         &working_tree,
                         &base_tree,
                     );
-                    prove(&root, &at, &separable, &scoped, &coverage, &reach)
+                    prove(&root, &at, &separable, &scoped, &coverage, &reach, &files, &working_tree)
                 }
                 Scan::Unreadable(files) => report_unreadable(&files),
                 Scan::Enabled(refused) => report_enabled_tests(&refused),

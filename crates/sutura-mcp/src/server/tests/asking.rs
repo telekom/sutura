@@ -94,6 +94,19 @@ fn subject_asked(id: &str, permitted: Permitted) -> Asked {
     Asked::established(PrincipalContext::of(PrincipalChain::of(subject)), permitted)
 }
 
+/// The same as [`subject_asked`], but with a deployment-mapped audience grant on the caller's own
+/// context - which is what `docs/adr/0028`'s `scoped_for` reads to decide what this caller may see.
+fn audience_asked(
+    id: &str,
+    permitted: Permitted,
+    audiences: std::collections::BTreeSet<sutura_domain::model::AudienceId>,
+) -> Asked {
+    let subject = Subject::verified(id).expect("a test subject id is a subject id");
+    let context =
+        PrincipalContext::of(PrincipalChain::of(subject)).granting(sutura_domain::catalog::GrantedAudiences::of(audiences));
+    Asked::established(context, permitted)
+}
+
 /// **The most important mutation in the whole issue - #378's own plan names it that.** A tool call
 /// under `Asking::PerRequest` with no `Asked` in the request's own extensions must be refused, and
 /// refused as a distinct, typed outcome - never silently answered as `Subject::TheDeploymentItself`
@@ -244,5 +257,84 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
         recording.subjects(),
         [Subject::verified("bob@example.com").expect("a test subject id is a subject id")],
         "bob's run_sql must reach the port as Subject::Verified, never Subject::TheDeploymentItself"
+    );
+}
+
+/// Two verified callers with different audience grants get two different `describe_catalog`
+/// listings from ONE surface instance - `docs/adr/0028`'s invisible-at-both-doors on the agent
+/// surface, mirroring `sutura_http`'s `two_verified_callers_get_two_different_catalogs_from_one_bundle`.
+///
+/// The HTTP twin drives the property through the assembled router; this cell drives it through
+/// `AgentSurface` under `Asking::PerRequest`, which is the shape that carries per-call identity on
+/// the served MCP surface. `bundle_with_a_restricted_metric` keeps `revenue` open and `finance_only`
+/// restricted to the `finance` audience, so the two listings differ exactly where the grants do:
+/// the outsider and the finance-granted caller both see `revenue` (the numbers they share), and only
+/// the latter sees `finance_only`. On the base commit this cell is RED - every caller got the whole
+/// bundle because `describe` built `CatalogContent` from an unscoped `&PinnedDefinitions`.
+#[tokio::test]
+async fn two_verified_callers_get_two_different_catalogs_from_one_bundle() {
+    let surface = AgentSurface::new(
+        Arc::new(testing::RestrictedSurface::new()),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+    );
+    let peer = a_peer().await;
+    let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
+    let finance = sutura_domain::model::AudienceId::parse("finance").expect("a test audience id is one");
+    let outsider = subject_asked("outsider@example.com", catalog.clone());
+    let finance_caller = audience_asked(
+        "finance-caller@example.com",
+        catalog,
+        std::collections::BTreeSet::from([finance]),
+    );
+
+    let seen_by_outsider = surface
+        .call_tool(super::describe(), hand_built_context(1, peer.clone(), Some(outsider)))
+        .await
+        .expect("the catalog tool answers an outsider");
+    let seen_by_finance = surface
+        .call_tool(super::describe(), hand_built_context(2, peer, Some(finance_caller)))
+        .await
+        .expect("the catalog tool answers a finance-granted caller");
+
+    // `call_tool` answers with `CallToolResponse`, which wraps the completed `CallToolResult` in its
+    // `Complete` arm - never the input-required or task arms, which no tool here returns.
+    let outsider_result = match seen_by_outsider {
+        rmcp::model::CallToolResponse::Complete(result) => result,
+        other => panic!("a catalog tool call completes, got {other:?}"),
+    };
+    let finance_result = match seen_by_finance {
+        rmcp::model::CallToolResponse::Complete(result) => result,
+        other => panic!("a catalog tool call completes, got {other:?}"),
+    };
+
+    let outsider_json = outsider_result
+        .structured_content
+        .expect("the catalog carries structured content");
+    let finance_json = finance_result
+        .structured_content
+        .expect("the catalog carries structured content");
+
+    // The metric the two callers share is present for both - identity narrowing never removes what
+    // everyone may see, which is what keeps this from becoming accidental leg-two row access.
+    for listing in [&outsider_json, &finance_json] {
+        assert!(
+            listing.to_string().contains("\"revenue\""),
+            "the open metric must be visible to every caller: {listing}"
+        );
+    }
+
+    // Only the finance-granted caller sees the restricted metric - the whole point of a per-identity
+    // view on the served surface.
+    assert!(
+        !outsider_json.to_string().contains("\"finance_only\""),
+        "an outsider must not see the restricted metric in describe_catalog: {outsider_json}"
+    );
+    assert!(
+        finance_json.to_string().contains("\"finance_only\""),
+        "a finance-granted caller must see the restricted metric in describe_catalog: {finance_json}"
     );
 }

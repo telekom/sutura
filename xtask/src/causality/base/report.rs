@@ -9,7 +9,7 @@ use crate::causality::coverage::Coverage;
 use crate::causality::provenance::Moved;
 use crate::causality::reverted::{self, Reverted};
 
-use super::{BaseOutcome, earned};
+use super::{BaseOutcome, earned, reported_per_test, tests_run};
 
 /// Turn a base run into the gate's verdict.
 ///
@@ -35,7 +35,7 @@ pub(crate) fn report_base(
     moved: &Moved,
     reverted: &Reverted,
 ) -> Verdict {
-    let measured = earned(outcome, coverage);
+    let measured = state_the_gap(earned(outcome, coverage), outcome, coverage, output);
     // ONE CALL SITE, and the DECISION beside it is pure. It was a loop in each red arm, and review
     // measured what that cost: deleting the one in `RedOutsideTheDiff` reddened nothing, because
     // every test of that arm goes through a wrapper passing `Reverted::Behaviour`. The choice of
@@ -229,6 +229,37 @@ pub(crate) fn report_base(
     }
 }
 
+/// Correct `measured` when nextest's own `Summary` line ran FEWER of the scope than the filter
+/// named, and say so on its own line.
+///
+/// **THE DEFECT THIS CLOSES.** [`earned`]'s wording is honest about ZERO measured, but not about a
+/// PARTIAL one: [`super::Attributed::PerTest`] says a run produced SOME per-test result, not that
+/// it produced one for every name the filter carries. `Coverage::scoped_count` is baked in before
+/// either run, so `10 of 13 added tests measured` reused the SCOPE's own count under the word
+/// "measured" - `github.com/telekom/sutura#893`, measured on a real run: 10 names in the filter,
+/// 8 of them orphaned (their file sits in `remove:`, never compiled at base), and nextest's own
+/// `2 tests run` line said so twenty lines above a verdict that never read it.
+///
+/// Silent whenever [`tests_run`] cannot read a number, or the number it reads is not smaller than
+/// the scope: an unreadable or matching summary has nothing to correct, and this function may only
+/// ever narrow a claim, never widen one.
+fn state_the_gap(measured: String, outcome: &BaseOutcome, coverage: &Coverage, output: &str) -> String {
+    if !reported_per_test(outcome) {
+        return measured;
+    }
+    let named = coverage.scoped_count();
+    let Some(ran) = tests_run(output) else {
+        return measured;
+    };
+    if ran >= named {
+        return measured;
+    }
+    format!(
+        "{measured}\n  named {named} into the scope filter; the base run's own summary shows only \
+         {ran} of them actually ran - the rest never existed there (orphaned, not proven)"
+    )
+}
+
 /// Did the base tree fail because a module's FILE is not there?
 ///
 /// `error[E0583]` is the HARNESS-MOVE shape, and it is the EXPECTED outcome of following this
@@ -250,7 +281,7 @@ pub(crate) fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, Coverage, Moved, Reverted, Verdict, missing_module_file, report_base, tail};
+    use super::{BaseOutcome, Coverage, Moved, Reverted, Verdict, earned, missing_module_file, report_base, state_the_gap, tail};
     use crate::causality::base::classify_base;
     use crate::causality::fixtures::{named, scoped};
     use crate::causality::place::AddedTest;
@@ -351,6 +382,72 @@ mod tests {
                 &six
             ),
             Verdict::Fail
+        );
+    }
+
+    #[test]
+    fn a_partly_orphaned_scope_states_the_gap_between_named_and_measured() {
+        // github.com/telekom/sutura#893: the filter named 10 (of 13 added), only 2 of those 10
+        // existed at base - the other 8 were orphaned, each behind its own file in `remove:` - and
+        // the verdict still read "10 of 13 added tests measured" over a run that measured 2.
+        let coverage = Coverage::Measured {
+            measured: 10,
+            unmeasured: vec![String::from("held_a"), String::from("held_b"), String::from("held_c")],
+            not_runnable: Vec::new(),
+        };
+        let outcome = BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::the_added_one")],
+        };
+        let output = concat!(
+            "        FAIL [   0.021s] (2/2) pa tests::the_added_one\n",
+            "     Summary [   0.4s] 2 tests run: 1 passed, 1 failed, 1727 skipped\n",
+            "error: test run failed\n",
+        );
+        let stated = state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output);
+        assert!(stated.starts_with("10 of 13 added tests measured"), "{stated}");
+        assert!(stated.contains("named 10 into the scope filter"), "{stated}");
+        assert!(stated.contains("only 2 of them actually ran"), "{stated}");
+    }
+
+    #[test]
+    fn a_fully_ran_scope_states_nothing_extra() {
+        // The silent case, and the one that must stay silent: every named test ran on base, so
+        // there is no gap to state, and appending one anyway would print a correction nobody
+        // needs beside every ordinary passing run.
+        let coverage = Coverage::Measured {
+            measured: 2,
+            unmeasured: Vec::new(),
+            not_runnable: Vec::new(),
+        };
+        let outcome = BaseOutcome::RedByAssertion {
+            failed: vec![String::from("pa tests::t")],
+        };
+        let output = "     Summary [   0.1s] 2 tests run: 1 passed, 1 failed, 0 skipped\n";
+        assert_eq!(
+            state_the_gap(earned(&outcome, &coverage), &outcome, &coverage, output),
+            "2 of 2 added tests measured"
+        );
+    }
+
+    #[test]
+    fn an_outcome_that_measured_nothing_is_never_corrected() {
+        // `earned` already prints the honest zero for these; a `Summary` line that happens to
+        // name a smaller number than the scope must not grow a second, contradictory correction
+        // on an outcome that made no per-test claim in the first place.
+        let coverage = Coverage::Measured {
+            measured: 6,
+            unmeasured: Vec::new(),
+            not_runnable: Vec::new(),
+        };
+        let output = "     Summary [   0.1s] 1 test run: 0 passed, 1 failed\n";
+        assert_eq!(
+            state_the_gap(
+                earned(&BaseOutcome::DidNotCompile, &coverage),
+                &BaseOutcome::DidNotCompile,
+                &coverage,
+                output
+            ),
+            "0 of 6 added tests measured"
         );
     }
 }

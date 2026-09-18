@@ -1,0 +1,21 @@
+diff --git a/xtask/src/examples/corpus.rs b/xtask/src/examples/corpus.rs
+index 4fdceba7..1040f5b6 100644
+--- a/xtask/src/examples/corpus.rs
++++ b/xtask/src/examples/corpus.rs
+@@ -415,14 +415,8 @@ pub(crate) fn variant_shaped(reach: &str) -> Option<String> {
+ /// A directory counts through the files under it, because git publishes no directory: one
+ /// authority for this and for [`variants`], which is what stops the two halves disagreeing.
+ pub(crate) fn resolved(reach: &str, published: &BTreeSet<String>) -> Option<String> {
+-    if !published.contains(reach) {
+-        return None;
+-    }
+-    reach
+-        .strip_prefix(EXAMPLES)
+-        .map(|rest| rest.split('/').next().unwrap_or_default())
+-        .filter(|name| !name.is_empty())
+-        .map(String::from)
++    let _ = (reach, published);
++    None
+ }
+ 
+ /// Every path under `examples/` this line of code reaches for.

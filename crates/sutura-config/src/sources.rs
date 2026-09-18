@@ -596,11 +596,16 @@ fn parse_entry(
             return Err(InvalidSourceRegistry::WorkloadIdentityNotImpersonating { alias: alias.clone() });
         }
         Some(raw) => Some(
-            WorkloadIdentityConfig::parse(&raw.audience, &raw.scope, &raw.impersonate).map_err(|cause| {
-                InvalidSourceRegistry::WorkloadIdentity {
-                    alias: alias.clone(),
-                    cause,
-                }
+            WorkloadIdentityConfig::parse_with_expectations(
+                &raw.audience,
+                &raw.scope,
+                &raw.impersonate,
+                raw.expected_issuer.as_deref(),
+                raw.expected_audience.as_deref(),
+            )
+            .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
+                alias: alias.clone(),
+                cause,
             })?,
         ),
     };

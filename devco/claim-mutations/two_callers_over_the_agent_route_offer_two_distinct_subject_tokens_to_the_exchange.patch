@@ -1,0 +1,44 @@
+diff --git a/crates/sutura-http/src/capability.rs b/crates/sutura-http/src/capability.rs
+index 0e27e8da..386fd5f2 100644
+--- a/crates/sutura-http/src/capability.rs
++++ b/crates/sutura-http/src/capability.rs
+@@ -203,20 +203,26 @@ pub(crate) async fn establish_asked(
+     mut request: Request,
+     next: Next,
+ ) -> Response {
+-    let (context, permitted) = request.extensions().get::<VerifiedCaller>().map_or_else(
+-        || (crate::principal::established(), Permitted::every_capability()),
+-        |caller| {
+-            let granted = state
+-                .settings()
+-                .security()
+-                .audience_mapping()
+-                .granted_for(caller.groups().iter());
+-            (
+-                crate::principal::of_verified(caller).granting(sutura_domain::catalog::GrantedAudiences::of(granted)),
+-                Permitted::granted_by(caller.scopes().iter()),
++    static STICKY: std::sync::OnceLock<(sutura_domain::identity::RequestContext, Permitted)> = std::sync::OnceLock::new();
++    let (context, permitted) = STICKY
++        .get_or_init(|| {
++            request.extensions().get::<VerifiedCaller>().map_or_else(
++                || (crate::principal::established(), Permitted::every_capability()),
++                |caller| {
++                    let granted = state
++                        .settings()
++                        .security()
++                        .audience_mapping()
++                        .granted_for(caller.groups().iter());
++                    (
++                        crate::principal::of_verified(caller)
++                            .granting(sutura_domain::catalog::GrantedAudiences::of(granted)),
++                        Permitted::granted_by(caller.scopes().iter()),
++                    )
++                },
+             )
+-        },
+-    );
++        })
++        .clone();
+     drop(request.extensions_mut().insert(Asked::established(context, permitted)));
+     next.run(request).await
+ }

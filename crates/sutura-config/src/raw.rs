@@ -198,6 +198,15 @@ pub(crate) struct RawWorkloadIdentity {
     /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
     #[serde(default)]
     pub(crate) impersonate: std::collections::BTreeMap<String, String>,
+    /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Absent
+    /// keeps today's bare exchange; present, the broker links it to leg 1 at boot and checks the
+    /// subject token against it before any exchange.
+    #[serde(default)]
+    pub(crate) expected_issuer: Option<String>,
+    /// The audience the pool's provider accepts, if the operator wrote it - `expected_issuer`'s
+    /// twin on the audience side.
+    #[serde(default)]
+    pub(crate) expected_audience: Option<String>,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.

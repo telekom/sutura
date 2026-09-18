@@ -387,6 +387,21 @@ impl Corpus {
     }
 }
 
+/// The `<name>` segment of a reach shaped `examples/<name>/…` - one WITH a further path segment
+/// beneath it, the shape a deployment variant directory takes.
+///
+/// Stricter than [`resolved`]'s own extraction on purpose: this feeds
+/// [`super::reach::Evidence::unresolved_variants`], which [`super::problems`] cross-checks
+/// against [`variants`] independently of whether the reach is published - so a BARE mention with
+/// no further segment, `examples/README.md` or a doc line's `examples/mint_subject_assertion.rs`
+/// (measured: `github.com/telekom/sutura#878`'s F2, a segment census over `crates/` finds only
+/// the real variants, that one file, and `examples/README.md` taking this shape), must not mint a
+/// name nothing under `examples/` resolves to as a vanished variant.
+pub(crate) fn variant_shaped(reach: &str) -> Option<String> {
+    let (name, _) = reach.strip_prefix(EXAMPLES)?.split_once('/')?;
+    (!name.is_empty()).then(|| String::from(name))
+}
+
 /// The variant a reach is evidence for, or `None` if the path it names is not one git publishes.
 ///
 /// The scan reads a LITERAL and the literal is repo-relative only under an assumption about the

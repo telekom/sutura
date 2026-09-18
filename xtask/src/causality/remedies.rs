@@ -42,17 +42,43 @@
 use crate::Verdict;
 use crate::causality::base::{names_no_tests, tail};
 use crate::causality::coverage::{Attributed, Coverage};
+use crate::causality::diff::ChangedFile;
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::names::Ident;
+use crate::causality::place::{Declares, accounted_for};
 use crate::causality::provenance::Moved;
+use crate::causality::regions::PostImage;
 use crate::causality::scoped::Silent;
 
 /// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
 /// entirely legitimate, but the gate has not verified it and must not read as green.
-pub(super) fn report_not_separable(files: &[String], coverage: &Coverage, build_inputs: &[String]) -> Verdict {
-    println!("xtask test-causality: NOT MECHANICALLY SEPARABLE");
+///
+/// `claim_declared` says whether the commit range carries a `Claim-Cell:` trailer - this arm
+/// returns before `Plan::Separable`'s branch ever reaches `claim::Claim::of`, so a declaration
+/// made here is silent otherwise: an author who committed both the trailer and its killing
+/// mutation would see this exact verdict with nothing telling them the declaration was never
+/// read. `github.com/telekom/sutura#837` is the direction decision this does not make; it only
+/// stops the silence.
+pub(super) fn report_not_separable(
+    files: &[String],
+    coverage: &Coverage,
+    build_inputs: &[String],
+    claim_declared: bool,
+) -> Verdict {
+    for line in not_separable_lines(files, coverage, build_inputs, claim_declared) {
+        println!("{line}");
+    }
+    Verdict::Pass
+}
+
+/// Every line the arm above prints, in order.
+///
+/// PURE, for the reason `nothing_to_revert` is: nothing in this venue captures stdout, so the
+/// assertion has to read the lines rather than the print.
+fn not_separable_lines(files: &[String], coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Vec<String> {
+    let mut lines = vec![String::from("xtask test-causality: NOT MECHANICALLY SEPARABLE")];
     for f in files {
-        println!("  {f} changes behaviour and adds tests in one file");
+        lines.push(format!("  {f} changes behaviour and adds tests in one file"));
     }
     // The count, so the pass carries its own limit. This branch measures nothing, and saying
     // `0 of 8` beside the prose is the difference between a reader inferring that and being told.
@@ -62,16 +88,33 @@ pub(super) fn report_not_separable(files: &[String], coverage: &Coverage, build_
     // numerator is zero by construction, so the ratio and the zero numerator were the same string
     // and a caller passing a populated `Coverage` would have printed a claim about runs that never
     // happened.
-    println!("  measured:  {}", coverage.measured(Attributed::Nothing));
-    for line in unmeasured_lines(coverage).into_iter().chain(unreverted_lines(build_inputs)) {
-        println!("{line}");
+    lines.push(format!("  measured:  {}", coverage.measured(Attributed::Nothing)));
+    lines.extend(unmeasured_lines(coverage));
+    lines.extend(unreverted_lines(build_inputs));
+    lines.push(String::new());
+    lines.push(String::from(
+        "Rust keeps unit tests beside the code they test, so reverting the",
+    ));
+    lines.push(String::from(
+        "implementation would remove the test too. State the evidence in the",
+    ));
+    lines.push(String::from(
+        "handoff instead: the command you ran, the failure before the fix, and",
+    ));
+    lines.push(String::from(
+        "the pass after. This gate has NOT verified causality for this change.",
+    ));
+    if claim_declared {
+        lines.push(String::new());
+        lines.push(String::from(
+            "A `Claim-Cell:` declaration is present in this range and was NOT consulted: this",
+        ));
+        lines.push(String::from(
+            "arm returns before the claim arm is reached, so nothing here read it. It is not a",
+        ));
+        lines.push(String::from("verdict on the declaration - state the evidence above instead."));
     }
-    println!();
-    println!("Rust keeps unit tests beside the code they test, so reverting the");
-    println!("implementation would remove the test too. State the evidence in the");
-    println!("handoff instead: the command you ran, the failure before the fix, and");
-    println!("the pass after. This gate has NOT verified causality for this change.");
-    Verdict::Pass
+    lines
 }
 
 /// What the two runs are ABOUT to be scoped to, printed before either has happened.
@@ -143,6 +186,55 @@ fn unreverted_lines(build_inputs: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Say which `remove:` file declares a test module whose own file is ALSO in this diff.
+///
+/// **THE DEFECT THIS NAMES.** `github.com/telekom/sutura#893`'s second finding: eight cells the
+/// base run never even attempted were unmeasured for a structural reason nothing printed. The
+/// parent is NEW here - `remove:` means the base tree has no version of it at all - so a
+/// `#[cfg(test)] mod tests;` inside it has nothing to attach the child's tests to at base: not
+/// held at HEAD, not restored, simply never compiled. That is detectable from the diff alone and
+/// before either run: the parent is in `remove:`, [`accounted_for`] resolves its declaration to a
+/// candidate file, and that candidate is itself in this diff.
+///
+/// **What this does NOT cover.** A parent in `restore:` - an EXISTING file whose base version may
+/// already declare the same `mod`, so nothing here is orphaned by that reversion alone - and an
+/// INLINE `mod tests { .. }`, whose body arrives with the parent and needs no second file to
+/// exist. Both are silently skipped rather than guessed at.
+pub(super) fn report_orphaned_modules(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_>) {
+    for line in orphaned_lines(remove, files, read) {
+        println!("{line}");
+    }
+}
+
+/// Every line [`report_orphaned_modules`] prints, in order.
+///
+/// PURE for the reason every other line in this module is: a mutation of the `println!` above
+/// reddens nothing, and review is what holds it.
+fn orphaned_lines(remove: &[&String], files: &[ChangedFile], read: &PostImage<'_>) -> Vec<String> {
+    let mut lines = Vec::new();
+    for &path in remove {
+        let Some(file) = files.iter().find(|f| &f.path == path) else {
+            continue;
+        };
+        let Some(text) = read(path) else {
+            continue;
+        };
+        let post: Vec<&str> = text.lines().collect();
+        let Some(Declares::OutOfLine(candidates)) = accounted_for(file, &post) else {
+            continue;
+        };
+        if let Some(child) = candidates
+            .into_iter()
+            .find(|candidate| files.iter().any(|f| &f.path == candidate))
+        {
+            lines.push(format!(
+                "  orphaned:  {child}  (its `mod` is declared in {path}, which is new here - nothing to attach to at base)"
+            ));
+        }
+    }
+    lines
+}
+
 /// What the filterset left out, and what stopped the total being established.
 ///
 /// Shared by the pre-run scope line and the inseparable verdict, because the LIST is the same
@@ -151,8 +243,13 @@ fn unreverted_lines(build_inputs: &[String]) -> Vec<String> {
 fn unmeasured_lines(coverage: &Coverage) -> Vec<String> {
     let mut lines = Vec::new();
     for name in coverage.unmeasured() {
+        // NOT "its file is kept at HEAD" - `github.com/telekom/sutura#893` found that claim false
+        // for a file `plan` pulls into `restore:` anyway, when a scoped test elsewhere reaches
+        // it: the file IS reverted, only this name never entered the filter that reversion is
+        // measured against. `Coverage` only ever checks scope membership, never file state, so
+        // the sentence says exactly that and nothing plan's later reach analysis could contradict.
         lines.push(format!(
-            "    not measured: {name}  (its file is kept at HEAD, so it has no base to be red against)"
+            "    not measured: {name}  (never named into the scope filter, so it has no base result to compare)"
         ));
     }
     for path in coverage.unestablished() {
@@ -232,8 +329,13 @@ pub(super) fn report_silent(silent: &[Silent]) {
 /// It printed NO ratio until the count was measured across thirteen recent branch diffs and one of
 /// them landed here with three added tests. `0 of 3` is the honest line: the filterset names them,
 /// nothing ran, and *nothing to prove* is not the same sentence as *nothing was added*.
-pub(super) fn report_nothing_to_revert(coverage: &Coverage, build_inputs: &[String]) -> Verdict {
-    for line in nothing_to_revert(coverage, build_inputs) {
+///
+/// `claim_declared` mirrors [`report_not_separable`]'s: a declared `Claim-Cell:` trailer whose
+/// patch was never committed reaches HERE too - the patch is what makes `revert` non-empty (it is
+/// `Reach::Revertible`), so an incomplete declaration is the reachable case, not the
+/// theoretical one. `github.com/telekom/sutura#837`.
+pub(super) fn report_nothing_to_revert(coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Verdict {
+    for line in nothing_to_revert(coverage, build_inputs, claim_declared) {
         println!("{line}");
     }
     Verdict::Pass
@@ -244,7 +346,7 @@ pub(super) fn report_nothing_to_revert(coverage: &Coverage, build_inputs: &[Stri
 /// PURE, and this arm is the one that needed it most: it is where a manifest-only implementation
 /// change lands, and the naming this PR claimed for that case was printed by a different arm
 /// entirely. A test can read the wording now - `a_manifest_only_change_is_named_on_the_arm_it_lands_on`.
-fn nothing_to_revert(coverage: &Coverage, build_inputs: &[String]) -> Vec<String> {
+fn nothing_to_revert(coverage: &Coverage, build_inputs: &[String], claim_declared: bool) -> Vec<String> {
     let mut lines = vec![
         String::from("xtask test-causality: tests changed but no implementation did"),
         format!("  measured:  {}", coverage.measured(Attributed::Nothing)),
@@ -272,6 +374,16 @@ fn nothing_to_revert(coverage: &Coverage, build_inputs: &[String]) -> Vec<String
             "  at HEAD, because reverting one changes what cargo RESOLVES rather than what",
         ));
         lines.push(String::from("  the tests measure. State the evidence in the handoff."));
+    }
+    if claim_declared {
+        lines.push(String::new());
+        lines.push(String::from(
+            "A `Claim-Cell:` declaration is present in this range and was NOT consulted: this",
+        ));
+        lines.push(String::from(
+            "arm returns before the claim arm is reached, so nothing here read it. It is not a",
+        ));
+        lines.push(String::from("verdict on the declaration - state the evidence above instead."));
     }
     lines
 }
@@ -526,10 +638,12 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
 #[cfg(test)]
 mod tests {
     use super::{
-        Because, Coverage, Enabled, Ident, Moved, Unread, Verdict, moved_lines, no_base_behaviour, nothing_to_revert,
-        report_enabled_tests, report_head_failure, report_no_base_behaviour, report_not_separable, report_nothing_to_revert,
-        report_only_ignored, report_unnamed_tests, report_unread_manifests, report_unreadable, scope_lines,
+        Because, Coverage, Enabled, Ident, Moved, Unread, Verdict, moved_lines, no_base_behaviour, not_separable_lines,
+        nothing_to_revert, orphaned_lines, report_enabled_tests, report_head_failure, report_no_base_behaviour,
+        report_not_separable, report_nothing_to_revert, report_only_ignored, report_unnamed_tests, report_unread_manifests,
+        report_unreadable, scope_lines,
     };
+    use crate::causality::fixtures::{changed, tree};
 
     /// A coverage value with nothing measured out of `total`.
     fn nothing_of(total: usize) -> Coverage {
@@ -561,8 +675,8 @@ mod tests {
         // venue can execute. Flipping any of them to a failure reddens correct work, which is how
         // a gate gets disabled.
         let inseparable = vec![String::from("crates/x/src/a.rs")];
-        assert_eq!(report_not_separable(&inseparable, &nothing_of(8), &[]), Verdict::Pass);
-        assert_eq!(report_nothing_to_revert(&nothing_of(3), &[]), Verdict::Pass);
+        assert_eq!(report_not_separable(&inseparable, &nothing_of(8), &[], false), Verdict::Pass);
+        assert_eq!(report_nothing_to_revert(&nothing_of(3), &[], false), Verdict::Pass);
         let new_file = String::from("crates/x/src/new.rs");
         assert_eq!(
             report_no_base_behaviour("origin/main", &[&new_file], &nothing_of(2), &[]),
@@ -658,7 +772,7 @@ mod tests {
         // lines this arm never prints. `super::base`'s own header records why a cross-arm citation
         // is not allowed; it is said in place now.
         let manifest = vec![String::from("crates/x/Cargo.toml")];
-        let lines = nothing_to_revert(&nothing_of(1), &manifest);
+        let lines = nothing_to_revert(&nothing_of(1), &manifest, false);
         assert!(
             lines.iter().any(|line| line.contains("not reverted: crates/x/Cargo.toml")),
             "the arm names the file it could not revert: {lines:?}"
@@ -673,12 +787,37 @@ mod tests {
         );
         // With nothing held back the extra paragraph is absent: a tests-only branch with no build
         // input is the ordinary shape of this arm and may not be told about one.
-        let plain = nothing_to_revert(&nothing_of(1), &[]);
+        let plain = nothing_to_revert(&nothing_of(1), &[], false);
         assert!(
             !plain.iter().any(|line| line.contains("not reverted")),
             "nothing to name: {plain:?}"
         );
-        assert_eq!(report_nothing_to_revert(&nothing_of(1), &manifest), Verdict::Pass);
+        assert_eq!(report_nothing_to_revert(&nothing_of(1), &manifest, false), Verdict::Pass);
+    }
+
+    #[test]
+    fn an_incomplete_claim_reaching_the_no_revert_arm_says_it_was_not_consulted() {
+        // THE SIBLING EARLY-RETURN #837 CALLS OUT: a `Claim-Cell:` trailer whose patch was never
+        // committed has an empty `revert` (the patch itself is what makes `revert` non-empty), so
+        // it lands HERE rather than at `report_not_separable` - and needs the identical line for
+        // the identical reason.
+        let declared = nothing_to_revert(&nothing_of(3), &[], true);
+        assert!(
+            declared.iter().any(|line| line.contains("was NOT consulted")),
+            "a declared trailer is named as unconsulted here too: {declared:?}"
+        );
+        assert_eq!(report_nothing_to_revert(&nothing_of(3), &[], true), Verdict::Pass);
+    }
+
+    #[test]
+    fn the_no_revert_arm_stays_silent_with_no_claim_declared() {
+        // THE REFUSAL'S OWN CELL for this arm: the field has to still be read on the ordinary,
+        // no-declaration path, not merely on the declared one.
+        let undeclared = nothing_to_revert(&nothing_of(3), &[], false);
+        assert!(
+            !undeclared.iter().any(|line| line.contains("Claim-Cell")),
+            "no trailer, no claim; the arm says nothing about one: {undeclared:?}"
+        );
     }
 
     #[test]
@@ -759,6 +898,82 @@ mod tests {
         assert!(
             lines.iter().any(|line| line.contains("not measured: held")),
             "the filterset's omissions are named before the runs, as they were: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_remove_files_out_of_line_module_orphans_its_own_child_file() {
+        // #893's second defect: the parent is NEW here (`remove:`), so its `mod tests;` has
+        // nothing to attach to at base - the child never compiles there, whatever the base run's
+        // filter names. Detectable from the diff alone, with no run at all.
+        let parent = changed("xtask/src/fuzz/hook_paths.rs", 1, &["#[cfg(test)]", "mod tests;"]);
+        let child = changed("xtask/src/fuzz/hook_paths/tests.rs", 1, &["#[test]", "fn a_new_cell() {}"]);
+        let path = String::from("xtask/src/fuzz/hook_paths.rs");
+        let files = vec![parent, child];
+        let read = tree(&[
+            ("xtask/src/fuzz/hook_paths.rs", "#[cfg(test)]\nmod tests;\n"),
+            ("xtask/src/fuzz/hook_paths/tests.rs", "#[test]\nfn a_new_cell() {}\n"),
+        ]);
+        let lines = orphaned_lines(&[&path], &files, &read);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("xtask/src/fuzz/hook_paths/tests.rs"), "{lines:?}");
+        assert!(lines[0].contains("xtask/src/fuzz/hook_paths.rs"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_remove_file_whose_declared_module_is_not_in_the_diff_orphans_nothing() {
+        // The child is not part of this diff at all - an ordinary `mod tests;` reaching a file
+        // this branch never touched - so there is nothing here to name as orphaned.
+        let parent = changed("crates/x/src/a.rs", 1, &["#[cfg(test)]", "mod tests;"]);
+        let path = String::from("crates/x/src/a.rs");
+        let files = vec![parent];
+        let read = tree(&[("crates/x/src/a.rs", "#[cfg(test)]\nmod tests;\n")]);
+        assert_eq!(orphaned_lines(&[&path], &files, &read), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_inline_test_module_in_a_removed_file_orphans_nothing() {
+        // The body arrives WITH the parent, so there is no second file to be missing at base.
+        let parent = changed(
+            "crates/x/src/a.rs",
+            1,
+            &["#[cfg(test)]", "mod tests {", "    #[test]", "    fn t() {}", "}"],
+        );
+        let path = String::from("crates/x/src/a.rs");
+        let files = vec![parent];
+        let read = tree(&[(
+            "crates/x/src/a.rs",
+            "#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+        )]);
+        assert_eq!(orphaned_lines(&[&path], &files, &read), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_inseparable_diff_says_a_declared_claim_was_not_consulted() {
+        // #837 DIRECTION 4: this arm returns before `claim::Claim::of` is ever reached, so a
+        // `Claim-Cell:` trailer committed alongside an inseparable diff used to disappear with no
+        // trace - `NOT MECHANICALLY SEPARABLE` at exit 0, and nothing said the declaration existed.
+        // PR #899 lived this: the trailer and its killing patch were both committed and the gate
+        // never mentioned either.
+        let inseparable = vec![String::from("crates/x/src/a.rs")];
+        let declared = not_separable_lines(&inseparable, &nothing_of(8), &[], true);
+        assert!(
+            declared.iter().any(|line| line.contains("was NOT consulted")),
+            "a declared trailer is named as unconsulted, not silently dropped: {declared:?}"
+        );
+        assert_eq!(report_not_separable(&inseparable, &nothing_of(8), &[], true), Verdict::Pass);
+    }
+
+    #[test]
+    fn an_inseparable_diff_with_no_claim_says_nothing_about_one() {
+        // THE REFUSAL'S OWN CELL, not just the predicate: with no trailer declared this arm must
+        // stay silent about one, and the field it reads has to still be read - `dead_code` cannot
+        // catch a `claim_declared` that is ignored, only a mutation that neutralises the branch can.
+        let inseparable = vec![String::from("crates/x/src/a.rs")];
+        let undeclared = not_separable_lines(&inseparable, &nothing_of(8), &[], false);
+        assert!(
+            !undeclared.iter().any(|line| line.contains("Claim-Cell")),
+            "no trailer, no claim; the arm says nothing about one: {undeclared:?}"
         );
     }
 }

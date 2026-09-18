@@ -6,15 +6,25 @@
 //! does not block on work in flight - each driven through the real router rather than a bare
 //! registry, because the wiring is the half a component test cannot see.
 
+use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::StatusCode;
 use sutura_config::Environment;
+use sutura_domain::identity::Presented;
+use sutura_domain::model::SourceName;
+use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 use super::{app, metrics_settings, over};
 use crate::testing::{
-    A_QUESTION, WarehouseThatFailsToExecute, bundle, call, request, source, unanchored_bundle, warehouse_that_can_be_held,
+    A_QUESTION, ANCHORED_VALUE, WarehouseThatFailsToExecute, broker, bundle, call, catalog_of, request, sink, source, state_over,
+    unanchored_bundle, warehouse_that_can_be_held,
 };
 
 /// The metrics credential, distinct from the API token, for the cases that configure one.
@@ -506,4 +516,146 @@ async fn a_scrape_answers_while_a_question_holds_its_slot() {
 
     held.release();
     asking.await.expect("the question task did not panic");
+}
+
+/// What every dry run [`PricedWarehouse`] answers is priced at.
+const PRICE_BYTES: u64 = 500;
+
+/// A data system whose dry run reports a real byte price - `github.com/telekom/sutura#892`'s own
+/// finding is that nothing in this crate's fixtures ever does: every fake `crate::testing` gives
+/// answers `PreFlight::NotAsked` or `Accepted { estimated_bytes: None }`, and `sutura_app::lib`'s
+/// own comment on `budget_exhausted` says the ledger "only ever refuses for the one adapter that
+/// prices today (`BigQuery`)" - which needs a real project this suite cannot reach. This fake is
+/// what lets `governance.per_replica_spend_ceiling` move the ledger through the REAL router
+/// without one.
+struct PricedWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+}
+
+impl Warehouse for PricedWarehouse {
+    type Error = Infallible;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const PRICES_DRY_RUN: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::Accepted {
+            estimated_bytes: Some(EstimatedBytes::parse(PRICE_BYTES)),
+        })
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Ok(self.result.clone())
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// The router over [`PricedWarehouse`], with a real spend ledger read off `settings`'s own
+/// `governance.per_replica_spend_ceiling`.
+///
+/// **`super::over` cannot be reused here.** Every router it assembles keeps
+/// `sutura_app::surface::LocalService::start`'s default `SpendLedger::no_budget()` - wiring a
+/// configured one is a composition root's own job, `crates/sutura-cli/src/serve.rs`'s
+/// `spend_ledger` helper reading `settings.spend_budget()` the same way this does. Mirrored here
+/// rather than exercised through `sutura-cli`'s served binary: that binary can only open `files`,
+/// `postgres` or `bigquery`, and only `bigquery` ever prices a dry run - so a served-binary version
+/// of this cell would need a real `BigQuery` project to drive a single admitted charge, let alone a
+/// refusal.
+fn app_with_a_spend_ceiling(settings: sutura_config::Settings) -> axum::Router {
+    let budget = settings.spend_budget().expect("this settings overlay wrote a ceiling");
+    let result = RowSet::new(
+        vec![String::from("revenue")],
+        vec![vec![Value::Integer(
+            ANCHORED_VALUE.parse().expect("the anchored value is an integer"),
+        )]],
+    )
+    .expect("a one-cell result is a result set");
+    // The exact reason text `crate::testing::broker`'s grant carries - `Presented::agrees_with`
+    // compares the whole acknowledgement, so a fixture posture declaring a different sentence
+    // would be refused as a mismatch rather than answer anything.
+    let posture = SourcePosture::SharedServiceUser {
+        declared: SharedIdentityDeclared::of(
+            AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+                .expect("a fixture reason is a reason"),
+        ),
+    };
+    let warehouses = sutura_app::Warehouses::of(PricedWarehouse {
+        source: source(),
+        posture,
+        result,
+    });
+    let service = crate::surface::LocalService::start(&catalog_of(bundle()), warehouses, sink(), broker(), 1 << 30)
+        .expect("the test bundle validates")
+        .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
+            budget.ceiling_bytes(),
+            budget.window(),
+        ))));
+    crate::router(&state_over(Arc::new(service), settings)).expect("the test router assembles")
+}
+
+#[tokio::test]
+async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_it() {
+    // The property `github.com/telekom/sutura#892` names as unobserved: the gauge has to track the
+    // ledger's CURRENT reading after every answered call, not the one it was registered with at
+    // boot. Ceiling and window are chosen so three calls at `PRICE_BYTES` each land on admitted,
+    // admitted-exactly-to-the-ceiling, and refused.
+    let app = app_with_a_spend_ceiling(metrics_settings_with(
+        "",
+        "rate_limit:\n  enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\n",
+    ));
+
+    // Before any call: the untouched ceiling - the same reading a gauge that never pushed again
+    // would still show for the rest of this test, which is exactly what makes the next two
+    // assertions worth having rather than one.
+    let untouched = scrape(&app).await;
+    assert_eq!(sample(&untouched, "sutura_spend_headroom_bytes"), 1_000, "{untouched}");
+
+    assert_eq!(
+        call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let after_first = scrape(&app).await;
+    // Neither the boot reading nor zero: this is the sample a single-reading assertion could not
+    // tell apart from a gauge set once and never touched again.
+    assert_eq!(sample(&after_first, "sutura_spend_headroom_bytes"), 500, "{after_first}");
+
+    // 500 + 500 = 1000, exactly the ceiling - `sutura_app::spend`'s own cell holds "spending
+    // exactly the ceiling is admitted", so this is still a `200` and drains headroom to zero.
+    assert_eq!(
+        call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let drained = scrape(&app).await;
+    assert_eq!(sample(&drained, "sutura_spend_headroom_bytes"), 0, "{drained}");
+
+    // A third call would put the subject over the ceiling. The refusal itself charges nothing
+    // further, so headroom HOLDS at zero rather than reverting to the boot reading - and the route
+    // still has to push it, which is the half of the wiring a refusal-shaped answer could skip.
+    let (status, body) = call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION))).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert!(body.contains(r#""code":"budget_exhausted""#), "{body}");
+    let after_refusal = scrape(&app).await;
+    assert_eq!(sample(&after_refusal, "sutura_spend_headroom_bytes"), 0, "{after_refusal}");
 }

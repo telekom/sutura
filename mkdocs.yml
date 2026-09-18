@@ -189,6 +189,8 @@ nav:
       - The wave-one E2E showcase: showcase-datahub-bigquery.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - What an agent identity can carry: what-agent-identity-can-carry.md
+      - What an OKF-style catalog can carry: what-okf-can-carry.md
+      - What an OpenMetadata catalog can carry: what-openmetadata-can-carry.md
       - Decisions:
           - First-party semantic models: adr/0001-first-party-semantic-models.md
           - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
@@ -223,11 +225,13 @@ nav:
           - Caching an exchanged credential: adr/0031-caching-an-exchanged-credential.md
           - The iamcredentials impersonation hop: adr/0032-the-iamcredentials-impersonation-hop.md
           - A closed enum over the shipped warehouse kinds: adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
+          - The twin-root link between leg 1 and the pool: adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md
           - sutura-catalog-local: api/sutura-catalog-local.md
           - sutura-catalog-datahub: api/sutura-catalog-datahub.md
+          - sutura-catalog-okf: api/sutura-catalog-okf.md
           - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md

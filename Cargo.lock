@@ -3811,6 +3811,7 @@ dependencies = [
  "serde_norway",
  "sutura-catalog-datahub",
  "sutura-catalog-local",
+ "sutura-catalog-okf",
  "sutura-catalog-rdbms",
  "sutura-config",
  "sutura-dev",
@@ -3842,6 +3843,16 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-local"
+version = "0.5.1"
+dependencies = [
+ "serde",
+ "serde_norway",
+ "sutura-domain",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sutura-catalog-okf"
 version = "0.5.1"
 dependencies = [
  "serde",

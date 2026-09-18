@@ -22,9 +22,15 @@ use std::collections::BTreeSet;
 
 use super::PAGE;
 
-/// The venues table's header, matched whole so a fourth column cannot silently change what the
-/// last cell means.
-const VENUES_HEADER: &str = "| Venue | Where it runs | What it costs | Reached by |";
+/// The venues table's header, matched whole so an added column cannot silently change what an
+/// existing cell means.
+///
+/// `Allowed to claim` is issue #81's own column, quoting the decision's four rows where they
+/// apply and `-` where a venue is outside that decision. It is free prose like `What it costs` -
+/// no verdict vocabulary reads it, and [`venues`] binds it and discards it. The gated claim per
+/// venue stays the matrix below, which this cell only summarises for a reader of the map's own
+/// table.
+const VENUES_HEADER: &str = "| Venue | Where it runs | What it costs | Reached by | Allowed to claim |";
 
 /// The claims matrix's header start; the rest of the row is the venue columns, compared not fixed.
 const CLAIMS_HEADER: &str = "| Claim |";
@@ -182,7 +188,7 @@ pub(super) fn venues(text: &str) -> Result<Vec<Venue>, String> {
     let (_, rows) = table(text, "venues", |line| line == VENUES_HEADER)?;
     let mut out = Vec::new();
     for row in rows {
-        let [name, runs, .., reached] = row.as_slice() else {
+        let [name, runs, .., reached, _claim] = row.as_slice() else {
             return Err(format!("{PAGE}: a venues row has fewer cells than the header: {row:?}"));
         };
         let name = name.replace('*', "").trim().to_owned();

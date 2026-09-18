@@ -52,6 +52,11 @@
 //! authority for *did this pass* is the GitHub API, which is unreachable from `checks.hygiene` for
 //! the same reason `nix eval` is unreachable from `check-workflows`. So the rule is one-sided by
 //! construction, and the side it holds is the one that fails silently.
+//!
+//! **The venues table's `Allowed to claim` column.** Free prose, read only far enough to keep the
+//! header parseable - like `What it costs`, no verdict vocabulary applies to it and no rule
+//! judges its wording. The claim a venue may make is still held by the matrix above; this column
+//! is issue #81's own summary of it, not a second gate.
 
 use crate::Verdict;
 use crate::repo;
@@ -199,11 +204,11 @@ mod tests {
     const MAP: &str = "\
 ## The venues
 
-| Venue | Where it runs | What it costs | Reached by |
-| --- | --- | --- | --- |
-| **A fake at the port** | in process | nothing | `just test` |
-| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |
-| **A real token exchange** | nowhere yet | a pool | not built |
+| Venue | Where it runs | What it costs | Reached by | Allowed to claim |
+| --- | --- | --- | --- | --- |
+| **A fake at the port** | in process | nothing | `just test` | every outcome the port can produce |
+| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` | the engine accepts what we generate |
+| **A real token exchange** | nowhere yet | a pool | not built | - |
 
 ## Which venue answers which claim
 
@@ -272,6 +277,24 @@ Not built.
     #[test]
     fn the_fixture_map_passes_so_every_failure_below_is_the_change_and_not_the_fixture() {
         assert_eq!(problems(MAP), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_page_still_at_the_four_column_header_is_refused() {
+        // RED before issue #81 widened `VENUES_HEADER` to five columns: the header this
+        // repository's real page carried until then matched whole, so a page that never gained
+        // `Allowed to claim` parsed fine. The widened constant no longer recognises that line as
+        // the venues table's header at all - `table()`'s exact match is what the doc comment
+        // on `VENUES_HEADER` claims protects an existing cell's meaning, and this is the case
+        // that claim is about: a page frozen at four columns is invisible rather than silently
+        // read with its last cell's meaning moved.
+        let four_column = MAP.replace(
+            "| Venue | Where it runs | What it costs | Reached by | Allowed to claim |\n\
+             | --- | --- | --- | --- | --- |",
+            "| Venue | Where it runs | What it costs | Reached by |\n| --- | --- | --- | --- |",
+        );
+        let found = problems(&four_column);
+        assert!(found.iter().any(|p| p.contains("no venues table")), "{found:?}");
     }
 
     #[test]
@@ -532,8 +555,8 @@ Not built.
     /// guard on `yes` off.
     fn map_with_a_venue_that_runs_nowhere_but_names_a_task() -> String {
         MAP.replace(
-            "| **A real token exchange** | nowhere yet | a pool | not built |",
-            "| **A real token exchange** | nowhere yet | a pool | `just bigquery-exchanged-identity` |",
+            "| **A real token exchange** | nowhere yet | a pool | not built | - |",
+            "| **A real token exchange** | nowhere yet | a pool | `just bigquery-exchanged-identity` | - |",
         )
         .replace(
             "| An exchange endpoint accepts it | no | no | **only here** |",
@@ -613,8 +636,8 @@ Not built.
         // the page uses - so dropping `just ` made the cell resolve to nothing and `unrun`
         // permanent at exit 0, whatever CI ran.
         let unresolvable = map_with_an_unrun_cell().replace(
-            "| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` |",
-            "| **A real dataset under a shared key** | a GitHub environment | a key | the `bigquery-acceptance` task |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | `just bigquery-acceptance` | the engine accepts what we generate |",
+            "| **A real dataset under a shared key** | a GitHub environment | a key | the `bigquery-acceptance` task | the engine accepts what we generate |",
         );
         let found = problems_with_ci(&unresolvable, &["bigquery-acceptance"]);
         assert!(found.iter().any(|p| p.contains("names no `just <task>`")), "{found:?}");
@@ -676,8 +699,8 @@ Not built.
     #[test]
     fn a_venue_with_no_column_in_the_matrix_fails() {
         let unpaired = MAP.replace(
-            "| **A real token exchange** | nowhere yet | a pool | not built |\n",
-            "| **A real token exchange** | nowhere yet | a pool | not built |\n| **A real provider** | nowhere yet | a provider | not built |\n",
+            "| **A real token exchange** | nowhere yet | a pool | not built | - |\n",
+            "| **A real token exchange** | nowhere yet | a pool | not built | - |\n| **A real provider** | nowhere yet | a provider | not built | - |\n",
         );
         let found = problems(&unpaired);
         assert!(found.iter().any(|p| p.contains("states no limit")), "{found:?}");

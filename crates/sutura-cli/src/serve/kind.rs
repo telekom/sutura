@@ -305,15 +305,11 @@ pub(crate) fn open_mixed(
         // See this function's own doc for `attached`'s widened meaning: a `bigquery` group has no
         // attach step, so its tables are trusted in rather than verified - the SAME trust
         // `OpenedSources::BigQuery`'s own `None` already extends a single-kind deployment.
-        if let Some(files_attached) = attached.as_mut() {
-            files_attached.extend(trusted_tables(pinned, &grouped.bigquery));
-        }
+        trust_into(&mut attached, pinned, &grouped.bigquery);
     }
     if !grouped.postgres.is_empty() {
         engines = Some(accumulate(engines, postgres_group(&grouped.postgres, registry)?)?);
-        if let Some(files_attached) = attached.as_mut() {
-            files_attached.extend(trusted_tables(pinned, &grouped.postgres));
-        }
+        trust_into(&mut attached, pinned, &grouped.postgres);
     }
 
     // Unreachable: `open_engine` only calls this function when `Grouped::kinds_present` is at
@@ -344,6 +340,26 @@ fn trusted_tables(pinned: &sutura_domain::pinned::PinnedDefinitions, sources: &[
         .filter(|model| sources.contains(&model.source()))
         .map(|model| model.table_name().clone())
         .collect()
+}
+
+/// [`open_mixed`]'s only way to widen `attached` with [`trusted_tables`] - one call site for both
+/// its `bigquery` and `postgres` branches, rather than each inlining the same
+/// `if let Some(files_attached) = attached.as_mut() { files_attached.extend(...) }`.
+///
+/// **`github.com/telekom/sutura#877`.** Two independent inlined copies is exactly the shape that
+/// let `#861`'s original defect recur silently in only one of them and be caught only by a
+/// tier-gated integration cell, invisible on a developer machine with no Postgres running. A
+/// single call site is unit-testable directly - see `trust_into_widens_attached_with_the_tables_
+/// its_slice_names` below - so the regression this closes needs no live service to catch, on
+/// every machine, every run.
+fn trust_into(
+    attached: &mut Option<BTreeSet<TableName>>,
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
+    sources: &[&SourceName],
+) {
+    if let Some(files_attached) = attached.as_mut() {
+        files_attached.extend(trusted_tables(pinned, sources));
+    }
 }
 
 /// Folds one more group into the registry-in-progress, or starts it.
@@ -442,7 +458,7 @@ mod tests {
     use sutura_domain::model::{ColumnName, ModelName};
     use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
-    use super::{SourceName, TableName, trusted_tables};
+    use super::{SourceName, TableName, trust_into, trusted_tables};
 
     /// One model as [`bundle`] takes it: its name, its source, its table.
     type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
@@ -518,6 +534,52 @@ mod tests {
         assert_eq!(
             refused.missing(),
             &BTreeSet::from([TableName::parse("fct_shadow").expect("a test table is a table")])
+        );
+    }
+
+    /// **`github.com/telekom/sutura#877`'s guard, kept off any tier.** `open_mixed`'s `bigquery`
+    /// and `postgres` branches both call [`trust_into`] rather than inlining their own
+    /// `.extend(trusted_tables(...))` - re-inline either call site and drop or narrow what it
+    /// extends with (the exact `#861` regression: `attached` staying `files`-only) and this cell
+    /// fails, with no `Postgres` or `BigQuery` needed to see it.
+    #[test]
+    fn trust_into_widens_attached_with_the_tables_its_slice_names() {
+        let declared = SourceName::parse("usage").expect("a test source is a source");
+        let pinned = bundle(&[
+            ("subscriptions", "local", "fct_subscriptions"),
+            ("daily_usage", "usage", "fct_usage"),
+        ]);
+        let mut attached = Some(BTreeSet::from([
+            TableName::parse("fct_subscriptions").expect("a test table is a table")
+        ]));
+
+        trust_into(&mut attached, &pinned, &[&declared]);
+
+        assert_eq!(
+            attached.expect("a `files` group started this deployment, so `attached` stays `Some`"),
+            BTreeSet::from([
+                TableName::parse("fct_subscriptions").expect("a test table is a table"),
+                TableName::parse("fct_usage").expect("a test table is a table"),
+            ]),
+            "trust_into did not widen `attached` with the slice it was given"
+        );
+    }
+
+    /// [`trust_into`]'s other branch: a single-kind `bigquery`/`postgres` deployment passes `None`
+    /// for `attached` (no `files` group ever opened), and widening a group that never trusted
+    /// anything must stay a no-op rather than manufacture a `Some` `refuse_unattached` would then
+    /// wrongly compare against.
+    #[test]
+    fn trust_into_is_a_no_op_when_no_files_group_ever_attached_anything() {
+        let declared = SourceName::parse("usage").expect("a test source is a source");
+        let pinned = bundle(&[("daily_usage", "usage", "fct_usage")]);
+        let mut attached = None;
+
+        trust_into(&mut attached, &pinned, &[&declared]);
+
+        assert!(
+            attached.is_none(),
+            "a `None` `attached` must stay `None`, not become `Some({{}})`"
         );
     }
 }
