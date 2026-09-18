@@ -8,8 +8,12 @@ neither**: it is the served deployment SHAPE you would configure (and no binary 
 can open its catalog yet), whose runnable proof is test code over a recorded fixture rather than an
 input directory. **`raw-sql/` is a settings change, not a catalog**: `docs/adr/0013`'s off-by-default
 `run_sql` tool turned on over `single-player`'s own served Postgres deployment, with one question
-answered from physical structure rather than a certified metric - [its own README](raw-sql/README.md) says what that costs and what it does not cover. The sections below say
-which is which for the first three; `raw-sql/`'s own page is short enough to stand alone.
+answered from physical structure rather than a certified metric - [its own README](raw-sql/README.md) says what that costs and what it does not cover. **`wave-one/` is a settings
+template and one worked question, not a catalog either**: a DataHub-sourced certified metric, a
+real Keycloak issuer's token and a real BigQuery project answered under one shared credential, over
+HTTP - [its own README](wave-one/README.md) says what that demonstrates and what it does not. The
+sections below say which is which for the first three; `raw-sql/`'s and `wave-one/`'s own pages are
+short enough to stand alone.
 
 They are examples and tests at the same time, and that is the point rather than a
 convenience. `crates/sutura-cli/tests/example.rs` loads the `single-player/` catalog, pins its
