@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::corpus::{reaches_for, resolved};
+use super::corpus::{reaches_for, resolved, variant_shaped};
 use crate::causality::{attributes, regions};
 use crate::serde_parse::scan::code_lines;
 
@@ -57,6 +57,18 @@ pub(super) struct Evidence {
     /// rather than refused, because a path a test builds and does not read is legitimate and this
     /// gate is not the venue for what is IN the directory.
     pub(super) unpublished: BTreeSet<String>,
+    /// The `<name>` segment of each [`Self::unpublished`] reach shaped `examples/<name>/…` -
+    /// [`super::corpus::variant_shaped`]'s own extraction, kept beside the path.
+    ///
+    /// A SECOND, independent derivation of a variant name - off the reach itself rather than off
+    /// the `examples/` listing [`super::corpus::variants`] reads - so [`super::problems`] can ask
+    /// whether the SAME `in_scope` narrowing that turned a reach unpublished also dropped its
+    /// variant out of `variants`. That is `github.com/telekom/sutura#878`'s F2: neither field
+    /// alone sees it, because narrowing away a whole `examples/<name>` directory removes the name
+    /// from `variants` (the `examples/` half) at the same time it turns every reach to it into an
+    /// `unpublished` note (the Rust half) instead of a problem - so `named by no test` never fires
+    /// either, since the name it would fire on is gone from the set it iterates.
+    pub(super) unresolved_variants: BTreeSet<String>,
 }
 
 /// Every `examples/<name>` a line of test code reaches for, and where from.
@@ -121,6 +133,9 @@ pub(super) fn evidence(files: &BTreeMap<String, String>, published: &BTreeSet<St
             for reach in reaches_for(line) {
                 let Some(variant) = resolved(&reach, published) else {
                     found.unpublished.insert(format!("`{reach}` ({rel}:{number})"));
+                    if let Some(name) = variant_shaped(&reach) {
+                        found.unresolved_variants.insert(name);
+                    }
                     continue;
                 };
                 found.reaches.entry(variant).or_default().entry(rel.clone()).or_insert(number);

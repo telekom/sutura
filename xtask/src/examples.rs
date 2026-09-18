@@ -232,6 +232,16 @@ fn problems(variants: &BTreeSet<String>, evidence: &Evidence, scan: &Corpus) -> 
             "`{EXAMPLES}{variant}/` is named by no test that runs here - a directory of prose under `{EXAMPLES}` reads as something a reader can run, so give it a test that reaches for it or delete it until the deployment it describes exists. Looked for: the literal `{EXAMPLES}{variant}` on one line of test code, starting a string literal or reached by `../`, naming a path git publishes, and outside every `#[ignore]`d test"
         ));
     }
+    for name in evidence.unresolved_variants.difference(variants) {
+        // #878's F2: a `Scope` narrowed to stop covering `examples/<name>` drops the name from
+        // `variants` and turns every reach to it into an `unpublished` note IN THE SAME MOVE, so
+        // the loop above never sees it - the name it would fire on is gone from the set it
+        // iterates. This is the second, independent derivation, off the reach itself rather than
+        // off the `examples/` listing, that catches what the loop above cannot.
+        problems.push(format!(
+            "test code that runs here reaches for `{EXAMPLES}{name}/`, but the scan does not count `{name}` among the deployment variants under `{EXAMPLES}` - a scope narrowed to stop covering that directory drops it from both halves of the scan at once, which is silence rather than a pass"
+        ));
+    }
     problems
 }
 
@@ -331,8 +341,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::corpus::{Corpus, anchored, is_under, publishes, reaches_for, variants};
+    use super::corpus::{Corpus, Members, anchored, gate_crate, is_under, publishes, reaches_for, variants};
     use super::{Evidence, evidence, problems, report};
+    use crate::repo;
 
     fn set(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| String::from(*s)).collect()
@@ -798,6 +809,53 @@ mod tests {
     }
 
     #[test]
+    fn a_variant_the_scope_stopped_covering_is_a_problem_even_though_nothing_named_it() {
+        // #878's F2: narrowing `in_scope` away from a whole `examples/<name>` directory drops the
+        // name from `variants` (the `examples/` half) and turns every reach to it into an
+        // `unpublished` note (the Rust half) IN THE SAME MOVE - so the loop over `variants` never
+        // fires (the name is not in the set it iterates) and the unpublished note reads as a
+        // stale path rather than a vanished deployment. Reproduced without a checkout: `corpus()`
+        // carries no `examples/multi-player` path, exactly what a narrowed scope's own listing
+        // would look like.
+        let found = scan(&[(
+            "crates/x/tests/example.rs",
+            "#[test]\nfn t() { Path::new(\"../../examples/multi-player/question.txt\"); }\n",
+        )]);
+        assert!(found.reaches.is_empty(), "{:?}", found.reaches);
+        assert_eq!(
+            found.unresolved_variants,
+            set(&["multi-player"]),
+            "{:?}",
+            found.unresolved_variants
+        );
+        // `variants` is what the corpus scan under `examples/` found - narrowed the same way, so
+        // it does not contain `multi-player` either. Neither `whole()`'s barren check nor the
+        // "named by no test" loop can see this; only the cross-check between the two derivations
+        // does.
+        let said = problems(&set(&["a-variant"]), &found, &whole());
+        assert!(
+            said.iter()
+                .any(|problem| problem.contains("multi-player") && problem.contains("reaches for")),
+            "a vanished variant a test still reaches for must be named, not silently accepted: {said:?}"
+        );
+    }
+
+    #[test]
+    fn a_bare_mention_with_no_further_segment_names_no_variant() {
+        // THE SHAPE FILTER: `variant_shaped` requires a further path segment beneath the name, so
+        // a bare top-level file - `examples/README.md`, or a per-crate `examples/foo.rs` echoed
+        // without its crate prefix - cannot mint a false variant name. Measured over this
+        // workspace (`#878`'s F2): a segment census over `crates/` finds exactly this shape for
+        // `crates/sutura-exec-bigquery/examples/mint_subject_assertion.rs`'s own doc mentions.
+        assert_eq!(super::corpus::variant_shaped("examples/README.md"), None);
+        assert_eq!(super::corpus::variant_shaped("examples/mint_subject_assertion.rs"), None);
+        assert_eq!(
+            super::corpus::variant_shaped("examples/multi-player/question.txt"),
+            Some(String::from("multi-player"))
+        );
+    }
+
+    #[test]
     fn no_test_declaration_out_of_files_of_test_code_is_a_broken_scan() {
         // THE PAIR, and it is a pair because one number could not witness this: `test_files`
         // counts files and `declared` counts the attributes inside them, from a second read of
@@ -861,5 +919,36 @@ mod tests {
                 .is_some_and(|first| first.contains("could not read `crates/y/tests/t.rs`")),
             "{said:?}"
         );
+    }
+
+    #[test]
+    fn every_deployment_variant_the_real_tree_publishes_is_named_by_a_running_test() {
+        // The rule over the REAL tree, not only over fixtures: `#878`'s F2 measured that a
+        // fixture cannot see the failure this gate exists for - two effects of the SAME `in_scope`
+        // narrowing cancelling each other, which is exactly why it survived #868's own review with
+        // 75 fixture tests already in place. **POSITIVE assertions per name, and not
+        // `problems(..).is_empty()` alone**, for the reason
+        // `shipped::tests::the_repositorys_own_documented_feature_build_is_probed` gives: an
+        // assertion that nothing is wrong cannot tell a scan that ran from one that does nothing.
+        let root = repo::root().expect("could not locate the repo");
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("could not read the root manifest");
+        let members = Members::parse(&manifest).expect("the root manifest declares no [workspace] members");
+        let crate_dir = gate_crate().expect("could not derive this gate's own crate directory");
+        let census = repo::all_files().expect("could not walk the repo");
+        let scan = Corpus::read(census, &members, crate_dir).expect("the corpus walk was truncated");
+        let found = evidence(scan.sources(), scan.published()).expect("the evidence loop skipped a file");
+
+        for name in ["authored-sql", "multi-player", "raw-sql", "single-player", "wave-one"] {
+            assert!(
+                scan.variants().contains(name),
+                "the real tree stopped publishing `examples/{name}` - update this list if that is intended"
+            );
+            assert!(
+                found.reaches.contains_key(name),
+                "`examples/{name}` is named by no test that runs here"
+            );
+        }
+        let said = problems(scan.variants(), &found, &scan);
+        assert!(said.is_empty(), "{said:?}");
     }
 }
