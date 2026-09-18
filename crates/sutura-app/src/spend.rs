@@ -272,7 +272,11 @@ mod tests {
     }
 
     #[test]
-    fn headroom_is_the_tightest_subject_not_the_average_or_the_first() {
+    fn headroom_is_the_tightest_subject_not_the_average() {
+        // Deterministic against `.min()` versus a mean, and NOT against `.next()`/the first entry
+        // a `HashMap` iterator yields - that order is unspecified and randomised per-process, so a
+        // mutation to `.next()` survives some fraction of runs here rather than every one. The name
+        // says only what this cell can actually hold.
         let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
         let now = Instant::now();
         assert_eq!(ledger.charge(&subject("alice"), 100, now), Charge::Admitted);
