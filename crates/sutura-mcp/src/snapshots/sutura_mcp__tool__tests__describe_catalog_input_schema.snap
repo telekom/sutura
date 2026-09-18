@@ -5,7 +5,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "This tool takes no arguments. It returns the whole of what this deployment measures, and there is\nnothing to filter or select: send an empty object.",
+  "description": "This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed\nto what the calling principal may see: there is nothing to filter or select, so send an empty\nobject.",
   "title": "DescribeCatalogArgs",
   "type": "object"
 }

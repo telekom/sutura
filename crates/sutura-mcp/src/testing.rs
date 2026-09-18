@@ -36,7 +36,9 @@ use sutura_domain::identity::{
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName,
+};
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
@@ -135,6 +137,70 @@ pub(crate) fn described_bundle(metric_prose: &str, dimension_prose: &str) -> Pin
             // contributor to its own declaration: the manifest record has to say what the content
             // actually carries, or the fidelity check refuses a fixture with content "nothing"
             // declared. Deriving it from the content is the honest shape.
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
+/// [`bundle`], plus a second metric restricted to the `finance` audience - `docs/adr/0028`.
+///
+/// One bundle, two callers, two different catalogs: `revenue` stays open so every caller can still
+/// ask the ordinary question, and `finance_only` is what tells the two callers apart through
+/// `ScopedView`'s per-identity filter. The mirror of `sutura_http`'s identity e2e fixture, so the two
+/// transports prove the same property with the same shape.
+pub(crate) fn bundle_with_a_restricted_metric() -> PinnedDefinitions {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date"), column("region")]),
+        description("Orders, one row per order."),
+    );
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        Vec::new(),
+        Some(Anchor::new(
+            june(),
+            AnchorValue::parse(ANCHORED_VALUE.to_string()).expect("a test anchor value is a value"),
+        )),
+        description("Revenue, in minor units."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let restricted_to_finance = Audience::Restricted(
+        sutura_domain::catalog::AudienceGrant::parse(BTreeSet::from([
+            AudienceId::parse("finance").expect("a test audience id is one")
+        ]))
+        .expect("one id grants"),
+    );
+    let finance_only = Metric::new(
+        MetricName::parse("finance_only").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        description("Only a finance-granted caller may see this."),
+        restricted_to_finance,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = sutura_domain::catalog::Definitions::assemble(vec![model], vec![], vec![revenue, finance_only])
+        .expect("the test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            source(),
             Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
         ),
     )
@@ -349,6 +415,57 @@ impl Surface for FailingSurface {
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` at all.
+        None
+    }
+}
+
+/// A surface over [`bundle_with_a_restricted_metric`] that answers nothing else.
+///
+/// The metadata-visibility fixture: `definitions()` returns a bundle with an open metric and a
+/// `finance`-restricted one, so a transport can prove that two callers with different audience
+/// grants get two different `describe_catalog` listings from ONE surface instance. It answers
+/// nothing, mirroring [`FailingSurface`] - a catalog listing never reaches `answer`, so the failure
+/// half is irrelevant to the cell that reads listings.
+pub(crate) struct RestrictedSurface {
+    definitions: PinnedDefinitions,
+}
+
+impl RestrictedSurface {
+    pub(crate) fn new() -> Self {
+        Self {
+            definitions: bundle_with_a_restricted_metric(),
+        }
+    }
+}
+
+impl Surface for RestrictedSurface {
+    fn definitions(&self) -> &PinnedDefinitions {
+        &self.definitions
+    }
+
+    fn answer(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _query: &Query,
+        _deadline: Deadline,
+    ) -> Result<ToolOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn run_sql(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _statement: &sutura_domain::raw::RawStatement,
+    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
         None
     }
 }
