@@ -286,6 +286,25 @@ impl CatalogUnderTest for sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbm
     }
 }
 
+/// The second on-disk catalog: `Okf`, opened over a directory of Table Schema descriptors.
+///
+/// Like `markdown` its corpus is on disk, but it is NOT the example markdown - OKF Table Schema is a
+/// different vocabulary from a directory of `kind:`-tagged documents, so it opens over its own
+/// descriptors under `examples/okf`. The universal cells hold because the descriptor bundle is
+/// measured against the adapter's declaration, which is the whole point of the `declaring` path.
+impl CatalogUnderTest for sutura_catalog_okf::OkfCatalog {
+    const NAME: &'static str = "okf";
+
+    fn open() -> Self {
+        Self::new(source(), okf_root(), version())
+    }
+}
+
+/// The directory of OKF Table Schema descriptors this suite opens the `okf` catalog over.
+fn okf_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/okf")
+}
+
 /// A `Warehouse` adapter this suite executes the example corpus against.
 ///
 /// [`open`] takes the bundle because attaching a table per model is what makes a data system able to
@@ -529,6 +548,15 @@ macro_rules! registered {
             declaring,
             sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::fixture::FixtureReader>
         );
+        // `sutura-catalog-okf`, the second on-disk vocabulary and the cheapest connector: a DECLARING
+        // adapter over a directory of OKF Frictionless Table Schema descriptors. It supplies the
+        // physical model and the descriptions and declares the join, the measure, the grain, the
+        // required filter, the allowlist, the anchor and the knowledge out - `docs/what-okf-can-carry.md`
+        // is the field-by-field finding, `#153` the issue. It gets the universal cells and no golden-
+        // only cell and is measured against its own declaration - `docs/adr/0011`, `docs/adr/0016`.
+        // Its corpus is the descriptors under `examples/okf`, which a directory of Table Schema files
+        // is what a deployment without a metadata service actually reads.
+        $cell!(okf, declaring, sutura_catalog_okf::OkfCatalog);
     };
 
     (data_systems: $cell:ident) => {
