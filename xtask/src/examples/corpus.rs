@@ -1,7 +1,7 @@
 //! Which files are the corpus a reach may come from, and the witness that every path the listing
 //! offered got a verdict.
 //!
-//! # Two questions, and both were answered by the same loop before this file existed
+//! # Two questions
 //!
 //! * **Whose code is "a run here"?** `cargo nextest run --workspace` compiles workspace MEMBERS,
 //!   and `[workspace] exclude` keeps `vendor/mimalloc_rust` out of that set - so a `#[test]` in
@@ -13,41 +13,49 @@
 //!   makes it stop matching the release it claims to be - and this is the same authority read the
 //!   cheap way, off the root manifest rather than out of `cargo metadata`, because this gate runs
 //!   in a pre-commit hook and in the git-derived nix sandbox where a subprocess is a liability.
-//! * **Did the scan read what the listing offered?** The count in the old verdict line was
-//!   `sources.len()`, taken off the same filter as the loop, which is the shape
-//!   `github.com/telekom/sutura#414` collects five measured instances of: narrowing the loop
-//!   narrows the witness with it. Measured here before this file: a truncated walk gave
-//!   **12 of 205 files, 69 of 1333 declarations, exit 0**.
+//! * **Did the scan read what the listing offered?** [`Census::inspect`](crate::repo::Census)
+//!   holds this now: `judged + out_of_scope + absent == discovered` by construction, so the walk
+//!   half of `github.com/telekom/sutura#414` cannot recur here the way it did before this file's
+//!   own walk was moved onto it - **12 of 205 files, 69 of 1333 declarations, exit 0**, measured
+//!   against this gate's own predecessor.
+//!
+//! # Migrated onto [`repo::Census::inspect`], and what changed
+//!
+//! **`Scope` is a bare `fn` pointer** ([`repo::Scope`]), so it cannot hold `Members` - parsed from
+//! the root manifest at RUNTIME - or `crate_dir` as a decision made before the read. So [`in_scope`]
+//! only answers "is this Rust, or under `examples/`", and the own-crate/workspace-member exclusion
+//! that used to run BEFORE `fs::read_to_string` now runs AFTER `Census::inspect`'s own read, inside
+//! the closure - see [`Owned`]. **The cost is stated rather than hidden**: a vendored or
+//! this-gate's-own Rust file gets read and its bytes discarded, where the old `look()` never opened
+//! it.
+//!
+//! **Three walks become one.** `variants` and `publishes` used to read the WHOLE git listing
+//! directly; now they read the paths [`repo::Census::inspect`] actually visited and handed to the
+//! closure, accumulated into one `Vec` as it runs - so a `Scope` that stops matching narrows what
+//! they see exactly as it narrows the corpus, rather than the two disagreeing the way a caller
+//! holding two different `Vec`s could.
+//!
+//! **The `must_judge` anchor is [`ANCHOR`]**, a Rust test file rather than an `examples/` file:
+//! `in_scope` never reads inside a variant directory for its own sake, only for `variants` and
+//! `publishes`, so an anchor under `examples/` would prove nothing about whether the CORPUS half of
+//! this walk ran. `judged == 0` cannot see a `Scope` that quietly stopped covering test code while
+//! still reading `examples/`'s own files, so the anchor is the one test file this repository's own
+//! module doc already names as the SOLE reach for `examples/multi-player` - see [`ANCHOR`].
 //!
 //! # What the witness is, and what it is not
 //!
-//! The denominator is the WHOLE listing - every path git publishes, counted before any predicate
-//! of this gate's - and every one of them leaves the loop as exactly one [`Looked`]. So the
-//! numerator cannot be narrowed without the equality breaking, and the denominator is counted by
-//! nothing this gate's parser could reject: `#414`'s correction of its own issue is that
-//! `check-guidance`'s pages half counts `offered` and `read` off ONE slice, which defends a
-//! narrowed loop and not a narrowed discovery.
-//!
-//! **A pair of counts is still not enough, and this file states it rather than implying it.** An
-//! item the walk never counted cannot be caught by a floor over the count, so narrowing the SCOPE
-//! predicate - `is_rust` to something narrower - moves files from [`Looked::Read`] to
-//! [`Looked::Outside`] and the equality holds. That is what [`Corpus::barren`] is for: a SET OF
-//! NAMES, the workspace's own member list against the members the scan actually reached, which is
-//! the instrument `sutura/invariants` records as beating a pair of counts. It is derived from the
-//! root manifest rather than from the listing, so a narrowing of either does not move both.
-//!
-//! **What neither reaches:** `repo::all_files` itself, and the boundary is worth stating exactly.
-//! In a git checkout `offered` is `git ls-files`' own answer, so a directory the process cannot
-//! enter is git's problem and not a silent narrowing. In the git-derived nix sandbox there is no
-//! `.git`, `all_files` falls back to its own walk, and that walk still drops a `read_dir` error
-//! and a `DirEntry` error in silence - verified at `repo.rs:88`, `:194` and `:236` on `110591d5`,
-//! AFTER `#373` merged, so that PR did not close them. `github.com/telekom/sutura#414` owns the
-//! shape; a sibling measured a base walk falling from 373 to 371 files at exit 0. So in that venue
-//! `offered` is a floor over what the walk reached, not over what the tree holds - which is why
-//! the member anchor below is the load-bearing half rather than the accounting.
+//! The `must_judge` anchor and the census's own `judged + out_of_scope + absent == discovered`
+//! equality hold the walk half of `#414`. What they do not hold is [`Corpus::barren`]'s own
+//! question - a SET OF NAMES, the workspace's own member list against the members the scan
+//! actually reached - because narrowing [`in_scope`] to something still Rust-shaped moves files
+//! from read to `outside`(`NoMember`) and the census's own accounting stays balanced either way.
+//! It is derived from the root manifest rather than from the listing, so a narrowing of either does
+//! not move both.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+use crate::repo;
 
 /// The directory whose children are the deployment variants, with the separator that makes it a
 /// path prefix. One constant: a scan for the segment and a message naming the directory must not
@@ -181,37 +189,46 @@ fn push_quoted(rest: &str, dirs: &mut Vec<String>) -> Result<bool, String> {
     Ok(body.contains(']'))
 }
 
-/// What one offered path turned out to be.
+/// Is this path Rust, or does it sit under `examples/`?
 ///
-/// THREE ANSWERS AND NO FOURTH. [`Corpus::read`] matches this exhaustively, so a new kind of
-/// answer is `error[E0004]` rather than a path that quietly stops being counted -
-/// `github.com/telekom/sutura#414`'s fourth property, and the reason it is an `enum` rather than
-/// a `continue` with a comment. `Unreachable` is a value for the same reason: a `continue` there
-/// is how `text-hygiene` came to hide an unreadable in-scope file inside its own count.
-enum Looked {
-    /// In scope, and read: the file's text as written.
-    Read(String),
-    /// Deliberately outside the corpus, by the rule that put it there.
-    Outside(Outside),
-    /// In scope and NOT read, with the error. A problem at the caller, never a drop.
-    Unreachable(String),
+/// The `Scope` [`Corpus::read`] hands to [`repo::Census::inspect`]. A bare `fn` pointer cannot
+/// hold `Members` - parsed at runtime, from the root manifest - so it cannot decide the
+/// finer-grained "whose code is this" question `Owned` answers; it can only decide whether the
+/// census needs the BYTES at all. The union with `examples/` is what lets [`variants`] and
+/// [`publishes`] see every kind of file a deployment example holds - a `README.md`, a fixture
+/// `.json` - rather than only the Rust half.
+fn in_scope(rel: &str) -> bool {
+    is_rust(rel) || rel.starts_with(EXAMPLES)
 }
 
-/// Which rule put a path outside the corpus.
-///
-/// Three rules, each with its own count in the verdict, because they fail differently: a scope
-/// that stops matching Rust, a workspace that stops declaring members and a self-exclusion that
-/// stops matching all read as "fewer files" from one number.
-enum Outside {
-    /// Not Rust source. The bulk of the listing, and the reason the denominator is the whole
-    /// listing rather than the Rust half of it: this is what the loop's parser rejects, so
-    /// counting it is what makes the denominator a different derivation from the numerator.
-    NotRust,
+/// This repository's own module doc names the ONE line that reaches `examples/multi-player`: a
+/// helper in this test file, not a test body, which is why `#400`'s per-line rule alone could not
+/// see it. A `Scope` that stops covering test code while still reading `examples/` itself would
+/// leave `judged` non-zero and every OTHER variant satisfied - `judged == 0` cannot see that one
+/// readable file is not the same as reading the tree this gate is about - so this is the anchor
+/// [`repo::Census::inspect`] cannot discharge without opening it.
+const ANCHOR: &str = "crates/sutura-catalog-datahub/tests/multi_player.rs";
+
+/// Whose code a Rust file the census read turns out to be, decided AFTER the read rather than
+/// before it - see [`in_scope`] for why. THREE ANSWERS AND NO FOURTH: [`Corpus::read`]'s closure
+/// matches this exhaustively, so a new kind of answer is `error[E0004]` rather than a path that
+/// quietly stops being counted, the discipline `github.com/telekom/sutura#414` asks for.
+enum Owned<'a> {
+    /// Rust in this gate's own crate. See [`gate_crate`].
+    GateCrate,
     /// Rust under no workspace member - vendored source, or a crate the manifest does not build.
     /// Not a run in this venue.
     NoMember,
-    /// Rust in this gate's own crate. See [`gate_crate`].
-    GateCrate,
+    /// Owned by this workspace member.
+    Member(&'a str),
+}
+
+/// [`Owned`], for one Rust path.
+fn owned<'a>(rel: &str, crate_dir: &str, members: &'a Members) -> Owned<'a> {
+    if is_under(rel, crate_dir) {
+        return Owned::GateCrate;
+    }
+    members.owner(rel).map_or(Owned::NoMember, Owned::Member)
 }
 
 /// The corpus, and the accounting that says the scan reached all of it.
@@ -223,84 +240,99 @@ enum Outside {
 /// type exists for is a property of every production caller.
 #[derive(Debug)]
 pub(crate) struct Corpus {
-    /// Paths the listing offered - the whole of it, counted before any predicate of this gate's.
-    offered: usize,
-    /// The in-scope files that were read: repo-relative path to raw text.
+    /// The in-scope files that were read: repo-relative path to raw text, member-owned Rust only.
     sources: BTreeMap<String, String>,
-    /// Paths that were not Rust.
-    not_rust: usize,
+    /// Deployment variant names, read off every path [`in_scope`] admitted.
+    variants: BTreeSet<String>,
+    /// Every path under `examples/` git publishes, read off the same admitted paths.
+    published: BTreeSet<String>,
     /// Rust files under no workspace member.
     outside: usize,
     /// Rust files in this gate's own crate. Zero is a broken exclusion, not a clean tree.
     own: usize,
-    /// In-scope files the scan could not read, each with the error.
-    unreachable: Vec<String>,
+    /// Member-owned Rust files the census read whose bytes were not valid UTF-8, each with the
+    /// error. A problem stated for the caller, never a silent drop - `fs::read` does not fail on
+    /// this the way `fs::read_to_string` used to, so the check moves here instead of vanishing.
+    unreadable: Vec<String>,
     /// Declared workspace members the scan reached no file of, this gate's own crate aside.
     barren: Vec<String>,
     /// This gate's own crate directory, for the messages that name it.
     crate_dir: &'static str,
+    /// `Inspected::verdict`'s own sentence, so the pass line cannot state a total the census did
+    /// not reach.
+    witness: String,
 }
 
 impl Corpus {
-    /// Read the corpus out of `files`, the listing rooted at `root`.
+    /// Read the corpus out of `census`, the discovery [`repo::all_files`] returned.
     ///
-    /// The loop is here rather than at the call site on purpose: the gate hands over a listing and
-    /// receives a witness, so the narrowing `#414` measured five times - `.take(n)` between the
-    /// discovery and the count that reports it - has nowhere to be written in a gate. That is as
-    /// far as this goes, and the limit is worth stating: `repo::all_files`' return type is still
-    /// `Vec<String>`, so nothing stops a gate walking it directly. Changing that is `#414`'s own
-    /// shared change across 25 call sites, not this one.
-    pub(crate) fn read(root: &Path, files: &[String], members: &Members, crate_dir: &'static str) -> Result<Self, String> {
-        let offered = files.len();
-        let mut found = Self {
-            offered,
-            sources: BTreeMap::new(),
-            not_rust: 0,
-            outside: 0,
-            own: 0,
-            unreachable: Vec::new(),
-            barren: Vec::new(),
-            crate_dir,
-        };
+    /// The loop is [`repo::Census::inspect`]'s now, not this function's: a caller cannot narrow it
+    /// with `.take(n)` because there is no `Vec` here to narrow, which is the same guarantee
+    /// `repo::census` gives every gate that migrates onto it. What THIS closure adds is the
+    /// classification `Scope` cannot make - see [`in_scope`] and [`Owned`] - at the cost this
+    /// module's doc states: a vendored or this-gate's-own Rust file is read and its bytes
+    /// discarded, where the walk this replaces never opened it.
+    pub(crate) fn read(census: repo::Census, members: &Members, crate_dir: &'static str) -> Result<Self, repo::Refusal> {
+        let mut sources = BTreeMap::new();
+        let mut candidates: Vec<String> = Vec::new();
+        let mut own = 0_usize;
+        let mut outside = 0_usize;
+        let mut unreadable: Vec<String> = Vec::new();
         let mut reached: BTreeSet<&str> = BTreeSet::new();
-        for rel in files {
-            match look(root, rel, members, crate_dir) {
-                Looked::Read(text) => {
-                    if let Some(owner) = members.owner(rel) {
-                        reached.insert(owner);
-                    }
-                    found.sources.insert(rel.clone(), text);
-                }
-                Looked::Outside(Outside::NotRust) => found.not_rust = found.not_rust.saturating_add(1),
-                Looked::Outside(Outside::NoMember) => found.outside = found.outside.saturating_add(1),
-                Looked::Outside(Outside::GateCrate) => found.own = found.own.saturating_add(1),
-                Looked::Unreachable(entry) => found.unreachable.push(entry),
+
+        let inspected = census.inspect(&[ANCHOR], in_scope, |rel, bytes| {
+            candidates.push(String::from(rel));
+            if !is_rust(rel) {
+                return;
             }
-        }
-        found.barren = members
+            match owned(rel, crate_dir, members) {
+                Owned::GateCrate => own = own.saturating_add(1),
+                Owned::NoMember => outside = outside.saturating_add(1),
+                Owned::Member(owner) => {
+                    reached.insert(owner);
+                    match std::str::from_utf8(bytes) {
+                        Ok(text) => {
+                            sources.insert(String::from(rel), String::from(text));
+                        }
+                        Err(why) => unreadable.push(format!("`{rel}`: {why}")),
+                    }
+                }
+            }
+        })?;
+
+        let barren = members
             .dirs()
             .iter()
             .filter(|dir| dir.as_str() != crate_dir && !reached.contains(dir.as_str()))
             .cloned()
             .collect();
-        let verdicts = found
-            .sources
-            .len()
-            .saturating_add(found.not_rust)
-            .saturating_add(found.outside)
-            .saturating_add(found.own)
-            .saturating_add(found.unreachable.len());
-        if verdicts != offered {
-            return Err(format!(
-                "gave a verdict to {verdicts} of the {offered} path(s) the listing offered - the rest left the walk uncounted, so every number this gate prints would be about a subset it chose silently"
-            ));
-        }
-        Ok(found)
+
+        Ok(Self {
+            sources,
+            variants: variants(&candidates),
+            published: publishes(&candidates),
+            outside,
+            own,
+            unreadable,
+            barren,
+            crate_dir,
+            witness: inspected.verdict(),
+        })
     }
 
     /// The files a reach may come from: repo-relative path to raw text.
     pub(crate) const fn sources(&self) -> &BTreeMap<String, String> {
         &self.sources
+    }
+
+    /// The deployment variants this scan found.
+    pub(crate) const fn variants(&self) -> &BTreeSet<String> {
+        &self.variants
+    }
+
+    /// Every path under `examples/` this scan resolves a reach against.
+    pub(crate) const fn published(&self) -> &BTreeSet<String> {
+        &self.published
     }
 
     /// This gate's own crate directory.
@@ -313,9 +345,9 @@ impl Corpus {
         self.own
     }
 
-    /// In-scope files the scan could not read.
+    /// Member-owned Rust files the census read that were not valid UTF-8.
     pub(crate) fn unreachable(&self) -> &[String] {
-        &self.unreachable
+        &self.unreadable
     }
 
     /// Declared members the scan reached no file of.
@@ -323,16 +355,15 @@ impl Corpus {
         &self.barren
     }
 
-    /// The sentence the verdict prints: the accounting, from this witness's own fields.
+    /// The sentence the verdict prints: the census's own witness, plus this gate's accounting.
     ///
     /// Every number here is read off a private field of a value only [`Self::read`] builds, so the
     /// line cannot state a total the walk did not reach.
     pub(crate) fn witness(&self) -> String {
         format!(
-            "every one of {} path(s) git publishes got a verdict ({} read, {} not Rust, {} outside the workspace, {} under `{}/`)",
-            self.offered,
+            "{} ({} Rust file(s) kept, {} outside the workspace, {} under `{}/`)",
+            self.witness,
             self.sources.len(),
-            self.not_rust,
             self.outside,
             self.own,
             self.crate_dir
@@ -341,16 +372,17 @@ impl Corpus {
 
     /// A corpus with the fields the pure verdict arms vary, and a healthy remainder.
     #[cfg(test)]
-    pub(crate) const fn fixture(own: usize, unreachable: Vec<String>, barren: Vec<String>) -> Self {
+    pub(crate) fn fixture(own: usize, unreadable: Vec<String>, barren: Vec<String>) -> Self {
         Self {
-            offered: 0,
             sources: BTreeMap::new(),
-            not_rust: 0,
+            variants: BTreeSet::new(),
+            published: BTreeSet::new(),
             outside: 0,
             own,
-            unreachable,
+            unreadable,
             barren,
             crate_dir: "xtask",
+            witness: String::from("0 of 0 subject(s) judged, 0 out of scope, 0 absent, 0 byte(s) read"),
         }
     }
 }
@@ -456,32 +488,18 @@ pub(crate) fn publishes(files: &[String]) -> BTreeSet<String> {
     published
 }
 
-/// What one path is, in one place, so the exhaustive `match` above has one thing to be exhaustive
-/// over.
-fn look(root: &Path, rel: &str, members: &Members, crate_dir: &str) -> Looked {
-    if !is_rust(rel) {
-        return Looked::Outside(Outside::NotRust);
-    }
-    if is_under(rel, crate_dir) {
-        return Looked::Outside(Outside::GateCrate);
-    }
-    if members.owner(rel).is_none() {
-        return Looked::Outside(Outside::NoMember);
-    }
-    match std::fs::read_to_string(root.join(rel)) {
-        Ok(text) => Looked::Read(text),
-        Err(error) => Looked::Unreachable(format!("`{rel}`: {error}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::collections::BTreeSet;
 
-    use super::{Corpus, Members, is_rust, is_under};
+    use super::{ANCHOR, Corpus, Members, is_rust, is_under};
+    use crate::repo::{self, Refusal};
+    use crate::scratch_tree::Tree;
 
     /// The `[workspace]` table this repository writes, with the comments it writes between the
-    /// entries - which is the half a naive `members = [..]` split gets wrong.
+    /// entries - which is the half a naive `members = [..]` split gets wrong. Carries the
+    /// `must_judge` anchor's own crate too, so a fixture tree that includes [`ANCHOR`] resolves it
+    /// to a real member rather than to `NoMember`.
     const MANIFEST: &str = concat!(
         "[package]\n",
         "name = \"root\"\n",
@@ -493,6 +511,7 @@ mod tests {
         "  \"crates/sutura-domain\",\n",
         "  # A comment between the entries, which this manifest writes.\n",
         "  \"crates/sutura-cli\",\n",
+        "  \"crates/sutura-catalog-datahub\",\n",
         "  \"xtask\",\n",
         "]\n",
         "exclude = [\"vendor/mimalloc_rust\"]\n",
@@ -505,6 +524,13 @@ mod tests {
         Members::parse(MANIFEST).expect("the fixture manifest declares members")
     }
 
+    /// A census over `tree`, through the same production door [`repo::all_files`] uses -
+    /// [`Corpus::read`] performs its own read now, so a listing over a root with nothing on disk
+    /// no longer proves anything about the corpus.
+    fn census_over(tree: &Tree, extensions: &[&str]) -> repo::Census {
+        repo::collect_files(tree.root(), tree.root(), extensions)
+    }
+
     #[test]
     fn the_member_list_comes_from_the_workspace_table_and_nothing_else() {
         // The `[package]` table above declares its own `members` key, which is not a workspace
@@ -512,7 +538,12 @@ mod tests {
         // real crate is outside the workspace and the corpus is empty at exit 0.
         assert_eq!(
             members().dirs(),
-            ["crates/sutura-domain", "crates/sutura-cli", "xtask"],
+            [
+                "crates/sutura-domain",
+                "crates/sutura-cli",
+                "crates/sutura-catalog-datahub",
+                "xtask"
+            ],
             "the entries under `[workspace]`, past the comment between them"
         );
         assert_eq!(
@@ -561,46 +592,135 @@ mod tests {
     }
 
     #[test]
-    fn every_offered_path_gets_exactly_one_verdict_and_the_witness_states_the_whole_listing() {
-        // THE ACCOUNTING, and the denominator is the WHOLE listing rather than the Rust half of
-        // it: `not Rust` is what this gate's own parser rejects, so counting it is what makes the
-        // denominator a different derivation from the numerator. A walk narrowed between the
-        // listing and the count cannot leave this equal - which is the state `#414` measured five
-        // times, here as `12 of 205 files, 69 of 1333 declarations, exit 0`.
-        let dir = std::env::temp_dir().join(format!("sutura-corpus-{}", std::process::id()));
-        let member = dir.join("crates/sutura-cli/src");
-        std::fs::create_dir_all(&member).expect("the fixture tree is creatable");
-        std::fs::write(member.join("lib.rs"), "#[test]\nfn t() {}\n").expect("the fixture file is writable");
-        let offered = [
-            String::from("crates/sutura-cli/src/lib.rs"),
-            String::from("crates/sutura-cli/README.md"),
-            String::from("vendor/mimalloc_rust/src/lib.rs"),
-            String::from("xtask/src/examples.rs"),
-            String::from("crates/sutura-domain/src/gone.rs"),
-        ];
-        let corpus = Corpus::read(&dir, &offered, &members(), "xtask").expect("every path is accounted for");
-        assert_eq!(corpus.sources().len(), 1, "{:?}", corpus.sources().keys().collect::<Vec<_>>());
-        assert_eq!(corpus.own(), 1, "the gate's own crate");
-        assert_eq!(corpus.unreachable().len(), 1, "the member file that is not on disk");
-        assert!(
-            corpus
-                .witness()
-                .contains("every one of 5 path(s) git publishes got a verdict"),
-            "{}",
-            corpus.witness()
+    fn a_member_owned_rust_file_is_kept_and_everything_else_is_counted_and_discarded() {
+        // THE MIGRATION'S OWN COST, stated: `in_scope` cannot ask `Members` before the read, so a
+        // vendored file and this gate's own crate get read and their bytes discarded - `outside`
+        // and `own` move, `sources` does not.
+        let tree = Tree::of(
+            "corpus-accounting",
+            &[
+                (ANCHOR, b"#[test]\nfn t() {}\n" as &[u8]),
+                ("crates/sutura-cli/tests/example.rs", b"#[test]\nfn u() {}\n"),
+                ("crates/sutura-cli/README.md", b"not rust\n"),
+                ("vendor/mimalloc_rust/src/lib.rs", b"#[test]\nfn v() {}\n"),
+                ("xtask/src/examples.rs", b"// this gate's own crate\n"),
+            ],
         );
+        let corpus = Corpus::read(census_over(&tree, &["rs", "md"]), &members(), "xtask").expect("every path is accounted for");
+        assert_eq!(
+            corpus.sources().keys().cloned().collect::<Vec<_>>(),
+            vec![String::from(ANCHOR), String::from("crates/sutura-cli/tests/example.rs")],
+            "{:?}",
+            corpus.sources().keys().collect::<Vec<_>>()
+        );
+        assert_eq!(corpus.own(), 1, "this gate's own crate, read and discarded");
         assert!(corpus.witness().contains("1 outside the workspace"), "{}", corpus.witness());
-        assert!(corpus.witness().contains("1 not Rust"), "{}", corpus.witness());
+        assert!(corpus.witness().contains("1 under `xtask/`"), "{}", corpus.witness());
         // THE SET OF NAMES, which is the half a pair of counts cannot hold: narrowing the scope
-        // predicate moves a file from `read` to `outside` and leaves the accounting equal, so the
-        // members the scan reached are compared against the members the MANIFEST declares - two
-        // derivations, neither read off the other.
+        // predicate moves a file from `read` to `outside` and leaves the census's own accounting
+        // balanced either way, so the members the scan reached are compared against the members
+        // the MANIFEST declares - two derivations, neither read off the other.
         assert_eq!(
             corpus.barren(),
             ["crates/sutura-domain"],
-            "the member whose only file could not be read, and not `xtask`, which is excluded by design"
+            "the member no fixture file belongs to, and not `xtask`, which is excluded by design"
         );
-        std::fs::remove_dir_all(&dir).expect("the fixture tree is removable");
+    }
+
+    #[test]
+    fn any_extension_under_examples_is_captured_for_variants_and_publishing() {
+        // THE OTHER HALF OF THE WIDENED SCOPE: `variants`/`publishes` need every kind of file a
+        // deployment example holds, not only Rust, so `in_scope` admits the whole `examples/`
+        // subtree regardless of extension.
+        let tree = Tree::of(
+            "corpus-examples-any-extension",
+            &[
+                (ANCHOR, b"#[test]\nfn t() {}\n" as &[u8]),
+                ("examples/x/README.md", b"prose\n"),
+                ("examples/x/question.json", b"{}\n"),
+            ],
+        );
+        let corpus =
+            Corpus::read(census_over(&tree, &["rs", "md", "json"]), &members(), "xtask").expect("every path is accounted for");
+        assert_eq!(corpus.variants(), &BTreeSet::from([String::from("x")]));
+        assert!(
+            corpus.published().contains("examples/x/question.json"),
+            "{:?}",
+            corpus.published()
+        );
+    }
+
+    #[test]
+    fn an_anchor_this_repository_names_as_the_sole_reach_cannot_be_discharged_by_a_narrower_scope() {
+        // The shape a rename or a narrowed `in_scope` leaves behind: no file at `ANCHOR` at all,
+        // with an otherwise healthy tree. `judged == 0` cannot see this - the fixture's other file
+        // is read and kept - so this is exactly what `must_judge` is for.
+        let tree = Tree::of(
+            "corpus-anchor-missing",
+            &[("crates/sutura-cli/tests/example.rs", b"#[test]\nfn u() {}\n" as &[u8])],
+        );
+        let refused = Corpus::read(census_over(&tree, &["rs"]), &members(), "xtask");
+        let Err(Refusal::NotJudged { path, .. }) = refused else {
+            panic!("a tree missing its own anchor produced a verdict");
+        };
+        assert_eq!(path, ANCHOR);
+    }
+
+    /// A sealed in-scope Rust file is a refusal the CENSUS itself reports, independently of
+    /// [`ANCHOR`]: [`Refusal::Unreachable`] is returned before [`Corpus::read`]'s own
+    /// classification ever runs, so a mutation that swallows `inspect`'s `Result` is caught here
+    /// even when the anchor is present and satisfied.
+    #[cfg(unix)]
+    #[test]
+    fn a_sealed_member_owned_file_is_a_refusal_the_census_itself_reports() {
+        let mut tree = Tree::of(
+            "corpus-sealed",
+            &[
+                (ANCHOR, b"#[test]\nfn t() {}\n" as &[u8]),
+                ("crates/sutura-cli/tests/sealed.rs", b"#[test]\nfn u() {}\n"),
+            ],
+        );
+        if !tree.seal("crates/sutura-cli/tests/sealed.rs") {
+            // Mode bits ignored for this uid - asserting a refusal here would assert nothing.
+            return;
+        }
+        let refused = Corpus::read(census_over(&tree, &["rs"]), &members(), "xtask");
+        let Err(Refusal::Unreachable(subjects)) = refused else {
+            panic!("a sealed member-owned file produced a verdict");
+        };
+        assert!(
+            subjects
+                .iter()
+                .any(|entry| entry.starts_with("crates/sutura-cli/tests/sealed.rs")),
+            "{subjects:?}"
+        );
+    }
+
+    #[test]
+    fn a_member_owned_file_that_is_not_valid_utf8_is_a_problem_rather_than_a_silent_drop() {
+        // `fs::read` never fails on this the way `fs::read_to_string` used to - the census reads
+        // the bytes successfully, so the UTF-8 check has to live in the closure now, and a mutation
+        // that drops it silently would keep every other number healthy.
+        let tree = Tree::of(
+            "corpus-non-utf8",
+            &[
+                (ANCHOR, b"#[test]\nfn t() {}\n" as &[u8]),
+                ("crates/sutura-cli/tests/broken.rs", &[0xff_u8, 0xfe, 0x00]),
+            ],
+        );
+        let corpus = Corpus::read(census_over(&tree, &["rs"]), &members(), "xtask").expect("not a census-level refusal");
+        assert!(
+            corpus
+                .unreachable()
+                .iter()
+                .any(|entry| entry.starts_with("`crates/sutura-cli/tests/broken.rs`")),
+            "{:?}",
+            corpus.unreachable()
+        );
+        assert!(
+            !corpus.sources().contains_key("crates/sutura-cli/tests/broken.rs"),
+            "a file that failed to decode is not a source"
+        );
     }
 
     #[test]
@@ -609,10 +729,11 @@ mod tests {
         // only constructor that ships, so a production caller cannot conjure a denominator.
         let fixture = Corpus::fixture(73, Vec::new(), Vec::new());
         assert_eq!(fixture.crate_dir(), "xtask");
-        assert!(fixture.witness().contains("every one of 0 path(s)"), "{}", fixture.witness());
-        assert_eq!(
-            Path::new("xtask").file_name().and_then(std::ffi::OsStr::to_str),
-            Some("xtask")
+        assert!(
+            fixture.witness().contains("0 of 0 subject(s) judged"),
+            "{}",
+            fixture.witness()
         );
+        assert!(fixture.witness().contains("73 under `xtask/`"), "{}", fixture.witness());
     }
 }
