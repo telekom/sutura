@@ -465,6 +465,11 @@ impl Surface for RestrictedSurface {
             cause: Box::new(ConnectionRefused),
         })
     }
+
+    fn spend_headroom_bytes(&self) -> Option<u64> {
+        // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
+        None
+    }
 }
 
 /// A surface that records the SUBJECT each call was handed, and answers nothing else.
