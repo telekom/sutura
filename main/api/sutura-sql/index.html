@@ -3588,26 +3588,6 @@ splitting a message on <code>", "</code>, which is a contract nothing checks and
   than trusted to a generator that slices it by byte. If a future pin fixes the slicing, the
   bound can widen; stated as a limit now because this is a control over what the dependency
   can carry, not a judgement that authored SQL is ASCII.
-- <code>UnclosedParenthesis</code> - A parenthesis the fragment opens and never closes.</p>
-<p><strong>The pinned dialect layer's parser does not error on this - it does not return.</strong> Found by
-  the <code>sql_expression</code> fuzz target and reduced to six characters, <code>a.:S1(</code>: <code>.:</code> is a JSON-cast
-  operator, so an unknown word after it is read as a custom data type, and the argument loop in
-  <code>Parser::parse_data_type</code> breaks only on <code>check(TokenType::RParen)</code>. That answers <code>false</code> at
-  the end of the token stream, and <code>advance()</code> past the end returns the last token WITHOUT
-  moving the cursor - so the loop cannot terminate, and every turn of it does
-  <code>*last = format!("{} {}", last, token.text)</code>.</p>
-<p>One upstream defect, two report shapes: it reads as a <strong>timeout</strong> while that string is being
-  copied and as an <strong>out-of-memory</strong> once the string is large. There is no third-party error to
-  map and nothing to catch either - under <code>panic = "abort"</code> unbounded work on a fragment is the
-  process not coming back, which on the query surface is a denial of service rather than a slow
-  load. So what is refused is the enabling condition every such loop needs, a parenthesis with
-  no closer, and it is refused before the text is handed over.</p>
-<p><code>column</code> is 1-based <strong>in the author's own fragment</strong>: the bound reads the fragment's own
-  tokens rather than the wrapped statement's, so unlike <code>Self::Unparsable</code> there is no
-  wrapper offset to subtract. See <code>super::unclosed_parenthesis</code> for why the question is asked
-  of the TOKENS and not of the text. <strong>The defect is upstream and this does not fix it</strong> - it
-  is a control over what the dependency can be handed, not a judgement that an author cannot
-  count brackets.
 - <code>UnknownColumn</code>
 - <code>UnknownFunction</code> - A called function that is not one of the names a measure may call.</p>
 <p>Its own variant rather than a bare <code>Self::Refused</code>, because this is the one refusal whose
