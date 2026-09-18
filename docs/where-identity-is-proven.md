@@ -125,16 +125,22 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 
 ## The venues
 
-| Venue | Where it runs | What it costs | Reached by |
-| --- | --- | --- | --- |
-| **A fake at the port** | in process, every run | nothing | `just test`, `just validate` |
-| **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` |
-| **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` |
-| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test`, `just e2e-datahub-bigquery` |
-| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance`, `just e2e-datahub-bigquery` |
-| **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built |
-| **A real token exchange, and two grants** | a GitHub environment, on demand | a hosted run resolved both principals to their own accounts - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` |
-| **A served binary under a verified human caller** | nowhere yet | a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them `iam.workloadIdentityUser`, and a hosted run to demand it | not built |
+Issue #81 decided **what each venue is allowed to claim**, and `docs/adr/0017`'s fifth amendment
+renders it - four rows, quoted verbatim. `Allowed to claim` below is that decision's short form
+against the CURRENT venues, `-` where a venue is outside it. It is prose, not a verdict: the gated
+per-claim answer is the *Which venue answers which claim* matrix in the next section, and this
+column only points a reader of the venues table at it.
+
+| Venue | Where it runs | What it costs | Reached by | Allowed to claim |
+| --- | --- | --- | --- | --- |
+| **A fake at the port** | in process, every run | nothing | `just test`, `just validate` | "every outcome the port can produce, including each refusal" |
+| **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` | - |
+| **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` | - |
+| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test`, `just e2e-datahub-bigquery` | - |
+| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance`, `just e2e-datahub-bigquery` | "BigQuery accepts what we generate, and the rows agree with the engine" |
+| **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built | - |
+| **A real token exchange, and two grants** | a GitHub environment, on demand | a hosted run resolved both principals to their own accounts - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` | issue #81's own row here - "two principals, two answers ... the mechanism, not the identity class" - named a row access policy; that cell was withdrawn (`docs/adr/0017`'s fourteenth amendment). What survives is narrower and still the same insight: a distinct principal's exchange resolves to a distinct account - the mechanism, not the row grant |
+| **A served binary under a verified human caller** | nowhere yet | a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them `iam.workloadIdentityUser`, and a hosted run to demand it | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -621,3 +627,6 @@ A venue that cannot state its limit is how *verified* drifts. So:
   well. That the task runs *this* venue's tests is still review's.
 - `just validate` runs every venue that needs no network. The other three do not, and each says so where
   it is invoked.
+- `Allowed to claim` is a summary of the claims matrix, never a second gate on it - `-` is honest for
+  a venue outside issue #81's decision, and a summary that outruns its own matrix cells is the drift
+  this page exists to catch.
