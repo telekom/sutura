@@ -368,7 +368,7 @@ is carried and never minted, because its bound column is not resolvable from a f
 expression (the reported-not-defined half this crate's declaration promises).
 
 The documents are decoded through `serde_json` at read time, so the same deserialization path a
-real reader over OpenMetadata's REST API would use is exercised, and `deny_unknown_fields` on
+real reader over `OpenMetadata`'s `REST` API would use is exercised, and `deny_unknown_fields` on
 the wire shapes holds over these recorded documents. `over_fixture_source` is what the conformance
 registry calls to register the adapter; it is `pub` because an integration suite is a separate
 crate and cannot reach a `#[cfg(test)]` item.
