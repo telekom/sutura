@@ -510,6 +510,41 @@ services:
       retries: 60
       start_period: 45s
 
+  # The Oracle data source (`github.com/telekom/sutura#127`). `sutura_dev::scope::SERVICES` names
+  # `oracle`, this publishes 1521 ephemerally, and `xtask dev-up --with-oracle` reads back whatever
+  # it landed on.
+  oracle:
+    # CI venue: compose only.
+    # Because: Oracle Database is not packaged in `nixpkgs` and could not honestly be - it is
+    #   proprietary, unlike `postgresql_18` - so there is no `nix/oracle-tier.nix` this could take
+    #   the shape of. A `checks.*` derivation has no docker socket and no network, so there is
+    #   nothing there for it to bring up.
+    # Converges: never, for the reason above - `docs/adr/0010`'s neighbours (`postgresql_18`,
+    #   Keycloak) converge because nixpkgs carries the server; this one cannot. The provisioned
+    #   instance is reached by `just test` in a docker-capable dev shell, over this tier, and NO nix
+    #   check covers it: a green `just validate` says nothing about a real Oracle answering a
+    #   question. `sutura-exec-oracle`'s own `available()` reads discovery the same way
+    #   `sutura-exec-postgres`'s does and skips its cells - loudly, on stderr - when this tier is
+    #   not up, which is every nix check and every machine with no docker socket.
+    # `-faststart`: the database is pre-built in the image rather than created on first boot, which
+    # is the difference between a usable job and a slow one for a tier that comes up on every run.
+    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/gvenzl/oracle-free:23.26.3-faststart
+    profiles:
+      - oracle
+    environment:
+      ORACLE_PASSWORD: *fixture-password
+      APP_USER: *fixture-user
+      APP_USER_PASSWORD: *fixture-password
+    ports:
+      - 1521
+    healthcheck:
+      # The image's own documented probe - it ships `healthcheck.sh` for exactly this.
+      test: ["CMD", "healthcheck.sh"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
   # The local chat demo: ONE container holding the sutura server and the chat client, because a
   # single supervisor is what makes "either child exits, the demo ends" true.
   #
