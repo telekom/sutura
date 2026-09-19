@@ -663,7 +663,6 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range: range(),
-        top: None,
     };
     let plan = FederatedPlan::new(
         metric("revenue"),

@@ -99,10 +99,6 @@ mod corpus;
 // is what causality's own "held: … (carries its own tests)" rule keys on.
 #[path = "federated/two_kinds.rs"]
 mod two_kinds;
-// Case 1's own differential cell - see the module's own header for why it is not a
-// `DERIVED_QUESTIONS` entry. `#[path]` for the reason every sibling above gives.
-#[path = "federated/topk.rs"]
-mod topk;
 
 use two_kinds::two_kinds;
 
@@ -203,11 +199,10 @@ fn two_relationships_on_one_remote_source_have_no_single_federation_link() {
     assert_eq!(source.as_str(), LOOKUP_SOURCE);
 }
 
-/// `github.com/telekom/sutura#777`'s case 2. Case 1 has no cell here: federating at all needs a
-/// remote-reaching dimension, and the splitter's only two ways there are a remote key
-/// (`LegSide::Lookup`, violating case 1) or a remote filter (forcing INNER, case 2's own "or") -
-/// so no real question satisfies case 1's conjunction; `topk` builds that shape directly instead.
-/// Here `region` is remote, so the rank waits for the combine rather than refusing outright.
+/// `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce. Case 1 had
+/// no reachable cell and was cut with the pushdown; a federated `top` always ranks above the
+/// combine. Here `region` is remote, so the rank waits for the combine rather than refusing
+/// outright.
 #[test]
 fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     let corpus = derived();
@@ -224,12 +219,7 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     else {
         panic!("a region question over the two-source catalog must federate");
     };
-    assert!(
-        case_2_plan.fact().fact_top().is_none(),
-        "case 2 pushes nothing to the fact leg"
-    );
     assert!(case_2_plan.top().is_some(), "case 2 ranks the combine instead");
-
     // `top` does not narrow what the mono side can do: it still plans whole on one source.
     let mono = compile(&case_2, &ScopedView::everything(&one), RowCeiling::DEFAULT).expect("the mono question compiles");
     assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
@@ -667,8 +657,7 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
         "two-source-a-distinct-value-spanning-join-keys",
         Reached::RefusedAsUnfederatable,
     ),
-    // `github.com/telekom/sutura#777`'s case 2 - `corpus::DERIVED_QUESTIONS` says why case 1 has
-    // no entry here.
+    // `github.com/telekom/sutura#777`'s case 2 - a federated `top` ranks above the combine.
     ("two-source-a-case-2-combine-then-rank-top", Reached::Agreed),
 ];
 

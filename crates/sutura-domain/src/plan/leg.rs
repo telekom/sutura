@@ -26,7 +26,6 @@
 //! [`ZeroDenominator`](crate::measure::ZeroDenominator) fits in, at any depth. That is the same
 //! argument [`crate::federation::Carried`] makes one level up, and the two are deliberately built
 //! the same way.
-//!
 //! **Two variants and not three.** There are three shapes a leg can be - an aggregate fact leg, a
 //! distinct-key fact leg, and a dimension lookup - and only one of the two axes they split along is
 //! worth a variant. Splitting by *which model is read* moves four fields together: a dimension
@@ -36,59 +35,14 @@
 //! key list, group by the key list. So the distinct-key leg is a [`LegPlan::Fact`] whose `terms` are
 //! empty, and it needs no variant of its own.
 //!
-//! **No leg carries a row cap, with one exception.** A leg is not an answer, and
+//! **No leg carries a row cap.** A leg is not an answer, and
 //! [`MAX_ROWS`](crate::plan::MAX_ROWS) caps one answer's rows; `sutura_sql::generate_leg` emits no
-//! `LIMIT` for a leg with no [`FactTop`]. The exception is `github.com/telekom/sutura#777`'s case
-//! 1: when a `top` pushes all the way down to the fact leg (every answer key on it, a LEFT join),
-//! the leg's OWN limit is the answer's own bound - `top.n()`, never [`MAX_ROWS`](crate::plan::MAX_ROWS) - because the
-//! fact leg's rows already are the answer's rows in that shape. See [`FactTop`].
+//! `LIMIT` for a leg.
 
 use crate::calendar::TimeRange;
-use crate::federation::Ranking;
 use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
 use crate::plan::{PlanBindings, PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
-use crate::query::Top;
 use crate::warehouse::ParamValue;
-
-/// A `top` pushed all the way down to a fact leg: `github.com/telekom/sutura#777`'s case 1.
-///
-/// **Present only when it is exact.** Every answer key on the fact leg and a LEFT join together
-/// mean the fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop
-/// one, and no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own
-/// rows by [`ranking`](Self::ranking) and keeping [`top`](Self::top)'s own count is exactly the
-/// answer's own top rows, not an approximation of them. `sutura_semantic::plan::federated_plan` is
-/// the one place that decides the case and constructs this; nothing else may.
-///
-/// `ranking` and not the [`Federation`](crate::federation::Federation) it came from, so a renderer
-/// needs nothing beyond the leg's own [`LegTerm`] list - see [`Ranking`]'s own doc for why a
-/// position is enough.
-///
-/// **The limit next to the claim: nothing constructs this outside a test.**
-/// `sutura_semantic::plan::case_1` is the one production caller, and it is measured unreachable
-/// from any question `sutura_semantic::plan::plan` actually dispatches to the federated path for -
-/// `github.com/telekom/sutura#890`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct FactTop {
-    top: Top,
-    ranking: Ranking,
-}
-
-impl FactTop {
-    #[inline]
-    pub const fn new(top: Top, ranking: Ranking) -> Self {
-        Self { top, ranking }
-    }
-
-    #[inline]
-    pub const fn top(&self) -> Top {
-        self.top
-    }
-
-    #[inline]
-    pub const fn ranking(&self) -> &Ranking {
-        &self.ranking
-    }
-}
 
 /// One number a leg computes, and the label it is projected under.
 ///
@@ -317,7 +271,6 @@ impl LegTerm {
 ///         terms: Vec::new(),
 ///         bindings: PlanBindings::none(),
 ///         range,
-///         top: None,
 ///     })
 /// }
 /// ```
@@ -372,9 +325,6 @@ pub enum LegPlan {
         #[serde(flatten)]
         bindings: PlanBindings,
         range: TimeRange,
-        /// A case-1 `top` pushed down to this leg. See [`FactTop`].
-        #[serde(skip_serializing_if = "Option::is_none")]
-        top: Option<FactTop>,
     },
     /// Read off one remote dimension model: its join key, the columns the answer groups by, and
     /// whatever filters went with it.
@@ -449,16 +399,6 @@ impl LegPlan {
     pub fn params(&self) -> &[ParamValue] {
         match *self {
             Self::Fact { ref bindings, .. } | Self::Lookup { ref bindings, .. } => bindings.params(),
-        }
-    }
-
-    /// The case-1 `top` pushed down to this leg, if any. `None` for a [`Lookup`](Self::Lookup) leg
-    /// and for a [`Fact`](Self::Fact) leg case 1 does not apply to.
-    #[inline]
-    pub const fn fact_top(&self) -> Option<&FactTop> {
-        match *self {
-            Self::Fact { ref top, .. } => top.as_ref(),
-            Self::Lookup { .. } => None,
         }
     }
 
