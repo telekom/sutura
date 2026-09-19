@@ -243,13 +243,58 @@ impl Relationship {
     }
 }
 
+/// A chain of relationships a dimension is reached through, in the order the author wrote them.
+///
+/// **Non-empty by construction and ordered by construction.** [`ViaChain::of`] refuses an empty
+/// list, and the private `Vec` keeps the order it was handed: hop 1 is the relationship from the
+/// metric's model, hop N's origin must be hop N-1's target. That link-up is a cross-reference, so
+/// [`Definitions::assemble`](crate::catalog::Definitions::assemble) checks it - the type holds only
+/// what it can see. There is no `Deserialize` here, the same shape as
+/// [`Dimension`]: adapters own how a document spells a chain, and
+/// `crate::catalog::consistency` is the gate the value passes through.
+///
+/// No `Deref` or `Borrow` - the invariant this type exists to hold is the one an emptied or
+/// reordered chain would break - and `as_slice` is the only way to lend the hops. A caller that
+/// wants hop 1 or the hop pairs walks the slice with `split_first` or `windows`, which is also what
+/// keeps the crate's no-indexing rule honest.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ViaChain(Vec<RelationshipName>);
+
+/// Why a relationship chain could not be built.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidViaChain {
+    #[error("a via chain must name at least one relationship")]
+    Empty,
+}
+
+impl ViaChain {
+    /// A chain in the order given, refusing the empty chain.
+    ///
+    /// One constructor rather than a constructor plus an `is_valid`: an empty chain cannot be
+    /// minted, so no downstream code re-checks it.
+    pub fn of(hops: Vec<RelationshipName>) -> Result<Self, InvalidViaChain> {
+        if hops.is_empty() {
+            return Err(InvalidViaChain::Empty);
+        }
+        Ok(Self(hops))
+    }
+
+    /// The hops, in declared order. Hop 1 is the relationship from the metric's own model.
+    pub fn as_slice(&self) -> &[RelationshipName] {
+        &self.0
+    }
+}
+
 /// An attribute a metric declares it can be broken down by.
 ///
-/// `via` is `None` for a column on the metric's own model and `Some` for one reached through exactly
-/// one declared relationship. **One hop, deliberately.** Two hops need a join order, join order
-/// changes which rows a measure sees, and "the number changed because the planner chose differently"
-/// is the failure this whole repository is arranged against. A second hop arrives with a plan type
-/// that can represent it, not with a loop here.
+/// `via` is `None` for a column on the metric's own model and `Some` for one reached through one
+/// declared relationship - or through a chain of them, in the order the author wrote them. The
+/// order is load-bearing: hop N's origin must be hop N-1's target, so a chain is a single path and
+/// not a set of relationships, and the planner renders the joins in that order rather than choosing
+/// one. **Every hop is refused if it could duplicate rows, and every hop from the second on is
+/// refused if it crosses a data system boundary**: hop 1 may cross - a single remote dimension is
+/// the federated case the plan layer serves - so a chain never spans sources once it has left the
+/// metric's model, and no accepted hop changes what a measure sees.
 ///
 /// `allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
 /// filtered: a filter needs an allowlist, because the alternative is comparing against a value the
@@ -267,7 +312,7 @@ impl Relationship {
 pub struct Dimension {
     name: DimensionName,
     column: ColumnName,
-    via: Option<RelationshipName>,
+    via: Option<ViaChain>,
     allowed_values: Option<BTreeSet<DimensionValue>>,
     description: Description,
 }
@@ -276,7 +321,7 @@ impl Dimension {
     pub const fn new(
         name: DimensionName,
         column: ColumnName,
-        via: Option<RelationshipName>,
+        via: Option<ViaChain>,
         allowed_values: Option<BTreeSet<DimensionValue>>,
         description: Description,
     ) -> Self {
@@ -299,9 +344,13 @@ impl Dimension {
         &self.column
     }
 
+    /// The chain the dimension is reached through, in declared order, or nothing for a column on
+    /// the metric's own model. Read the hops off the slice - a `&[RelationshipName]` is what every
+    /// consumer of this field walks, and nothing else in the field is theirs. Not a `const fn`:
+    /// `ViaChain::as_slice` returns a reference out of a `Vec`, which `const` cannot do.
     #[inline]
-    pub const fn via(&self) -> Option<&RelationshipName> {
-        self.via.as_ref()
+    pub fn via(&self) -> Option<&[RelationshipName]> {
+        self.via.as_ref().map(ViaChain::as_slice)
     }
 
     #[inline]
