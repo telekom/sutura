@@ -52,19 +52,20 @@ and an extension element.
 
 ## Field by field, against what the bundle can hold
 
-ADR 0036 settled the channel: a metadata source may contribute knowledge and no definitions, and it
-does so through the metric-anchored `Referent` channel - a note, glossary phrase, absence or worked
-example attached to a `MetricName` the bundle has already certified, rendered under the metric and
-matched **at load**, never at request time. So the spike's question is: what in a BPMN model is a
-`MetricName` reference?
+ADR 0036 (`docs/adr/0036-a-knowledge-only-source-speaks-through-a-metric.md`) settled the channel: a
+metadata source may contribute knowledge and no definitions, and it does so through the metric-anchored
+`Referent` channel - a note, glossary phrase, absence or worked example attached to a `MetricName` the
+bundle has already certified, rendered under the metric and matched **at load**, never at request time.
+So the spike's question is: what in a BPMN model is a `MetricName` reference?
 
-| Element                                                              | Carries                                                    | Can it name a certified `MetricName`?                                                        |
-| -------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `bpmn:process` / `bpmn:lane` / task / event / gateway `@id`, `@name` | free-text label                                            | No - a name is prose, not a reference; nothing in BPMN declares that a name is a metric name |
-| `bpmn:sequenceFlow` `sourceRef` / `targetRef`                        | references to **other flow nodes inside the same process** | No - graph topology, not a semantic model                                                    |
-| `bpmn:dataObject` / `dataObjectReference`                            | a data element and a name                                  | No - a process variable, not a certified metric                                              |
-| `bpmn:documentation` / `bpmn:textAnnotation` / `bpmn:operation` etc. | free text                                                  | No - prose about a process, scoped to nothing the bundle declares                            |
-| `bpmn:extensionElements` (`camunda:`/custom properties)              | proprietary, namespace-scoped key/value text               | No - belongs to a tool, not to this bundle's certified vocabulary                            |
+| Element                                                                                                  | Carries                                                                                   | Can it name a certified `MetricName`?                                                        |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `bpmn:process` / `bpmn:lane` / task / event / gateway `@id` and `@name`                                  | `@id` is an XML identifier (an in-document handle); `@name` is free text                  | No - an id is a structural handle, a name is prose; nothing declares either is a metric name |
+| `bpmn:sequenceFlow` `sourceRef` / `targetRef`                                                            | references to flow nodes; `callActivity` / `messageFlow` can reach nodes across processes | No - graph topology, not a semantic model                                                    |
+| `bpmn:dataObject` / `dataObjectReference`                                                                | a data element and a name                                                                 | No - a process variable, not a certified metric                                              |
+| `bpmn:documentation` / `bpmn:textAnnotation` / `bpmn:operation` etc.                                     | free text                                                                                 | No - prose about a process, scoped to nothing the bundle declares                            |
+| `bpmn:extensionElements` (`camunda:`/custom properties)                                                  | proprietary, namespace-scoped key/value text                                              | No - belongs to a tool, not to this bundle's certified vocabulary                            |
+| `bpmn:relationship` (typed links: composition / aggregation / dependency / association / generalization) | a typed semantic link between two elements                                                | No - a graph edge with a fixed type, not a metric reference                                  |
 
 The one row that looks hopeful - `extensionElements` carrying a property whose value is the string
 `revenue` - is the trap, and it is why "read it at load" is the wrong temptation. The value is free
