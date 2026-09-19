@@ -1304,7 +1304,7 @@ bound, not by review (see `GoldenCatalog`).
   a hand-built catalog in this module, and no credential is minted for anything.
 - **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what
   `generate` produces for them is what `statement_is_the_oracles_own`
-  compares. `ClickHouse` and `BigQuery`
+  compares. `ClickHouse`, `BigQuery` and the `Dialect::Oracle` this crate now renders for
   are out of scope here, which is why their renderings are not pinned.
 - **That the corpus is hard.** It is one aggregate over one metric plus four refusals - see
   `questions` below for why none of the execute corpus's harder shapes is repeated here.
