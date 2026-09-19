@@ -962,6 +962,11 @@ mod tls;
 #[cfg(test)]
 mod rotation;
 
+// `security.outbound.client_certificate`/`client_key` (`github.com/telekom/sutura#911`) - see its
+// own module header for what it proves and what it does not.
+#[cfg(test)]
+mod identity;
+
 #[test]
 fn the_cells_helper_names_the_row_as_well_as_the_column() {
     // The position is two numbers, and a refusal that only named the column would send a reader to

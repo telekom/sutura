@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "fct_subscription_monthly"."customer_key" AS "0_link", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) AS "period", SUM("fct_subscription_monthly"."mrr_cents") AS "0_leaf_0", COUNT("fct_subscription_monthly"."mrr_cents") AS "0_leaf_1" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= :1 AND "fct_subscription_monthly"."month" < :2 AND "fct_subscription_monthly"."status" = :3 GROUP BY "fct_subscription_monthly"."customer_key", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE) ORDER BY "fct_subscription_monthly"."customer_key", CAST(TRUNC("fct_subscription_monthly"."month", 'MM') AS DATE)

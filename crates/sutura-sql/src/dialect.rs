@@ -5,9 +5,9 @@
 //! should be maintaining by hand. Two things it does not decide for us, both measured rather than
 //! assumed:
 //!
-//! **Placeholder syntax.** A placeholder renders as `?` for every dialect, including the one that
-//! needs `$1`. The crate carries a per-dialect `parameter_token` field and never reads it. So the
-//! style is chosen here, per dialect, and a target that needs numbering gets numbering.
+//! **Placeholder syntax.** A placeholder renders as `?` for every dialect, including the ones that
+//! need `$1` or `:1`. The crate carries a per-dialect `parameter_token` field and never reads it. So
+//! the style is chosen here, per dialect, and a target that needs numbering gets numbering.
 //!
 //! **Identifier quoting.** The generator quotes an identifier only when it was quoted in the source,
 //! is a reserved word, or the config says always. Our identifiers were never in any source, so
@@ -49,6 +49,7 @@ pub enum Dialect {
     Postgres,
     ClickHouse,
     BigQuery,
+    Oracle,
 }
 
 /// How a bind parameter is written.
@@ -61,6 +62,12 @@ pub enum PlaceholderStyle {
     /// The numbering is why this is not cosmetic: a statement with three `?` sent to Postgres is a
     /// syntax error, and one with `$1` repeated is a different query.
     Numbered,
+    /// `:1`, `:2`, numbered from one like [`Self::Numbered`], but colon-prefixed. Oracle.
+    ///
+    /// Oracle's own positional bind form, distinct from `$n` and not interchangeable with it: `$1`
+    /// sent to Oracle is not a placeholder at all, and there is nothing in Oracle's grammar that
+    /// would coerce it into one.
+    Colon,
 }
 
 /// Which character a dialect wraps an identifier in.
@@ -70,12 +77,12 @@ pub enum PlaceholderStyle {
 /// tested against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdentifierQuote {
-    /// `"name"`. `DuckDB`, Postgres and `ClickHouse`.
+    /// `"name"`. `DuckDB`, Postgres, `ClickHouse` and Oracle.
     Double,
     /// `` `name` ``. `BigQuery`.
     ///
     /// **The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
-    /// dialect.** For the other three a double quote is an identifier quote and a backtick is a
+    /// dialect.** For the other four a double quote is an identifier quote and a backtick is a
     /// syntax error, so a mistake is loud. In `GoogleSQL` a double quote delimits a STRING, so
     /// `SELECT "amount"` is not a column reference at all - it selects the constant text `amount`,
     /// and the target's own lexical reference leans on this when it writes
@@ -138,27 +145,50 @@ pub enum DateTruncShape {
     /// `BigQuery`. Both halves differ from the shape above, and neither half is optional: the
     /// argument order and the grain's form are separately load-bearing.
     DateFirstAsKeyword,
+    /// `TRUNC(<date>, 'IW')` - the date first, the grain a single-quoted format model, and the
+    /// FUNCTION ITSELF is not `DATE_TRUNC` at all.
+    ///
+    /// Oracle. Naming a third shape rather than reusing one of the two above is not decoration:
+    /// upstream's own Oracle lowering for `DATE_TRUNC` (behind the `transpile` feature this crate
+    /// does not compile - see the workspace manifest) renames the function to `TRUNC` and leaves the
+    /// arguments as they arrived, which fixes neither the order nor the form. `bucket_expression`
+    /// therefore builds the whole call for this arm rather than reshaping a `DATE_TRUNC` node.
+    ///
+    /// **`IW` and not `WW` or `IYYY`, and the reason is the same Monday convention every other
+    /// dialect here already agrees on** (the `week` unit's own header in [`mod@crate::generate`]
+    /// carries the measurement): Oracle's own SQL reference describes `IW` as the ISO week -
+    /// Monday-based - while `WW` counts from the calendar year's first day regardless of what
+    /// weekday that is. Verified against the documented format models rather than measured, for
+    /// the same limit `DateFirstAsKeyword` states: there is no Oracle instance in this workspace to
+    /// ask, and PR 2 is where one arrives.
+    DateFirstAsQuotedFormat,
 }
 
 /// Every dialect, for iterating a golden suite over all of them.
 ///
 /// A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
-/// test below.** A fifth variant does not compile until seven production exhaustive matches over
+/// test below.** A sixth variant does not compile until seven production exhaustive matches over
 /// `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
 /// `qualification` and `identifier_case` in this file, and `dialect_type` in
 /// [`mod@crate::generate`]. So a data system cannot arrive without somebody deciding how it renders.
 ///
 /// **What is held by review and by nothing else is the edge from the enum to this list**, and this
-/// paragraph used to promise the opposite. `every_dialect_is_in_all` restates the four names by
-/// hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
-/// suite iterates four of five and reads as covered; a variant added to both turns it red on the
+/// paragraph used to promise the opposite. `every_dialect_is_in_all` restates the five names by
+/// hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
+/// suite iterates five of six and reads as covered; a variant added to both turns it red on the
 /// length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
 /// not close the edge either - it compares this list against that suite's own registry, never the
 /// enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
 /// `match` over `Dialect` is what BUILDS the list to compare against; a restated array anywhere in
 /// that chain reintroduces the same hole one level down, which is why the obvious rewrite of the
 /// test body is not the fix. `github.com/telekom/sutura#410` carries the measurement.
-pub const ALL: &[Dialect] = &[Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse, Dialect::BigQuery];
+pub const ALL: &[Dialect] = &[
+    Dialect::DuckDb,
+    Dialect::Postgres,
+    Dialect::ClickHouse,
+    Dialect::BigQuery,
+    Dialect::Oracle,
+];
 
 /// Why a dialect name was not recognised.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -177,6 +207,7 @@ impl Dialect {
             Self::Postgres => "postgres",
             Self::ClickHouse => "clickhouse",
             Self::BigQuery => "bigquery",
+            Self::Oracle => "oracle",
         }
     }
 
@@ -197,9 +228,9 @@ impl Dialect {
     /// or named ones written `@name` with `parameterMode: NAMED`. A [`crate::GeneratedQuery`] carries
     /// an ordered `Vec` of values and no names at all - the plan has none to give, because a
     /// parameter's identity there IS its position - so positional is the shape that already matches
-    /// end to end. Choosing named would mean inventing a name per parameter in the generator, a third
-    /// `PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new things, none
-    /// of which the domain has anything to put in them.
+    /// end to end. Choosing named would mean inventing a name per parameter in the generator, a
+    /// fourth `PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new
+    /// things, none of which the domain has anything to put in them.
     #[inline]
     pub const fn placeholder_style(self) -> PlaceholderStyle {
         match self {
@@ -207,6 +238,7 @@ impl Dialect {
             // decides which it wants; `?` is the one every driver we have accepts.
             Self::DuckDb | Self::ClickHouse | Self::BigQuery => PlaceholderStyle::Question,
             Self::Postgres => PlaceholderStyle::Numbered,
+            Self::Oracle => PlaceholderStyle::Colon,
         }
     }
 
@@ -218,7 +250,7 @@ impl Dialect {
     #[must_use]
     pub const fn identifier_quote(self) -> IdentifierQuote {
         match self {
-            Self::DuckDb | Self::Postgres | Self::ClickHouse => IdentifierQuote::Double,
+            Self::DuckDb | Self::Postgres | Self::ClickHouse | Self::Oracle => IdentifierQuote::Double,
             Self::BigQuery => IdentifierQuote::Backtick,
         }
     }
@@ -233,6 +265,7 @@ impl Dialect {
         match self {
             Self::DuckDb | Self::Postgres | Self::ClickHouse => DateTruncShape::GrainFirstAsLiteral,
             Self::BigQuery => DateTruncShape::DateFirstAsKeyword,
+            Self::Oracle => DateTruncShape::DateFirstAsQuotedFormat,
         }
     }
 
@@ -274,12 +307,18 @@ impl Dialect {
     /// either, so a refusal naming the path is the useful outcome and a rendered `a.b.c` that returns
     /// `Catalog with name a does not exist` is not. Widening this arm is a change to what those
     /// adapters ATTACH, not to what this renders.
+    ///
+    /// **Oracle is `Dataset` for its `schema.table`, alongside Postgres and `ClickHouse` and for the
+    /// same reason Postgres stops there.** A three-part `db_link.schema.table` exists in Oracle only
+    /// as a database-link syntax the dialect layer does not render as a plain qualified path, so
+    /// rendering three parts here would not be a cross-database read - it would be a name the target
+    /// resolves against whatever schema the session already has, silently.
     #[inline]
     #[must_use]
     pub const fn qualification(self) -> Qualification {
         match self {
             Self::DuckDb => Qualification::TableOnly,
-            Self::Postgres | Self::ClickHouse => Qualification::Dataset,
+            Self::Postgres | Self::ClickHouse | Self::Oracle => Qualification::Dataset,
             Self::BigQuery => Qualification::ProjectAndDataset,
         }
     }
@@ -325,12 +364,22 @@ impl Dialect {
     /// venue exists and nothing yet asks it about identifier folding. And *nothing in this workspace
     /// executes either, which `AGENTS.md` already says* was false twice over: `Postgres` executes,
     /// and `AGENTS.md` has said nothing about `ClickHouse` since `#228`.
+    ///
+    /// **Oracle is `InsensitiveAscii`, and this is the declaration the type exists for as much as
+    /// `BigQuery`'s is.** Oracle folds an UNQUOTED identifier to uppercase before resolving it, so
+    /// `orders`, `Orders` and `ORDERS` name the same object there - two spellings differing only in
+    /// ASCII case name one thing, which is exactly `InsensitiveAscii`'s definition. This renderer
+    /// force-quotes every identifier it emits, so nothing here ever exercises the folding itself; the
+    /// declaration is about what the CATALOG's own case comparison may assume once Oracle is a
+    /// target, not about a statement this crate renders. From Oracle's documented behaviour, and not
+    /// measured against a live instance for the same reason `ClickHouse`'s declaration is not - see
+    /// this PR's own limits.
     #[inline]
     #[must_use]
     pub const fn identifier_case(self) -> IdentifierCase {
         match self {
             Self::Postgres | Self::ClickHouse => IdentifierCase::Sensitive,
-            Self::DuckDb | Self::BigQuery => IdentifierCase::InsensitiveAscii,
+            Self::DuckDb | Self::BigQuery | Self::Oracle => IdentifierCase::InsensitiveAscii,
         }
     }
 }
@@ -385,13 +434,19 @@ mod tests {
     fn every_dialect_is_in_all() {
         // The list is what the golden suite iterates. A variant missing from it is a data system
         // with no snapshot, which reads as covered and is not - and this test does NOT catch that,
-        // because the loop restates the same four names. It holds the list against a hand-written
+        // because the loop restates the same five names. It holds the list against a hand-written
         // set and its length; the enum-to-`ALL` edge is held by review, which `ALL`'s own doc
         // comment states beside the claim.
-        for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse, Dialect::BigQuery] {
+        for dialect in [
+            Dialect::DuckDb,
+            Dialect::Postgres,
+            Dialect::ClickHouse,
+            Dialect::BigQuery,
+            Dialect::Oracle,
+        ] {
             assert!(ALL.contains(&dialect), "{dialect} is not in ALL");
         }
-        assert_eq!(ALL.len(), 4);
+        assert_eq!(ALL.len(), 5);
     }
 
     #[test]
@@ -406,7 +461,7 @@ mod tests {
         // The message is the whole value of the error here: a typo on a command line should not
         // require reading the source to find out what was meant.
         //
-        // **The name being refused used to be `bigquery`**, which is now one of the four and would
+        // **The name being refused used to be `bigquery`**, which is now one of the five and would
         // have made this test fail rather than mislead - the good direction for a fixture to break
         // in. `snowflake` is the replacement and is chosen for the same property: the dialect layer
         // has a target for it, so what this asserts is OUR closed set refusing a name the layer would
@@ -417,6 +472,7 @@ mod tests {
         assert!(rendered.contains("duckdb"), "{rendered}");
         assert!(rendered.contains("clickhouse"), "{rendered}");
         assert!(rendered.contains("bigquery"), "{rendered}");
+        assert!(rendered.contains("oracle"), "{rendered}");
     }
 
     #[test]
@@ -432,13 +488,21 @@ mod tests {
     }
 
     #[test]
+    fn oracle_is_the_one_that_uses_a_colon() {
+        // A second numbered style, and not interchangeable with Postgres's: `$1` sent to Oracle
+        // names nothing, the same way `?` sent to Postgres is a syntax error.
+        assert_eq!(Dialect::Oracle.placeholder_style(), PlaceholderStyle::Colon);
+        assert_ne!(Dialect::Oracle.placeholder_style(), Dialect::Postgres.placeholder_style());
+    }
+
+    #[test]
     fn bigquery_is_the_one_that_quotes_with_a_backtick() {
         // The value the golden suite's quoting claim searches with. What makes this worth pinning by
         // value is that the wrong character is not a syntax error in `GoogleSQL` - see
         // `IdentifierQuote::Backtick`.
         assert_eq!(Dialect::BigQuery.identifier_quote(), IdentifierQuote::Backtick);
         assert_eq!(Dialect::BigQuery.identifier_quote().character(), '`');
-        for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse] {
+        for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse, Dialect::Oracle] {
             assert_eq!(dialect.identifier_quote(), IdentifierQuote::Double, "{dialect}");
             assert_eq!(dialect.identifier_quote().character(), '"', "{dialect}");
         }
@@ -453,6 +517,7 @@ mod tests {
         assert_eq!(Dialect::BigQuery.qualification(), Qualification::ProjectAndDataset);
         assert_eq!(Dialect::Postgres.qualification(), Qualification::Dataset);
         assert_eq!(Dialect::ClickHouse.qualification(), Qualification::Dataset);
+        assert_eq!(Dialect::Oracle.qualification(), Qualification::Dataset);
         assert_eq!(Dialect::DuckDb.qualification(), Qualification::TableOnly);
         // And the ordering this is read through: a name is renderable when it is no deeper than the
         // target. `Qualification`'s own suite pins the variant order that makes this mean that.
@@ -468,5 +533,14 @@ mod tests {
         for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse] {
             assert_eq!(dialect.date_trunc_shape(), DateTruncShape::GrainFirstAsLiteral, "{dialect}");
         }
+    }
+
+    #[test]
+    fn oracle_is_the_one_that_writes_the_grain_as_a_quoted_format_model() {
+        // A third shape, and neither of the other two: not the literal grain BigQuery's
+        // `GrainFirstAsLiteral` siblings write, nor the bare keyword BigQuery itself writes.
+        assert_eq!(Dialect::Oracle.date_trunc_shape(), DateTruncShape::DateFirstAsQuotedFormat);
+        assert_ne!(Dialect::Oracle.date_trunc_shape(), Dialect::DuckDb.date_trunc_shape());
+        assert_ne!(Dialect::Oracle.date_trunc_shape(), Dialect::BigQuery.date_trunc_shape());
     }
 }

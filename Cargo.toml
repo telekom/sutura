@@ -211,7 +211,7 @@ serde_norway = "0.9"
 # keyword casing and date truncation all differ per data system, and this is what knows how.
 #
 # `default-features = false` is not tuning. The default set pulls `all-dialects`, which is 33
-# dialects across roughly 270 000 lines of generated match arms; we compile the three we
+# dialects across roughly 270 000 lines of generated match arms; we compile the five we
 # render for. Three things about the feature set are load-bearing and were found by building
 # rather than by reading:
 #
@@ -228,8 +228,14 @@ serde_norway = "0.9"
 #     lint for it, deliberately, because an unresolvable path in `disallowed-methods` is ignored
 #     silently and would read as enforcement while doing nothing. Translating between dialects is a
 #     parse followed by a re-emit, it does not reliably repair the differences that matter, and
-#     not compiling it is a stronger statement than not calling it.
-polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery"] }
+#     not compiling it is a stronger statement than not calling it. **Oracle's `DATE_TRUNC` gap is not
+#     an exception to that**: upstream's own `transform_expr` for Oracle only renames the function to
+#     `TRUNC` and leaves the arguments untouched, so turning `transpile` on would not fix the argument
+#     order or the bare-keyword-to-quoted-format problem either - it would still be wrong, just
+#     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
+#     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
+#     correct call directly, with no dialect-layer rewrite in between.
+polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery", "dialect-oracle"] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
@@ -297,6 +303,20 @@ rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"]
 # are regenerated and reviewed as a diff, never typed by hand, because a hand-written
 # expectation asserts what we wish the generator did.
 insta = { version = "1", features = ["yaml", "glob"] }
+# The benchmark harness - `github.com/telekom/sutura#915`. Dev-only, and chosen over `criterion`
+# for the size of the tree it adds: measured 2026-09-19 by diffing `Cargo.lock` before and after
+# `cargo check -p sutura-exec-postgres -p sutura-app --benches --all-features`, this adds NINE
+# packages (`clap` and the five it pulls in, plus `divan`, `divan-macros`, `regex-lite`) against a
+# scratch-project measurement of criterion's own tree at ~35 (`rayon`, `plotters` and its SVG
+# backend, `ciborium`, `walkdir` among them) - most of criterion's weight going to statistical
+# reporting and HTML output this harness has no gate to feed. `iai-callgrind` was checked and
+# disqualified before either: it needs valgrind, which has no package on this workspace's Apple
+# Silicon macOS dev machines (`valgrind not found`, checked 2026-09-19), and a harness only usable
+# in CI cannot settle a question during design. Every new package resolves to `MIT OR Apache-2.0`
+# or a licence already in `deny.toml`'s allowlist (`Unicode-3.0`, `Apache-2.0 WITH LLVM-exception`
+# via `rustix`, already present) - no new entry there. `harness = false` on every `[[bench]]`:
+# divan runs its own `main`, not libtest's.
+divan = "0.1"
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
 #

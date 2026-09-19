@@ -42,7 +42,7 @@ pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
     credential_cache: sutura_config::CredentialCacheSettings,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
     leg_one: Option<&sutura_config::InboundIdentity>,
 ) -> Result<ExchangingBroker, String> {
     use sutura_config::SourcePlacement;

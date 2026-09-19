@@ -95,7 +95,7 @@ published build can reach a source of each kind - the only `PerSubjectCredential
 `FederationNotExecutable` before the postures are compared. #112's heterogeneous registry landed
 without changing this: `sutura-exec-bigquery`'s constant is untouched, so a shipped mix still
 cannot put two postures on one federated answer; (2) **no golden reaches the engine's leg path** -
-it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for four dialects and none of them is
+it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and none of them is
 what a release executes, and the conformance cell plus the differential are the whole of that
 path's evidence; (3) **one deployment still cannot get two genuinely different POSTURES onto one
 federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
