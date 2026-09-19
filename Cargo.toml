@@ -297,6 +297,20 @@ rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"]
 # are regenerated and reviewed as a diff, never typed by hand, because a hand-written
 # expectation asserts what we wish the generator did.
 insta = { version = "1", features = ["yaml", "glob"] }
+# The benchmark harness - `github.com/telekom/sutura#915`. Dev-only, and chosen over `criterion`
+# for the size of the tree it adds: measured 2026-09-19 by diffing `Cargo.lock` before and after
+# `cargo check -p sutura-exec-postgres -p sutura-app --benches --all-features`, this adds NINE
+# packages (`clap` and the five it pulls in, plus `divan`, `divan-macros`, `regex-lite`) against a
+# scratch-project measurement of criterion's own tree at ~35 (`rayon`, `plotters` and its SVG
+# backend, `ciborium`, `walkdir` among them) - most of criterion's weight going to statistical
+# reporting and HTML output this harness has no gate to feed. `iai-callgrind` was checked and
+# disqualified before either: it needs valgrind, which has no package on this workspace's Apple
+# Silicon macOS dev machines (`valgrind not found`, checked 2026-09-19), and a harness only usable
+# in CI cannot settle a question during design. Every new package resolves to `MIT OR Apache-2.0`
+# or a licence already in `deny.toml`'s allowlist (`Unicode-3.0`, `Apache-2.0 WITH LLVM-exception`
+# via `rustix`, already present) - no new entry there. `harness = false` on every `[[bench]]`:
+# divan runs its own `main`, not libtest's.
+divan = "0.1"
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
 #

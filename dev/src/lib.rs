@@ -43,7 +43,15 @@
 //! transport, minted-for in a broker and composed in a root, and a fixture living inside one of those
 //! three cannot be driven from the other two. What it may never be cited for is written where it is
 //! defined, because a venue that cannot state its limit is how *verified* drifts.
+//!
+//! # A fourth half, and it is not about a service at all
+//!
+//! [`bench_venue`] prints the host's own load average before a benchmark under `crates/*/benches/`
+//! measures anything. It lives here rather than duplicated in each bench binary because
+//! `cargo xtask check-jscpd` refuses to exempt a clone under `crates/`, and two independent
+//! binaries printing the same probe is exactly that clone - `github.com/telekom/sutura#915`.
 
+pub mod bench_venue;
 pub mod discovery;
 #[cfg(feature = "mock-issuer")]
 pub mod issuer;
