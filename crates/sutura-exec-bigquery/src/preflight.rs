@@ -60,6 +60,11 @@ impl Gap {
 /// path overrides one or both, and each part is re-parsed by the type for its position, because
 /// the value written into a request path is this crate's to accept or refuse.
 ///
+/// **The project half of that decision is [`crate::resolve::resolve`], not a second copy of it.**
+/// A path naming a dataset and no project resolves in the connection's own billing project there
+/// too - the same choice this function used to make on its own - so the two callers cannot drift
+/// apart on what a partial path means.
+///
 /// **`None` rather than an `Err`, and the measurement is why.** An `Err` here propagated out of
 /// [`preflight`]'s grouping loop **before any dataset was listed** - so one mixed-case
 /// project id in a forty-model bundle turned the whole check off for that source, as a single
@@ -72,17 +77,18 @@ where
     T: JobTransport,
 {
     let billed_to = warehouse.billing_project.clone();
-    let Some(qualifier) = table.qualifier() else {
+    if table.qualifier().is_none() {
         return Some(DatasetAddress::of(
             billed_to,
             warehouse.billing_project.clone(),
             warehouse.default_dataset.clone(),
         ));
-    };
-    let project = match qualifier.project() {
-        None => warehouse.billing_project.clone(),
-        Some(project) => ProjectId::parse(project.as_str()).ok()?,
-    };
+    }
+    let resolved = crate::resolve::resolve(table, &warehouse.billing_project).ok()?;
+    // `resolved` came from a table that HAD a qualifier, and `resolve` never removes one - so both
+    // unwraps below read a value that is always there rather than guess at one.
+    let qualifier = resolved.qualifier()?;
+    let project = ProjectId::parse(qualifier.project()?.as_str()).ok()?;
     let dataset = DatasetId::parse(qualifier.dataset().as_str()).ok()?;
     Some(DatasetAddress::of(billed_to, project, dataset))
 }
