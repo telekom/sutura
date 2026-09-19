@@ -1,0 +1,62 @@
+[package]
+name = "sutura-exec-clickhouse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter over ClickHouse, rendered through the compiled ClickHouse dialect."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# Rendering, shared with every other SQL adapter: this adapter asks `sutura-sql` to render the plan
+# for `Dialect::ClickHouse` rather than growing a second set of quoting and placeholder decisions.
+# NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter
+# never compiles anything.
+sutura-sql = { workspace = true }
+# The one round trip the port's `execute`/`verify_anchor`/`declared_key` make is synchronous
+# (`Warehouse` carries no `async fn`), and `ureq` is natively blocking - no runtime, no `block_on`,
+# for the reason `sutura-exec-bigquery`'s own `wire` entry states at length: a driver that already
+# blocks needs neither, and starting one anyway is what `reqwest::blocking` would do wrapped in a
+# call already on `sutura_runtime::spawn_carrying_span`'s pool thread.
+ureq = { workspace = true }
+# The bundle-or-system-store read and the client-identity read, shared with the Postgres source
+# channel and the BigQuery wire so the refusals for an unreadable, empty or malformed
+# bundle/identity are not re-derived a third time. This crate's own `tls` module folds the result
+# into the `ureq::tls::TlsConfig` [`transport::secured`] connects with; `sutura-tls` builds neither.
+sutura-tls = { workspace = true }
+# This crate is a DEV-DEPENDENCY of every composition root, exactly like `sutura-exec-duckdb`: no
+# served binary links it, so there is no artefact for a default-off feature to keep an outbound
+# TLS stack out of. `ureq`/`sutura-tls` are therefore plain dependencies here, not feature-gated
+# ones - the gating this workspace asks for lives on whichever composition root wants to SERVE a
+# `kind: clickhouse` source, and none does yet (see `src/lib.rs`'s module header for the limit).
+#
+# Both already resolved at these versions: `rustls-pki-types` via `sutura-tls`/`rustls-native-
+# certs`, `rustls-native-certs` via `sutura-exec-postgres`. Named directly because `tls.rs` reads
+# both types by name (a declared client key's `PrivateKeyDer` shape, and the host-store read's own
+# error), not because either adds a new package to `Cargo.lock`.
+rustls-pki-types = { workspace = true }
+rustls-native-certs = { workspace = true }
+# HTTP Basic authentication's one call site - already resolved via `jsonwebtoken`/`sutura-http`.
+base64 = { workspace = true }
+url = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and
+# credential fixture, so `src/tests.rs` drives the port against a real corpus question rather than
+# a hand-built plan nobody reviewed.
+sutura-conformance = { workspace = true }
+# A generated self-signed pair, for the in-crate tests that exercise the TLS construction refusals
+# against real anchor/identity material - the same crate `sutura-exec-postgres` and `sutura-http`
+# rest their own TLS tests on, so no new crate enters the dev graph.
+rcgen = { workspace = true }
+# `clippy.toml` bans `std::sync::Mutex` workspace-wide, including in test code; already resolved
+# via `sutura-exec-bigquery`'s exchanged-credential cache, so this adds no new package.
+parking_lot = { workspace = true }
+
+[lints]
+workspace = true

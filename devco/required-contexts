@@ -175,6 +175,22 @@ ci.yml:keycloak-served-test
 # skip red, so the coverage stays advisory without going silent.
 ci.yml:e2e-datahub-bigquery
 
+# The demo's container tier, the caller's job. It calls `demo-container.yml`, so its one job
+# reports `demo-container / smoke-test`, the same caller-prefixed shape `cross-link.yml:link`
+# carries and for the same reason: a called workflow's job cannot resolve a required context,
+# because the string GitHub reports is not the bare id this record could name. ADVISORY ALSO BY
+# DECISION, not only by that mechanical limit - the owner call recorded in `demo-container.yml`'s
+# own header (2026-09-19, `github.com/telekom/sutura#639`) is that a red demo must never block
+# unrelated work on a pull request. It becomes required at the release boundary instead:
+# `release.yml`'s own call into the same file sits in `publish`'s `needs:`, and `release.yml` is
+# not `on:` a gating event, so nothing here classifies that job at all.
+ci.yml:demo-container
+
+# The called workflow's own job - the one that reports the context above. Advisory for the same
+# two reasons as `cross-link.yml:link`'s own entry: it cannot resolve as required (a caller-
+# prefixed context), and it is not required by decision even where it could be.
+demo-container.yml:smoke-test
+
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
 # `check-docs` inside `ci` is what holds the nav and the pages.
