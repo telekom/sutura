@@ -118,7 +118,7 @@ pub use crate::asked::Asked;
 pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 use crate::spend::Charge;
-pub use crate::spend::{SpendBudget, SpendLedger};
+pub use crate::spend::{SpendBudget, SpendLedger, SpendObserver};
 
 /// Why the service could not produce an outcome.
 ///

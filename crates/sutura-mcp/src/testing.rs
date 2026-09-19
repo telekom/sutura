@@ -281,6 +281,94 @@ impl Warehouse for FakeWarehouse {
     }
 }
 
+/// How much every dry run [`PricedWarehouse`] answers is priced at.
+pub(crate) const PRICE_BYTES: u64 = 500;
+
+/// [`FakeWarehouse`]'s twin whose dry run reports a real byte price - `github.com/telekom/sutura#892`'s
+/// own finding is that no fixture in this file ever did, `PreFlight::NotAsked` throughout, so a
+/// configured `SpendLedger` was never actually charged by anything driven through `AgentSurface`.
+/// Duplicates `sutura_http`'s own fixture of the same name and reason.
+pub(crate) struct PricedWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+}
+
+impl Warehouse for PricedWarehouse {
+    type Error = Unreachable;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const PRICES_DRY_RUN: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::Accepted {
+            estimated_bytes: Some(sutura_domain::warehouse::estimate::EstimatedBytes::parse(PRICE_BYTES)),
+        })
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Ok(self.result.clone())
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// A registry holding one [`PricedWarehouse`], the priced twin of [`fake_warehouse`].
+pub(crate) fn priced_warehouse() -> sutura_app::Warehouses<PricedWarehouse> {
+    sutura_app::Warehouses::of(PricedWarehouse {
+        source: source(),
+        posture: shared_posture(),
+        result: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(ANCHORED_VALUE)]])
+            .expect("a one-cell result is a result set"),
+    })
+}
+
+/// One `(headroom_bytes, spent_bytes_total)` pair [`RecordingSpendObserver`] was pushed.
+pub(crate) type SpendReading = (Option<u64>, Option<u64>);
+
+/// An observer that records every push it was handed, in order - the fake `#892`'s cells need for
+/// the port `sutura_app::spend::SpendObserver` declares.
+#[derive(Default)]
+pub(crate) struct RecordingSpendObserver {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a test collector over an Arc: the same instrument `RecordingSurface`'s own subjects field is licensed for above"
+    )]
+    readings: std::sync::Mutex<Vec<SpendReading>>,
+}
+
+impl RecordingSpendObserver {
+    /// Every reading this observer was pushed, in call order.
+    pub(crate) fn readings(&self) -> Vec<SpendReading> {
+        self.readings
+            .lock()
+            .map_or_else(|_poisoned| Vec::new(), |readings| readings.clone())
+    }
+}
+
+impl sutura_app::spend::SpendObserver for RecordingSpendObserver {
+    fn observe_spend(&self, headroom_bytes: Option<u64>, spent_bytes_total: Option<u64>) {
+        if let Ok(mut readings) = self.readings.lock() {
+            readings.push((headroom_bytes, spent_bytes_total));
+        }
+    }
+}
+
 /// A credential broker that grants the shared posture for whatever it is asked about.
 ///
 /// The honest fake for these fixtures, for the reason [`shared_posture`] is the honest posture: a
@@ -417,6 +505,10 @@ impl Surface for FailingSurface {
         // This fixture carries no `SpendLedger` at all.
         None
     }
+
+    fn spend_bytes_total(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// A surface over [`bundle_with_a_restricted_metric`] that answers nothing else.
@@ -466,6 +558,10 @@ impl Surface for RestrictedSurface {
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
+        None
+    }
+
+    fn spend_bytes_total(&self) -> Option<u64> {
         None
     }
 }
@@ -540,6 +636,10 @@ impl Surface for RecordingSurface {
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
+        None
+    }
+
+    fn spend_bytes_total(&self) -> Option<u64> {
         None
     }
 }
@@ -647,6 +747,10 @@ impl Surface for HoldingSurface {
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
+        None
+    }
+
+    fn spend_bytes_total(&self) -> Option<u64> {
         None
     }
 }

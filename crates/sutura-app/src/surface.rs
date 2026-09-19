@@ -160,20 +160,28 @@ pub trait Surface: Send + Sync + 'static {
     /// ledger itself - true whether or not a question just ran, and unaffected by which question
     /// it was - so putting it on the outcome would mean every constructor of a caller-facing
     /// answer or refusal had to carry a number that has nothing to do with what was asked, for no
-    /// reader of the wire body. A transport that reads it after a call to poll the ledger it
-    /// already touched may push it into a gauge, but nothing here reaches every transport this
-    /// port has: `sutura-http` reads this after every call its `POST /v1/query` route answers and
-    /// pushes what it reads, but a served agent surface (`sutura-mcp`) answers through this same
-    /// method and this crate must not know it exists to push anything there - a transport does not
-    /// depend on another transport. **Never to answer a scrape either way**: `docs/adr/0015`'s "a
-    /// scrape must not make the service work" is why the metrics endpoint's own state never holds
-    /// a [`Surface`] at all, so nothing here may be read from there.
+    /// reader of the wire body. A transport reads it after a call to poll the ledger it already
+    /// touched and pushes what it read - `sutura-http`'s `POST /v1/query` route does this, and so
+    /// does `sutura-mcp`'s agent surface (`github.com/telekom/sutura#892`) - but this port still
+    /// does not know WHERE either push lands: [`crate::spend::SpendObserver`] is the shared
+    /// vocabulary the two transports agree on without depending on each other, and this method is
+    /// only what they read to feed it. **Never to answer a scrape either way**: `docs/adr/0015`'s
+    /// "a scrape must not make the service work" is why the metrics endpoint's own state never
+    /// holds a [`Surface`] at all, so nothing here may be read from there.
     ///
     /// **Deployment-wide by construction, never per-subject** - see [`crate::spend::SpendLedger::headroom_bytes`]
     /// for why a value naming which subject is tight cannot exist on this port either: ADR-0015
     /// Decision 5 types a metric label as `&'static str`, so a `Subject` could not become one even
     /// if this trait tried to widen further.
     fn spend_headroom_bytes(&self) -> Option<u64>;
+
+    /// Every byte this replica has admitted since it started, or `None` where no per-replica
+    /// ceiling is configured - see [`crate::spend::SpendLedger::spent_bytes_total`] for why this
+    /// exists beside the gauge above rather than instead of it: it is monotonic where headroom is
+    /// not, which is what lets a monitoring system sum it correctly across a rolling deploy's
+    /// changing replica count. The same read-after-`answer`, push-through-`SpendObserver` shape as
+    /// [`Self::spend_headroom_bytes`] applies unchanged - see that method's doc.
+    fn spend_bytes_total(&self) -> Option<u64>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -538,6 +546,10 @@ where
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         self.spend_ledger.headroom_bytes(std::time::Instant::now())
+    }
+
+    fn spend_bytes_total(&self) -> Option<u64> {
+        self.spend_ledger.spent_bytes_total()
     }
 }
 

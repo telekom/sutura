@@ -20,6 +20,22 @@ limit this record states - per-replica rather than deployment-wide, the collapse
 unchanged by the build and still holds. The *"Nothing here enforces anything"* bullet below is what
 this amendment closes.
 
+**Second amendment, 2026-09-18: the cross-replica story is aggregation, never enforcement, and it
+lives in the monitoring system - `github.com/telekom/sutura#139`'s remaining half.** No shared
+store: enforcement stays per-replica, exactly as decided above. What ships instead is
+`sutura_spend_bytes_total`, a monotonic counter beside the existing `sutura_spend_headroom_bytes`
+gauge - `sutura_app::spend::SpendLedger::spent_bytes_total`, incremented only by an admitted charge,
+never reset by a window rolling over. The gauge cannot be summed across replicas: `sum()` over N
+replicas is `N * ceiling - total_spend`, moving whenever N does, and a restarted replica's gauge
+snaps back to the full ceiling - a restart reads exactly like spend refunded. The counter is what
+`sum(rate(sutura_spend_bytes_total[5m]))` sums correctly instead, across both a changing replica
+count and a monitoring system's own counter-reset handling. **A Prometheus reading is still never a
+control input** - scrape-interval stale, lossy, not transactional - so nothing on the charge path
+reads it; this amendment adds an observable series, not a second enforcement mechanism. See
+`docs/adr/0015`'s third amendment for the metric's own registration and push mechanics, and
+`github.com/telekom/sutura#892` for the port (`sutura_app::spend::SpendObserver`) that lets the
+agent surface push the same two readings without depending on `sutura-http`.
+
 ## Context
 
 The pieces this decision assembles already exist and none of them talk to each other, stated here at

@@ -121,6 +121,12 @@ pub fn config() -> StreamableHttpServerConfig {
 /// connection or a second permit set. `instructions` is cloned the same way, and for the same
 /// reason it is an `Arc<str>` rather than a `String`: this factory runs on every request, not only
 /// on the `initialize` that reads it back.
+///
+/// `spend_observer` is `None` where this deployment has no spend ceiling configured at all - see
+/// [`crate::AgentSurface::with_spend_observer`] - and is otherwise the one call site that closes
+/// `github.com/telekom/sutura#892`: `sutura-cli`'s `serve` module is the composition root that
+/// reads `sutura_http::ServiceState::spend_metrics` and hands the SAME gauge and counter this
+/// factory's surface pushes into on every call.
 #[must_use]
 pub fn service<S>(
     surface: Arc<S>,
@@ -128,20 +134,25 @@ pub fn service<S>(
     admission: Admission,
     reply: RequestTimeout,
     instructions: Arc<str>,
+    spend_observer: Option<Arc<dyn sutura_app::spend::SpendObserver>>,
 ) -> StreamableHttpService<AgentSurface<S>, LocalSessionManager>
 where
     S: Surface + Send + Sync + 'static,
 {
     StreamableHttpService::new(
         move || {
-            Ok(AgentSurface::new(
+            let mut surface = AgentSurface::new(
                 Arc::clone(&surface),
                 Asking::PerRequest,
                 prose,
                 admission.clone(),
                 reply,
                 Arc::clone(&instructions),
-            ))
+            );
+            if let Some(observer) = spend_observer.clone() {
+                surface = surface.with_spend_observer(observer);
+            }
+            Ok(surface)
         },
         Arc::new(LocalSessionManager::default()),
         config(),
@@ -311,6 +322,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            None,
         );
 
         let catalog_only = subject_asked(
@@ -351,6 +363,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            None,
         );
         let app = router_with_no_established_caller(transport);
         drop(post(app.clone(), initialize(1)).await);
@@ -399,6 +412,7 @@ mod tests {
             admission(),
             reply(),
             testing::instructions(),
+            None,
         );
         let foreign_session_id = "a-session-id-this-request-never-opened";
 

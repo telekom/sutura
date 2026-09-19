@@ -60,6 +60,14 @@ impl Counter {
         self.0.fetch_add(n, Ordering::Relaxed);
     }
 
+    /// Sets the value directly, for a counter that mirrors an already-monotonic total kept
+    /// somewhere else - a spend ledger's own cumulative byte count, for one - rather than
+    /// accumulating its own deltas. Safe only because the source it mirrors never decreases; a
+    /// caller reaching for this to reset a series to zero wants [`Gauge`], not this type.
+    pub fn set(&self, n: u64) {
+        self.0.store(n, Ordering::Relaxed);
+    }
+
     /// The current value.
     #[must_use]
     pub fn value(&self) -> u64 {
@@ -499,6 +507,17 @@ mod tests {
         let rendered = builder.build().render();
         assert!(rendered.contains("# TYPE sutura_questions_total counter"));
         assert!(rendered.contains("sutura_questions_total 1"));
+    }
+
+    #[test]
+    fn a_counter_can_be_set_to_mirror_an_external_total() {
+        let mut builder = RegistryBuilder::default();
+        let counter = builder.counter("sutura_spend_bytes_total");
+        counter.set(500);
+        assert_eq!(counter.value(), 500);
+        // Mirroring a second, larger reading overwrites rather than accumulates - unlike `add`.
+        counter.set(1_000);
+        assert_eq!(counter.value(), 1_000);
     }
 
     #[test]

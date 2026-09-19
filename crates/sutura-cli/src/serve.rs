@@ -412,18 +412,16 @@ pub(crate) fn run() -> Result<(), String> {
     // beside `grace` above it and for the same reason: both are numbers about the process rather
     // than about a request, and this is the last place the settings are looked at before they move.
     let admission = Admission::from_settings(settings.runtime());
-    // The agent surface's transport, built here (while `settings` is still owned) ONLY when the
-    // deployment turned it on - a build with the `agent` feature still stays off by default, and a
-    // build without the feature refused above. `sutura_http::router` then refuses to assemble when
-    // this is attached and no leg 1 gate is, so "the agent surface is only served where a caller
-    // can be verified" cannot be un-paired in a later edit.
+    let settings = Arc::new(settings);
+    // Built BEFORE the agent mount below - `#892`'s observer wraps what it registers.
+    let mut state = ServiceState::new(Arc::clone(&service), Arc::clone(&settings), admission.clone());
+    // Built ONLY when turned on - default-off; the router refuses to assemble it with no leg 1 gate.
     #[cfg(feature = "agent")]
     let agent_mount = settings
         .server()
         .agent_surface_enabled()
-        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone()))
+        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone(), &state))
         .transpose()?;
-    let mut state = ServiceState::new(service, Arc::new(settings), admission);
     // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
     // the state holds one and the watch needs to reach the same cache.
     let mut watching: Option<Arc<sutura_http::InboundGate>> = None;

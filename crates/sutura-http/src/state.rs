@@ -40,7 +40,7 @@
 use std::sync::Arc;
 
 use sutura_config::Settings;
-use sutura_runtime::{Admission, Gauge, Registry, RegistryBuilder};
+use sutura_runtime::{Admission, Counter, Gauge, Registry, RegistryBuilder};
 
 #[cfg(feature = "agent")]
 use crate::router::Ungoverned;
@@ -78,7 +78,19 @@ pub struct ServiceState {
     /// serving both surfaces with a ceiling configured, this gauge holds its boot-time reading (the
     /// full ceiling) while the agent surface alone drains the ledger, until the next HTTP query
     /// pushes a fresh one. Not fixed here.
+    ///
+    /// **Since `github.com/telekom/sutura#892`, that limit is narrower than it reads above**: a
+    /// composition root MAY hand `Self::spend_metrics` on to a second transport for it to push
+    /// through `sutura_app::spend::SpendObserver`, and `sutura-cli`'s `serve` module does exactly
+    /// that for the agent surface it mounts. This field's own doc is not rewritten to say so - the
+    /// limit is about what THIS crate can reach, and this crate still cannot reach `sutura-mcp`.
     spend_headroom: Option<Gauge>,
+    /// `sutura_spend_bytes_total` - registered alongside [`Self::spend_headroom`], under the same
+    /// condition and for the same reason: absent rather than zero where no ceiling is configured.
+    /// See `sutura_app::spend::SpendLedger::spent_bytes_total` for why a monotonic counter exists
+    /// beside a gauge that already reports headroom - summing THAT gauge across replicas is wrong
+    /// in the dangerous direction, and this series is what a monitoring system sums instead.
+    spend_bytes_total: Option<Counter>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
     /// building it reads a file: a `new` that could not fail would have to swallow an unreadable key
@@ -206,6 +218,14 @@ impl ServiceState {
             gauge.set(initial);
             gauge
         });
+        // Same condition as the gauge above, by construction rather than by a second read: a
+        // ceiling that made the gauge `Some` makes this `Some` too, because both come from the
+        // same `governance.per_replica_spend_ceiling`.
+        let spend_bytes_total = surface.spend_bytes_total().map(|initial| {
+            let counter = builder.counter("sutura_spend_bytes_total");
+            counter.set(initial);
+            counter
+        });
         let registry = Arc::new(builder.build());
         Self {
             surface,
@@ -214,6 +234,7 @@ impl ServiceState {
             registry,
             metrics,
             spend_headroom,
+            spend_bytes_total,
             inbound: None,
             #[cfg(feature = "agent")]
             agent: None,
@@ -324,6 +345,27 @@ impl ServiceState {
         if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, headroom_bytes) {
             gauge.set(bytes);
         }
+    }
+
+    /// Sets `sutura_spend_bytes_total` to `spent_bytes_total`'s current reading, the counter's
+    /// own twin of [`Self::record_spend_headroom`] - same caller, same condition, same absence.
+    pub(crate) fn record_spend_bytes_total(&self, spent_bytes_total: Option<u64>) {
+        if let (Some(counter), Some(bytes)) = (&self.spend_bytes_total, spent_bytes_total) {
+            counter.set(bytes);
+        }
+    }
+
+    /// The gauge and counter handles this state pushes spend readings through, for a composition
+    /// root wiring a SECOND transport that must not depend on this crate -
+    /// `github.com/telekom/sutura#892`. `None` where this deployment has no ceiling configured,
+    /// the same absence [`Self::spend_headroom`] itself carries.
+    ///
+    /// **Not for a handler to call.** The pair is for a composition root to wrap in its own
+    /// [`sutura_app::spend::SpendObserver`] implementor and hand to a second transport; nothing in
+    /// this crate reaches it, and neither handle is `pub(crate)` on its own for that reason.
+    #[must_use]
+    pub fn spend_metrics(&self) -> Option<(Gauge, Counter)> {
+        Some((self.spend_headroom.clone()?, self.spend_bytes_total.clone()?))
     }
 }
 

@@ -338,7 +338,36 @@ responses without parsing a body. A missing declaration is recorded as `internal
    not - a transport does not link another transport - so nothing on that path pushes. A deployment
    serving both surfaces with a ceiling configured sees the gauge hold its boot-time reading (the full
    ceiling) while the ledger drains through agent-surface calls alone, until the next HTTP query
-   arrives. Not fixed here; tracked as a follow-up.
+   arrives. **Addressed by the third amendment below, `github.com/telekom/sutura#892`** - the shape
+   here (`sutura-mcp` cannot depend on `sutura-http`) is exactly why that fix is a port, not a
+   dependency.
+
+## Third amendment, 2026-09-19: a counter beside the gauge, and an observer port for the agent surface
+
+**`sutura_spend_bytes_total`, `github.com/telekom/sutura#139`.** `sutura_spend_headroom_bytes` is a
+gauge of remaining headroom, and `sum()`-ing it across replicas is wrong in the dangerous direction:
+it is `N * ceiling - total_spend`, moving whenever `N` does, and a restarted replica's headroom snaps
+back to the full ceiling - a restart reads exactly like spend being refunded. `sutura_app::spend::
+SpendLedger::spent_bytes_total` is a plain, process-lifetime `AtomicU64` incremented only by an
+ADMITTED charge, so `sum(rate(sutura_spend_bytes_total[5m]))` is correct across both a rolling
+deploy's changing replica count and a monitoring system's own counter-reset handling. Registered and
+pushed by the same two call sites as the gauge, under the same absent-rather-than-zero condition -
+never an independent registration to drift from it.
+
+**`sutura_app::spend::SpendObserver`, closing deviation 7's agent-surface gap, `#892`.** A small port
+`sutura-app` owns: `fn observe_spend(&self, headroom_bytes: Option<u64>, spent_bytes_total: Option<u64>)`.
+Nothing inside `sutura-app` calls it - a transport reads both readings off `Surface` after its own
+call to `answer`, exactly as the `POST /v1/query` route already did, and pushes them through the
+observer. `sutura-cli`'s `serve::agent` module holds the one implementor this workspace ships (a
+private `SpendMetrics` type), wrapping the SAME `Gauge`/`Counter` handles `ServiceState::new`
+registered (returned by the new `ServiceState::spend_metrics` accessor) - never a second
+registration. `serve::agent::mount` builds it from the `ServiceState` it is handed and passes that
+observer to `sutura_mcp::http::service`, which attaches it to each request's `AgentSurface` via
+`with_spend_observer`; `sutura-mcp` never names `sutura-http`; the two transports agree on a shape
+neither depends on the other to know about, which is the whole reason the port is not a dependency.
+**The limit, stated with the claim**: the observer is attached only where a composition root chooses
+to - `sutura_mcp::http::service`'s parameter defaults to `None`, so a build that never wires one
+still shows deviation 7's old behaviour, unweakened and unreached by anything here.
 
 **And the row the Consequences section said would arrive with the code has arrived:**
 `.agents/skills/sutura/invariants/SKILL.md` carries *request text cannot mint a metric series*, held
