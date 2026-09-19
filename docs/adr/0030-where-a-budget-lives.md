@@ -256,7 +256,7 @@ except the one call site with a real number to put there
   limit for acceptance - *"the data system's opinion at pre-flight time and not a guarantee about
   execute"* - and an estimate inherits it: what a job is actually billed for can differ from
   `totalBytesProcessed`, which is why #139's own verification section calls that gap "the one number
-  here that cannot be assumed" and routes the live check to `just bigquery-acceptance` rather than a
+  here that cannot be assumed" and routed the live check to the (since-removed) `bigquery-acceptance` leg rather than a
   fake.
 - **A federated answer's estimate is the sum of every leg's `Some`, ignoring every leg's `None`.**
   This under-counts whenever a `None` leg would have scanned real bytes, which today is every leg

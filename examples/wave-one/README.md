@@ -79,10 +79,10 @@ Everything is a `just` task, in the order the path needs it:
 
 ```text
 just keycloak-tier start          # the real issuer: a realm, a client and two provisioned subjects
-just e2e-datahub-bigquery         # the wave-one E2E: loads the fixture into BigQuery and asks both subjects
+# removed with the wire: the wave-one E2E used to load the fixture into BigQuery and ask both subjects
 ```
 
-`just e2e-datahub-bigquery` starts the Keycloak tier itself if it is not up, and it loads its own
+The (since-removed) `e2e-datahub-bigquery` leg started the Keycloak tier itself if it was not up, and loaded its own
 `orders`/`customers` tables into your BigQuery dataset before asking (dropping them when it is
 done) - the BigQuery leg needs **your own open project**:
 

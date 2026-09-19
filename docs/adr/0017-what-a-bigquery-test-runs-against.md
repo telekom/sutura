@@ -316,7 +316,7 @@ table. Worth recording twice over:
 decision this record deferred, and `sutura_exec_bigquery::wire` is what came of it: `jobs.query` over
 a blocking HTTP client already resolved in `Cargo.lock`, behind a default-off feature, with the
 acceptance leg written as `acceptance.rs` and reached by
-`just bigquery-acceptance`.
+`bigquery-acceptance`.
 
 So the last bullet above is corrected rather than left standing: a developer who wants to try it now
 has the transport and needs only `just gcloud-login` and three values in their own environment.
@@ -460,7 +460,7 @@ being true, and it named itself as the thing to watch:
 > the 21 questions, compare rows with the engine - and it is not built.**
 
 It is built. `corpus.rs`, three `#[ignore]`d tests behind the same
-`just bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
+`bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
 `bigquery-acceptance` job, 8 tests passed, five of them the smoke leg's and three this one's, against
 the `bq-test` environment's real dataset. So the sentence above is superseded by a measurement rather
 than by an intention.
@@ -1172,7 +1172,7 @@ where the documented source build did not compile.
   release-profile probe would double the step's cost for a codegen difference nobody has priced; the
   concession is in the step's printed notice instead, where a reader of a green run will see it.
 - **The probe links and never RUNS**, so nothing here says the feature works - only that it builds.
-  `just bigquery-acceptance` is the leg that answers the other question.
+  `bigquery-acceptance` is the leg that answers the other question.
 - **Binary size is unmeasured**: no step prints it, so the artefact-closure argument above is still
   qualitative.
 - **`sutura-serve`'s `tls` and `bigquery` are deliberately unprobed**, so none of this is evidence
@@ -1263,11 +1263,11 @@ dataset (`vars.SUTURA_BQ_DATASET`), not on the ref, with `cancel-in-progress: fa
 runs against the one `bq-test` dataset therefore QUEUE rather than interleave. It is the belt, not
 the braces: the per-run suffix is what makes them safe, and the developer's own local run is a
 concurrent writer the group cannot serialise - its per-run table names announce it on the shared
-dataset, and the `just bigquery-acceptance` comment says that in one sentence.
+dataset, and the `bigquery-acceptance` comment says that in one sentence.
 
 ### What becomes provable, and how
 
-`just bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
+`bigquery-acceptance` twice concurrently, locally, both green - the table names differ per run,
 and each run drops its own. The CI job is green on a branch, its printed table names carrying the
 run suffix.
 
@@ -1306,7 +1306,7 @@ principals is not two subjects, and eliding those is the overstatement that page
 ### Three decisions, and the reason each went the way it did
 
 **It has its own task and its own nix app rather than being a third leg inside
-`just bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
+`bigquery-acceptance`.** It needs five values and two key documents the other two legs do not,
 and one task demanding all of them would make the legs a developer holding one credential *can* run
 unreachable. Both apps filter on the test BINARY and not on a test list, so the property the
 acceptance app's comment states survives: a test added to either target is reached without a count

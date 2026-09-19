@@ -388,7 +388,7 @@ you have on its `data systems` line.
 **Two limits worth knowing before you rely on this.** No automated test in this repository has ever
 run a query from this command against a real dataset - the furthest any of them reaches is reading
 the credential file, because the transport's host is a compile-time constant with no loopback to
-point at. What HAS been accepted by a real dataset is the corpus, through `just bigquery-acceptance`,
+point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) `bigquery-acceptance` leg,
 on the adapter's own suite. And the job's deadline comes off `server.request_timeout_seconds`: the
 default 30 leaves a job **10 seconds** and the maximum 300 leaves it **145**, because an answer makes
 two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing

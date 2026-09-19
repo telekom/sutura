@@ -450,7 +450,7 @@ INT64"*. The fault was in the FIXTURE - the plan's metric label was the same wor
 
 The leg is a **smoke leg**, and it is:
 `acceptance.rs`, five `#[ignore]`d tests, reached by
-`just bigquery-acceptance`, needing three variables a developer names in their own environment.
+`bigquery-acceptance`, needing three variables a developer names in their own environment.
 
 **And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
 promises the corpus over a test submitting one statement is the overstated-claim defect this
@@ -616,7 +616,7 @@ bullets down:
   `the_dataset_really_answers_a_listing_and_names_only_the_table_it_does_not_hold` is `#[ignore]`d
   beside its neighbours and asks a real dataset about a set of one table it holds and one it does
   not, with the clean set asserted FIRST as the control. **It has never run on a developer machine
-  here** - no dataset is named in this environment, so `just bigquery-acceptance` fails on its own
+  here** - no dataset is named in this environment, so the (since-removed) `bigquery-acceptance` leg would fail on its own
   precondition rather than reporting green. **It has RUN, green, in the `bigquery-acceptance` job** -
   on #221's own branch on 2026-09-02 and again on `main` at the commit that merged it on 2026-09-03 -
   and it keeps running there, because `--run-ignored only` reaches every `#[ignore]`d test in the
@@ -782,7 +782,7 @@ bullets down:
   `totalItems` value reached an assertion, a panic message or a log line. A deferral pointing at
   evidence that cannot bear it is the overstatement this record is otherwise built to avoid.
   `a_real_listing_reports_a_total_and_it_accounts_for_the_entries_it_carried` is what measures it
-  now, in `just bigquery-acceptance`, one rung BELOW the domain port because `TablesPresent` carries
+  now, in the (since-removed) `bigquery-acceptance` leg, one rung BELOW the domain port because `TablesPresent` carries
   no count and should not. It prints the verdict and requires a total the crate could read - red, not
   silent, if the service populates nothing, because a cross-check whose input never arrives has no
   teeth.

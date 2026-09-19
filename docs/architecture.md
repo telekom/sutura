@@ -195,7 +195,7 @@ source, is refused as two answers to one question.
 automated test in this repository has ever watched answer.** The furthest any of them reaches is
 reading the credential file, because the transport's host is a compile-time constant with no loopback
 to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
-`just bigquery-acceptance`. So this is a composition that is tested and a path that is not - which is
+`bigquery-acceptance`. So this is a composition that is tested and a path that is not - which is
 what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
 code. No published artefact carries the feature: `nix/shipped.nix` builds the shipped binary with cargo's
 default features, because `--features bigquery` compiles `ring` from C and assembly and two of the

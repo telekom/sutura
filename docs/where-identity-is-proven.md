@@ -100,7 +100,7 @@ can. So every venue below carries what it **cannot** answer, next to what it can
 
     **A narrower anchor - binding `Reached by` to a POSITIVE `binary(<stem>)`/`test(<name>)` atom
     naming the venue's own standing test file - was measured against the `justfile` and not
-    built, because this tree's cheapest candidate refutes it.** `just bigquery-acceptance`'s own
+    built, because this tree's cheapest candidate refutes it.** the removed `bigquery-acceptance` leg's own
     `cargo nextest -E` filter is `not binary(exchanged_identity) and not binary(cross_resource)`
     - a NEGATION that selects everything else in the package and never positively names its own
     `acceptance` binary at all. A rule requiring the positive atom would refuse that venue's true
@@ -136,10 +136,10 @@ column only points a reader of the venues table at it.
 | **A fake at the port** | in process, every run | nothing | `just test`, `just validate` | "every outcome the port can produce, including each refusal" |
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` | - |
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` | - |
-| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test`, `just e2e-datahub-bigquery` | - |
-| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | `just bigquery-acceptance`, `just e2e-datahub-bigquery` | "BigQuery accepts what we generate, and the rows agree with the engine" |
+| **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
+| **A real dataset under a shared key** | a GitHub environment, on demand | a service-account key and a billing project | removed with the wire transport (ADBC adoption) | "BigQuery accepts what we generate, and the rows agree with the engine" |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built | - |
-| **A real token exchange, and two grants** | a GitHub environment, on demand | a hosted run resolved both principals to their own accounts - **the pool is provisioned and the two subject assertions are minted at job time** | `just bigquery-exchanged-identity` | issue #81's own row here - "two principals, two answers ... the mechanism, not the identity class" - named a row access policy; that cell was withdrawn (`docs/adr/0017`'s fourteenth amendment). What survives is narrower and still the same insight: a distinct principal's exchange resolves to a distinct account - the mechanism, not the row grant |
+| **A real token exchange, and two grants** | a GitHub environment, on demand | a hosted run resolved both principals to their own accounts - **the pool is provisioned and the two subject assertions are minted at job time** | removed with the wire transport (ADBC adoption) | issue #81's own row here - "two principals, two answers ... the mechanism, not the identity class" - named a row access policy; that cell was withdrawn (`docs/adr/0017`'s fourteenth amendment). What survives is narrower and still the same insight: a distinct principal's exchange resolves to a distinct account - the mechanism, not the row grant |
 | **A served binary under a verified human caller** | nowhere yet | a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them `iam.workloadIdentityUser`, and a hosted run to demand it | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
@@ -401,7 +401,7 @@ about the vocabulary rather than to this row.
 `nix/keycloak-tier.nix` stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at `start` and written nowhere else - and
 `just keycloak-served-test` starts it, runs the one cell that needs it, and stops it whatever the
-cell does. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job) verifies the
+cell does. The wave-one hosted job (`e2e-datahub-bigquery`, removed with the wire) verified the
 SAME realm over HTTP on its own composed deployment - a second, wider `Reached by` for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.
 
@@ -467,10 +467,10 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 
 ## A real dataset under a shared key
 
-`just bigquery-acceptance`, against a GitHub environment's own dataset. `docs/adr/0017` and
+the (since removed) `bigquery-acceptance` leg, against a GitHub environment's own dataset. `docs/adr/0017` and
 `docs/adr/0019` are the records, and the sentence that matters here is short: **a service-account key is
 one identity for everybody who asks**, so what those legs establish is *accepted, and correct for that
-identity* - and nothing whatever about per-subject execution. `just e2e-datahub-bigquery --datahub tier`
+identity* - and nothing whatever about per-subject execution. the (since removed) `e2e-datahub-bigquery` leg
 (the wave-one hosted `e2e-datahub-bigquery` job) reads the SAME `bq-test` environment's dataset for its BigQuery leg -
 same venue, no second row - and adds nothing to this claim's cell: it still executes under one shared
 credential (`shared-service-user`), so the per-subject half stays exactly where the exchange row below
