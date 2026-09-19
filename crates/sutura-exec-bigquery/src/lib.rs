@@ -109,6 +109,8 @@ mod rowset;
 
 mod preflight;
 
+#[cfg(feature = "adbc")]
+pub mod adbc;
 pub mod transport;
 #[cfg(feature = "wire")]
 pub mod wire;

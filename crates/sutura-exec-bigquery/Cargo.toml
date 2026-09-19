@@ -31,6 +31,17 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # manifest line a reviewer can see, rather than inheriting it by depending on this crate.
 wire = ["dep:ureq", "dep:serde", "dep:ring", "dep:sutura-tls"]
 
+# The ADBC TRANSPORT (telekom/sutura#913): loads the self-built
+# `libadbc_driver_bigquery.so` (`nix/bigquery-adbc.nix`, one per release triple)
+# through `adbc_driver_manager` and decodes its Arrow result sets.
+#
+# **Default-off, and the reason is the same as `wire`: the driver's native `.so`
+# and its Arrow graph are an out-of-process/native addition a lean build should
+# not link.** Off is not hidden - every gate here passes `--all-features`, so the
+# module is compiled, linted and unit-tested even when a served artifact does not
+# request it.
+adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema"]
+
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
 # tables so the CORPUS can be run against a real dataset, which is `docs/adr/0017`'s first acceptance
@@ -165,6 +176,18 @@ serde = { workspace = true, optional = true }
 # (above) for the broker's subject-token decode; this stays wire-gated because constructing and
 # signing a service-account ASSERTION is something only the wire's credential read does.
 ring = { workspace = true, optional = true }
+
+adbc_core = { version = "0.24", optional = true }
+adbc_driver_manager = { version = "0.24", optional = true }
+# The ADBC driver manager (telekom/sutura#913): loads the self-built
+# `libadbc_driver_bigquery.so` by path and runs a statement, returning Arrow
+# record batches. The driver owns its own transport to BigQuery, so this feature
+# brings no TLS stack of this crate's own. `adbc_core` is the (aggregate) API;
+# `adbc_driver_manager` provides `ManagedDriver::load_from_path`.
+
+
+arrow-array = { version = "59", optional = true }
+arrow-schema = { version = "59", optional = true }
 
 # Only `tests/corpus.rs` reads these, and only under `required-features`. **Every one of them is
 # already a workspace member and already in `Cargo.lock`, so this section adds no package** - what it
