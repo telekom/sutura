@@ -58,7 +58,8 @@
 //!
 //! # `#[ignore]`d, behind `just datahub-acceptance` - and the reason is a DEFECT IN THE SEAM
 //!
-//! This is the `just bigquery-acceptance` precedent and not a preference, and the fact that decided
+//! This follows the precedent of the now-removed `just bigquery-acceptance` leg, and is not a
+//! preference; the fact that decided
 //! it is worth writing down because it affects more than this test.
 //!
 //! **The seam that decided it is repaired, and the venue stays.** `.sutura-dev/endpoints.json` has

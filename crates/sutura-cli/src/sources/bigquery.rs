@@ -384,10 +384,8 @@ mod tests {
         // credential file the settings tree named. A refusal about that path is the proof; a refusal
         // about the feature, the kind or the posture would mean it stopped earlier.
         //
-        // It cannot go further here by construction: `wire::BigQueryWire`'s host is a `const` and its
-        // agent is `https_only`, so there is no loopback to point it at - `docs/adr/0018` states that
-        // as a coverage hole paid for with a security property, and `just bigquery-acceptance` is the
-        // leg that closes it against a real dataset.
+        // It cannot go further here: the ADBC driver is not shipped and no live leg exercises it
+        // against a real BigQuery project yet, so the credential refusal is proven at this seam.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),

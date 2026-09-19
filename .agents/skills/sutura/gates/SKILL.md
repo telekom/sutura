@@ -815,7 +815,7 @@ panic-free.
   2026-09-05: the `main` branch ruleset requires exactly one context, `ci`, classic branch
   protection is absent (`404 Branch not protected`), and the second repository ruleset is
   `disabled`. So the four `cross / link (<triple>)` legs - and `docs.yml`'s `verify`,
-  `security-audit.yml`'s `audit`, `bigquery-acceptance` and `crap-comment` - **are required by
+  `security-audit.yml`'s `audit` and `crap-comment` - **are required by
   nothing**, and a red one has never blocked a merge, in the queue or out of it, with no override
   and nobody clicking anything. Everything routed through the `ci` job IS gated, which is how a
   step added there is genuinely gating. `devco/required-contexts` is the record and

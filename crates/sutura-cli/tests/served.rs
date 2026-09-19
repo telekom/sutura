@@ -23,8 +23,8 @@
 //!
 //! # Why it can be a gate rather than a `nix run` app
 //!
-//! A files-backed source needs no network and no credential, so unlike `just bigquery-acceptance`
-//! this runs inside `checks.nextest` - which is what makes it a real gate. The port comes from the
+//! A files-backed source needs no network and no credential, so unlike the removed BigQuery
+//! acceptance leg this runs inside `checks.nextest` - which is what makes it a real gate. The port comes from the
 //! kernel (`server.port: 0`, read back off the socket and printed by `sutura_http::server::serve`),
 //! because two checks share one sandbox and a fixed port is how that becomes a flake.
 //!
