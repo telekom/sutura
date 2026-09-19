@@ -13,6 +13,7 @@ use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_runtime::Gauge;
 
 /// The erased serving service behind a [`Surface`].
 ///
@@ -20,24 +21,52 @@ use sutura_domain::warehouse::deadline::Deadline;
 /// erases the adapter to `Arc<dyn Surface>` for the HTTP surface (`type Serving` in `main.rs`) -
 /// PR3's "a root nests the service itself" cannot run over an erased object. This wrapper forwards
 /// every method to the `dyn`, giving the transport a sized `Surface` to hold without un-erasing.
-struct Serving(Arc<dyn Surface>);
+///
+/// **It also pushes this replica's spend headroom after every answered call.** `/mcp` answers
+/// through the same [`Surface`] and charges the same ledger as the HTTP query route, but the agent
+/// transport cannot link `sutura-http` (a transport never links another transport), so the gauge
+/// it must keep honest lives here instead - the composition root hands this wrapper the same
+/// `sutura_runtime::Gauge` the HTTP route writes, so both surfaces drive one
+/// `sutura_spend_headroom_bytes` series.
+struct Serving {
+    surface: Arc<dyn Surface>,
+    spend_headroom: Option<Gauge>,
+}
 
 impl Surface for Serving {
     fn definitions(&self) -> &PinnedDefinitions {
-        self.0.definitions()
+        self.surface.definitions()
     }
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure> {
-        self.0.answer(context, query, deadline)
+        let answered = self.surface.answer(context, query, deadline);
+        // Pushed regardless of whether this answered, refused or failed: a charge is a reservation
+        // never released, so the ledger can have moved even where the call went on to fail - the
+        // same reading the HTTP query route takes right after `Surface::answer`.
+        self.push_headroom();
+        answered
     }
     fn run_sql(
         &self,
         context: &RequestContext,
         statement: &sutura_domain::raw::RawStatement,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        self.0.run_sql(context, statement)
+        let answered = self.surface.run_sql(context, statement);
+        self.push_headroom();
+        answered
     }
     fn spend_headroom_bytes(&self) -> Option<u64> {
-        self.0.spend_headroom_bytes()
+        self.surface.spend_headroom_bytes()
+    }
+}
+
+impl Serving {
+    /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a spend
+    /// ceiling at all. Mirrors `ServiceState::record_spend_headroom`: a `None` reading leaves the
+    /// gauge untouched rather than fabricating zero.
+    fn push_headroom(&self) {
+        if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, self.spend_headroom_bytes()) {
+            gauge.set(bytes);
+        }
     }
 }
 
@@ -58,10 +87,15 @@ pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
+    spend_headroom: Option<Gauge>,
 ) -> Result<sutura_http::AgentMount, String> {
     let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
+    let serving = Arc::new(Serving {
+        surface: service,
+        spend_headroom,
+    });
     Ok(sutura_http::AgentMount::new(sutura_mcp::http::service(
-        Arc::new(Serving(service)),
+        serving,
         crate::commands::catalog_prose(settings.prompt().catalog_prose()),
         admission,
         settings.server().request_timeout(),
