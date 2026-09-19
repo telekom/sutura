@@ -28,16 +28,16 @@ use crate::commands::render;
 #[cfg(feature = "bigquery")]
 use crate::sources::OpenedWith;
 
-/// A `BigQuery` source as this binary composes it: the adapter over the ADBC native driver.
+/// A `BigQuery` source as this binary composes it: the adapter over the `ADBC` native driver.
 ///
 /// **What was here was the HTTP `wire` transport plus a service-account credential file; the same
-/// change that adopted ADBC as the normal BigQuery mode removed both.** The driver performs its own
+/// change that adopted ADBC as the normal `BigQuery` mode removed both.** The driver performs its own
 /// authentication (application-default credentials), so this composition root reads no credential
 /// file and drives no token rotation - the removed `wire` half.
 #[cfg(feature = "bigquery")]
 pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
 
-/// Opens one `BigQuery` dataset over the ADBC native driver.
+/// Opens one `BigQuery` dataset over the `ADBC` native driver.
 ///
 /// **Nothing is attached and nothing is registered, which is the difference from the files arm that
 /// matters:** the tables live in the dataset, so [`OpenedWith::attached`] is `None` here. What this
@@ -108,7 +108,7 @@ pub(super) fn open(
     // The on-disk ADBC driver. An environment variable rather than a settings key: the `.so` is a
     // deployment detail (which binary, mounted where) and is not yet a shipped artefact, so no
     // settings schema owns a path for it yet; named so a startup refusal says what to set.
-    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_| {
+    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_err| {
         format!(
             "`SUTURA_BIGQUERY_ADBC_DRIVER` is not set; point it at the self-built \
              libadbc_driver_bigquery.so for {source}"

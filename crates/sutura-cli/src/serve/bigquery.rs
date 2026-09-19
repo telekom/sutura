@@ -119,7 +119,7 @@ fn build_bigquery(
     // the first question, which is the same argument the inbound key set is read before the listener
     // opens: a driver path that is missing has to stop the process, not become a deployment that
     // answers every question with a failure while its startup log says it opened a dataset.
-    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_| {
+    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_err| {
         format!(
             "`SUTURA_BIGQUERY_ADBC_DRIVER` is not set; point it at the self-built \
              libadbc_driver_bigquery.so for {source}"
