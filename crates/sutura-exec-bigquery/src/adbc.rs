@@ -11,10 +11,10 @@
 //! driver and its Arrow graph are a per-triple addition a lean build should not
 //! link. Off is not hidden - every gate passes `--all-features`.
 
-// The ADBC traits below are imported anonymously (`as _`) because they exist only
-// to resolve those types' methods and are never named directly.
 pub mod decode;
 
+// The ADBC traits below are imported anonymously (`as _`) because they exist only
+// to resolve those types' methods and are never named directly.
 use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};

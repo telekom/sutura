@@ -4,7 +4,7 @@
 //! batches into the adapter's own `JobRows`, reusing the same
 //! [`crate::transport::FieldType`] vocabulary the wire uses, so one plan answered
 //! by two transports agrees on field kinds. The value pass is one vectorised
-//! [`arrow_cast::cast`] to `Utf8` per column rather than a per-cell downcast
+//! `arrow_cast::cast` to `Utf8` per column rather than a per-cell downcast
 //! ladder.
 //!
 //! Completeness is decided here. The wire refused a first page by comparing the
@@ -55,7 +55,7 @@ impl Error for Decode {}
 
 /// The row count a stream reports, when it reports one at all.
 ///
-/// `None` is an honest absence, never a defaulted `0`.
+/// [`Reported::Unreported`] is an honest absence, never a defaulted `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reported {
     Unreported,

@@ -509,32 +509,34 @@ Names the driver `.so` a composition root resolves to load.
 
 The row count a stream reports, when it reports one at all.
 
-`None` is an honest absence, never a defaulted `0`.
+`Reported::Unreported` is an honest absence, never a defaulted `0`.
 
 ### `use job_rows`
 
-Decodes drained batches into a `JobRows`, refusing an unmapped column or an
-incomplete stream.
+Decodes drained batches into a `JobRows`, refusing an unmapped column, a
+batch narrower than the schema, or an incomplete stream.
 
-The schema-wide type pass runs before the value mapping, so a result with no
-rows still refuses an unmapped column.
+The schema-wide type pass runs before any value work — a result with no rows
+still refuses an unmapped column — and each batch's column count is checked
+against the schema before its cells are read (fail closed, not short).
 
 ### Module `decode`
 
-Arrow → `JobRows` decode for the ADBC transport (telekom/sutura#913).
+Arrow -> `JobRows` decode for the ADBC transport (telekom/sutura#913).
 
 The driver returns Arrow record batches; this pure half turns a schema +
 batches into the adapter's own `JobRows`, reusing the same
-`crate::transport::FieldType` vocabulary and the shared `crate::rowset::rows`
-mapping the wire uses - one plan answered by two transports must produce one
-number.
+`crate::transport::FieldType` vocabulary the wire uses, so one plan answered
+by two transports agrees on field kinds. The value pass is one vectorised
+`arrow_cast::cast` to `Utf8` per column rather than a per-cell downcast
+ladder.
 
 Completeness is decided here. The wire refused a first page by comparing the
 delivered count to the endpoint's `totalRows`; an ADBC read streams the whole
 result, so completeness is the stream draining fully. `job_rows` takes the
-drained rows plus a `Reported` total (the driver attaches its own job
-statistics to the schema metadata, measured in the provisioned leg) and
-refuses a delivered count that does not reach what was reported.
+drained rows plus a `Reported` total (the driver attaches job statistics to
+the schema metadata, measured in the provisioned leg) and refuses a delivered
+count that does not reach what was reported.
 
 #### `enum Decode`
 
@@ -547,6 +549,7 @@ Why a result set could not be decoded.
 ##### Variants
 
 - `UnmappedColumn` - A column whose Arrow type this adapter does not map.
+- `Shape` - A batch that disagrees with the schema it was announced under — a stream arriving over a C ABI from a foreign driver is exactly the case to refuse rather than trust.
 - `Incomplete` - The stream was not complete: a reported total the delivered rows do not reach.
 
 ##### Implements
@@ -561,7 +564,7 @@ pub enum Reported
 
 The row count a stream reports, when it reports one at all.
 
-`None` is an honest absence, never a defaulted `0`.
+`Reported::Unreported` is an honest absence, never a defaulted `0`.
 
 ##### Variants
 
@@ -578,11 +581,12 @@ The row count a stream reports, when it reports one at all.
 pub fn job_rows(schema: &arrow_schema::Schema, batches: &[arrow_array::RecordBatch], reported: Reported) -> Result<crate::transport::JobRows, Decode>
 ```
 
-Decodes drained batches into a `JobRows`, refusing an unmapped column or an
-incomplete stream.
+Decodes drained batches into a `JobRows`, refusing an unmapped column, a
+batch narrower than the schema, or an incomplete stream.
 
-The schema-wide type pass runs before the value mapping, so a result with no
-rows still refuses an unmapped column.
+The schema-wide type pass runs before any value work — a result with no rows
+still refuses an unmapped column — and each batch's column count is checked
+against the schema before its cells are read (fail closed, not short).
 
 ## Module `transport`
 
