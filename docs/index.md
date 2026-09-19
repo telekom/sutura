@@ -72,7 +72,7 @@ and says which parts we mean to build.
 | Understand the shape of the system           | [Architecture](architecture.md)       |
 | Read the Rust API                            | [API reference](api/index.md)         |
 
-To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
+To work *on* sutura, start at [Contributing](contributing.md), under **Building it**.
 
 ## Status
 
