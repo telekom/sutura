@@ -178,15 +178,19 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 /// One `Result` rather than a print-and-return block per failure: the task name and the paragraph
 /// under it are then written once, which is `api_docs`'s shape and the reason it has it.
 fn check() -> Result<Counted, String> {
-    let (root, files) = repo::all_files()
-        .and_then(|census| census.into_listing(repo::Unmigrated::BootOrder))
-        .map_err(|why| why.describe())?;
+    let root = repo::root().ok_or_else(|| String::from("could not determine the repo root"))?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-    let found = scan(&files, &read)?;
+    let found = scan(repo::all_files().map_err(|why| why.describe())?, &read)?;
     every_caller_is_declared(&declared(), &found.callers)?;
     // After the omission cross-check and not before it: this one exists to keep that check's text
     // matching honest, so it reads as the guard on the line above rather than a rule of its own.
-    no_caller_hides_behind_an_alias(&files, &read)?;
+    //
+    // A SECOND census rather than the first, held across both scans: `Census::inspect` consumes
+    // its receiver by value precisely so a caller cannot hold the sequence between two walks, and
+    // holding one would reopen exactly the narrowing `github.com/telekom/sutura#414` migrated this
+    // gate to close. Reading the tree twice costs roughly what one read does - this module's own
+    // header already prices one at 136ms against a multi-second `hygiene` sweep.
+    no_caller_hides_behind_an_alias(repo::all_files().map_err(|why| why.describe())?, &read)?;
     for composition in ROOTS {
         let text = read(composition.path).ok_or_else(|| {
             format!(
@@ -240,29 +244,39 @@ struct Counted {
 /// this function once, so the aliasing form is one keystroke away.
 ///
 /// Not a style rule - it is scoped to this one name, and only to a form that renames it.
-fn no_caller_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Result<(), String> {
-    for rel in files.iter().filter(|rel| in_scope(rel)) {
-        let Some(text) = read(rel) else { continue };
-        if !text.contains(PREFLIGHT) {
-            continue;
-        }
-        let tests = regions::scope(rel, read);
-        for (index, line) in code_lines(&text).iter().enumerate() {
-            let number = index.saturating_add(1);
-            if tests.covers(number) {
-                continue;
+///
+/// **Moved onto [`repo::Census::inspect`] for `github.com/telekom/sutura#414`.** The loop used to
+/// hold `files`, the transitional door's plain `Vec` - a `.take(n)` written there would have moved
+/// with nothing here to notice. `inspect` owns the loop AND the read now, scoped to [`in_scope`],
+/// so this function never holds the sequence and an unreachable subtree refuses the whole scan
+/// instead of narrowing it. There is only ONE match, kept rather than returned early - `inspect`
+/// has no early-exit arm by design, per the census module's own header.
+fn no_caller_hides_behind_an_alias(census: repo::Census, read: &PostImage<'_>) -> Result<(), String> {
+    let mut found: Option<String> = None;
+    census
+        .inspect(&[], in_scope, |rel, bytes| {
+            let Ok(text) = std::str::from_utf8(bytes) else { return };
+            if !text.contains(PREFLIGHT) {
+                return;
             }
-            if imports(line) && line.contains(PREFLIGHT) && line.contains(" as ") {
-                return Err(format!(
-                    "{rel}:{number} imports `{PREFLIGHT}` under another name. This gate finds a root \
-                     that omitted the pre-flight by matching that name as text, so a call spelled \
-                     differently is invisible to it - import the name as itself, or make the order a \
-                     type rather than a citation"
-                ));
+            let tests = regions::scope(rel, read);
+            for (index, line) in code_lines(text).iter().enumerate() {
+                let number = index.saturating_add(1);
+                if tests.covers(number) {
+                    continue;
+                }
+                if imports(line) && line.contains(PREFLIGHT) && line.contains(" as ") && found.is_none() {
+                    found = Some(format!(
+                        "{rel}:{number} imports `{PREFLIGHT}` under another name. This gate finds a root \
+                         that omitted the pre-flight by matching that name as text, so a call spelled \
+                         differently is invisible to it - import the name as itself, or make the order a \
+                         type rather than a citation"
+                    ));
+                }
             }
-        }
-    }
-    Ok(())
+        })
+        .map_err(|why| why.describe())?;
+    found.map_or(Ok(()), Err)
 }
 
 /// Every file whose CODE calls the pre-flight, and how many files were read.
@@ -270,34 +284,50 @@ fn no_caller_hides_behind_an_alias(files: &[String], read: &PostImage<'_>) -> Re
 /// [`ROOTS`] is what makes a rename a failure; this is what makes an OMISSION one, and the module
 /// header records what the omission looked like while nothing checked it.
 ///
-/// A file that cannot be read is a failure and not a skip, because a scan that quietly shrank is how a
-/// third root goes unnoticed. Test code comes out by DECLARATION rather than by a name guess -
+/// **Moved onto [`repo::Census::inspect`] for `github.com/telekom/sutura#414`.** An in-scope file
+/// this gate cannot read is now [`repo::Census::inspect`]'s own refusal rather than this
+/// function's `ok_or_else` - stronger, because it names every unreadable file the walk met rather
+/// than only the first. Test code comes out by DECLARATION rather than by a name guess -
 /// `regions::scope` resolves `crates/sutura-cli/src/serve/tests.rs` through the
 /// `#[cfg(test)] mod tests;` in its parent, which no rule about the file's own name can see.
-fn scan(files: &[String], read: &PostImage<'_>) -> Result<Scan, String> {
+///
+/// **Not `from_utf8_lossy`.** The census reads raw bytes, which never fail on invalid UTF-8 - a
+/// lossy decode would accept the same bytes and mistokenise them instead, turning a file this gate
+/// cannot read as text into one read wrongly rather than refused. The closure captures the FIRST
+/// decode failure and this returns it once the walk itself has finished.
+fn scan(census: repo::Census, read: &PostImage<'_>) -> Result<Scan, String> {
     let mut callers = Vec::new();
     let mut count = 0_usize;
-    for rel in files.iter().filter(|rel| in_scope(rel)) {
-        let text = read(rel).ok_or_else(|| {
-            format!("could not read {rel}, so the scan that decides WHICH roots this gate checks is incomplete")
-        })?;
-        count = count.saturating_add(1);
-        // Before the lexer, because it only ever REMOVES text: a file whose raw bytes do not carry the
-        // call cannot carry it once comments and string interiors are blanked. **Four** files under
-        // `crates/` carry the needle and 211 do not, so this skips the lex for all but four.
-        //
-        // Four and not two, and the difference is instructive: this is a raw `contains`, so it admits
-        // the two files whose only occurrences are inside `#[cfg(test)]` regions. That is a
-        // POST-LEXER fact and a `contains` cannot know it. An earlier version of this comment read
-        // "two", derived from the verdict line's own `2` - but that number counts CALLERS, after the
-        // lexer and the region scan, so the derivation was the error rather than the count.
-        // `git grep -l "refuse_absent_tables" -- 'crates/**/*.rs'` is the check.
-        if !text.contains(PREFLIGHT) {
-            continue;
-        }
-        if call_line(&code_lines(&text), &regions::scope(rel, read), PREFLIGHT).is_some() {
-            callers.push(rel.clone());
-        }
+    let mut invalid: Option<String> = None;
+    census
+        .inspect(&[], in_scope, |rel, bytes| {
+            count = count.saturating_add(1);
+            let Ok(text) = std::str::from_utf8(bytes) else {
+                if invalid.is_none() {
+                    invalid = Some(format!("{rel}: not valid UTF-8"));
+                }
+                return;
+            };
+            // Before the lexer, because it only ever REMOVES text: a file whose raw bytes do not carry
+            // the call cannot carry it once comments and string interiors are blanked. **Four** files
+            // under `crates/` carry the needle and 211 do not, so this skips the lex for all but four.
+            //
+            // Four and not two, and the difference is instructive: this is a raw `contains`, so it
+            // admits the two files whose only occurrences are inside `#[cfg(test)]` regions. That is a
+            // POST-LEXER fact and a `contains` cannot know it. An earlier version of this comment read
+            // "two", derived from the verdict line's own `2` - but that number counts CALLERS, after
+            // the lexer and the region scan, so the derivation was the error rather than the count.
+            // `git grep -l "refuse_absent_tables" -- 'crates/**/*.rs'` is the check.
+            if !text.contains(PREFLIGHT) {
+                return;
+            }
+            if call_line(&code_lines(text), &regions::scope(rel, read), PREFLIGHT).is_some() {
+                callers.push(rel.to_owned());
+            }
+        })
+        .map_err(|why| why.describe())?;
+    if let Some(why) = invalid {
+        return Err(why);
     }
     Ok(Scan { callers, read: count })
 }
@@ -529,10 +559,14 @@ mod tests {
     #[test]
     fn importing_the_preflight_under_another_name_is_refused() {
         let aliased = "use crate::sources::refuse_absent_tables as preflight;\nfn run() { preflight(&p, &e); }\n";
-        let files = vec![String::from("crates/sutura-cli/src/other.rs")];
-        let read = |path: &str| (path == "crates/sutura-cli/src/other.rs").then(|| String::from(aliased));
+        let tree = crate::scratch_tree::Tree::of(
+            "boot-order-aliased",
+            &[("crates/sutura-cli/src/other.rs", aliased.as_bytes())],
+        );
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let read = |path: &str| std::fs::read_to_string(tree.root().join(path)).ok();
 
-        let refused = no_caller_hides_behind_an_alias(&files, &read);
+        let refused = no_caller_hides_behind_an_alias(census, &read);
         let why = refused.expect_err("an aliased import defeats the cross-check and must be refused");
         assert!(why.contains("under another name"), "{why}");
         assert!(why.contains("crates/sutura-cli/src/other.rs:1"), "{why}");
@@ -545,21 +579,47 @@ mod tests {
     #[test]
     fn importing_the_preflight_as_itself_is_allowed() {
         let plain = "pub(crate) use bigquery::refuse_absent_tables;\n";
-        let files = vec![String::from("crates/sutura-cli/src/sources.rs")];
-        let read = |path: &str| (path == "crates/sutura-cli/src/sources.rs").then(|| String::from(plain));
-        assert_eq!(no_caller_hides_behind_an_alias(&files, &read), Ok(()));
+        let tree = crate::scratch_tree::Tree::of(
+            "boot-order-plain-import",
+            &[("crates/sutura-cli/src/sources.rs", plain.as_bytes())],
+        );
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let read = |path: &str| std::fs::read_to_string(tree.root().join(path)).ok();
+        assert_eq!(no_caller_hides_behind_an_alias(census, &read), Ok(()));
     }
 
     /// The real tree carries no alias, so the check above is not vacuous on it.
     #[test]
     fn the_tree_itself_holds_no_aliased_import_of_the_preflight() {
-        let Ok((root, files)) =
-            crate::repo::all_files().and_then(|census| census.into_listing(crate::repo::Unmigrated::BootOrder))
-        else {
-            return;
-        };
+        let Some(root) = crate::repo::root() else { return };
+        let Ok(census) = crate::repo::all_files() else { return };
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-        assert_eq!(no_caller_hides_behind_an_alias(&files, &read), Ok(()));
+        assert_eq!(no_caller_hides_behind_an_alias(census, &read), Ok(()));
+    }
+
+    /// [`repo::Census::inspect`] refuses on the WHOLE unreachable set, not the first one it met -
+    /// stronger than the `ok_or_else` this replaced, which stopped at the first unreadable file a
+    /// `for` loop happened to reach. Two sealed files, both named.
+    #[test]
+    fn an_unreadable_file_names_every_one_the_walk_met_not_just_the_first() {
+        let mut tree = crate::scratch_tree::Tree::of(
+            "boot-order-two-unreadable",
+            &[
+                ("crates/a/src/lib.rs", b"fn a() {}\n".as_slice()),
+                ("crates/b/src/lib.rs", b"fn b() {}\n".as_slice()),
+            ],
+        );
+        if !tree.seal("crates/a/src/lib.rs") || !tree.seal("crates/b/src/lib.rs") {
+            // Mode bits are ignored for uid 0 - `Tree::seal`'s own contract.
+            return;
+        }
+        let census = crate::repo::collect_files(tree.root(), tree.root(), &["rs"]);
+        let read = |path: &str| std::fs::read_to_string(tree.root().join(path)).ok();
+        let Err(error) = scan(census, &read) else {
+            panic!("two unreadable in-scope files refuse the scan");
+        };
+        assert!(error.contains("crates/a/src/lib.rs"), "{error}");
+        assert!(error.contains("crates/b/src/lib.rs"), "{error}");
     }
 
     #[test]
@@ -567,11 +627,10 @@ mod tests {
         // The OMISSION half, over the real tree: a third root that calls the pre-flight would be a
         // serving path whose order nothing reads. Non-vacuous by construction - the scan has to have
         // read more files than it found roots in, and `every_caller_is_declared` fails on an empty one.
-        let (root, files) = crate::repo::all_files()
-            .and_then(|census| census.into_listing(crate::repo::Unmigrated::BootOrder))
-            .expect("the repo root");
+        let root = crate::repo::root().expect("the repo root");
+        let census = crate::repo::all_files().expect("the repo listing");
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
-        let found = scan(&files, &read).expect("every Rust file under crates/ is readable");
+        let found = scan(census, &read).expect("every Rust file under crates/ is readable");
         assert_eq!(
             every_caller_is_declared(&declared(), &found.callers),
             Ok(()),
