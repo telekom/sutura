@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3552,6 +3552,23 @@ metrics module already applies to a gauge with no meaningful value.</p>
 </span></code></pre></div>
 <p>No ceiling configured. Every question is admitted and nothing is counted - <code>docs/adr/0030</code>'s
 "absent means no budget, which is today's behaviour" read back as a constructor.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spent_bytes_total</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">u64</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every byte this replica has admitted since it started, or <code>None</code> where no ceiling is
+configured - the same "absent rather than zero" <code>Self::headroom_bytes</code> already applies.</p>
+<p><strong>Monotonic, and that is the whole reason this exists beside a gauge that already reports
+headroom.</strong> <code>sutura_spend_headroom_bytes</code> (<code>#884</code>) cannot be summed across replicas: it
+resets to the full ceiling on every restart, and <code>sum()</code> over N replicas is <code>N * ceiling -
+total_spend</code>, a number that moves whenever N does. This total only grows, so
+<code>sum(rate(sutura_spend_bytes_total[5m]))</code> is correct across a restart (a monitoring
+system's counter-reset handling) and across a changing replica count - <code>docs/adr/0030</code>'s
+owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
+enforcement, which stays per-replica either way.</p>
+<p><strong>Not yet exported as a metric.</strong> No <code>Surface</code>/<code>ServiceState</code> accessor reaches this method
+today - <code>sutura_spend_bytes_total</code>'s registration and push are sequenced behind
+<code>github.com/telekom/sutura#921</code>, which is already touching the same <code>ServiceState</code> fields
+this counter's gauge sibling lives beside. This method is the mechanism the wiring will
+call; it is proven directly, against the ledger, until that lands.</p>
 
 
 

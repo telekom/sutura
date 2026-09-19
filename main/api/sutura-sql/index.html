@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1777,7 +1777,7 @@ splitter - <code>sutura_semantic::federated_plan</code> produces a <code>LegPlan
 It is that the one leg-executing adapter a release links is the engine, which builds a logical
 plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
 and a default-off feature. <code>.agents/skills/sutura/query-surface</code>'s federation section records
-that state, and it is why this crate's leg goldens are evidence about four dialects and about
+that state, and it is why this crate's leg goldens are evidence about five dialects and about
 nothing a shipped binary executes.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
@@ -1950,9 +1950,9 @@ for.</p>
 <code>dateTrunc</code> and <code>SUM</code> as <code>sum</code> for <code>ClickHouse</code>, which is exactly the kind of difference nobody
 should be maintaining by hand. Two things it does not decide for us, both measured rather than
 assumed:</p>
-<p><strong>Placeholder syntax.</strong> A placeholder renders as <code>?</code> for every dialect, including the one that
-needs <code>$1</code>. The crate carries a per-dialect <code>parameter_token</code> field and never reads it. So the
-style is chosen here, per dialect, and a target that needs numbering gets numbering.</p>
+<p><strong>Placeholder syntax.</strong> A placeholder renders as <code>?</code> for every dialect, including the ones that
+need <code>$1</code> or <code>:1</code>. The crate carries a per-dialect <code>parameter_token</code> field and never reads it. So
+the style is chosen here, per dialect, and a target that needs numbering gets numbering.</p>
 <p><strong>Identifier quoting.</strong> The generator quotes an identifier only when it was quoted in the source,
 is a reserved word, or the config says always. Our identifiers were never in any source, so
 without forcing it a column called <code>order</code> would be emitted bare. We force it, and we force it
@@ -1987,6 +1987,7 @@ a feature flag, a match arm and a snapshot.</p>
 <li><code>Postgres</code></li>
 <li><code>ClickHouse</code></li>
 <li><code>BigQuery</code></li>
+<li><code>Oracle</code></li>
 </ul>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
@@ -2034,6 +2035,15 @@ that this DECLARATION is still taken from documentation rather than from that se
 venue exists and nothing yet asks it about identifier folding. And <em>nothing in this workspace
 executes either, which <code>AGENTS.md</code> already says</em> was false twice over: <code>Postgres</code> executes,
 and <code>AGENTS.md</code> has said nothing about <code>ClickHouse</code> since <code>#228</code>.</p>
+<p><strong>Oracle is <code>InsensitiveAscii</code>, and this is the declaration the type exists for as much as
+<code>BigQuery</code>'s is.</strong> Oracle folds an UNQUOTED identifier to uppercase before resolving it, so
+<code>orders</code>, <code>Orders</code> and <code>ORDERS</code> name the same object there - two spellings differing only in
+ASCII case name one thing, which is exactly <code>InsensitiveAscii</code>'s definition. This renderer
+force-quotes every identifier it emits, so nothing here ever exercises the folding itself; the
+declaration is about what the CATALOG's own case comparison may assume once Oracle is a
+target, not about a statement this crate renders. From Oracle's documented behaviour, and not
+measured against a live instance for the same reason <code>ClickHouse</code>'s declaration is not - see
+this PR's own limits.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identifier_quote</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
 </span></code></pre></div>
 <p>Which character this data system wraps an identifier in.</p>
@@ -2051,9 +2061,9 @@ rather than against the rendering.</strong> Its job API takes either positional 
 or named ones written <code>@name</code> with <code>parameterMode: NAMED</code>. A <code>crate::GeneratedQuery</code> carries
 an ordered <code>Vec</code> of values and no names at all - the plan has none to give, because a
 parameter's identity there IS its position - so positional is the shape that already matches
-end to end. Choosing named would mean inventing a name per parameter in the generator, a third
-<code>PlaceholderStyle</code>, and a map on <code>GeneratedQuery</code> for a driver to read: three new things, none
-of which the domain has anything to put in them.</p>
+end to end. Choosing named would mean inventing a name per parameter in the generator, a
+fourth <code>PlaceholderStyle</code>, and a map on <code>GeneratedQuery</code> for a driver to read: three new
+things, none of which the domain has anything to put in them.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">qualification</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Qualification</span>
 </span></code></pre></div>
 <p>The deepest table path this data system resolves.</p>
@@ -2088,6 +2098,11 @@ registers one file per model in its own table registry. A qualified name resolve
 either, so a refusal naming the path is the useful outcome and a rendered <code>a.b.c</code> that returns
 <code>Catalog with name a does not exist</code> is not. Widening this arm is a change to what those
 adapters ATTACH, not to what this renders.</p>
+<p><strong>Oracle is <code>Dataset</code> for its <code>schema.table</code>, alongside Postgres and <code>ClickHouse</code> and for the
+same reason Postgres stops there.</strong> A three-part <code>db_link.schema.table</code> exists in Oracle only
+as a database-link syntax the dialect layer does not render as a plain qualified path, so
+rendering three parts here would not be a cross-database read - it would be a name the target
+resolves against whatever schema the session already has, silently.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
 <h3 id="enum-placeholderstyle"><code>enum PlaceholderStyle</code><a class="headerlink" href="#enum-placeholderstyle" title="Permanent link">&para;</a></h3>
@@ -2100,7 +2115,11 @@ adapters ATTACH, not to what this renders.</p>
 <li><code>Numbered</code> - <code>$1</code>, <code>$2</code>, numbered from one. Postgres.</li>
 </ul>
 <p>The numbering is why this is not cosmetic: a statement with three <code>?</code> sent to Postgres is a
-  syntax error, and one with <code>$1</code> repeated is a different query.</p>
+  syntax error, and one with <code>$1</code> repeated is a different query.
+- <code>Colon</code> - <code>:1</code>, <code>:2</code>, numbered from one like <code>Self::Numbered</code>, but colon-prefixed. Oracle.</p>
+<p>Oracle's own positional bind form, distinct from <code>$n</code> and not interchangeable with it: <code>$1</code>
+  sent to Oracle is not a placeholder at all, and there is nothing in Oracle's grammar that
+  would coerce it into one.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-identifierquote"><code>enum IdentifierQuote</code><a class="headerlink" href="#enum-identifierquote" title="Permanent link">&para;</a></h3>
@@ -2112,11 +2131,11 @@ render and pin a dialect using it, and a <code>char</code> field would let a cal
 tested against.</p>
 <h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>Double</code> - <code>"name"</code>. <code>DuckDB</code>, Postgres and <code>ClickHouse</code>.</li>
+<li><code>Double</code> - <code>"name"</code>. <code>DuckDB</code>, Postgres, <code>ClickHouse</code> and Oracle.</li>
 <li><code>Backtick</code> - <code>`name`</code>. <code>BigQuery</code>.</li>
 </ul>
 <p><strong>The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
-  dialect.</strong> For the other three a double quote is an identifier quote and a backtick is a
+  dialect.</strong> For the other four a double quote is an identifier quote and a backtick is a
   syntax error, so a mistake is loud. In <code>GoogleSQL</code> a double quote delimits a STRING, so
   <code>SELECT "amount"</code> is not a column reference at all - it selects the constant text <code>amount</code>,
   and the target's own lexical reference leans on this when it writes
@@ -2164,7 +2183,20 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
   itself, which is a difference we do delegate.
 - <code>DateFirstAsKeyword</code> - <code>DATE_TRUNC(&lt;date&gt;, MONTH)</code> - the date first, the grain a bare keyword.</p>
 <p><code>BigQuery</code>. Both halves differ from the shape above, and neither half is optional: the
-  argument order and the grain's form are separately load-bearing.</p>
+  argument order and the grain's form are separately load-bearing.
+- <code>DateFirstAsQuotedFormat</code> - <code>TRUNC(&lt;date&gt;, 'IW')</code> - the date first, the grain a single-quoted format model, and the FUNCTION ITSELF is not <code>DATE_TRUNC</code> at all.</p>
+<p>Oracle. Naming a third shape rather than reusing one of the two above is not decoration:
+  upstream's own Oracle lowering for <code>DATE_TRUNC</code> (behind the <code>transpile</code> feature this crate
+  does not compile - see the workspace manifest) renames the function to <code>TRUNC</code> and leaves the
+  arguments as they arrived, which fixes neither the order nor the form. <code>bucket_expression</code>
+  therefore builds the whole call for this arm rather than reshaping a <code>DATE_TRUNC</code> node.</p>
+<p><strong><code>IW</code> and not <code>WW</code> or <code>IYYY</code>, and the reason is the same Monday convention every other
+  dialect here already agrees on</strong> (the <code>week</code> unit's own header in <code>mod@crate::generate</code>
+  carries the measurement): Oracle's own SQL reference describes <code>IW</code> as the ISO week -
+  Monday-based - while <code>WW</code> counts from the calendar year's first day regardless of what
+  weekday that is. Verified against the documented format models rather than measured, for
+  the same limit <code>DateFirstAsKeyword</code> states: there is no Oracle instance in this workspace to
+  ask, and PR 2 is where one arrives.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-unknowndialect"><code>struct UnknownDialect</code><a class="headerlink" href="#struct-unknowndialect" title="Permanent link">&para;</a></h3>
@@ -2176,14 +2208,14 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
 <h3 id="constant-all"><code>constant ALL</code><a class="headerlink" href="#constant-all" title="Permanent link">&para;</a></h3>
 <p>Every dialect, for iterating a golden suite over all of them.</p>
 <p>A <code>const</code> rather than a derive, and <strong>the compiler is what holds a new variant rather than the
-test below.</strong> A fifth variant does not compile until seven production exhaustive matches over
+test below.</strong> A sixth variant does not compile until seven production exhaustive matches over
 <code>Dialect</code> answer for it: <code>as_str</code>, <code>placeholder_style</code>, <code>identifier_quote</code>, <code>date_trunc_shape</code>,
 <code>qualification</code> and <code>identifier_case</code> in this file, and <code>dialect_type</code> in
 <code>mod@crate::generate</code>. So a data system cannot arrive without somebody deciding how it renders.</p>
 <p><strong>What is held by review and by nothing else is the edge from the enum to this list</strong>, and this
-paragraph used to promise the opposite. <code>every_dialect_is_in_all</code> restates the four names by
-hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
-suite iterates four of five and reads as covered; a variant added to both turns it red on the
+paragraph used to promise the opposite. <code>every_dialect_is_in_all</code> restates the five names by
+hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
+suite iterates five of six and reads as covered; a variant added to both turns it red on the
 length assertion until the literal is bumped. <code>crates/sutura-app/tests/golden/dialects.rs</code> does
 not close the edge either - it compares this list against that suite's own registry, never the
 enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
@@ -2489,12 +2521,16 @@ called <code>order</code> would be emitted bare. <code>always_quote_identifiers<
 <p><strong><code>GROUP BY</code> gets the unaliased expressions.</strong> Passing the aliased ones emits <code>GROUP BY x AS y</code>,
 which no target accepts.</p>
 <p><strong>The time bucket is cast to a date.</strong> <code>DATE_TRUNC</code> over a date returns a TIMESTAMP in two of the
-four targets, so without the cast the type of the <code>period</code> column is whatever each dialect chose
-and every adapter would need to know which.</p>
+five targets, so without the cast the type of the <code>period</code> column is whatever each dialect chose
+and every adapter would need to know which. Oracle's <code>TRUNC</code> already returns a <code>DATE</code>, so the
+cast is redundant rather than corrective there - applied anyway, because one shared cast is what
+keeps the type uniform without a per-dialect branch to keep in step.</p>
 <p><strong>The time bucket's SPELLING is per dialect, and it is the one difference here the layer does not
 absorb.</strong> Three targets take <code>DATE_TRUNC('month', &lt;date&gt;)</code>; <code>BigQuery</code> takes
 <code>DATE_TRUNC(&lt;date&gt;, MONTH)</code> - the arguments the other way round and the grain a bare keyword
-rather than a string. <code>crate::dialect::DateTruncShape</code> holds the declaration and the reason it
+rather than a string; Oracle takes <code>TRUNC(&lt;date&gt;, 'MM')</code> - a different FUNCTION, the date first
+like <code>BigQuery</code>, but the grain a quoted format model rather than a keyword.
+<code>crate::dialect::DateTruncShape</code> holds the declaration and the reason it
 has to be one: <strong>within one target, the parse check cannot tell the two apart.</strong> Both shapes
 rendered for <code>BigQuery</code> parse as <code>BigQuery</code>, so the corpus would be green on the wrong one.
 <code>the_parse_check_cannot_tell_the_two_bucket_shapes_apart</code> is that measurement.</p>

@@ -484,6 +484,8 @@
       
         
       
+        
+      
     
     
     
@@ -600,6 +602,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -837,8 +867,6 @@
       
         
       
-        
-      
     
     
     
@@ -927,34 +955,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1089,7 +1089,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1111,14 +1111,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1799,6 +1799,24 @@ that first needed it for the reason <code>discovery</code> is a library door: le
 transport, minted-for in a broker and composed in a root, and a fixture living inside one of those
 three cannot be driven from the other two. What it may never be cited for is written where it is
 defined, because a venue that cannot state its limit is how <em>verified</em> drifts.</p>
+<h1 id="a-fourth-half-and-it-is-not-about-a-service-at-all">A fourth half, and it is not about a service at all<a class="headerlink" href="#a-fourth-half-and-it-is-not-about-a-service-at-all" title="Permanent link">&para;</a></h1>
+<p><code>bench_venue</code> prints the host's own load average before a benchmark under <code>crates/*/benches/</code>
+measures anything. It lives here rather than duplicated in each bench binary because
+<code>cargo xtask check-jscpd</code> refuses to exempt a clone under <code>crates/</code>, and two independent
+binaries printing the same probe is exactly that clone - <code>github.com/telekom/sutura#915</code>.</p>
+<h2 id="module-bench_venue">Module <code>bench_venue</code><a class="headerlink" href="#module-bench_venue" title="Permanent link">&para;</a></h2>
+<p>Whether the host was too busy for a benchmark's number to mean anything.</p>
+<p>A fourth half of this crate, unrelated to the other three: <code>benches/*.rs</code> under <code>crates/</code> is a
+venue <code>cargo xtask check-jscpd</code> refuses to exempt a clone in, so the load-average probe two
+independent bench binaries both print before measuring anything lives here once instead of
+twice - <code>github.com/telekom/sutura#915</code>. A measurement taken under this repository's usual
+multi-lane load is not comparable with one taken idle, and the point of <code>print()</code> is that a
+reader of the numbers below it never has to take that on faith.</p>
+<h3 id="fn-print"><code>fn print</code><a class="headerlink" href="#fn-print" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">()</span>
+</span></code></pre></div>
+<p>Prints the host's own 1-minute load average beside its core count, before anything is
+measured, and says so loudly when there is more runnable work than this host has cores.</p>
 <h2 id="module-discovery">Module <code>discovery</code><a class="headerlink" href="#module-discovery" title="Permanent link">&para;</a></h2>
 <p>The discovery file: the only way to learn where a provisioned service is listening.</p>
 <p>Ports are allocated rather than derived - published ephemerally, so docker and the operating
@@ -1838,7 +1856,7 @@ document cannot answer the question once two provisioners contribute to it, and 
 answers <em>nix</em> for a docker entry is exactly the confident wrong answer being removed. The
 decision <code>#317</code> asked for, as a type rather than a paragraph.</p>
 <h3 id="enum-provisioner"><code>enum Provisioner</code><a class="headerlink" href="#enum-provisioner" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioner</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioner</span>
 </span></code></pre></div>
 <p>What brought one service up.</p>
 <p><strong>A property of the ENTRY, not of the document.</strong> <code>.sutura-dev/endpoints.json</code> has two writers -
@@ -1857,31 +1875,31 @@ provisioner's state spelled as a typo away from wrong.</p>
 <h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
 <h3 id="struct-endpoint"><code>struct Endpoint</code><a class="headerlink" href="#struct-endpoint" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoint</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoint</span>
 </span></code></pre></div>
 <p>Where one provisioned service is listening, on this host, right now.</p>
 <p>There is no way to construct one except by reading the discovery file. That is the point:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>use sutura_dev::discovery::Endpoint;
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>// A constant endpoint is exactly what this type refuses to be: the fields are private, so
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>// there is no literal to write.
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>let _ = Endpoint { host: String::from("127.0.0.1"), port: 5432 };
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>use sutura_dev::discovery::Endpoint;
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>// A constant endpoint is exactly what this type refuses to be: the fields are private, so
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>// there is no literal to write.
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>let _ = Endpoint { host: String::from("127.0.0.1"), port: 5432 };
 </span></code></pre></div>
 <p>The compiling twin - the one door, which fails at runtime because nothing is provisioned in a
 temporary directory, rather than at compile time because the door is missing:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>use sutura_dev::discovery::Endpoints;
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>use sutura_dev::scope::Scope;
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>let Ok(scope) = Scope::from_root(&amp;std::env::temp_dir()) else { return };
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>assert!(Endpoints::discover(&amp;scope).is_err(), "nothing is provisioned there");
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>use sutura_dev::discovery::Endpoints;
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>use sutura_dev::scope::Scope;
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>let Ok(scope) = Scope::from_root(&amp;std::env::temp_dir()) else { return };
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>assert!(Endpoints::discover(&amp;scope).is_err(), "nothing is provisioned there");
 </span></code></pre></div>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">host</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">host</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Host to connect to.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The host port docker allocated for this run.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">provisioner</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioner</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">provisioner</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioner</span>
 </span></code></pre></div>
 <p>What brought THIS service up.</p>
 <p>Per entry, because the document has two writers and they merge into one file. A reader that
@@ -1890,27 +1908,27 @@ connect to, which is the only question the file can answer once both have contri
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-endpoints"><code>struct Endpoints</code><a class="headerlink" href="#struct-endpoints" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoints</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoints</span>
 </span></code></pre></div>
 <p>Every endpoint one worktree's provisioning bound, plus the compose project they belong to.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">discover</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">discover</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Read this worktree's discovery file.</p>
 <p><strong>The reader's only door.</strong> Nothing else in this crate returns an <code>Endpoints</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Where <code>service</code> is listening.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The compose project these endpoints came from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">services</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">services</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every service and where it is listening, in name order.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-discoveryerror"><code>enum DiscoveryError</code><a class="headerlink" href="#enum-discoveryerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DiscoveryError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DiscoveryError</span>
 </span></code></pre></div>
 <p>Why an endpoint could not be learned, or could not be recorded.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -1929,7 +1947,7 @@ connect to, which is the only question the file can answer once both have contri
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-malformed"><code>enum Malformed</code><a class="headerlink" href="#enum-malformed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Malformed</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Malformed</span>
 </span></code></pre></div>
 <p>Which part of the discovery file is wrong. A variant rather than a sentence, because a caller
 that has to match on prose has no contract.</p>
@@ -1951,11 +1969,11 @@ that has to match on prose has no contract.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-path_for"><code>fn path_for</code><a class="headerlink" href="#fn-path_for" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path_for</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path_for</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
 </span></code></pre></div>
 <p>Where this worktree's discovery file lives. Under the worktree, so a neighbour cannot read it.</p>
 <h3 id="fn-publish"><code>fn publish</code><a class="headerlink" href="#fn-publish" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Record what provisioning actually bound, and return the path written.</p>
 <p><code>reported</code> pairs a service name with the line a container runtime printed for its published
@@ -1970,7 +1988,7 @@ worktree rather than about a provisioner and both writers run in one tree - and 
 document-level key either writer sets, which is the shape <code>#317</code> argued for. A <code>root</code> key was
 written here and read nowhere, so it went with the same reasoning.</p>
 <h3 id="fn-forget"><code>fn forget</code><a class="headerlink" href="#fn-forget" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Withdraw every entry THIS provisioner published, and remove the file if nothing is left.</p>
 <p>Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
@@ -1984,7 +2002,7 @@ removed, so ANY <code>Malformed</code> variant refuses both <code>just dev-up</c
 either touches the tier, and nothing repairs the file automatically - the price of never
 destroying state that cannot be attributed, which is why <code>DiscoveryError</code> names the delete.</p>
 <h3 id="fn-forget_services"><code>fn forget_services</code><a class="headerlink" href="#fn-forget_services" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget_services</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">services</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget_services</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">services</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Withdraw the NAMED services' entries that THIS provisioner published, and nothing else.</p>
 <p>A scoped teardown that called <code>forget</code> would also withdraw a Docker tier it left running.</p>
@@ -2048,7 +2066,7 @@ denied here as everywhere else - the test-only exemption in <code>clippy.toml</c
 fallible step therefore returns <code>IssuerDefect</code>, whose four variants are the four things that can
 go wrong and none of which a correct caller reaches.</p>
 <h3 id="enum-curve"><code>enum Curve</code><a class="headerlink" href="#enum-curve" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Curve</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Curve</span>
 </span></code></pre></div>
 <p>The elliptic curves this issuer can generate a signing key for.</p>
 <p>Three, and each is one of the algorithms a deployment can pin. The name is the curve rather than
@@ -2061,13 +2079,13 @@ is a match rather than a lookup so a fourth curve does not compile until somebod
 <li><code>Ed25519</code> - <code>EdDSA</code> over Ed25519.</li>
 </ul>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">algorithm</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">algorithm</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The JWS algorithm identifier a key on this curve signs with.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-issuerdefect"><code>enum IssuerDefect</code><a class="headerlink" href="#enum-issuerdefect" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">IssuerDefect</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">IssuerDefect</span>
 </span></code></pre></div>
 <p>What went wrong, as four variants a correct caller does not reach.</p>
 <p>Hand-written <code>Display</code> and <code>Error</code>, the way <code>crate::discovery</code> does it: this crate carries no error
@@ -2082,7 +2100,7 @@ derive, and four variants do not earn one.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-mockissuer"><code>struct MockIssuer</code><a class="headerlink" href="#struct-mockissuer" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MockIssuer</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MockIssuer</span>
 </span></code></pre></div>
 <p>An authorization server that exists for the length of a test.</p>
 <p>It holds an issuer identifier, the audience its tokens are for, and one or more signing keys. Both
@@ -2090,60 +2108,60 @@ names are held rather than passed per token because they are what a deployment i
 with: a test about a wrong issuer should have to say so, and every other test should not have to
 repeat the right one.</p>
 <h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">also_holding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">curve</span><span class="p">:</span><span class="w"> </span><span class="nc">Curve</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">also_holding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">curve</span><span class="p">:</span><span class="w"> </span><span class="nc">Curve</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same issuer, holding one more key.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::KeyPairUngeneratable</code> if the crypto backend will not generate a key pair.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Who its tokens are for - the value an <code>aud</code> claim carries.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generating</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generating</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>An issuer with one <code>P-256</code> key under <code>key_id</code>.</p>
 <p>The ordinary constructor. A test that wants a second key, or another curve, adds one with
 <code>MockIssuer::also_holding</code>.</p>
 <h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::KeyPairUngeneratable</code> if the crypto backend will not generate a key pair.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issuer</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issuer</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>What this issuer calls itself - the value an <code>iss</code> claim carries.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_ids</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_ids</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The ids of every key it publishes, in the order they were added.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>The JWK set holding every key.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_naming_one_key_twice</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_naming_one_key_twice</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>The JWK set holding one key twice under one id, which a verifier must refuse rather than
 resolve by document order.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_rsa_keys</span><span class="p">(</span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_rsa_keys</span><span class="p">(</span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>A JWK set holding one RSA key, for the family mismatch a deployment pinning <code>ES*</code> must refuse.</p>
 <p><strong>The modulus is not a real key and does not need to be.</strong> What is asserted with it is that a
 key set of the wrong family is refused <em>at load</em>, which happens before anything verifies a
 signature - so the exponent and the modulus only have to be base64url a decoder will accept.
 This is also why <code>RS*</code> is not mintable here: the refusal is the coverage.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_symmetric_keys</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_of_symmetric_keys</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>A JWK set holding one <strong>symmetric</strong> key, which is what must never be accepted.</p>
 <p>An associated function rather than a method: no signing key is involved, and the value of the
 fixture is that the document is otherwise well formed. Accepting it would make algorithm
 confusion reachable - the holder of a <em>published</em> key could sign with it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_without</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_set_without</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>The JWK set with one key <strong>removed</strong>, which is what a rotation looks like from outside.</p>
 <p>The whole reason this hands back a document rather than a struct: revocation is bounded only if
 a verifier re-reads its <em>source</em>, so the assertion has to be against a source whose content
 changed. An in-memory key set would test the cache and not the bound.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Signs <code>token</code> with the key it names, or with the first key if it names none.</p>
 <h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::NoSuchKey</code> if the named key is not held, and <code>IssuerDefect::Unsignable</code> if
 the library refuses the claim set - which for a generated key means a library defect.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_signed_by_a_stranger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_signed_by_a_stranger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same claim set, signed by a key this issuer does <strong>not</strong> publish.</p>
 <p>The forgery fixture, and the point is that it is correct in every other respect: the <code>kid</code> names
@@ -2152,7 +2170,7 @@ somebody else's. A fixture that changed the <code>kid</code> as well would be as
 path instead.</p>
 <h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p>As <code>MockIssuer::mint</code>, plus <code>IssuerDefect::KeyPairUngeneratable</code> for the stranger's key.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_unsigned</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">mint_unsigned</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Token</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same claim set with an <code>alg</code> of <code>none</code> and no signature at all.</p>
 <p>Hand-assembled, because the library will not encode it - which is itself the reassuring part.
@@ -2161,79 +2179,79 @@ the header it was handed instead of out of what the deployment pinned.</p>
 <h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::NoSuchKey</code> if the token names a key this issuer does not hold. The <code>kid</code> is
 still resolved, so an unsigned token is refused for its algorithm rather than for its key id.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Publishes the whole key set at <code>path</code>, replacing whatever was there.</p>
 <h1 id="errors_5">Errors<a class="headerlink" href="#errors_5" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish_document</span><span class="p">(</span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish_document</span><span class="p">(</span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="n">Path</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Publishes an arbitrary document at <code>path</code>, which is how a rotation is performed.</p>
 <h1 id="errors_6">Errors<a class="headerlink" href="#errors_6" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
 <h3 id="struct-token"><code>struct Token</code><a class="headerlink" href="#struct-token" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Token</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Token</span>
 </span></code></pre></div>
 <p>One token to mint, with every claim a negative test needs to be able to move.</p>
 <p>A builder rather than a struct literal, so the ORDINARY token is one call and each negative is one
 call plus the one thing it is about. That is what keeps such a suite readable: a reader can see what
 a test varies without diffing it against the good case.</p>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">serde_json</span><span class="p">::</span><span class="n">Value</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Carries one more claim, for anything this builder has no name for.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming_issuer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">claiming_issuer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Claims an issuer of its own, which is how the wrong-issuer refusal is provoked.</p>
 <p>Named <code>claiming_issuer</code> and not <code>from_issuer</code> because a <code>from_*</code> method that takes <code>self</code> reads
 as a conversion and is not one - <code>clippy::wrong_self_convention</code> says so, and it is right.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">classed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">class</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">classed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">class</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Sets the <code>typ</code> header, which is what decides a token's CLASS.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expired_since</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expired_since</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Expired <code>seconds</code> ago.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audience</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audience</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Claims one named audience rather than the issuer's own.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audiences</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audiences</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_audiences</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">audiences</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Claims an array of audiences, the form RFC 7519 permits.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_nobody_in_particular</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_nobody_in_particular</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Claims no audience at all, so there is nothing for a verifier to compare.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_subject</span><span class="p">(</span><span class="n">subject</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_subject</span><span class="p">(</span><span class="n">subject</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The ordinary token for <code>subject</code>: this issuer, this audience, an access token, valid for an hour.</p>
 <p>It states an <code>iat</code>, because the mode that needs one requires it and the mode that does not
 ignores it - so the default that is right in both places is to state it, and
 <code>Token::stating_no_issued_at</code> is the negative.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granting</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Carries a space-delimited <code>scope</code> claim, per RFC 6749.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issued_ago</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">issued_ago</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Issued <code>seconds</code> ago. A negative value dates it forward, which is how a component would buy a
 longer replay window than the one this deployment chose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">living_for</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">living_for</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Lives for <code>seconds</code> from its <code>iat</code>, which is what a lifetime ceiling is compared against.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">not_before_in</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">not_before_in</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">i64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Not valid until <code>seconds</code> from now.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">signed_by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">signed_by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">key_id</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Signs with the named key rather than the issuer's first.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">stating_no_issued_at</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">stating_no_issued_at</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>States no <code>iat</code>, which the gateway mode must refuse because its ceiling is <code>exp - iat</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">unclassed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">unclassed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Carries no <code>typ</code> at all, which a class check must not be satisfiable by.</p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="struct-publishedkeyset"><code>struct PublishedKeySet</code><a class="headerlink" href="#struct-publishedkeyset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PublishedKeySet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PublishedKeySet</span>
 </span></code></pre></div>
 <p>A key set on disk, removed when it goes out of scope.</p>
 <p><strong>The seam a rotation test needs.</strong> The one key set source that ships reads a <em>file</em>, so an
@@ -2242,7 +2260,7 @@ behind in the temporary directory would be a test that passes on its second run 
 reason. <code>PublishedKeySet::rotate_to</code> is the whole vocabulary: publish a new document at the same
 path and let the verifier notice.</p>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MockIssuer</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">issuer</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MockIssuer</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Publishes <code>issuer</code>'s key set at a path named after <code>label</code> and this process.</p>
 <p>The process id is in the name because the suite runs test binaries concurrently and the
@@ -2250,10 +2268,10 @@ temporary directory is shared; the label is in it because a failure naming the f
 which test wrote it.</p>
 <h1 id="errors_7">Errors<a class="headerlink" href="#errors_7" title="Permanent link">&para;</a></h1>
 <p><code>IssuerDefect::Unpublishable</code> if the write fails.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>Where it is, which is what a deployment's <code>key_set_file</code> is set to.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotate_to</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotate_to</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">document</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">IssuerDefect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Replaces the published document, which is what a rotation is.</p>
 <h1 id="errors_8">Errors<a class="headerlink" href="#errors_8" title="Permanent link">&para;</a></h1>
@@ -2286,7 +2304,7 @@ would remove the design.</p>
 <p><strong>No knowledge of docker</strong>, for the same reason the rest of this crate has none: bringing
 services up is <code>xtask</code>'s job. This module reads a file.</p>
 <h3 id="enum-provisioned"><code>enum Provisioned</code><a class="headerlink" href="#enum-provisioned" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
 </span></code></pre></div>
 <p>What a harness gets when it asks for a provisioned service.</p>
 <p>Two variants and no third, because the fail direction does not return: see <code>here</code>.</p>
@@ -2298,7 +2316,7 @@ services up is <code>xtask</code>'s job. This module reads a file.</p>
 <p><strong>The notice has already been written to stderr</strong> by the time this is returned. A skip a
   reader cannot see is a green run that tested nothing, which is worse than a red one.</p>
 <h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The endpoint, where there is one.</p>
 <p>For a caller that wants <code>let Some(endpoint) = .. else { return }</code> rather than a match. The
@@ -2306,7 +2324,7 @@ skip has already been reported either way, so discarding the <code>Absent</code>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="struct-absent"><code>struct Absent</code><a class="headerlink" href="#struct-absent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
 </span></code></pre></div>
 <p>Nothing to connect to, and what to do about it.</p>
 <p>The typed fields are the contract and the <code>Display</code> form is the message; a caller that wants to
@@ -2321,16 +2339,16 @@ and one of them is another error, which puts the whole thing past <code>result_l
 one allocation, so the box is here and not at the call sites - a public
 <code>Result&lt;Endpoint, Box&lt;Absent&gt;&gt;</code> would push it onto everybody instead.</p>
 <h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
 </span></code></pre></div>
 <p>What stopped it. Branch on this, never on the message.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The service that was asked for.</p>
 <h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-reason"><code>enum Reason</code><a class="headerlink" href="#enum-reason" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
 </span></code></pre></div>
 <p>Which half failed. A variant rather than a sentence, because "run <code>just dev-up</code>" is the wrong
 advice for two of these and a caller matching on prose has no contract.</p>
@@ -2343,26 +2361,26 @@ advice for two of these and a caller matching on prose has no contract.</p>
 <h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code></p>
 <h3 id="fn-in_worktree"><code>fn in_worktree</code><a class="headerlink" href="#fn-in_worktree" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Where one service in ONE named worktree is listening.</p>
 <p>The half with no environment and no printing in it, so a caller that already knows which
 worktree it means - a <code>just</code> task, a test over a fixture directory - can drive it directly.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a>use sutura_dev::provisioned;
-</span><span id="__span-64-2"><a id="__codelineno-64-2" name="__codelineno-64-2" href="#__codelineno-64-2"></a>
-</span><span id="__span-64-3"><a id="__codelineno-64-3" name="__codelineno-64-3" href="#__codelineno-64-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
-</span><span id="__span-64-4"><a id="__codelineno-64-4" name="__codelineno-64-4" href="#__codelineno-64-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
-</span><span id="__span-64-5"><a id="__codelineno-64-5" name="__codelineno-64-5" href="#__codelineno-64-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
-</span><span id="__span-64-6"><a id="__codelineno-64-6" name="__codelineno-64-6" href="#__codelineno-64-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
-</span><span id="__span-64-7"><a id="__codelineno-64-7" name="__codelineno-64-7" href="#__codelineno-64-7"></a>assert_eq!(problem.service(), "postgres");
-</span><span id="__span-64-8"><a id="__codelineno-64-8" name="__codelineno-64-8" href="#__codelineno-64-8"></a>assert!(problem.to_string().contains("no default port"), "{problem}");
-</span><span id="__span-64-9"><a id="__codelineno-64-9" name="__codelineno-64-9" href="#__codelineno-64-9"></a>
-</span><span id="__span-64-10"><a id="__codelineno-64-10" name="__codelineno-64-10" href="#__codelineno-64-10"></a>// And the remedy is derived from the directory that was ASKED about, not from this repository:
-</span><span id="__span-64-11"><a id="__codelineno-64-11" name="__codelineno-64-11" href="#__codelineno-64-11"></a>// a temporary directory declares `postgres` under neither venue, so there is no task to name.
-</span><span id="__span-64-12"><a id="__codelineno-64-12" name="__codelineno-64-12" href="#__codelineno-64-12"></a>assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
+<div class="language-text highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a>use sutura_dev::provisioned;
+</span><span id="__span-65-2"><a id="__codelineno-65-2" name="__codelineno-65-2" href="#__codelineno-65-2"></a>
+</span><span id="__span-65-3"><a id="__codelineno-65-3" name="__codelineno-65-3" href="#__codelineno-65-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
+</span><span id="__span-65-4"><a id="__codelineno-65-4" name="__codelineno-65-4" href="#__codelineno-65-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
+</span><span id="__span-65-5"><a id="__codelineno-65-5" name="__codelineno-65-5" href="#__codelineno-65-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
+</span><span id="__span-65-6"><a id="__codelineno-65-6" name="__codelineno-65-6" href="#__codelineno-65-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
+</span><span id="__span-65-7"><a id="__codelineno-65-7" name="__codelineno-65-7" href="#__codelineno-65-7"></a>assert_eq!(problem.service(), "postgres");
+</span><span id="__span-65-8"><a id="__codelineno-65-8" name="__codelineno-65-8" href="#__codelineno-65-8"></a>assert!(problem.to_string().contains("no default port"), "{problem}");
+</span><span id="__span-65-9"><a id="__codelineno-65-9" name="__codelineno-65-9" href="#__codelineno-65-9"></a>
+</span><span id="__span-65-10"><a id="__codelineno-65-10" name="__codelineno-65-10" href="#__codelineno-65-10"></a>// And the remedy is derived from the directory that was ASKED about, not from this repository:
+</span><span id="__span-65-11"><a id="__codelineno-65-11" name="__codelineno-65-11" href="#__codelineno-65-11"></a>// a temporary directory declares `postgres` under neither venue, so there is no task to name.
+</span><span id="__span-65-12"><a id="__codelineno-65-12" name="__codelineno-65-12" href="#__codelineno-65-12"></a>assert!(problem.to_string().contains("nothing declares `postgres` yet"), "{problem}");
 </span></code></pre></div>
 <h3 id="fn-here"><code>fn here</code><a class="headerlink" href="#fn-here" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
 </span></code></pre></div>
 <p>Where one service in THIS worktree is listening, with the skip-or-fail decision applied.</p>
 <p><code>inside</code> is any directory in the worktree; an integration test passes
@@ -2374,7 +2392,7 @@ a test fails, and returning <code>Provisioned::Skipped</code> there would be the
 whole tier exists to prevent. On a developer machine the direction is
 <code>Requirement::Optional</code>, the notice goes to stderr, and nothing panics.</p>
 <h3 id="fn-worktree_root"><code>fn worktree_root</code><a class="headerlink" href="#fn-worktree_root" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The worktree root at or above <code>inside</code>, or <code>None</code> if there is not one.</p>
 <p><strong>Both markers, not either</strong>, and this is borrowed from <code>xtask</code>'s own root walk because the same
@@ -2414,7 +2432,7 @@ not run. <strong>The limit, stated with the claim:</strong> nothing here verifie
 variable really did provision anything - it is a declaration, and a process that lies about it
 gets the failure it asked for.</p>
 <h3 id="enum-requirement"><code>enum Requirement</code><a class="headerlink" href="#enum-requirement" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
 </span></code></pre></div>
 <p>Whether a missing tier is fatal.</p>
 <h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
@@ -2425,16 +2443,16 @@ gets the failure it asked for.</p>
   a missing tier fatal in the one place it is expected - see <code>decide</code>.
 - <code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</p>
 <h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The direction this process is running under, read from the environment.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is a missing tier fatal here?</p>
 <h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-decide"><code>fn decide</code><a class="headerlink" href="#fn-decide" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
 </span></code></pre></div>
 <p>The decision, over the value rather than over the environment, so it is testable.</p>
 <p><strong>One parameter, and it used to be two.</strong> The other was <code>CI</code>, and it is gone rather than ignored:
@@ -2490,30 +2508,30 @@ reason one of the two moved and the other did not. A hash collision in a NAME is
 error somebody reads; a hash collision in a PORT is a test that passes against the wrong
 fixture.</p>
 <h3 id="struct-service"><code>struct Service</code><a class="headerlink" href="#struct-service" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
 </span></code></pre></div>
 <p>A dev service that gets its own container per worktree.</p>
 <p>No port field, derived or otherwise: what a service publishes on the host is allocated at
 provision time and read back, so a port here would be a second answer to a question this type
 is not allowed to answer.</p>
 <h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The port INSIDE the container. Provisioning publishes it ephemerally and reads back the
 host port docker chose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is this service started when no profile was asked for?</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-75-1"><a id="__codelineno-75-1" name="__codelineno-75-1" href="#__codelineno-75-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Name used in the compose file, in the discovery file and in output.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-75-1"><a id="__codelineno-75-1" name="__codelineno-75-1" href="#__codelineno-75-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-76-1"><a id="__codelineno-76-1" name="__codelineno-76-1" href="#__codelineno-76-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The compose profile that turns this service on, or <code>None</code> for one always started.</p>
 <h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-scopeerror"><code>enum ScopeError</code><a class="headerlink" href="#enum-scopeerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-76-1"><a id="__codelineno-76-1" name="__codelineno-76-1" href="#__codelineno-76-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-77-1"><a id="__codelineno-77-1" name="__codelineno-77-1" href="#__codelineno-77-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
 </span></code></pre></div>
 <p>Why a worktree root could not become a scope.</p>
 <h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
@@ -2526,17 +2544,17 @@ host port docker chose.</p>
 <h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-scope"><code>struct Scope</code><a class="headerlink" href="#struct-scope" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-77-1"><a id="__codelineno-77-1" name="__codelineno-77-1" href="#__codelineno-77-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-78-1"><a id="__codelineno-78-1" name="__codelineno-78-1" href="#__codelineno-78-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
 </span></code></pre></div>
 <p>Everything derived from one worktree.</p>
 <p>If an instance exists, its root is canonical: <code>Scope::from_root</code> is the only public
 constructor and it canonicalises first, so no caller has to wonder which spelling of a path a
 scope was built from.</p>
 <h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-78-1"><a id="__codelineno-78-1" name="__codelineno-78-1" href="#__codelineno-78-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Short digest of the canonical root. Printed so a stray container can be traced back.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Derive a scope from a worktree root.</p>
 <p>The canonical constructor. It resolves the path first - symlinks included - so two spellings
@@ -2545,16 +2563,16 @@ case-folding filesystem that is what makes a case-only difference one worktree, 
 case-sensitive one it is what stops two real directories being folded into one. Neither
 property comes from lowercasing the string, which an earlier version did and which was wrong
 on exactly one of those two platforms.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>Compose project name. Lowercase alphanumeric and dashes only, which is all docker
 compose accepts, and prefixed so a stray container is identifiable as ours.</p>
 <p><strong>The one function that supplies this name</strong>, to start and to stop alike. Rule 3 of the
 teardown contract on <code>SERVICES</code> is about the two of them agreeing.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The canonical worktree root.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scratch</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">purpose</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-83-1"><a id="__codelineno-83-1" name="__codelineno-83-1" href="#__codelineno-83-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scratch</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">purpose</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
 </span></code></pre></div>
 <p>This worktree's own subtree of the machine-shared temporary root, for one <code>purpose</code>.</p>
 <p><strong>The one derivation of a keyed path under a shared root</strong>, and the only reason it exists
@@ -2571,13 +2589,13 @@ module's header states for ports. Two worktrees whose canonical paths collide in
 of SHA-256 get one directory, which is a startup error somebody reads rather than a test
 that passes against the wrong fixture. And it makes no directory: a caller creates it, so a
 path this returns is not evidence that anything is there.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-83-1"><a id="__codelineno-83-1" name="__codelineno-83-1" href="#__codelineno-83-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
 </span></code></pre></div>
 <p>Where provisioning keeps this worktree's state. Under the worktree, never shared.</p>
 <h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-profiles"><code>fn profiles</code><a class="headerlink" href="#fn-profiles" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every profile any service declares, in declaration order and without repeats.</p>
 <p>Teardown enables all of them, and that is the reason this exists: <code>docker compose down</code> only
@@ -2586,7 +2604,7 @@ container and named volume behind <strong>while reporting success</strong> - the
 the teardown contract below is about. Derived rather than listed, so adding a profile does not
 need a second edit somewhere else to stay correct.</p>
 <h3 id="fn-discoverable_services_of"><code>fn discoverable_services_of</code><a class="headerlink" href="#fn-discoverable_services_of" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">discoverable_services_of</span><span class="p">(</span><span class="n">profile</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-86-1"><a id="__codelineno-86-1" name="__codelineno-86-1" href="#__codelineno-86-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">discoverable_services_of</span><span class="p">(</span><span class="n">profile</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The DISCOVERABLE services assigned to one profile, and nothing else.</p>
 <p><strong>Not <code>profiles</code>, and the difference is the point.</strong> <code>crate::scope::profiles</code> names every
@@ -2682,7 +2700,7 @@ which wins over <code>RELAXED</code> unconditionally (this module's own belt-and
 would enforce, and there is presently no other way to. Measured, not designed in: the first
 attempt at exactly this ask silently ran the RELAXED path anyway.</p>
 <h3 id="enum-tolerance"><code>enum Tolerance</code><a class="headerlink" href="#enum-tolerance" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-86-1"><a id="__codelineno-86-1" name="__codelineno-86-1" href="#__codelineno-86-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tolerance</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Tolerance</span>
 </span></code></pre></div>
 <p>Which wall-clock margin a deadline assertion should use.</p>
 <h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
@@ -2691,18 +2709,18 @@ attempt at exactly this ask silently ran the RELAXED path anyway.</p>
 <li><code>Relaxed</code> - A wider margin for a shared machine, chosen so the assertion still fails a deadline that stopped enforcing entirely, and read - never measured - so the same tree gives the same verdict every time it runs here.</li>
 </ul>
 <h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ceiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">strict</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">ceiling</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">strict</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>Picks <code>strict</code> or <code>relaxed</code> for this venue, and announces the second choice on stderr - the
 <code>SKIPPED</code>-in-the-first-column convention <code>sutura_dev::provisioned</code> already uses for the same
 reason: a developer reading a passing run must not mistake a relaxed margin for CI's own.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The venue this process is running in, read once.</p>
 <h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-decide_1"><code>fn decide</code><a class="headerlink" href="#fn-decide_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">github_actions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed_opt_in</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Tolerance</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-90-1"><a id="__codelineno-90-1" name="__codelineno-90-1" href="#__codelineno-90-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">github_actions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">relaxed_opt_in</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Tolerance</span>
 </span></code></pre></div>
 <p>The decision, over the two values rather than over the environment.</p>
 <p>Testable without mutating the process environment - the same reason

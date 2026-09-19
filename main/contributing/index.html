@@ -16,7 +16,7 @@
         <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../crap/">
+        <link rel="next" href="../enterprise-mirrors/">
       
       
         
@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -828,8 +858,6 @@
   
     
     
-      
-        
       
         
       
@@ -1106,34 +1134,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
@@ -1246,7 +1246,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1268,14 +1268,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2293,15 +2293,18 @@ mechanical" is an acceptable answer there and a useful one: it tells the reviewe
 theirs.</p>
 <p><strong>One reviewable idea per branch. If describing it needs an "and", split it.</strong></p>
 <h2 id="releasing">Releasing<a class="headerlink" href="#releasing" title="Permanent link">&para;</a></h2>
-<p>An approved manual dispatch of <code>version-bump</code> on <code>main</code> is the <strong>only</strong> release entry point. It
-derives the version from the commit subjects above, writes <code>CHANGELOG.md</code> in the release commit, and
-pushes that commit and its <code>v*</code> tag through the narrow release App; the tag is what starts
-<code>release.yml</code> and <code>docs.yml</code>, and the release workflow has no manual trigger of its own. Nothing is
-tagged if no commit since the last tag would move the version, so a dispatch over chores publishes
-nothing.</p>
-<p>If a tagged release fails, its commit and tag stay for diagnosis - no GitHub Release, no image
-manifest, no moving tag. Fix the source and approve a new dispatch. <strong>Never rewrite a release tag.</strong>
-<a href="https://github.com/telekom/sutura/blob/main/docs/verifying-a-release.md">Verifying a release</a> is
+<p>An approved manual dispatch of <code>version-bump</code> on <code>main</code> is the <strong>only</strong> release entry point;
+<code>release.yml</code> has no manual trigger of its own.</p>
+<ol>
+<li>Approve the dispatch. It derives the version from the commit subjects since the last tag, writes
+   <code>CHANGELOG.md</code> in the release commit, and pushes that commit and its <code>v*</code> tag. The tag starts
+   <code>release.yml</code> and <code>docs.yml</code>.</li>
+<li>Nothing is tagged if no commit since the last tag would move the version, so a dispatch over
+   chores publishes nothing.</li>
+<li>A failed release keeps its commit and tag for diagnosis: no GitHub Release, no image manifest,
+   no moving tag. Fix the source and approve a new dispatch. <strong>Never rewrite a release tag.</strong></li>
+</ol>
+<p><a href="https://github.com/telekom/sutura/blob/main/docs/verifying-a-release.md">Verifying a release</a> is
 what a consumer of the artifacts reads.</p>
 <h2 id="conventions-that-will-fail-your-pull-request">Conventions that will fail your pull request<a class="headerlink" href="#conventions-that-will-fail-your-pull-request" title="Permanent link">&para;</a></h2>
 <ul>

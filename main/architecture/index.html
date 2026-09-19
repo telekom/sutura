@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -828,8 +858,6 @@
   
     
     
-      
-        
       
         
       
@@ -1173,34 +1201,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
@@ -1313,7 +1313,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1335,14 +1335,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2352,10 +2352,11 @@ every run of the test suite - it is what proves the SQL we render actually runs 
 differential test runs one plan both ways and compares the rows - but the binary does not link it and
 an operator needs no <code>libduckdb</code> to run <code>sutura query</code>. That is also what keeps the musl artifacts
 building: nixpkgs has no musl <code>libduckdb</code>, and the binary never asks for one.</p>
-<p><em>Four dialects are four rendering targets, not four data systems.</em> <code>sutura compile</code> will render a
-statement for <code>DuckDB</code>, Postgres, <code>ClickHouse</code> or <code>BigQuery</code>, and the goldens parse-check each one.
-Rendering <code>ClickHouse</code> SQL is not a claim that a <code>ClickHouse</code> exists anywhere, and there is no
-<code>ClickHouse</code> adapter: the port takes a plan, and rendering is one adapter's private business.</p>
+<p><em>Five dialects are five rendering targets, not five data systems.</em> <code>sutura compile</code> will render a
+statement for <code>DuckDB</code>, Postgres, <code>ClickHouse</code>, <code>BigQuery</code> or Oracle, and the goldens parse-check
+each one. Rendering <code>ClickHouse</code> or Oracle SQL is not a claim that either exists anywhere, and
+there is no <code>ClickHouse</code> or Oracle adapter: the port takes a plan, and rendering is one adapter's
+private business.</p>
 <p><strong><code>kind: postgres</code> is openable behind its own default-off <code>postgres</code> feature, and the CHANNEL is the
 part that is new.</strong> A Postgres source declares <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; a TLS mode must
 name its trust store, because there is no default to inherit, and a source with no transport security
@@ -2622,8 +2623,8 @@ that includes one per refusal. Beside them, four checks that are assertions rath
   generator writes <code>x IS TRUE</code> without ever consulting its own flag for whether a dialect allows
   that - so a construct like that parses under all three targets whatever a real instance would say.
   Acceptance is vouched for by execution instead: by the anchors, and by one plan run both ways over
-  a real DuckDB and the real engine, rows compared. For Postgres and ClickHouse we render and
-  parse-check, and nothing more.</li>
+  a real DuckDB and the real engine, rows compared. For Postgres, ClickHouse and Oracle we render
+  and parse-check, and nothing more.</li>
 <li><strong>Every declared anchor re-executes and reproduces its number</strong>, and a bundle whose anchors were not
   all checked cannot be served, because there is no constructor that produces one.</li>
 </ul>

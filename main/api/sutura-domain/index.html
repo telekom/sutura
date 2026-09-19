@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -6342,7 +6342,7 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-363-95"><a id="__codelineno-363-95" name="__codelineno-363-95" href="#__codelineno-363-95"></a>
 </span><span id="__span-363-96"><a id="__codelineno-363-96" name="__codelineno-363-96" href="#__codelineno-363-96"></a>| Claim | Venue | Mechanism |
 </span><span id="__span-363-97"><a id="__codelineno-363-97" name="__codelineno-363-97" href="#__codelineno-363-97"></a>| --- | --- | --- |
-</span><span id="__span-363-98"><a id="__codelineno-363-98" name="__codelineno-363-98" href="#__codelineno-363-98"></a>| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+</span><span id="__span-363-98"><a id="__codelineno-363-98" name="__codelineno-363-98" href="#__codelineno-363-98"></a>| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 </span><span id="__span-363-99"><a id="__codelineno-363-99" name="__codelineno-363-99" href="#__codelineno-363-99"></a>| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
 </span><span id="__span-363-100"><a id="__codelineno-363-100" name="__codelineno-363-100" href="#__codelineno-363-100"></a>| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 </span><span id="__span-363-101"><a id="__codelineno-363-101" name="__codelineno-363-101" href="#__codelineno-363-101"></a>
@@ -6800,17 +6800,19 @@ adapter.</p>
   after the plan has been accepted.</li>
 </ul>
 <h1 id="order-is-half-of-it-and-that-half-is-a-wrong-number-rather-than-an-error">Order is half of it, and that half is a wrong number rather than an error<a class="headerlink" href="#order-is-half-of-it-and-that-half-is-a-wrong-number-rather-than-an-error" title="Permanent link">&para;</a></h1>
-<p>Three of the four dialects <code>sutura_sql</code> renders for write a POSITIONAL placeholder, a bare <code>?</code>,
-so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
-NUMBERED <code>$n</code> that names its value. The renderer emits predicates in filter order and a
-positional adapter binds the list in list order, so those two agree only while the indices run
-<code>0, 1, .. n-1</code> down the filters. Read off the shipped adapters rather than reasoned about:
-<code>sutura_exec_duckdb::bind</code> maps <code>QueryPlan::params</code> in list
-order against <code>?</code>, <code>sutura_exec_bigquery</code> sends the same list as an ordered array under a
-positional parameter mode, and <code>sutura_sql</code>'s <code>?</code> placeholder ignores the position it is given.
-<code>ClickHouse</code> is the third <code>?</code> dialect and has no executor here yet. <code>sutura_exec_postgres::bind</code>
-maps the same list in the same order, but its <code>$n</code> is derived from the predicate's index, so it
-is the one shipped adapter the ordering cannot mislead.</p>
+<p>Three of the five dialects <code>sutura_sql</code> renders for write a POSITIONAL placeholder, a bare <code>?</code>,
+so the Nth placeholder in the statement takes the Nth value in the list. Two write a NUMBERED
+placeholder that names its value, and they are not one case: Postgres writes <code>$n</code>, Oracle
+writes <code>:n</code>, and <code>$1</code> sent to Oracle is not a placeholder at all. The renderer emits predicates
+in filter order and a positional adapter binds the list in list order, so those two agree only
+while the indices run <code>0, 1, .. n-1</code> down the filters. Read off the shipped adapters rather
+than reasoned about: <code>sutura_exec_duckdb::bind</code> maps
+<code>QueryPlan::params</code> in list order against <code>?</code>,
+<code>sutura_exec_bigquery</code> sends the same list as an ordered array under a positional parameter
+mode, and <code>sutura_sql</code>'s <code>?</code> placeholder ignores the position it is given. <code>ClickHouse</code> is the
+third <code>?</code> dialect and has no executor here yet, and neither has Oracle.
+<code>sutura_exec_postgres::bind</code> maps the same list in the same order, but its <code>$n</code> is derived from
+the predicate's index, so it is the one shipped adapter the ordering cannot mislead.</p>
 <p>So a plan whose filters name the same parameters in a different order renders correctly on the
 numbered dialect and binds the wrong values on a positional one - <code>order_date &gt;= &lt;end&gt; AND
 order_date &lt; &lt;start&gt;</code> is an empty result under a certified metric name, arrived at by nothing
@@ -7140,7 +7142,7 @@ label in exactly one place.</p>
 </thead>
 <tbody>
 <tr>
-<td>the four dialects' <strong>parsers</strong> accept the alias quoted</td>
+<td>the five dialects' <strong>parsers</strong> accept the alias quoted</td>
 <td><code>polyglot_sql</code>, in-process</td>
 <td><code>every_leg_statement_parses_here</code> in <code>crates/sutura-app/tests/golden/legs.rs</code>, whose own doc states the limit: it parses and stops, and a failure at the service <em>"is otherwise only discoverable by running it"</em></td>
 </tr>
@@ -7261,7 +7263,7 @@ label in exactly one place.</p>
 </thead>
 <tbody>
 <tr>
-<td>the four dialects' <strong>parsers</strong> accept the alias quoted</td>
+<td>the five dialects' <strong>parsers</strong> accept the alias quoted</td>
 <td><code>polyglot_sql</code>, in-process</td>
 <td><code>every_leg_statement_parses_here</code> in <code>crates/sutura-app/tests/golden/legs.rs</code>, whose own doc states the limit: it parses and stops, and a failure at the service <em>"is otherwise only discoverable by running it"</em></td>
 </tr>

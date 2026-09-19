@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1883,10 +1883,57 @@ from outside this crate could pair any chain with any key, which is exactly the 
 </span></code></pre></div>
 <p>The chain and the key, consumed together - <code>PrivateKeyDer</code> implements no <code>Clone</code>, so there is
 no <code>&amp;self</code> accessor for it that would not lie about ownership.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key_kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">KeyKind</span>
+</span></code></pre></div>
+<p>The private key's DER encoding kind - see <code>KeyKind</code>.</p>
+<p><strong>Why this exists rather than a caller matching <code>PrivateKeyDer</code> itself.</strong> Matching
+<code>rustls_pki_types::PrivateKeyDer</code>'s variant directly would make <code>rustls-pki-types</code> a
+dependency of every caller merely to ask which kind a key is - <code>sutura_exec_bigquery</code>'s own
+<code>wire::tls::client_cert</code> needs exactly this, to choose the PEM label a re-armored key is
+written under (<code>ureq</code>'s own key type recovers its kind from that label, not from a value a
+caller passes it). This crate already depends on <code>rustls-pki-types</code> for the read; this
+method is the answer in this crate's own vocabulary.</p>
 <h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code></p>
+<h2 id="enum-keykind"><code>enum KeyKind</code><a class="headerlink" href="#enum-keykind" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">KeyKind</span>
+</span></code></pre></div>
+<p>The three private-key DER encodings <code>load_identity</code> can present - <code>LoadedIdentity::key_kind</code>.</p>
+<h3 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Pkcs1</code> - PKCS#1 (RSA).</li>
+<li><code>Sec1</code> - SEC1 (EC).</li>
+<li><code>Pkcs8</code> - PKCS#8.</li>
+</ul>
+<h3 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="struct-declared"><code>struct Declared</code><a class="headerlink" href="#struct-declared" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Declared</span>
+</span></code></pre></div>
+<p>A resolved <code>security.outbound</code> declaration: the anchors always present once the block is
+written, and the optional client identity beside them - <code>github.com/telekom/sutura#911</code>.</p>
+<p><strong>Why one type and not two independently-optional parameters.</strong> A composition root threads
+this from boot to every fixed-host consumer (the <code>BigQuery</code> wire, the <code>datahub</code> reader); an
+identity can never be declared without anchors (<code>security.outbound</code> always requires
+<code>transport_anchors</code> once the block itself exists), so pairing them is a type that cannot
+disagree with that invariant rather than two values a call site could thread inconsistently.</p>
+<h3 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">anchors</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Anchors</span>
+</span></code></pre></div>
+<p>The declared anchors.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Identity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The declared client identity, if any.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">Anchors</span><span class="p">,</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Identity</span><span class="o">&gt;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Consumes into its parts - what <code>Rotator::new</code> takes separately.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nc">Anchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Identity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Pairs a resolved anchor declaration with its optional client identity.</p>
+<h3 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="fn-load_anchors"><code>fn load_anchors</code><a class="headerlink" href="#fn-load_anchors" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_anchors</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Anchors</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_anchors</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Anchors</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Loads the declared trust anchors as raw certificate DER, refusing an empty or unreadable store.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
@@ -1895,7 +1942,7 @@ no <code>&amp;self</code> accessor for it that would not lie about ownership.</p
 <code>LoadError::SystemStoreRead</code>/<code>LoadError::SystemStoreEmpty</code> for a host store that cannot
 supply a complete, non-empty set.</p>
 <h2 id="fn-load_identity"><code>fn load_identity</code><a class="headerlink" href="#fn-load_identity" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_identity</span><span class="p">(</span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Identity</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedIdentity</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">load_identity</span><span class="p">(</span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Identity</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">LoadedIdentity</span><span class="p">,</span><span class="w"> </span><span class="n">LoadError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Loads the declared client identity, refusing a half that cannot be read or does not hold its
 kind.</p>

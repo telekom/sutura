@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1191,7 +1191,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1213,14 +1213,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2042,28 +2042,13 @@ text: one filter rather than a second white-only file to keep in sync.</p>
 <p><code>cargo xtask check-docs</code> validates both keys, so a path that stops resolving fails a gate instead
 of silently rendering nothing.</p>
 <h2 id="running-it-by-hand">Running it by hand<a class="headerlink" href="#running-it-by-hand" title="Permanent link">&para;</a></h2>
+<p>CI publishes the docs automatically on merge to <code>main</code> and on a <code>v*</code> tag, so running it by hand is
+not normally needed.</p>
 <p>Render the site to <code>site/</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>just<span class="w"> </span>docs
 </span></code></pre></div>
 <p>Serve it with live reload on <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>docs-serve
-</span></code></pre></div>
-<p>Both run <code>mkdocs</code> with <code>--strict</code>, which turns a dead link, an orphan page and a bad anchor into a
-failure. It is not optional in CI and should not be optional locally.</p>
-<p>Deploy one version by hand, which CI normally does. mike needs the branch to be present and a git
-identity:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>gh-pages:gh-pages<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>docs-deploy<span class="w"> </span><span class="m">0</span>.2.0
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>docs-list
-</span></code></pre></div>
-<p><code>just docs-deploy</code> passes <code>--alias-type=redirect</code>, which is not mike's default. By default an alias
-is a git <strong>symlink</strong>, and GitHub Pages does not resolve one: <code>latest/</code> would serve the text
-<code>0.2.0</code> rather than the documentation. <code>redirect</code> writes a real HTML redirect for every page, so
-<code>latest/publishing/</code> lands on <code>0.2.0/publishing/</code> and not merely on the version root.</p>
-<p><code>--push</code> is deliberately absent from the task, so a local deploy only writes the local <code>gh-pages</code>
-branch. That is the safe way to see what a deployment would contain. Anything else mike can do -
-moving an alias, <code>set-default</code> - goes through the escape hatch, which appends its arguments:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>docs<span class="w"> </span>mike<span class="w"> </span>set-default<span class="w"> </span>latest
 </span></code></pre></div>
 
 

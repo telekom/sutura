@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2639,9 +2639,14 @@ said it linked none, which <code>docs/adr/0017</code>'s second amendment had alr
   hands the loaded certificates here, which replaces <code>RootCerts::WebPki</code> with <code>RootCerts::Specific</code>
   built from exactly that bundle or host store - never both. <code>crate::wire::tls</code> is the one place
   either constructor turns <code>sutura_tls</code>'s <code>CertificateDer</code> output into <code>ureq</code>'s own certificate
-  type, so the conversion is written once rather than at every call site. <strong>No client identity
-  travels this way</strong>: <code>security.outbound</code> is anchors only - Google's endpoints take a bearer
-  token, not mTLS, so there is no <code>ClientCert</code> this module ever builds.</li>
+  type, so the conversion is written once rather than at every call site. <strong>A client identity is
+  optional and deployment-wide too</strong> (<code>security.outbound.client_certificate</code>/<code>client_key</code>,
+  <code>github.com/telekom/sutura#911</code>): <code>WireAgent::rotating_agent</code> resolves it the same way and
+  folds it into <code>ureq</code>'s <code>ClientCert</code> over the same <code>crate::wire::tls</code> seam. <strong>Presenting a
+  certificate is not a peer verifying it</strong> - <code>HOST</code> still takes a bearer token, not a client
+  certificate, and no shipped source is configured to demand one, so this proves the deployment
+  PRESENTS what it declared, never that anything downstream checked it. Absent means nothing is
+  presented, unchanged from every release before this.</li>
 <li><strong>Failure is derived from the RESULT SHAPE and never from <code>errors</code> being non-empty.</strong> The
   endpoint documents that array as <em>"the first errors or warnings encountered"</em> and says entries
   <em>"do not necessarily mean that the job has completed or was unsuccessful"</em> - so refusing on it
@@ -2673,74 +2678,8 @@ said it linked none, which <code>docs/adr/0017</code>'s second amendment had alr
   ever seen is a dependency decision this change does not take. Stated because a dropped warning
   is exactly the kind of absence that reads as "there were none".</li>
 </ul>
-<h3 id="struct-wireagent"><code>struct WireAgent</code><a class="headerlink" href="#struct-wireagent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WireAgent</span>
-</span></code></pre></div>
-<p>The client every request in this crate goes through, with the four settings that matter PINNED BY
-THE TYPE rather than by a call site.</p>
-<p><strong>This newtype is the whole mechanism, and it exists because the previous shape was a convention.</strong>
-The settings below used to live in a free function returning a bare <code>ureq::Agent</code>, and both
-<code>BigQueryWire::new</code> and <code>credential::ApplicationDefault::read</code> accepted any agent - so a
-composition root writing <code>ureq::Agent::new_with_defaults()</code> got redirects on, plaintext allowed
-and no timeout, while every test passed because the tests all called the right function. A private
-field with one constructor is what <em>a newtype parses rather than validates</em> asks for: if an
-instance of this exists, the pins hold.</p>
-<p>It also carries the <code>JobBounds</code>, so the deadline that shapes the socket timeout and the deadline
-that goes into the request body are <strong>the same value</strong>. Two arguments could have disagreed.</p>
-<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">JobBounds</span>
-</span></code></pre></div>
-<p>What every job through this client is bounded by.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pinned</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
-</span></code></pre></div>
-<p>The compiled-in-roots constructor: <code>Self::secured</code> with no declared anchors.</p>
-<p>This is every deployment's behaviour before <code>github.com/telekom/sutura#125</code> and stays the
-default for one with no <code>security.outbound.transport_anchors</code> block - see <code>Self::secured</code>
-for the one setting that differs when a deployment declares one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
-</span></code></pre></div>
-<p>The rotation-lane constructor over a handle built by <code>Self::rotating_agent</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Anchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;&gt;</span><span class="p">),</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Builds the wire's rotating agent handle for a declared <code>security.outbound.transport_anchors</code>
-set (and, when one is declared, the poll handle the composition root drives on
-<code>sutura_tls::POLL_INTERVAL</code>). <code>None</code> returns a fixed handle over <code>ureq</code>'s compiled-in roots
-(the pre-<code>#125</code> behaviour, nothing to re-read); <code>Some</code> rebuilds <code>RootCerts::Specific</code> from each
-freshly loaded bundle, adopted by the next request.</p>
-<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
-<p>The declared bundle cannot be loaded at boot.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">secured</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
-</span></code></pre></div>
-<p>The one place every non-default setting is decided, and every one of them is a decision:</p>
-<ul>
-<li><code>http_status_as_error(false)</code>, because the client's default turns a <code>4xx</code> into an error and
-  discards the body - and the body is where the endpoint says <em>which</em> refusal this is. Status is
-  read explicitly instead, in <code>refusal</code>.</li>
-<li><code>https_only(true)</code>, so a bearer token cannot leave over plaintext even if a URL somewhere
-  loses its scheme. <code>HOST</code> is already <code>https</code>; this is the second lock.</li>
-<li><code>max_redirects(0)</code>, so the credential has no second host to reach. <code>ureq-proto</code> also strips
-  <code>authorization</code> on a redirect, which was verified rather than assumed - so this is belt and
-  braces, and the belt is ours.</li>
-<li><code>timeout_global</code>, at the job's deadline plus <code>CONNECT_MARGIN</code>, so the socket cannot outlive
-  the job it is waiting for by more than connection setup.</li>
-<li><code>max_response_header_size</code>, because headers are read before the body's own limit applies.</li>
-<li><code>proxy(Proxy::try_from_env())</code>, which is the client's own default WRITTEN OUT rather than
-  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
-  <code>HOST</code>, so what the environment chooses is the route and not the destination. The module
-  header states that distinction, because a previous version of it claimed the stronger thing.</li>
-<li><code>tls_config</code>, over <code>crate::wire::tls::config</code> - <code>RootCerts::WebPki</code> (<code>ureq</code>'s own default)
-  for <code>anchors: None</code>, which is every call <code>Self::pinned</code> makes and every deployment before
-  <code>#125</code>; <code>RootCerts::Specific</code> built from <code>anchors</code> for <code>Some</code>, which is what
-  <code>security.outbound.transport_anchors</code> resolves to. No client identity: <code>security.outbound</code>
-  is anchors only, so there is no <code>ClientCert</code> in either arm.</li>
-</ul>
-<p>The agent is wrapped in a never-rotating <code>sutura_tls::Rotating</code> - this constructor has no
-declaration to re-read. The rotation lane is <code>Self::rotating</code>, fed by
-<code>Self::rotating_agent</code>.</p>
-<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="struct-endpointmessage"><code>struct EndpointMessage</code><a class="headerlink" href="#struct-endpointmessage" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">EndpointMessage</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">EndpointMessage</span>
 </span></code></pre></div>
 <p>The endpoint's own message on a refusal: free text, and the one field here that can name an
 account.</p>
@@ -2767,21 +2706,21 @@ is no <code>Display</code> and no <code>Debug</code> here that prints the senten
 named on purpose - so any formatter that would have leaked it cannot be written without naming
 the field and calling that accessor. Keeping the raw sentence out of every ordinary rendering is
 the one control this type holds; it does not change what the endpoint itself records on its side.</p>
-<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The message itself, for a caller that has decided it may render it.</p>
 <p>Named rather than reached through <code>Deref</code>, which <code>cargo xtask check-newtype-leaks</code> refuses:
 a wrapper you can forget you are holding is not a wrapper.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounded</span><span class="p">(</span><span class="n">message</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounded</span><span class="p">(</span><span class="n">message</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The endpoint's message, capped and stripped of anything that could forge a log line.</p>
 <p>Infallible: an absent message is an empty one, which is honest - the status is what is
 guaranteed.</p>
-<h4 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h4>
+<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-reasoncode"><code>enum ReasonCode</code><a class="headerlink" href="#enum-reasoncode" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ReasonCode</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ReasonCode</span>
 </span></code></pre></div>
 <p>The fixed reason vocabulary this adapter exposes from an endpoint response.</p>
 <p>Provider text is parsed into this type before it reaches an error. The endpoint may add a reason
@@ -2800,14 +2739,14 @@ text to become a log line.</p>
 <li><code>ResponseTooLarge</code> - The response exceeded the service's maximum response size.</li>
 <li><code>BackendError</code> - The service reported a temporary backend failure.</li>
 </ul>
-<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The stable text this adapter renders for the code.</p>
-<h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
+<h4 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-wireerror"><code>enum WireError</code><a class="headerlink" href="#enum-wireerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">WireError</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">WireError</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Why the endpoint did not answer with rows.</p>
 <p>Generic in the credential source's own error, for the reason <code>crate::BigQueryError</code> is generic
@@ -2912,10 +2851,10 @@ every other variant and <code>clippy::result_large_err</code> is on.</p>
 - <code>NotAListing</code> - The answer to a table listing was not one. Distinct from <code>Self::NotADocument</code>, the same failure for a query answer: two documents, two shapes, and one message per request.
 - <code>UnusablePageToken</code> - The service handed back a page token this transport will not write into a URL. <strong>Refused rather than filtered</strong>, and <code>tables::usable_token</code> carries the argument; the token travels through <code>bounded</code>, which keeps a foreign string out of a log unbounded.
 - <code>ListingDidNotFinish</code> - A dataset that did not finish listing inside the page bound. <strong>A failure rather than a short listing</strong>: this feeds <em>these tables are absent</em>, so a cut-off listing reports a table that is there as missing.</p>
-<h4 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h4>
+<h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-bigquerywire"><code>struct BigQueryWire</code><a class="headerlink" href="#struct-bigquerywire" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BigQueryWire</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BigQueryWire</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>A <code>BigQuery</code> endpoint, reached over HTTP.</p>
 <p>Generic in its credential source rather than holding a boxed one, for the reason
@@ -2923,15 +2862,27 @@ every other variant and <code>clippy::result_large_err</code> is on.</p>
 at composition, and a generic keeps the source's own error type visible in <code>WireError</code>.</p>
 <p>It holds a <code>WireAgent</code> and not a <code>ureq::Agent</code>, which is what makes the module header's claims
 properties of this type rather than of whichever function a composition root happened to call.</p>
-<h4 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">WireAgent</span><span class="p">,</span><span class="w"> </span><span class="n">credentials</span><span class="p">:</span><span class="w"> </span><span class="nc">C</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">WireAgent</span><span class="p">,</span><span class="w"> </span><span class="n">credentials</span><span class="p">:</span><span class="w"> </span><span class="nc">C</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Opens a transport.</p>
 <p>The <code>WireAgent</code> is a parameter rather than something built here so it can be the same one
 the credential source refreshes through - one connection pool, one set of pins, and one
 <code>JobBounds</code> shared by the socket timeout and the request body.</p>
-<h4 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h4>
+<h4 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>JobTransport</code></p>
+<h3 id="use-wireagent"><code>use WireAgent</code><a class="headerlink" href="#use-wireagent" title="Permanent link">&para;</a></h3>
+<p>The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.</p>
+<p><strong>This newtype is the whole mechanism, and it exists because the previous shape was a convention.</strong>
+The settings below used to live in a free function returning a bare <code>ureq::Agent</code>, and both
+<code>super::BigQueryWire::new</code> and <code>credential::ApplicationDefault::read</code> accepted any agent - so a
+composition root writing <code>ureq::Agent::new_with_defaults()</code> got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what <em>a newtype parses rather than validates</em> asks for: if an
+instance of this exists, the pins hold.</p>
+<p>It also carries the <code>JobBounds</code>, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are <strong>the same value</strong>. Two arguments could have disagreed.</p>
 <h3 id="use-bytesbilledceiling"><code>use BytesBilledCeiling</code><a class="headerlink" href="#use-bytesbilledceiling" title="Permanent link">&para;</a></h3>
 <p>The most a single job may be billed for scanning.</p>
 <p><strong>Sent as <code>maximumBytesBilled</code>, which is enforced at the service and is what makes it worth
@@ -2992,6 +2943,80 @@ composition root's one door in, and it takes the setting directly rather than a 
 <p>An <code>ImpersonateAsAccount</code> that talks to Google's <code>iamcredentials</code> API over HTTP.</p>
 <h3 id="use-stsoverhttp"><code>use StsOverHttp</code><a class="headerlink" href="#use-stsoverhttp" title="Permanent link">&para;</a></h3>
 <p>An <code>StsExchange</code> that talks to Google STS over HTTP.</p>
+<h3 id="module-agent">Module <code>agent</code><a class="headerlink" href="#module-agent" title="Permanent link">&para;</a></h3>
+<p><code>WireAgent</code> - the one <code>ureq::Agent</code> every request in this crate goes through.</p>
+<p>Its six pins are fixed by the type, and its <code>security.outbound</code> declaration (anchors, and
+since <code>github.com/telekom/sutura#911</code> an optional client identity) is folded into it.</p>
+<p>Split out of <code>wire.rs</code> for the file-length gate the way <code>bounds.rs</code>/<code>credential.rs</code>/<code>document.rs</code>
+already are: <code>wire.rs</code> sat at (and then over) <code>cargo xtask max-lines</code>'s 1000-line cap, and this
+type - one struct, one impl block - is a separable concept rather than a slice of prose.</p>
+<h4 id="struct-wireagent"><code>struct WireAgent</code><a class="headerlink" href="#struct-wireagent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WireAgent</span>
+</span></code></pre></div>
+<p>The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.</p>
+<p><strong>This newtype is the whole mechanism, and it exists because the previous shape was a convention.</strong>
+The settings below used to live in a free function returning a bare <code>ureq::Agent</code>, and both
+<code>super::BigQueryWire::new</code> and <code>credential::ApplicationDefault::read</code> accepted any agent - so a
+composition root writing <code>ureq::Agent::new_with_defaults()</code> got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what <em>a newtype parses rather than validates</em> asks for: if an
+instance of this exists, the pins hold.</p>
+<p>It also carries the <code>JobBounds</code>, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are <strong>the same value</strong>. Two arguments could have disagreed.</p>
+<h5 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">JobBounds</span>
+</span></code></pre></div>
+<p>What every job through this client is bounded by.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pinned</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The compiled-in-roots constructor: <code>Self::secured</code> with no declared anchors.</p>
+<p>This is every deployment's behaviour before <code>github.com/telekom/sutura#125</code> and stays the
+default for one with no <code>security.outbound.transport_anchors</code> block - see <code>Self::secured</code>
+for the one setting that differs when a deployment declares one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The rotation-lane constructor over a handle built by <code>Self::rotating_agent</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Declared</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;&gt;</span><span class="p">),</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Builds the wire's rotating agent handle for a declared <code>security.outbound</code> set (and, when one
+is declared, the poll handle the composition root drives on <code>sutura_tls::POLL_INTERVAL</code>).
+<code>None</code> returns a fixed handle over <code>ureq</code>'s compiled-in roots and no presented identity (the
+pre-<code>#125</code> behaviour, nothing to re-read); <code>Some</code> rebuilds <code>RootCerts::Specific</code> from each
+freshly loaded bundle and, when <code>sutura_tls::Declared::identity</code> is declared, presents the
+freshly loaded <code>sutura_tls::LoadedIdentity</code> too - both adopted by the next request.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p>The declared bundle or client identity cannot be loaded at boot.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">secured</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The one place every non-default setting is decided, and every one of them is a decision:</p>
+<ul>
+<li><code>http_status_as_error(false)</code>, because the client's default turns a <code>4xx</code> into an error and
+  discards the body - and the body is where the endpoint says <em>which</em> refusal this is. Status is
+  read explicitly instead, in <code>refusal</code>.</li>
+<li><code>https_only(true)</code>, so a bearer token cannot leave over plaintext even if a URL somewhere
+  loses its scheme. <code>HOST</code> is already <code>https</code>; this is the second lock.</li>
+<li><code>max_redirects(0)</code>, so the credential has no second host to reach. <code>ureq-proto</code> also strips
+  <code>authorization</code> on a redirect, which was verified rather than assumed - so this is belt and
+  braces, and the belt is ours.</li>
+<li><code>timeout_global</code>, at the job's deadline plus <code>CONNECT_MARGIN</code>, so the socket cannot outlive
+  the job it is waiting for by more than connection setup.</li>
+<li><code>max_response_header_size</code>, because headers are read before the body's own limit applies.</li>
+<li><code>proxy(Proxy::try_from_env())</code>, which is the client's own default WRITTEN OUT rather than
+  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
+  <code>HOST</code>, so what the environment chooses is the route and not the destination. The module
+  header states that distinction, because a previous version of it claimed the stronger thing.</li>
+<li><code>tls_config</code>, over <code>crate::wire::tls::config</code> - <code>RootCerts::WebPki</code> (<code>ureq</code>'s own default)
+  for <code>anchors: None</code>, which is every call <code>Self::pinned</code> makes and every deployment before
+  <code>#125</code>; <code>RootCerts::Specific</code> built from <code>anchors</code> for <code>Some</code>, which is what
+  <code>security.outbound.transport_anchors</code> resolves to. This constructor never presents a client
+  identity - <code>Self::rotating_agent</code> is the one that does, over the same declaration.</li>
+</ul>
+<p>The agent is wrapped in a never-rotating <code>sutura_tls::Rotating</code> - this constructor has no
+declaration to re-read. The rotation lane is <code>Self::rotating</code>, fed by
+<code>Self::rotating_agent</code>.</p>
+<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="module-bounds">Module <code>bounds</code><a class="headerlink" href="#module-bounds" title="Permanent link">&para;</a></h3>
 <p>What one job may spend: the TIME bound, the MONEY bound, and the per-call budget they are
 charged against.</p>

@@ -486,6 +486,8 @@
       
         
       
+        
+      
     
     
     
@@ -602,6 +604,34 @@
     
   
     The local chat demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
   
 
     
@@ -839,8 +869,6 @@
       
         
       
-        
-      
     
     
     
@@ -929,34 +957,6 @@
     
   
     Contributing
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../crap/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The CRAP gate
   
 
     
@@ -1091,7 +1091,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -1113,14 +1113,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2413,7 +2413,9 @@ settings-declared file at boot) and <code>bounds</code> (only <code>ReadBounds::
 <p><strong><code>anchors</code> is <code>security.outbound.transport_anchors</code> (<code>#125</code>), resolved once at boot</strong>: <code>None</code>
 leaves <code>ureq</code>'s compiled-in <code>RootCerts::WebPki</code> (every deployment before <code>security.outbound</code>),
 <code>Some</code> replaces it with <code>RootCerts::Specific</code> from exactly the declared certificates - never a
-union of the two (see <code>super::tls_roots</code>); anchors only, no <code>ClientCert</code> in either arm.</p>
+union of the two (see <code>super::tls_roots</code>). This constructor never presents a client
+identity - <code>Self::rotating_agent</code> is the one that does, over the same declaration
+(<code>security.outbound.client_certificate</code>/<code>client_key</code>, <code>github.com/telekom/sutura#911</code>).</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">property</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The rotation-lane constructor: holds the rotating agent handle a composition root built (via
@@ -2421,15 +2423,17 @@ union of the two (see <code>super::tls_roots</code>); anchors only, no <code>Cli
 per-request, so the agent <code>current()</code> resolves to on the next <code>read</code> is the latest that loaded -
 a replaced bundle (<code>security.outbound.transport_anchors</code>, <code>github.com/telekom/sutura#125</code>) is
 adopted by the next read, no drain (per <code>docs/adr/0010</code>).</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Anchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;&gt;</span><span class="p">),</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Declared</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Rotator</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;&gt;</span><span class="p">),</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Builds the reader's rotating agent handle for a declared <code>security.outbound.transport_anchors</code>
-set, and (when one is declared) the <code>sutura_tls::Rotator</code> the composition root drives on
+<p>Builds the reader's rotating agent handle for a declared <code>security.outbound</code> set, and (when
+one is declared) the <code>sutura_tls::Rotator</code> the composition root drives on
 <code>sutura_tls::POLL_INTERVAL</code>. <code>None</code> (no declaration) returns a fixed handle over <code>ureq</code>'s
-compiled-in roots and no poll handle. Rebuilt over <code>RootCerts::Specific</code> from each freshly
-loaded bundle - never a union, never a second external read.</p>
+compiled-in roots, presenting no identity, and no poll handle. Rebuilt over
+<code>RootCerts::Specific</code> from each freshly loaded bundle and, when
+<code>sutura_tls::Declared::identity</code> is declared, the freshly loaded identity too - never a
+union, never a second external read.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
-<p>The declared bundle cannot be loaded at boot.</p>
+<p>The declared bundle or client identity cannot be loaded at boot.</p>
 <h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
 <p><code>AspectReader</code>, <code>Clone</code>, <code>Debug</code></p>
 <h3 id="constant-default_timeout_seconds"><code>constant DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#constant-default_timeout_seconds" title="Permanent link">&para;</a></h3>
