@@ -12,7 +12,7 @@
 #     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
 #     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the eight direct
 #     dependencies below, six are first-party path dependencies and the two third-party ones are
-#     `libfuzzer-sys` and `serde_json`. What `sutura-exec-bigquery`'s `wire` feature brings in
+#     `libfuzzer-sys` and `serde_json`. The BigQuery adapter's Arrow/ADBC graph - excluded
 #     transitively - `ureq`, `ring` and `base64` - is advisory-unchecked here for the same reason,
 #     the cost of fuzzing the real reply decode that ships behind that feature.
 #
@@ -42,7 +42,7 @@
 #   * `key_set_document`   - `sutura_http::inbound::keys::KeySet::parse`, the JWK-set document an
 #     operator's key-set file or authorization server supplies. Runs `serde_json`, then
 #     `jsonwebtoken`'s JWK decode, base64 and `KeyId::parse`; asserts a parsed set is never empty.
-#   * `bigquery_answer`    - a data system's reply: `sutura_exec_bigquery::wire::document::decode_answer`,
+#   * (removed with the wire transport)`,
 #     exactly what the adapter's transport feeds a `jobs.query` answer through once the HTTP round
 #     trip is done. Runs `serde_json` over the reply (no `deny_unknown_fields`, because the
 #     endpoint's document is the service's own and will grow fields) and then the shape checks that
@@ -100,7 +100,6 @@ sutura-http = { path = "../crates/sutura-http" }
 sutura-sql = { path = "../crates/sutura-sql" }
 sutura-config = { path = "../crates/sutura-config" }
 sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
-sutura-exec-bigquery = { path = "../crates/sutura-exec-bigquery", features = ["wire"] }
 serde_json = "1"
 
 # `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
@@ -153,9 +152,3 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "bigquery_answer"
-path = "fuzz_targets/bigquery_answer.rs"
-test = false
-doc = false
-bench = false
