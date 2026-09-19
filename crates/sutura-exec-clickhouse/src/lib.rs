@@ -20,8 +20,8 @@
 //! # Why a driver-shaped seam, and not just a hand-rolled client
 //!
 //! [`transport::ClickHouseTransport`] is the port this adapter's own port methods call through -
-//! [`transport::Http`] for a real connection, and `tests/conformance.rs`'s canned implementor for
-//! the pack. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
+//! [`transport::Http`] for a real connection, and a canned implementor for the
+//! crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
 //! venue that runs `just validate` can reach a live `ClickHouse` (`compose.services.yaml`'s
 //! `clickhouse` service is a docker-compose tier; the nix sandbox has no docker socket and no
 //! `clickhouse-tier.nix` exists), so a binding that dialled out would either panic in every
@@ -29,7 +29,7 @@
 //! refuse_a_declared_absence` fires against an absent fixture whenever `SUTURA_DEV_REQUIRE_TIER`
 //! is set, which it is inside `checks.nextest` because the Postgres tier is up there, a fact
 //! about THAT tier and not about this one. A canned transport sidesteps the question entirely:
-//! `Fixture::Standing` is honest because nothing here claims to be a live endpoint.
+//! Nothing here claims to be a live endpoint.
 //!
 //! `Warehouse::Error` for this adapter is [`ClickHouseError`], generic over `T::Error` - the same
 //! shape `sutura_exec_bigquery::BigQueryError<E>`
@@ -53,10 +53,11 @@
 //!
 //! # What is NOT here
 //!
-//! **No composition root links this crate.** Like `sutura_exec_duckdb`, it is a dev-dependency:
-//! nothing in `sutura-cli`'s `sources.rs` or `serve` module names a `kind: clickhouse`, so no
-//! served deployment can reach a `ClickHouse` source today. Wiring that in is a `sutura-cli`
-//! change, out of this crate's own scope.
+//! **No composition root links this crate.** Nothing in `sutura-cli`'s `sources.rs` or `serve`
+//! module names a `kind: clickhouse`, so no served deployment can reach a `ClickHouse` source
+//! today. `crate-map`'s rule is a default-off feature on whichever composition root wants to
+//! serve one, and none does yet. Wiring that in is a `sutura-cli` change, out of this crate's
+//! own scope.
 //!
 //! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 //! and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so

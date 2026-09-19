@@ -116,7 +116,7 @@ an owned `#[source]`.
 
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
-- `UnresolvableConnection` - A table's own path named a dataset and no project, and this connection's own billing project could not be read as one to fill the gap with.
+- `UnresolvableConnection` - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.
 
   **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
   typed variant rather than a panic for the same reason every other "unreachable" case in

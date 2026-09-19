@@ -166,16 +166,16 @@ where
         #[source]
         cause: GenerateError,
     },
-    /// A table's own path named a dataset and no project, and this connection's own billing
-    /// project could not be read as one to fill the gap with.
+    /// A table path could not be resolved against this connection, or the resolved tables -
+    /// taken together - answer to one identifier the statement cannot tell apart.
     ///
     /// **Unreachable in practice**: see [`UnresolvableConnection`]'s own documentation for why. A
     /// typed variant rather than a panic for the same reason every other "unreachable" case in
     /// this workspace is one - the input reaching it is not bounded by the type system alone.
-    #[error("a partially-qualified path could not be resolved against this connection")]
+    #[error("a table path could not be resolved for this connection")]
     UnresolvableConnection {
         #[source]
-        cause: UnresolvableConnection,
+        cause: sutura_domain::plan::ResolveTablesError<UnresolvableConnection>,
     },
     /// A federated leg arrived, and there is nothing above it to combine legs.
     ///

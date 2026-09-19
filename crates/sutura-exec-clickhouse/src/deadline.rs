@@ -24,8 +24,14 @@
 //! *do not send the setting at all*) only after [`refuse_if_spent`] has already refused a spent
 //! deadline - there is no path where `None` reaches the wire as *no limit*. A `0` is never sent
 //! either: `ClickHouse` reads `max_execution_time = 0` as *no limit*, the same "zero reads as
-//! unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`, so the
-//! remaining budget is floored at one second rather than rounded down to it.
+//! unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`. The
+//! mechanism that prevents a `0` from reaching the wire is `remaining_at`'s `None` itself: a
+//! spent deadline has `None`, which [`refuse_if_spent`] catches before
+//! [`max_execution_time_seconds`] is ever asked, so the remaining budget is always strictly
+//! positive when this function runs. The `ceiling.max(1)` floor in
+//! [`max_execution_time_seconds`] is therefore a dead defensive bound - kept because a future
+//! caller that bypassed [`refuse_if_spent`] should still never send a `0`, but unreachable on
+//! every path that goes through the transport.
 
 use std::time::Instant;
 
@@ -96,9 +102,17 @@ mod tests {
     }
 
     #[test]
-    fn a_deadline_with_time_left_is_not_refused() {
-        let budget = Budget::parse(Duration::from_secs(5)).expect("a non-zero budget");
-        let deadline = Deadline::opened_at(Instant::now(), budget);
-        refuse_if_spent(deadline).expect("a deadline with time left is not spent");
+    fn a_spent_deadline_is_refused_before_any_request_is_sent() {
+        let budget = Budget::parse(Duration::from_millis(1)).expect("a non-zero budget");
+        let opened = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .expect("one second ago is representable");
+        let deadline = Deadline::opened_at(opened, budget);
+        // `remaining_at` returns `None` when expired, and forwarding `None` to an HTTP client
+        // means *wait forever* - so `refuse_if_spent` is the whole guard. This cell holds the
+        // refusal itself, not the `max_execution_time_seconds` predicate the sibling test above
+        // asserts on.
+        let error = refuse_if_spent(deadline).expect_err("a spent deadline is refused before any round trip");
+        assert_eq!(error, DeadlineSpent);
     }
 }

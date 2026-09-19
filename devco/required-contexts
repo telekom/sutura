@@ -177,8 +177,10 @@ ci.yml:e2e-datahub-bigquery
 
 # The demo's container tier, the caller's job. It calls `demo-container.yml`, so its one job
 # reports `demo-container / smoke-test`, the same caller-prefixed shape `cross-link.yml:link`
-# carries and for the same reason: a called workflow's job cannot resolve a required context,
-# because the string GitHub reports is not the bare id this record could name. ADVISORY ALSO BY
+# carries and for the same reason: `cargo xtask check-workflows` derives a plain job's context
+# and cannot spell a caller-prefixed one, so this record cannot name it as a `[required]` entry.
+# Whether GitHub itself can hold a caller-prefixed context as a required check is a platform
+# claim nobody here has reproduced. ADVISORY ALSO BY
 # DECISION, not only by that mechanical limit - the owner call recorded in `demo-container.yml`'s
 # own header (2026-09-19, `github.com/telekom/sutura#639`) is that a red demo must never block
 # unrelated work on a pull request. It becomes required at the release boundary instead:

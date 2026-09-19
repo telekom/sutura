@@ -5719,6 +5719,27 @@ its own type rather than a `QueryPlan` with three fields made optional - `leg` s
 why. `Executable` is what the port takes, so an adapter's match over what it can be handed is
 exhaustive.
 
+### `enum ResolveTablesError`
+
+```rust
+pub enum ResolveTablesError<E>
+```
+
+Why `QueryPlan::resolve_tables` could not produce a valid plan.
+
+Either the `resolve` closure refused a table path, or the resolved tables - taken together -
+answer to one identifier, which is `AmbiguousTables`'s refusal re-validated through
+`StatementTables::parse`.
+
+#### Variants
+
+- `Resolve` - The `resolve` closure refused this table path.
+- `Ambiguous` - The resolved tables share an identifier, so the statement cannot tell them apart.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct RowCeiling`
 
 ```rust
@@ -6182,7 +6203,7 @@ pub const fn range(&self) -> TimeRange
 ```
 
 ```rust
-pub fn resolve_tables<E>(self, resolve: impl FnMut(&QualifiedTable) -> Result<QualifiedTable, E>) -> Result<Self, E>
+pub fn resolve_tables<E>(self, resolve: impl FnMut(&QualifiedTable) -> Result<QualifiedTable, E>) -> Result<Self, ResolveTablesError<E>>
 ```
 
 This plan with every table path passed through `resolve`, and nothing else changed.
@@ -6193,6 +6214,12 @@ exactly what `sutura_sql::generate::table_path` renders as literal text, so what
 resolves to is a decision about this plan, made once, not a rule every dialect's renderer
 would otherwise need. Runs over the `FROM` table and then every joined one; the first
 failure stops the walk.
+
+**Re-validates through `StatementTables::parse`** after resolving, so a `resolve` closure
+that rewrites a table name into one already in the statement is refused rather than shipped
+to the renderer. The invariant `QueryPlan::new` holds - that no plan holds two tables one
+statement could not tell apart - is preserved here rather than assumed: the resolved tables
+go back through the same parser that built the plan in the first place.
 
 ```rust
 pub fn result_labels(&self) -> Vec<String>

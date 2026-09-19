@@ -27,11 +27,11 @@ ureq = { workspace = true }
 # bundle/identity are not re-derived a third time. This crate's own `tls` module folds the result
 # into the `ureq::tls::TlsConfig` [`transport::secured`] connects with; `sutura-tls` builds neither.
 sutura-tls = { workspace = true }
-# This crate is a DEV-DEPENDENCY of every composition root, exactly like `sutura-exec-duckdb`: no
-# served binary links it, so there is no artefact for a default-off feature to keep an outbound
-# TLS stack out of. `ureq`/`sutura-tls` are therefore plain dependencies here, not feature-gated
-# ones - the gating this workspace asks for lives on whichever composition root wants to SERVE a
-# `kind: clickhouse` source, and none does yet (see `src/lib.rs`'s module header for the limit).
+# No composition root links this crate, and none names a `kind: clickhouse` source - so no served
+# binary links it, and there is no artefact for a default-off feature to keep an outbound TLS
+# stack out of. `ureq`/`sutura-tls` are therefore plain dependencies here, not feature-gated ones
+# - the gating `crate-map` asks for lives on whichever composition root wants to SERVE a `kind:
+# clickhouse` source, and none does yet (see `src/lib.rs`'s module header for the limit).
 #
 # Both already resolved at these versions: `rustls-pki-types` via `sutura-tls`/`rustls-native-
 # certs`, `rustls-native-certs` via `sutura-exec-postgres`. Named directly because `tls.rs` reads

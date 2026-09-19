@@ -29,8 +29,8 @@ no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what 
 # Why a driver-shaped seam, and not just a hand-rolled client
 
 `transport::ClickHouseTransport` is the port this adapter's own port methods call through -
-`transport::Http` for a real connection, and `tests/conformance.rs`'s canned implementor for
-the pack. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
+`transport::Http` for a real connection, and a canned implementor for the
+crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
 venue that runs `just validate` can reach a live `ClickHouse` (`compose.services.yaml`'s
 `clickhouse` service is a docker-compose tier; the nix sandbox has no docker socket and no
 `clickhouse-tier.nix` exists), so a binding that dialled out would either panic in every
@@ -38,7 +38,7 @@ such venue or have to declare itself absent - and `sutura_conformance::venue::
 refuse_a_declared_absence` fires against an absent fixture whenever `SUTURA_DEV_REQUIRE_TIER`
 is set, which it is inside `checks.nextest` because the Postgres tier is up there, a fact
 about THAT tier and not about this one. A canned transport sidesteps the question entirely:
-`Fixture::Standing` is honest because nothing here claims to be a live endpoint.
+Nothing here claims to be a live endpoint.
 
 `Warehouse::Error` for this adapter is `ClickHouseError`, generic over `T::Error` - the same
 shape `sutura_exec_bigquery::BigQueryError<E>`
@@ -62,10 +62,11 @@ module header states what was measured about that setting's semantics and its li
 
 # What is NOT here
 
-**No composition root links this crate.** Like `sutura_exec_duckdb`, it is a dev-dependency:
-nothing in `sutura-cli`'s `sources.rs` or `serve` module names a `kind: clickhouse`, so no
-served deployment can reach a `ClickHouse` source today. Wiring that in is a `sutura-cli`
-change, out of this crate's own scope.
+**No composition root links this crate.** Nothing in `sutura-cli`'s `sources.rs` or `serve`
+module names a `kind: clickhouse`, so no served deployment can reach a `ClickHouse` source
+today. `crate-map`'s rule is a default-off feature on whichever composition root wants to
+serve one, and none does yet. Wiring that in is a `sutura-cli` change, out of this crate's
+own scope.
 
 **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
@@ -159,8 +160,14 @@ forever*: `refuse_if_spent` refuses locally before a request is ever sent, and
 *do not send the setting at all*) only after `refuse_if_spent` has already refused a spent
 deadline - there is no path where `None` reaches the wire as *no limit*. A `0` is never sent
 either: `ClickHouse` reads `max_execution_time = 0` as *no limit*, the same "zero reads as
-unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`, so the
-remaining budget is floored at one second rather than rounded down to it.
+unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`. The
+mechanism that prevents a `0` from reaching the wire is `remaining_at`'s `None` itself: a
+spent deadline has `None`, which `refuse_if_spent` catches before
+`max_execution_time_seconds` is ever asked, so the remaining budget is always strictly
+positive when this function runs. The `ceiling.max(1)` floor in
+`max_execution_time_seconds` is therefore a dead defensive bound - kept because a future
+caller that bypassed `refuse_if_spent` should still never send a `0`, but unreachable on
+every path that goes through the transport.
 
 ## Module `tls`
 
@@ -269,8 +276,8 @@ system store, and an unreadable or malformed identity.
 
 The seam this adapter's `execute`/`verify_anchor`/`declared_key` call through.
 
-`Http` is the one implementor a real connection uses, and `tests/conformance.rs` binds the
-port to a CANNED implementor instead, over the exact same trait - the shape
+`Http` is the one implementor a real connection uses, and the crate's own unit tests bind
+the port to a CANNED implementor instead, over the exact same trait - the shape
 `sutura-exec-bigquery`'s `JobTransport` already established for the identical reason (no live
 server this repository can reach in every venue that runs the suite; see this crate's own
 `lib.rs` header).

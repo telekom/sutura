@@ -1,7 +1,7 @@
 //! The seam this adapter's `execute`/`verify_anchor`/`declared_key` call through.
 //!
-//! [`Http`] is the one implementor a real connection uses, and `tests/conformance.rs` binds the
-//! port to a CANNED implementor instead, over the exact same trait - the shape
+//! [`Http`] is the one implementor a real connection uses, and the crate's own unit tests bind
+//! the port to a CANNED implementor instead, over the exact same trait - the shape
 //! `sutura-exec-bigquery`'s `JobTransport` already established for the identical reason (no live
 //! server this repository can reach in every venue that runs the suite; see this crate's own
 //! `lib.rs` header).
