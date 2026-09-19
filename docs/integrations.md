@@ -42,9 +42,11 @@ A data source executes a compiled plan. The `Warehouse` port is synchronous and 
 | DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                           | one process identity - `NoPlaceForASubject`  |
 | DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer | one process identity - `NoPlaceForASubject`  |
 | ClickHouse | none yet                 | yes     | **no**                                        | -                                            |
+| Oracle     | none yet                 | yes     | **no**                                        | -                                            |
 
-ClickHouse renders and cannot be asked to answer: the dialect shipped without an executor. Its
-committed goldens therefore pin what this renderer emits and nothing a database agreed to.
+ClickHouse and Oracle render and cannot be asked to answer: both dialects shipped without an
+executor. Their committed goldens therefore pin what this renderer emits and nothing a database
+agreed to.
 
 ## Identity: what "impersonation" does and does not mean here
 

@@ -13,7 +13,7 @@
 //!
 //! | Fixture | What it is | What it shows |
 //! | --- | --- | --- |
-//! | `qualified-dataset` | `sales.orders` | a schema qualifier, which three of the four targets resolve |
+//! | `qualified-dataset` | `sales.orders` | a schema qualifier, which four of the five targets resolve |
 //! | `qualified-project` | `analytics-prod.sales.orders` | a project above a dataset, which one target resolves |
 //! | `qualified-cross-project-join` | that fact table joined to a dimension table in **another project** | the headline claim: a cross-project join is ONE statement, one job and one source |
 //!
@@ -466,7 +466,7 @@ fn two_paths_ending_in_one_name_are_refused_rather_than_rendered_under_one_alias
 ///
 /// `GoogleSQL` resolves an alias case-insensitively and a real `DuckDB` binds a quoted `orders`
 /// qualifier against a table declared `Orders`, so `Orders` beside `orders` is one identifier on two
-/// of the four targets. `StatementTables::parse` compares under `IdentifierCase::COARSEST` for that
+/// of the five targets. `StatementTables::parse` compares under `IdentifierCase::COARSEST` for that
 /// reason, and `sutura_sql::Dialect::identifier_case` is where each target declares its own.
 #[test]
 fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
