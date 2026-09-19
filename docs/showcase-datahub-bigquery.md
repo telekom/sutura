@@ -12,7 +12,7 @@ credential:
 
 1. **DataHub carries the definition.** A `catalog.kind: datahub` entry (issue #202's served form)
    harvests the certified `revenue` metric from the structured property its deployment names
-   ([ADR 0016](adr/0016-what-datahub-can-carry.md)).
+   (`docs/adr/0016-what-datahub-can-carry.md`).
 2. **A real issuer says who is asking.** The deployment declares `security.inbound` against the
    provisioned Keycloak realm - `mode: direct`, the realm's own audience, JWKS and `RS256` - so a
    caller's token is verified against a real provider's signature, not the mock that "answers yes by
@@ -71,7 +71,7 @@ AS the subject) is the one a green run of either mode still does not demonstrate
   is the corpus, not the platform.
 - **`--datahub tier`** (the hosted job's) starts the REAL docker DataHub platform
   (`xtask dev-up --with datahub` - five containers), provisions the certified `revenue` metric
-  under the deployment's own structured property ([ADR 0016](adr/0016-what-datahub-can-carry.md))
+  under the deployment's own structured property (`docs/adr/0016-what-datahub-can-carry.md`)
   exactly as `datahub-acceptance` does, has the tier mint its own personal-access token offline with
   its own signing key (headless GMS exposes no `/auth/*` surface - see `dev/src/mint.rs`; the PAT is
   never committed, it is written to a generated `token_file` at run time), and points the served

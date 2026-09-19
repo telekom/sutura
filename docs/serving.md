@@ -592,7 +592,7 @@ reasons land on `422`, which is documented the other way round, as a status a cl
 to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
 success branch is `2xx`. A deployment refusing every question read as perfectly healthy.
-[Decision 0005](adr/0005-a-refusal-carries-a-status.md) is the record, and
+`docs/adr/0005-a-refusal-carries-a-status.md` is the record, and
 [Questions and answers](qa.md) is what is refused and why.
 
 Cells are rendered as text rather than as JSON numbers. A measure over integer minor units does not
@@ -768,7 +768,7 @@ selects which file is layered, so a file that could change it would be self-refe
 | `security.inbound.token_type`                   | `at+jwt`                             | `direct` only. Which class of token, out of the `typ` header. `any` switches the check off and is printed at `WARN` on every boot. **Leaving it alone is the safe reading** - see [who is asking](#who-is-asking)                                                                                                                                                                                                                                                               |
 | `security.inbound.transit_token_type`           | absent, and **required**             | `behind-gateway` only. The class the component emits, or `any` if it sets none. Required because a component's `typ` is a fact only the deployment knows                                                                                                                                                                                                                                                                                                                        |
 | `security.inbound.transit_max_lifetime_seconds` | `120`                                | `behind-gateway` only. The longest `exp - iat` this deployment will call short-lived. Between 1 and 3600. An assertion with no `iat` is refused                                                                                                                                                                                                                                                                                                                                 |
-| `security.credential_cache.enabled`             | `false`                              | An exchanged credential (a `bigquery` source's `impersonation-at-source` leg) cached per chain, per process. Off because nobody has measured the round trip it saves - see [ADR 0031](adr/0031-caching-an-exchanged-credential.md)                                                                                                                                                                                                                                              |
+| `security.credential_cache.enabled`             | `false`                              | An exchanged credential (a `bigquery` source's `impersonation-at-source` leg) cached per chain, per process. Off because nobody has measured the round trip it saves - see `docs/adr/0031-caching-an-exchanged-credential.md`                                                                                                                                                                                                                                                   |
 | `security.credential_cache.capacity`            | `1024`                               | The most live entries the cache holds at once. Zero is refused                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `security.credential_cache.window_seconds`      | `300`                                | The operator's own ceiling on how long an entry is served, on top of the credential's own remaining life and the broker's own expiry floor - whichever of the three is soonest wins. Zero is refused                                                                                                                                                                                                                                                                            |
 | `security.outbound.transport_anchors`           | absent                               | A PEM bundle path, or `system`. Trust anchors for a FIXED-HOST outbound client - the BigQuery wire, the STS token exchange, and the datahub catalog reader - distinct from a per-source `transport_anchors`, which only means something when the source's own entry names the host it dials. Absent verifies against the compiled-in roots, unchanged from every prior release; a present `security.outbound` naming no anchors does not start. See `docs/adr/0010`'s amendment |
@@ -950,7 +950,7 @@ process still opens one KIND of data system at a time.
 
 ### The raw SQL tool, over the postgres source above
 
-[`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) is the record; this is the settings key
+`docs/adr/0013-a-raw-sql-tool-off-by-default.md` is the record; this is the settings key
 and the split between what this service enforces, what the connecting role enforces, and what
 neither does. `examples/raw-sql/README.md` is the worked showcase - a settings snippet, a role grant,
 one question with no certified metric, over the same Postgres source declared above.
@@ -989,7 +989,7 @@ deployment switch refused. Turning it on is one line an operator writes and a re
 - **What the statement may read or write.** Every call runs inside a transaction this adapter opens
   `BEGIN READ ONLY` and always rolls back - a real, server-enforced second control beside the role,
   closing the session-level escape (`SET TRANSACTION READ WRITE`, `default_transaction_read_only`)
-  [`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) already rejects as undoable by the
+  `docs/adr/0013-a-raw-sql-tool-off-by-default.md` already rejects as undoable by the
   caller's own next statement. But that transaction bounds SQL-visible writes for the DURATION of one
   call; it says nothing about what the role could otherwise do, and nothing about a VOLATILE
   function's own side effects (a file write, a network call through an extension) once the role may
@@ -998,7 +998,7 @@ deployment switch refused. Turning it on is one line an operator writes and a re
   operator's `GRANT`, not a setting sutura reads or verifies.
 - **How long a statement may run.** The connect-time `statement_timeout` this source's connection
   already carries is the ceiling. It is one number for every caller today, not narrowed per request -
-  [`docs/adr/0013`](adr/0013-a-raw-sql-tool-off-by-default.md) names the caller-derived deadline as a
+  `docs/adr/0013-a-raw-sql-tool-off-by-default.md` names the caller-derived deadline as a
   prerequisite this build does not yet carry for the raw path.
 
 **What neither enforces, stated because an overstated control is the defect this repository names
@@ -1224,7 +1224,7 @@ Named rather than implied, because an absence that reads as an oversight gets as
   there is leg 2 - a source executing AS the asking subject (`#376`) - so even a verified caller is
   answered under the deployment's own credential. See
   [the agent surface over HTTP](#the-agent-surface-over-http) and
-  [how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md).
+  `docs/adr/0014-how-a-caller-proves-who-it-is.md`.
 - **No record STORE.** This bullet said "no audit sink" and that had already stopped being true: there
   is an `AuditSink` port, `sutura-app` writes one record per outcome through it before the outcome
   returns, and the writer a deployment gets for free puts that record on the log below. What does not

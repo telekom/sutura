@@ -83,7 +83,7 @@ and pinned under the definition digest exactly as written. **It is not compiled*
 parses it, checks it against the model's columns or renders it, and every adapter this workspace
 ships refuses to start on a bundle that carries one, naming the metric. A caller still has no field
 for SQL, and the agent prompt still never sees any.
-[A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is the
+`docs/adr/0004-a-named-escape-hatch-for-authored-sql.md` is the
 record, and its amendment says why the compile was kept out of the load.
 
 **Design target, not built.** A definition may instead arrive as **statement** text authored
