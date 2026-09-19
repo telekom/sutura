@@ -516,8 +516,8 @@ The row count a stream reports, when it reports one at all.
 Decodes drained batches into a `JobRows`, refusing an unmapped column, a
 batch narrower than the schema, or an incomplete stream.
 
-The schema-wide type pass runs before any value work — a result with no rows
-still refuses an unmapped column — and each batch's column count is checked
+The schema-wide type pass runs before any value work - a result with no rows
+still refuses an unmapped column - and each batch's column count is checked
 against the schema before its cells are read (fail closed, not short).
 
 ### Module `decode`
@@ -549,7 +549,7 @@ Why a result set could not be decoded.
 ##### Variants
 
 - `UnmappedColumn` - A column whose Arrow type this adapter does not map.
-- `Shape` - A batch that disagrees with the schema it was announced under — a stream arriving over a C ABI from a foreign driver is exactly the case to refuse rather than trust.
+- `Shape` - A batch that disagrees with the schema it was announced under - a stream arriving over a C ABI from a foreign driver is exactly the case to refuse rather than trust.
 - `Incomplete` - The stream was not complete: a reported total the delivered rows do not reach.
 
 ##### Implements
@@ -584,8 +584,8 @@ pub fn job_rows(schema: &arrow_schema::Schema, batches: &[arrow_array::RecordBat
 Decodes drained batches into a `JobRows`, refusing an unmapped column, a
 batch narrower than the schema, or an incomplete stream.
 
-The schema-wide type pass runs before any value work — a result with no rows
-still refuses an unmapped column — and each batch's column count is checked
+The schema-wide type pass runs before any value work - a result with no rows
+still refuses an unmapped column - and each batch's column count is checked
 against the schema before its cells are read (fail closed, not short).
 
 ## Module `transport`

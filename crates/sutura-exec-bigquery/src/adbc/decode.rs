@@ -28,7 +28,7 @@ use crate::transport::{Cell, Field, FieldType, JobRows};
 pub enum Decode {
     /// A column whose Arrow type this adapter does not map.
     UnmappedColumn(String),
-    /// A batch that disagrees with the schema it was announced under — a stream
+    /// A batch that disagrees with the schema it was announced under - a stream
     /// arriving over a C ABI from a foreign driver is exactly the case to refuse
     /// rather than trust.
     Shape { fields: usize, columns: usize },
@@ -80,8 +80,8 @@ fn field_type(name: &str, dt: &DataType) -> FieldType {
 /// Decodes drained batches into a [`JobRows`], refusing an unmapped column, a
 /// batch narrower than the schema, or an incomplete stream.
 ///
-/// The schema-wide type pass runs before any value work — a result with no rows
-/// still refuses an unmapped column — and each batch's column count is checked
+/// The schema-wide type pass runs before any value work - a result with no rows
+/// still refuses an unmapped column - and each batch's column count is checked
 /// against the schema before its cells are read (fail closed, not short).
 pub fn job_rows(schema: &Schema, batches: &[RecordBatch], reported: Reported) -> Result<JobRows, Decode> {
     let mut fields = Vec::with_capacity(schema.fields().len());
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn refuses_a_batch_narrower_than_the_schema() {
         // Two fields announced, but the batch (its own 1-field schema, valid on
-        // its own) carries one column — the public job_rows API can be handed a
+        // its own) carries one column - the public job_rows API can be handed a
         // schema that does not match the batches it is given.
         let announced = Schema::new(vec![
             arrow_schema::Field::new("id", DataType::Int64, false),

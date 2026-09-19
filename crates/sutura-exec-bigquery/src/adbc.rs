@@ -89,7 +89,7 @@ impl JobTransport for AdbcBigQuery {
         // This transport cannot yet honour per-subject execution or bind
         // parameters, and the type claims both (PerSubjectCredential source, a
         // positional-? statement). Refuse loudly rather than run under the
-        // driver's ambient credential or ship an unbound statement — a silent
+        // driver's ambient credential or ship an unbound statement - a silent
         // drop is an identity regression and an unbound `?` is a runtime error.
         if request.subject_bearer().is_some() {
             return Err(AdbcError::Uncovered("execute as the asking subject"));

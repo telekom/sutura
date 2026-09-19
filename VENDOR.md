@@ -71,7 +71,7 @@ comparing the two define sets, not built here.
 ## ADBC BigQuery driver (telekom/sutura#913)
 
 The native ADBC BigQuery driver is the Foundry `adbc-drivers/bigquery` (Apache-2.0),
-**self-built from source** rather than pulled as a CDN `.so` from `dbc install bigquery` —
+**self-built from source** rather than pulled as a CDN `.so` from `dbc install bigquery` -
 a CDN binary has no aarch64-musl artifact and is not reproducible for this repository's
 four release triples. It is pinned at the release tag `go/v1.13.0`
 (repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase

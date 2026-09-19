@@ -9,7 +9,7 @@
 # follow-on PR. For the two static-musl artefacts in particular, `dlopen` of this
 # dynamic `.so` is impossible (a static musl binary has no dynamic loader), so
 # "adopt on musl" means a follow-on that switches to `-buildmode=c-archive` and
-# `ManagedDriver::load_static` — the `.so` this PR builds is not the artefact a
+# `ManagedDriver::load_static` - the `.so` this PR builds is not the artefact a
 # static-musl `sutura` loads.
 #
 # The one vendor hash covers all four triples: each triple realises a separate
@@ -39,7 +39,7 @@ let
     };
 in
 # Every triple is cross-built uniformly through `pkgsCross`, exactly as
-# `nix/shipped.nix` does — none is the host aliased to itself, because a driver
+# `nix/shipped.nix` does - none is the host aliased to itself, because a driver
 # named for a release triple must actually target it.
 driver { triple = "x86_64-unknown-linux-gnu"; crossPkgs = pkgs.pkgsCross.gnu64; }
 // driver { triple = "aarch64-unknown-linux-gnu"; crossPkgs = pkgs.pkgsCross.aarch64-multiplatform; }
