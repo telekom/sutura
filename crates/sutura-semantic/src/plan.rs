@@ -172,7 +172,7 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
     // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
     // dataset and project included, where the model declares them. `own_table` is the bare name, which
     // is what every column is qualified by: `FROM a.b.c` gives the reference an implicit alias of `c`
-    // in all four dialects rendered for, so a `PlanColumn` holds `c` and never the path.
+    // in all five dialects rendered for, so a `PlanColumn` holds `c` and never the path.
     let own_path = model.table();
     let own_table = model.table_name();
 
