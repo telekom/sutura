@@ -257,11 +257,15 @@ catches on the first day rather than a golden.
 
 ### Oracle: the driver is the blocker, not the dialect
 
-There is no Oracle driver this workspace can take. Every Rust option wraps Oracle's own client
-library, which nixpkgs cannot supply freely, so there is no analogue of `nix/duckdb.nix`'s single path
-from nixpkgs to a library, and `just validate` - which builds in the nix sandbox and is the only thing
-that counts as verified here - could not build it. Reasoned from the dependency situation, not
-attempted.
+**Corrected:** this used to say every Rust option wraps Oracle's own client library, which nixpkgs
+cannot supply freely. That premise is refuted - `oracledb` is a pure-Rust crate implementing Oracle's
+wire protocol directly, with no `build.rs` and no `*-sys` dependency, dual-licensed `UPL-1.0 OR
+Apache-2.0`. There is no longer an analogue-of-`nix/duckdb.nix` reason to say no driver builds here.
+
+What is still reasoned and not attempted: whether `oracledb` actually builds under `just validate`'s
+nix sandbox, and whether it covers what a `Warehouse` adapter needs - bind parameters, the row-cap
+clause, the token-authentication path ADR 0008 defers. The driver question is open again, not closed
+either way.
 
 Which is why [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) already has the answer and this record adopts it:
 **Arrow Flight SQL, uniformly, rather than a linked native driver each.** Under that transport a
@@ -507,8 +511,14 @@ Why not move the port to Arrow first, which is the direction [Connectors: Arrow 
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
 which copies every buffer, or the C data interface, which `unsafe_code = "forbid"` puts out of reach.
-ADR 0006 built both of those walls. Deciding an Arrow port here would be deciding a record 0009
-already says wants its own.
+ADR 0006 built both of those walls.
+
+**This has since been attempted, and the split is a TIMING constraint with an expiry, not an
+architectural one.** `duckdb` is the only consumer holding `arrow` back at 58; the rest of the
+`datafusion` family already sits on `59.2.0`. Upstream merged "Update Arrow to 59" into `duckdb-rs` on
+2026-09-02 - **unreleased**, the newest release predates it - so this closes on `duckdb-rs`'s own
+schedule and needs no decision here. Both walls stay up until it ships either way: deciding an Arrow
+port here would still be deciding a record 0009 already says wants its own.
 
 **What that costs, and it is a real number rather than a shrug.** The engine's own leg pays Arrow into
 `RowSet` in `sutura-exec-datafusion`'s `collect.rs` and then `RowSet` back into Arrow in the combiner -
