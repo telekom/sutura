@@ -311,6 +311,19 @@ impl ServiceState {
         &self.admission
     }
 
+    /// The shared handle to this replica's spend-headroom gauge, so a second transport can push
+    /// the same `sutura_spend_headroom_bytes` series a query route pushes.
+    ///
+    /// `sutura-http`'s own `/v1/query` route calls [`Self::record_spend_headroom`] instead; this is
+    /// for the composition root, which holds the served surface and needs to hand the MCP
+    /// transport a handle to the SAME gauge the HTTP route writes. `None` exactly when the
+    /// deployment has no spend ceiling (see the `spend_headroom` field doc for the absent-rather-
+    /// than-zero discipline). Cloned because [`Gauge`] shares its storage by `Arc`, so the caller
+    /// and this state observe one series.
+    pub fn spend_headroom_gauge(&self) -> Option<Gauge> {
+        self.spend_headroom.clone()
+    }
+
     /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a
     /// ceiling configured at all.
     ///
