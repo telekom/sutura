@@ -55,6 +55,15 @@ sutura-exec-duckdb = { workspace = true }
 # `fixtures` for `PostgresWarehouse::local_config`, which the adapters harness below opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
+# A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
+# Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
+# reserves its registration point. `available()` answers `false` unconditionally - like BigQuery,
+# and for an overlapping reason: `just validate` brings up no venue for it (Oracle Database is not
+# packaged in `nixpkgs`, so there is no nix-native tier the way Postgres has one), and no
+# CSV-fixture importer exists yet to attach the example corpus to a live instance even where a
+# developer's own docker socket could reach `compose.services.yaml`'s `oracle` profile. Default
+# features only - the `fixtures` feature exists for a future importer, not for this registration.
+sutura-exec-oracle = { workspace = true }
 # A third DATA SOURCE, and the one with no local venue at all - `crates/sutura-app/tests/adapters/
 # adapters.rs`'s own `NoLocalTier` reports it unavailable unconditionally, so this suite links the
 # type and dials nothing. Default features only: no `wire`, no outbound stack, because nothing here
