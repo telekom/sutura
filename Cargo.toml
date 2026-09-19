@@ -211,7 +211,7 @@ serde_norway = "0.9"
 # keyword casing and date truncation all differ per data system, and this is what knows how.
 #
 # `default-features = false` is not tuning. The default set pulls `all-dialects`, which is 33
-# dialects across roughly 270 000 lines of generated match arms; we compile the three we
+# dialects across roughly 270 000 lines of generated match arms; we compile the five we
 # render for. Three things about the feature set are load-bearing and were found by building
 # rather than by reading:
 #
@@ -228,8 +228,14 @@ serde_norway = "0.9"
 #     lint for it, deliberately, because an unresolvable path in `disallowed-methods` is ignored
 #     silently and would read as enforcement while doing nothing. Translating between dialects is a
 #     parse followed by a re-emit, it does not reliably repair the differences that matter, and
-#     not compiling it is a stronger statement than not calling it.
-polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery"] }
+#     not compiling it is a stronger statement than not calling it. **Oracle's `DATE_TRUNC` gap is not
+#     an exception to that**: upstream's own `transform_expr` for Oracle only renames the function to
+#     `TRUNC` and leaves the arguments untouched, so turning `transpile` on would not fix the argument
+#     order or the bare-keyword-to-quoted-format problem either - it would still be wrong, just
+#     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
+#     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
+#     correct call directly, with no dialect-layer rewrite in between.
+polyglot-sql = { version = "0.12.0", default-features = false, features = ["generate", "builder", "stacker", "dialect-duckdb", "dialect-postgresql", "dialect-clickhouse", "dialect-bigquery", "dialect-oracle"] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link

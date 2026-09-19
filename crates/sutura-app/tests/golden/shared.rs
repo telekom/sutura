@@ -287,7 +287,7 @@ pub(crate) fn appears_bare(haystack: &str, needle: &str) -> bool {
 ///
 /// Read off the DIALECT rather than guessed from the text: `PlaceholderStyle` is `sutura-sql`'s own
 /// decision about how a target writes a bind parameter, and the match below is exhaustive with no
-/// wildcard arm, so a fourth dialect with a third style is a compile error here rather than a
+/// wildcard arm, so a sixth dialect with a fourth style is a compile error here rather than a
 /// statement this counts as carrying no placeholders at all.
 ///
 /// Counted with the quoted spans and the string literals gone. An identifier cannot contain `?` or
@@ -310,30 +310,40 @@ pub(crate) fn placeholders(sql: &str, dialect: Dialect) -> Vec<usize> {
         }
         // Numbered: the statement says which parameter it wants, and a repeated `$1` is a different
         // query rather than a cosmetic difference - `sutura_sql::dialect` says so at the variant.
-        PlaceholderStyle::Numbered => {
-            let mut digits = String::new();
-            let mut inside = false;
-            // One trailing space, so a `$1` sitting at the very end of the statement is flushed by
-            // the same branch as every other one instead of by a copy of it after the loop.
-            for ch in searchable.chars().chain(core::iter::once(' ')) {
-                if inside {
-                    if ch.is_ascii_digit() {
-                        digits.push(ch);
-                        continue;
-                    }
-                    inside = false;
-                    if let Ok(position) = digits.parse::<usize>() {
-                        found.push(position);
-                    }
-                }
-                if ch == '$' {
-                    inside = true;
-                    digits.clear();
-                }
-            }
-        }
+        PlaceholderStyle::Numbered => found.extend(numbered_positions(&searchable, '$')),
+        // Colon: Oracle's own numbered form, `:1` rather than `$1` - same scan, different marker.
+        PlaceholderStyle::Colon => found.extend(numbered_positions(&searchable, ':')),
     }
     found.sort_unstable();
+    found
+}
+
+/// The one-based positions after every `marker` immediately followed by digits.
+///
+/// Shared by `Numbered` and `Colon`: both name the parameter they want rather than its order of
+/// appearance, and differ only in which character precedes the digits.
+fn numbered_positions(searchable: &str, marker: char) -> Vec<usize> {
+    let mut found = Vec::new();
+    let mut digits = String::new();
+    let mut inside = false;
+    // One trailing space, so a marker sitting at the very end of the statement is flushed by the
+    // same branch as every other one instead of by a copy of it after the loop.
+    for ch in searchable.chars().chain(core::iter::once(' ')) {
+        if inside {
+            if ch.is_ascii_digit() {
+                digits.push(ch);
+                continue;
+            }
+            inside = false;
+            if let Ok(position) = digits.parse::<usize>() {
+                found.push(position);
+            }
+        }
+        if ch == marker {
+            inside = true;
+            digits.clear();
+        }
+    }
     found
 }
 
@@ -423,4 +433,10 @@ fn the_placeholder_scan_reads_the_dialect_and_not_the_text() {
     // Sorted, so the same parameter twice reads as `[1, 1]` - which is what
     // `assert_one_placeholder_per_parameter` compares against `[1, 2]` and refuses.
     assert_eq!(placeholders("a = $1 AND b = $1", Dialect::Postgres), vec![1, 1]);
+
+    // Colon: Oracle's own numbered form, same scan as `Numbered` with a different marker - the
+    // same three cases, so a fix to one that forgot the other would still be caught here.
+    assert_eq!(placeholders("a = :1 AND b = :2", Dialect::Oracle), vec![1, 2]);
+    assert_eq!(placeholders("a = :9 AND b = :10", Dialect::Oracle), vec![9, 10]);
+    assert_eq!(placeholders("a = :1", Dialect::Oracle), vec![1]);
 }
