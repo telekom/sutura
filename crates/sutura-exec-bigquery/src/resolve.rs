@@ -1,18 +1,18 @@
 //! What a table's own path resolves to, when it does not name its own project.
 //!
 //! One decision, used by two callers that used to make it separately:
-//! [`crate::preflight::addressed`] for the boot check, and
+//! `preflight::addressed` for the boot check, and
 //! [`crate::BigQueryWarehouse::render_query`] for the statement a query actually becomes.
 //! `docs/adr/0019` is the decision this closes: a path that omits its project resolves against
 //! *whichever project the job happens to run under*, silently - so a table that lives OUTSIDE the
 //! connection's own project needs its project written into the statement, never left for the
 //! request's `defaultDataset` to guess.
 //!
-//! **Only [`Qualification::Dataset`] changes, and that is a decision rather than an oversight.** A
-//! bare path ([`Qualification::TableOnly`]) is already resolved, unambiguously, by the request's
+//! **Only [`sutura_domain::model::Qualification::Dataset`] changes, and that is a decision rather than an oversight.** A
+//! bare path ([`sutura_domain::model::Qualification::TableOnly`]) is already resolved, unambiguously, by the request's
 //! own `defaultDataset` field - both its project and its dataset are the connection's, and nothing
 //! about the path could mean anything else. A path naming its own project
-//! ([`Qualification::ProjectAndDataset`]) already says everything this function could add. The one
+//! ([`sutura_domain::model::Qualification::ProjectAndDataset`]) already says everything this function could add. The one
 //! case left is a path that names a dataset and no project: which project that resolves in is a
 //! real decision, and [`resolve`] is where it is made rather than left to the wire.
 
@@ -36,7 +36,7 @@ pub struct UnresolvableConnection(#[from] InvalidIdentifier);
 /// otherwise.
 ///
 /// See this module's own header for why a bare path is not touched here, and
-/// [`crate::preflight::addressed`] for the sibling caller that makes the identical project
+/// `preflight::addressed` for the sibling caller that makes the identical project
 /// decision in its own, transport-native vocabulary.
 pub(crate) fn resolve(table: &QualifiedTable, billing_project: &ProjectId) -> Result<QualifiedTable, UnresolvableConnection> {
     let Some(qualifier) = table.qualifier() else {

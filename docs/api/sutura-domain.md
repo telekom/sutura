@@ -6182,6 +6182,19 @@ pub const fn range(&self) -> TimeRange
 ```
 
 ```rust
+pub fn resolve_tables<E>(self, resolve: impl FnMut(&QualifiedTable) -> Result<QualifiedTable, E>) -> Result<Self, E>
+```
+
+This plan with every table path passed through `resolve`, and nothing else changed.
+
+**For an adapter that can close a gap in a path before the statement renders, and has to
+do it here rather than inside the renderer** - a path with less than its full qualifier is
+exactly what `sutura_sql::generate::table_path` renders as literal text, so what it
+resolves to is a decision about this plan, made once, not a rule every dialect's renderer
+would otherwise need. Runs over the `FROM` table and then every joined one; the first
+failure stops the walk.
+
+```rust
 pub fn result_labels(&self) -> Vec<String>
 ```
 
