@@ -291,15 +291,17 @@ theirs.
 
 ## Releasing
 
-An approved manual dispatch of `version-bump` on `main` is the **only** release entry point. It
-derives the version from the commit subjects above, writes `CHANGELOG.md` in the release commit, and
-pushes that commit and its `v*` tag through the narrow release App; the tag is what starts
-`release.yml` and `docs.yml`, and the release workflow has no manual trigger of its own. Nothing is
-tagged if no commit since the last tag would move the version, so a dispatch over chores publishes
-nothing.
+An approved manual dispatch of `version-bump` on `main` is the **only** release entry point;
+`release.yml` has no manual trigger of its own.
 
-If a tagged release fails, its commit and tag stay for diagnosis - no GitHub Release, no image
-manifest, no moving tag. Fix the source and approve a new dispatch. **Never rewrite a release tag.**
+1. Approve the dispatch. It derives the version from the commit subjects since the last tag, writes
+   `CHANGELOG.md` in the release commit, and pushes that commit and its `v*` tag. The tag starts
+   `release.yml` and `docs.yml`.
+2. Nothing is tagged if no commit since the last tag would move the version, so a dispatch over
+   chores publishes nothing.
+3. A failed release keeps its commit and tag for diagnosis: no GitHub Release, no image manifest,
+   no moving tag. Fix the source and approve a new dispatch. **Never rewrite a release tag.**
+
 [Verifying a release](https://github.com/telekom/sutura/blob/main/docs/verifying-a-release.md) is
 what a consumer of the artifacts reads.
 
