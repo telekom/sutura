@@ -1880,6 +1880,20 @@ jobs:
           set -eu
           rm -f "$RUNNER_TEMP/bq-key.json"
 
+  # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
+  # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
+  # - stays where the decision is reviewed. Event-gated rather than category-gated: `demo/**`
+  # carries no `xtask::affected` category of its own, and adding one would be a second axis kept
+  # for a single advisory leg. Runs on every ordinary-CI event, never required -
+  # `devco/required-contexts` records why - and becomes required only at the release boundary,
+  # where `release.yml`'s own call into the same file sits in `publish`'s `needs:`.
+  demo-container:
+    needs: [ci]
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
+    # omitting it leaves this workflow's own `contents: read`.
+    uses: ./.github/workflows/demo-container.yml
+
   # THE CATEGORY AGGREGATOR, and the second required context beside `ci` (owner-held ruleset edit).
   # It performs no build and no test; it reads every category-gated leg's result and fails when a
   # leg that should have run was skipped. A required check that never RUNS stays Pending forever
