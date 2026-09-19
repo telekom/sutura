@@ -201,6 +201,7 @@ exclude_docs: |
   adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
   adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
   adr/0036-a-knowledge-only-source-speaks-through-a-metric.md
+  what-a-bpmn-file-actually-carries.md
 
 # Explicit, not derived from filenames. A nav that falls out of directory order silently
 # reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
