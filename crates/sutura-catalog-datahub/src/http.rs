@@ -457,7 +457,9 @@ impl HttpAspectReader {
     /// **`anchors` is `security.outbound.transport_anchors` (`#125`), resolved once at boot**: `None`
     /// leaves `ureq`'s compiled-in `RootCerts::WebPki` (every deployment before `security.outbound`),
     /// `Some` replaces it with `RootCerts::Specific` from exactly the declared certificates - never a
-    /// union of the two (see [`super::tls_roots`]); anchors only, no `ClientCert` in either arm.
+    /// union of the two (see [`super::tls_roots`]). This constructor never presents a client
+    /// identity - [`Self::rotating_agent`] is the one that does, over the same declaration
+    /// (`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`).
     #[must_use]
     pub fn new(
         endpoint: Endpoint,
@@ -473,7 +475,7 @@ impl HttpAspectReader {
             bounds,
             sutura_tls::Rotating::fixed(agent_from_tls(
                 Budget::socket(bounds.timeout()),
-                super::tls_roots::config(anchors),
+                super::tls_roots::config(anchors, None),
             )),
         )
     }
@@ -500,34 +502,39 @@ impl HttpAspectReader {
         }
     }
 
-    /// Builds the reader's rotating agent handle for a declared `security.outbound.transport_anchors`
-    /// set, and (when one is declared) the [`sutura_tls::Rotator`] the composition root drives on
+    /// Builds the reader's rotating agent handle for a declared `security.outbound` set, and (when
+    /// one is declared) the [`sutura_tls::Rotator`] the composition root drives on
     /// [`sutura_tls::POLL_INTERVAL`]. `None` (no declaration) returns a fixed handle over `ureq`'s
-    /// compiled-in roots and no poll handle. Rebuilt over `RootCerts::Specific` from each freshly
-    /// loaded bundle - never a union, never a second external read.
+    /// compiled-in roots, presenting no identity, and no poll handle. Rebuilt over
+    /// `RootCerts::Specific` from each freshly loaded bundle and, when
+    /// [`sutura_tls::Declared::identity`] is declared, the freshly loaded identity too - never a
+    /// union, never a second external read.
     ///
     /// # Errors
     ///
-    /// The declared bundle cannot be loaded at boot.
+    /// The declared bundle or client identity cannot be loaded at boot.
     pub fn rotating_agent(
         bounds: ReadBounds,
-        anchors: Option<sutura_tls::Anchors>,
+        declared: Option<sutura_tls::Declared>,
     ) -> Result<OutboundAgent, sutura_tls::LoadError> {
-        let Some(anchors) = anchors else {
+        let Some(declared) = declared else {
             return Ok((
                 sutura_tls::Rotating::fixed(agent_from_tls(
                     Budget::socket(bounds.timeout()),
-                    super::tls_roots::config(None),
+                    super::tls_roots::config(None, None),
                 )),
                 None,
             ));
         };
+        let (anchors, identity) = declared.into_parts();
         let socket = Budget::socket(bounds.timeout());
-        let rebuild = move |loaded, _identity: Option<sutura_tls::LoadedIdentity>| {
-            Ok::<_, sutura_tls::LoadError>(agent_from_tls(socket, super::tls_roots::config(Some(loaded))))
+        let rebuild = move |loaded, identity: Option<sutura_tls::LoadedIdentity>| {
+            Ok::<_, sutura_tls::LoadError>(agent_from_tls(socket, super::tls_roots::config(Some(loaded), identity)))
         };
-        let initial = agent_from_tls(socket, super::tls_roots::config(Some(sutura_tls::load_anchors(&anchors)?)));
-        let rotator = sutura_tls::Rotator::new(anchors, None, rebuild, initial);
+        let initial_anchors = sutura_tls::load_anchors(&anchors)?;
+        let initial_identity = identity.as_ref().map(sutura_tls::load_identity).transpose()?;
+        let initial = agent_from_tls(socket, super::tls_roots::config(Some(initial_anchors), initial_identity));
+        let rotator = sutura_tls::Rotator::new(anchors, identity, rebuild, initial);
         Ok((rotator.rotating(), Some(rotator)))
     }
 

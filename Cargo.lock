@@ -3829,6 +3829,7 @@ dependencies = [
 name = "sutura-catalog-datahub"
 version = "0.5.1"
 dependencies = [
+ "base64 0.23.1",
  "rcgen",
  "rustls",
  "serde",

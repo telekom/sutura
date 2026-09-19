@@ -8,18 +8,26 @@
 //! `RawOutbound` and maps the refusal onto [`SettingsError`].
 
 use crate::raw::RawOutbound;
-use crate::security::{OutboundAnchors, parse_outbound as parse_anchors};
+use crate::security::{OutboundAnchors, OutboundIdentity, parse_outbound as parse_anchors, parse_outbound_identity};
 use crate::settings::SettingsError;
 
-/// The outbound trust declaration, `None` for the deployment that names none.
+/// The anchors and the optional client identity beside them - named for `clippy::type_complexity`,
+/// the same reason a three-argument generic elsewhere in this workspace gets its own alias.
+type OutboundDeclaration = (Option<OutboundAnchors>, Option<OutboundIdentity>);
+
+/// The outbound trust declaration, `None` for the deployment that names none, alongside the
+/// optional client identity beside it (`github.com/telekom/sutura#911`) - `Ok(None)` for the
+/// identity half whenever the block itself is absent, since there is no way to write
+/// `client_certificate`/`client_key` without the `security.outbound:` block that nests them.
 ///
 /// Absence is not a refusal - see [`crate::security::OutboundAnchors`] - so only a PRESENT, empty
 /// block reaches the parse's own refusal ([`crate::security::InvalidOutbound::NoAnchors`]).
-pub(super) fn parse_outbound(written: Option<&RawOutbound>) -> Result<Option<OutboundAnchors>, SettingsError> {
+pub(super) fn parse_outbound(written: Option<&RawOutbound>) -> Result<OutboundDeclaration, SettingsError> {
     let Some(written) = written else {
-        return Ok(None);
+        return Ok((None, None));
     };
-    parse_anchors(written.transport_anchors.as_deref())
-        .map(Some)
-        .map_err(|cause| SettingsError::Outbound { cause })
+    let anchors = parse_anchors(written.transport_anchors.as_deref()).map_err(|cause| SettingsError::Outbound { cause })?;
+    let identity = parse_outbound_identity(written.client_certificate.as_deref(), written.client_key.as_deref())
+        .map_err(|cause| SettingsError::Outbound { cause })?;
+    Ok((Some(anchors), identity))
 }

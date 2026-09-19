@@ -366,6 +366,13 @@ pub(crate) struct RawOutbound {
     /// `crate::security::InvalidOutbound::NoAnchors`.
     #[serde(default)]
     pub(crate) transport_anchors: Option<String>,
+    /// The client certificate this deployment presents - `github.com/telekom/sutura#911`. Optional;
+    /// see `crate::security::OutboundIdentity`.
+    #[serde(default)]
+    pub(crate) client_certificate: Option<String>,
+    /// The private key for `client_certificate`. Optional; both or neither.
+    #[serde(default)]
+    pub(crate) client_key: Option<String>,
 }
 
 /// `security.credential_cache` - `docs/adr/0031`. Every field optional and defaulted in
