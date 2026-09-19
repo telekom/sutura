@@ -369,11 +369,10 @@ fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_k
     // so a catalog whose models sit on a `files` source and a `bigquery` source now opens BOTH
     // through `kind::open_mixed` instead of refusing at the kind mismatch.
     //
-    // Proven by which refusal fires, not by a successful boot: the credential file is deliberately
-    // absent (`bigquery_entry`'s own doc says why), so this mix still fails - but it fails on
-    // `open_bigquery`'s real credential read, which it can only reach after the `files` source has
-    // ALSO opened. The old message named the pair and both kinds; this one names the file
-    // `open_bigquery` actually tried to read.
+    // Proven by which refusal fires, not by a successful boot: the ADBC driver is not configured, so
+    // this mix still fails - but it fails on `open_bigquery`'s own boot refusal, which it can only
+    // reach after the `files` source has ALSO opened. The old message named the pair and both kinds;
+    // this one names the driver variable `open_bigquery` actually demanded.
     let both = format!(
         "{}{}",
         entry(ENGINE_SOURCE, "shared-service-user", ""),
@@ -390,19 +389,15 @@ fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_k
             default_timeout(),
             None,
         ),
-        "a mixed catalog opens each kind and reaches the bigquery arm's own credential refusal",
+        "a mixed catalog opens each kind and reaches the bigquery arm's own boot refusal",
     );
     assert!(
         !error.contains("one kind of data system at a time"),
         "the retired gate must not fire any more: {error}"
     );
     assert!(
-        error.contains("credential_file"),
-        "the refusal must be `open_bigquery`'s own, naming the key: {error}"
-    );
-    assert!(
-        error.contains("nonexistent") || error.contains("sutura-test-bigquery.json"),
-        "the refusal must name the file this mix actually tried to read: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the refusal must be `open_bigquery`'s own, naming the driver variable: {error}"
     );
 }
 

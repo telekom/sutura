@@ -377,15 +377,14 @@ mod tests {
 
     #[test]
     #[cfg(feature = "bigquery")]
-    fn a_declared_bigquery_source_reaches_the_credential_the_deployment_declared() {
-        // **What this proves, and it is deliberately the furthest a test with no project can reach:**
-        // the kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that
-        // adapter's OWN `IMPERSONATION`, both bounds parsed, and the composition asked for the
-        // credential file the settings tree named. A refusal about that path is the proof; a refusal
-        // about the feature, the kind or the posture would mean it stopped earlier.
-        //
-        // It cannot go further here: the ADBC driver is not shipped and no live leg exercises it
-        // against a real BigQuery project yet, so the credential refusal is proven at this seam.
+    fn a_declared_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+        // **What this proves, and it is the whole seam this command can reach with no driver:** the
+        // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that
+        // adapter's OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the
+        // on-disk ADBC driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one.
+        // The driver authenticates ambiently, so the `credential_file` a `declaring_bigquery` entry
+        // declares is deliberately NOT read: matching the driver refusal is exactly how this proves
+        // the file never is.
         let error = open_engine(
             &bundle_naming("warehouse"),
             &declaring_bigquery("shared-service-user", ""),
@@ -395,22 +394,19 @@ mod tests {
             None,
         )
         .map(|_| ())
-        .expect_err("the declared credential file is not there, so this command does not answer");
+        .expect_err("the ADBC driver is not configured, so this command does not answer");
         assert!(
-            error.contains("credential_file"),
-            "the refusal must name the key that could not be read: {error}"
+            error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            "the refusal must name the driver variable an operator has to set: {error}"
         );
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-        // NOT the neighbouring arms, which is the half that stops this passing on the wrong branch: a
-        // build that linked no adapter, or a posture cross-check that fired, would both be green on
-        // the two assertions above if they only checked for a refusal.
+        assert!(
+            !error.contains("credential_file"),
+            "the driver authenticates ambiently - a credential file must not be read: {error}"
+        );
         assert!(
             !error.contains("--features bigquery"),
             "this build DID link the adapter: {error}"
-        );
-        assert!(
-            !error.contains("no fallback"),
-            "the shared posture is deliverable by this adapter: {error}"
         );
     }
 

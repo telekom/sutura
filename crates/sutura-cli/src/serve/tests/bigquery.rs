@@ -63,109 +63,65 @@ fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
-    // **What this proves, and it is deliberately the furthest a test with no project can reach:** the
-    // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
-    // own `IMPERSONATION`, both bounds parsed, and the composition asked for the credential file the
-    // settings tree named. A refusal about that path is the proof; a refusal about the feature, the
-    // kind or the posture would mean it stopped earlier.
-    //
-    // It cannot go further here: the ADBC driver is not shipped and no live leg exercises it
-    // against a real BigQuery project yet, so the credential refusal is proven at this seam.
+fn a_bigquery_source_refuses_for_a_missing_driver_not_the_credential_file() {
+    // **What this proves, and it is the whole seam a test with no driver can reach:** the kind
+    // DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
+    // OWN `IMPERSONATION`, both bounds parsed, and the composition then demanded the on-disk ADBC
+    // driver - refused here because no `SUTURA_BIGQUERY_ADBC_DRIVER` points at one. The driver
+    // authenticates ambiently, so the `credential_file` a `bigquery_entry` declares is deliberately
+    // NOT read: matching the driver refusal is exactly how this proves the file never is.
     let error = refusal(
         opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
-        "the declared credential file is not there, so this deployment does not start",
+        "the ADBC driver is not configured, so this deployment does not start",
     );
     assert!(
-        error.contains("credential_file"),
-        "the refusal must name the key that could not be read: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the refusal must name the driver variable an operator has to set: {error}"
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-    // NOT the neighbouring arms, which is the half that stops this passing on the wrong branch: a
-    // build that linked no adapter, or a posture cross-check that fired, would both be green on the
-    // two assertions above if they only checked for a refusal.
+    assert!(
+        !error.contains("credential_file"),
+        "the driver authenticates ambiently - a credential file must not be read: {error}"
+    );
     assert!(
         !error.contains("--features bigquery"),
         "this build DID link the adapter: {error}"
-    );
-    assert!(
-        !error.contains("no fallback"),
-        "the shared posture is deliverable by this adapter: {error}"
-    );
-    // **And the pre-flight has not run either, which is the ordering half.** An operator told about
-    // a table when the credential is unreadable would go and edit the catalog, which was never
-    // wrong. A type is what makes this hold rather than this assertion - though not the type this
-    // comment first named: `wire::credential::Credential::read` is the only public constructor of a
-    // `Credential`, and a `BigQueryWarehouse` cannot exist without one, so no arrangement of `run`
-    // can ask a dataset about a table before its credential was read off disk.
-    assert!(
-        !error.contains("does not hold"),
-        "no dataset is asked about a table before its credential is read: {error}"
     );
 }
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn an_impersonating_source_is_opened_and_reads_the_credential_it_declared() {
-    // **Issue 87's serve half, and the reversal is the point of the change.** The exchanging broker
-    // is now attached in `run()`'s `bigquery` arm, so `open_engine` no longer refuses an
-    // `impersonation-at-source` source by name - the adapter declares `PerSubjectCredential`, and a
-    // subject's credential is exactly what the attached `WorkloadIdentityBroker` mints. The refusal
-    // that used to stand in for "no broker attached" is gone from this path.
-    //
-    // **What this reaches instead is the furthest a test with no project can: the source is OPENED
-    // and reads the credential file it declared** - and when that is missing, the boot names the
-    // FILE and not the posture. It cannot check the broker wire here because `open_engine` predates
-    // the broker; the attachment lives in `run()`, at the seam this suite cannot reach without a
-    // real project.
+fn an_impersonating_source_is_opened_and_reaches_the_driver_refusal() {
+    // **Issue 87's serve half, and the reversal is the point of the change.** The adapter declares
+    // `PerSubjectCredential`, so the serve open fn's capability cross-check ACCEPTS an
+    // `impersonation-at-source` entry - it is not refused here by name. Whether a subject's own
+    // identity reaches the driver is `run()`'s refusal (the ADBC transport refuses a
+    // `subject_bearer`), which this boot seam cannot reach without a driver. What a test with no
+    // driver CAN reach is the demand for the on-disk driver itself; matching that instead of an
+    // `impersonation-at-source` refusal is what shows the capability half still accepts the posture.
     let error = refusal(
         opened_bigquery(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
             &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
         )),
-        "an impersonating source with a declared workload identity is served, so reaching its credential is the test",
+        "an impersonating source passes the capability check, so its refusal is the missing driver",
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
-        error.contains("credential_file"),
-        "the source was OPENED and its refusal is about the credential it declared: {error}"
+        error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the source was OPENED past the posture cross-check and its refusal names the driver: {error}"
     );
-    // The composition gap is closed: these are the two sentences the old refusal said, and neither
-    // is true any more - the exchange and the broker are wired, so an entry reaching this far is not
-    // read as the deployment's own identity.
     assert!(
         !error.contains("does not attach a broker"),
-        "the composition no longer refuses impersonation by name: {error}"
-    );
-    assert!(
-        !error.contains("no fallback"),
-        "the posture is no longer a fallback-shaped refusal: {error}"
+        "the serve open fn still accepts the posture - impersonation is not refused by name here: {error}"
     );
 }
 
-#[test]
-#[cfg(feature = "bigquery")]
-fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key() {
-    // The other half of leaving `max_bytes_billed` a bare number in the settings tree: the RANGE
-    // belongs to `sutura_exec_bigquery::wire::BytesBilledCeiling`, so there is one parse of it and it
-    // happens here. What this asserts is that the refusal still names the key an operator has to
-    // change - a range error from a newtype with no key attached would be a support request.
-    //
-    // Zero rather than a value above the cap, because zero is the one an operator reaches by writing
-    // a placeholder: it would refuse every question rather than bounding one.
-    let entry = bigquery_entry("warehouse", "shared-service-user", "").replace("1073741824", "0");
-    let error = refusal(
-        opened_bigquery(&entry),
-        "a ceiling of zero would refuse every question rather than bounding one",
-    );
-    assert!(error.contains("max_bytes_billed"), "the refusal must name the key: {error}");
-    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
-    assert!(
-        !error.contains("credential_file"),
-        "the bound is parsed before the credential file is read: {error}"
-    );
-}
+// The ceiling test `a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key`
+// lived here. It held the `BytesBilledCeiling` range parse the removed `wire` transport applied to
+// `max_bytes_billed`; the ADBC driver reads no such ceiling, so the refusal it asserted is gone with
+// the wire - deleted rather than adapted, because there is no boot-time number left to test.
 
 // `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
 // `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
