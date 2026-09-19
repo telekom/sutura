@@ -544,16 +544,27 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             files: inseparable,
             build_inputs,
         } => {
-            // A STRING CHECK ONLY: this reads the commit messages already in hand to say whether
-            // a `Claim-Cell:` trailer is declared, and builds nothing. This arm returns before
-            // `claim::Claim::of` is otherwise reached (below, inside `Plan::Separable`), so a
-            // declaration made on an inseparable diff would otherwise go unmentioned.
-            let claim_declared = claim::Claim::of(&worktree::messages(&root, &at)).is_some();
+            // `github.com/telekom/sutura#837` DIRECTION 2: a complete declaration is CONSULTED
+            // even here, not merely mentioned. The claim arm needs no revert at all - `claim::run`
+            // mutates and re-runs at HEAD, never at base - so inseparability does not disqualify
+            // it; only whether the diff's own added tests can be NAMED does, which is the same
+            // `Scan::of` the `Plan::Separable` arm below already asks of its own test files.
+            //
+            // A Scan outcome other than `Runnable` (unnameable, an enabling declaration, all
+            // ignored) falls through to the unconsulted-declaration line unchanged: this arm
+            // cannot build the `Scoped` value `claim::run` needs, so it has not reached the claim
+            // arm either, and says so exactly as it did before this decision.
+            let claim = claim::Claim::of(&worktree::messages(&root, &at));
+            if let Some(ref declared) = claim
+                && let Scan::Runnable(scoped) = Scan::of(&files, &inseparable, &working_tree)
+            {
+                return claim::run(&root, &scoped, &inseparable, declared);
+            }
             report_not_separable(
                 &inseparable,
                 &Coverage::of(&[], &files, &working_tree),
                 &build_inputs,
-                claim_declared,
+                claim.is_some(),
             )
         }
         Plan::Separable(separable) => {
@@ -746,6 +757,148 @@ mod tests {
             verdict,
             Verdict::Pass,
             "causality::run must dispatch a declared claim cell to claim::run, which accepts it"
+        );
+    }
+
+    /// Which mutation `inseparable_claim_case` commits, if any.
+    #[derive(Clone, Copy)]
+    enum Mutation {
+        /// Changes `f`'s return value again, so the cell's own `assert_eq!(f(), 2)` fails.
+        Kills,
+        /// Touches the production line without changing `f`'s return value, so the cell stays
+        /// green - applies cleanly and kills nothing.
+        DoesNotKill,
+        /// No patch is committed at all.
+        Missing,
+    }
+
+    /// `github.com/telekom/sutura#837` direction 2's own fixture: ONE file, `src/lib.rs`, carries
+    /// both an implementation change (`f`'s return value moves from 1 to 2) and its own
+    /// `#[cfg(test)] mod tests` in the SAME commit - no other file changes at all - so `plan()`
+    /// has no separable test file and `causality::run` reaches `Plan::NotSeparable`. Before this
+    /// decision that arm returned `Verdict::Pass` unconditionally, so `Verdict::Fail` from any
+    /// case here is reachable ONLY through the new dispatch into `claim::run`.
+    fn inseparable_claim_case(declare: bool, mutation: Mutation) -> Verdict {
+        assert!(
+            std::env::var_os("NEXTEST").is_some(),
+            "this fixture moves the process's current directory, so it must have the process to \
+             itself: run it under `just test`."
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "sutura-causality-inseparable-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _swept = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        git(&dir, &["init", "-q", "-b", "main"]);
+        git(&dir, &["config", "user.email", "test@example.com"]);
+        git(&dir, &["config", "user.name", "test"]);
+
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u8 { 1 }\n").unwrap();
+        std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "init"]);
+        let base = String::from_utf8(git_output(&dir, &["rev-parse", "HEAD"]).stdout)
+            .expect("utf8")
+            .trim()
+            .to_owned();
+
+        let head_content = "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_wired_one() {\n        assert_eq!(f(), 2);\n    }\n}\n";
+        std::fs::write(dir.join("src/lib.rs"), head_content).unwrap();
+
+        let mutated: Option<String> = match mutation {
+            Mutation::Kills => Some(head_content.replacen("{ 2 }", "{ 9 }", 1)),
+            Mutation::DoesNotKill => Some(head_content.replacen("pub fn f() -> u8 { 2 }", "pub fn f() -> u8 { 2 } // same", 1)),
+            Mutation::Missing => None,
+        };
+        if let Some(mutated) = mutated {
+            // Same technique as `run_dispatches_to_the_claim_arm`'s patch: a hand-diffed pair of
+            // files renamed onto `src/lib.rs`, so the mutation's own commit stays out of the
+            // measured `base..HEAD` range.
+            std::fs::write(dir.join(".old.rs"), head_content).unwrap();
+            std::fs::write(dir.join(".new.rs"), &mutated).unwrap();
+            let diffed = git_output(&dir, &["diff", "--no-index", "--", ".old.rs", ".new.rs"]);
+            let patch = String::from_utf8_lossy(&diffed.stdout)
+                .replace(".old.rs", "src/lib.rs")
+                .replace(".new.rs", "src/lib.rs");
+            std::fs::remove_file(dir.join(".old.rs")).unwrap();
+            std::fs::remove_file(dir.join(".new.rs")).unwrap();
+            std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
+            std::fs::write(dir.join("devco/claim-mutations/the_wired_one.patch"), &patch).unwrap();
+        }
+
+        git(&dir, &["add", "-A"]);
+        let message = if declare {
+            "feat: pin f's changed return value\n\nClaim-Cell: the_wired_one"
+        } else {
+            "feat: change f's return value and add its own test"
+        };
+        git(&dir, &["commit", "-q", "-m", message]);
+
+        let original = std::env::current_dir().expect("a current directory");
+        std::env::set_current_dir(&dir).expect("point the process at the fixture repo");
+        let verdict = super::run(&[String::from("--since"), base]);
+        std::env::set_current_dir(&original).expect("restore the current directory");
+        drop(std::fs::remove_dir_all(&dir));
+        verdict
+    }
+
+    /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
+    /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
+    /// accepted.
+    #[test]
+    fn a_declared_claim_cell_is_evaluated_from_an_inseparable_plan() {
+        assert_eq!(
+            inseparable_claim_case(true, Mutation::Kills),
+            Verdict::Pass,
+            "a complete declaration on an inseparable diff must be consulted, and its killing \
+             mutation accepted"
+        );
+    }
+
+    /// The arm is reached, not merely declared: a mutation that applies but does not kill is
+    /// refused rather than passing by the old unconsulted route (`Verdict::Pass`, unconditionally,
+    /// before this decision).
+    #[test]
+    fn an_inseparable_claim_cell_whose_mutation_does_not_kill_is_refused() {
+        assert_eq!(
+            inseparable_claim_case(true, Mutation::DoesNotKill),
+            Verdict::Fail,
+            "reaching the arm and finding the mutation does not kill must refuse - the old route \
+             answered `Verdict::Pass` unconditionally here"
+        );
+    }
+
+    /// `github.com/telekom/sutura#837` direction 2's own guard: a declaration with no committed
+    /// patch is `Cause::MissingPatch`, not treated as though nothing were declared.
+    #[test]
+    fn an_inseparable_claim_cell_with_no_committed_patch_is_refused_as_missing() {
+        assert_eq!(
+            inseparable_claim_case(true, Mutation::Missing),
+            Verdict::Fail,
+            "a declared cell with no patch must refuse as missing - the old route answered \
+             `Verdict::Pass` unconditionally here"
+        );
+    }
+
+    /// Half two, and UNCHANGED behaviour: with no `Claim-Cell:` trailer at all, an inseparable
+    /// plan still answers exactly the non-verdict it did before this decision. Not provable by
+    /// causality - the base tree already gives this same answer, by construction - so this pins
+    /// by inspection rather than by a mutation: `causality::run`'s `if let Some(..) = claim` guard
+    /// is `None` here and the new code path is never entered at all.
+    #[test]
+    fn an_inseparable_plan_with_no_declaration_stays_the_same_non_verdict() {
+        assert_eq!(
+            inseparable_claim_case(false, Mutation::Missing),
+            Verdict::Pass,
+            "no `Claim-Cell:` trailer at all must still be the loud NOT MECHANICALLY SEPARABLE pass"
         );
     }
 
