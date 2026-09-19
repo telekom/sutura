@@ -12,17 +12,16 @@
 # Rust counterpart selected by `adbc_core`/`adbc_driver_manager`. Go is the
 # clean cross-compilable one (CGO + c-shared to linux-musl/aarch64).
 #
-# The driver requires Go >= 1.27.1, which nixpkgs' default `go` does not yet
-# provide, so we override `buildGoModule` with `go_1_27` for this derivation only.
+# The driver advertises a go floor above what nixpkgs' default `go` provides;
+# override `buildGoModule` with `go_1_27` for this derivation only.
 #
 # The c-shared facade lives in `go/pkg` and is gated behind the `driverlib` build
 # tag, which is how upstream's `adbc-make` builds it; we pass `-tags driverlib`.
 #
-# Modules are fetched once into a fixed-output derivation keyed by the target
-# triple; `vendorHash` below is that FOD's sha256. A hash marked
-# `# TODO: capture on first CI build` was not exercised in this environment; each
-# remaining triple yields its real hash on the first build after merge (the nix
-# error prints the expected value, exactly as this one was obtained).
+# Modules are fetched into a per-triple Go-modules fixed-output derivation; each
+# triple's FOD is a separate derivation, but all four fetch the same resolved
+# module set (libc/arch-independent on linux), so they share one `vendorHash`.
+# That hash was measured from a real aarch64-musl build, not guessed.
 #
 # Output: `$out/lib/libadbc_driver_bigquery.so` - the ADBC v1 C ABI entrypoint
 # `AdbcDriverInit` that `adbc_driver_manager` dlopens.
@@ -37,23 +36,43 @@ let
 in
 buildGoModule {
   pname = "adbc-driver-bigquery";
-  version = "0.0.0"; # provenance is the flake-locked `bigquery-adbc-src` rev
+  version = "1.13.0"; # provenance is the flake-locked `bigquery-adbc-src` tag go/v1.13.0
   inherit src vendorHash;
   proxyVendor = true;
-  subPackages = [ "pkg" ];
 
+  # The go.mod go-floor is relaxed at the source by the caller (see
+  # nix/bigquery-adbc-drivers.nix), before this derivation is realised, so both
+  # the module-vendoring FOD and the build see a floor this nixpkgs accepts.
+
+  # Dependency licence reporting (telekom/sutura#913 item 7). nixpkgs' go-licenses
+  # 2.0.1 cannot classify this module graph - it resolves `github.com/google/uuid`
+  # as a stdlib import (`uuid: ... not in std` under its bundled go 1.26.7) no
+  # matter GOFLAGS/GO111MODULE/PATH - so this records the real licence texts of
+  # every pinned module straight from the populated module cache, which is what
+  # the FOD downloaded and what the .so was built against. Hermetic, grep-able.
   buildPhase = ''
     runHook preBuild
-    # The driver declares `go 1.27.1`, but this nixpkgs pins go_1_27 = 1.27.0.
-    # 1.27.1 is a patch release, so the directive is a floor: relax it to the
-    # toolchain we actually build with rather than pulling a second nixpkgs.
-    sed -i 's#^go 1\.27\.[0-9]*$#go 1.27#' go.mod
     go build -tags driverlib -buildmode=c-shared -o libadbc_driver_bigquery.so ./pkg
     runHook postBuild
   '';
   installPhase = ''
     runHook preInstall
     install -Dm755 libadbc_driver_bigquery.so $out/lib/libadbc_driver_bigquery.so
+    # Record, machine-greppable beside the binary, every pinned module and its
+    # real licence text. `go build` above already extracted the exact import
+    # closure into $GOMODCACHE, so walk those module dirs (<path>@<version>,
+    # skipping the zip/lib `cache/download` mirror) - no further go invocation,
+    # which would force re-resolving the whole go.mod requires graph.
+    cache="$(go env GOMODCACHE)"
+    : > "$out/lib/DRIVER-MODULES.txt"
+    find "$cache" -type d -name '*@*' ! -path '*/cache/download/*' | sort | while read -r moddir; do
+      current="''${moddir#''$cache/}"   # full module path@version, e.g. cloud.google.com/go/auth@v0.23.2
+      for lic in "$moddir"/LICENSE* "$moddir"/LICENCE* "$moddir"/COPYING*; do
+        [ -f "$lic" ] || continue
+        echo "$current ''${lic##*/}" >> "$out/lib/DRIVER-MODULES.txt"
+        install -Dm644 "$lic" "$out/share/licenses/$current/''${lic##*/}"
+      done
+    done
     runHook postInstall
   '';
   passthru.triple = crossSystemName;

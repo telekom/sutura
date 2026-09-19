@@ -40,7 +40,7 @@ wire = ["dep:ureq", "dep:serde", "dep:ring", "dep:sutura-tls"]
 # not link.** Off is not hidden - every gate here passes `--all-features`, so the
 # module is compiled, linted and unit-tested even when a served artifact does not
 # request it.
-adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema"]
+adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:arrow-cast"]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
@@ -180,13 +180,13 @@ ring = { workspace = true, optional = true }
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }
 # The ADBC driver manager (telekom/sutura#913): loads the self-built
-# `libadbc_driver_bigquery.so` by path and runs a statement, returning Arrow
-# record batches. The driver owns its own transport to BigQuery, so this feature
-# brings no TLS stack of this crate's own. `adbc_core` is the (aggregate) API;
-# `adbc_driver_manager` provides `ManagedDriver::load_from_path`.
+# `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
+# and runs a statement, returning Arrow record batches. The driver owns its own
+# transport to BigQuery, so this feature brings no TLS stack of this crate's own.
 
 arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }
+arrow-cast = { version = "59", optional = true }
 
 # Only `tests/corpus.rs` reads these, and only under `required-features`. **Every one of them is
 # already a workspace member and already in `Cargo.lock`, so this section adds no package** - what it

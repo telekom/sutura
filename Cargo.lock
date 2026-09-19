@@ -4108,6 +4108,7 @@ dependencies = [
  "adbc_core",
  "adbc_driver_manager",
  "arrow-array 59.2.0",
+ "arrow-cast 59.2.0",
  "arrow-schema 59.2.0",
  "base64 0.23.1",
  "parking_lot",

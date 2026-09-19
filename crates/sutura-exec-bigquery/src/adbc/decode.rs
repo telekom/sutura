@@ -1,21 +1,24 @@
-//! Arrow → [`JobRows`] decode for the ADBC transport (telekom/sutura#913).
+//! Arrow -> [`JobRows`] decode for the ADBC transport (telekom/sutura#913).
 //!
 //! The driver returns Arrow record batches; this pure half turns a schema +
 //! batches into the adapter's own `JobRows`, reusing the same
-//! [`crate::transport::FieldType`] vocabulary and the shared `crate::rowset::rows`
-//! mapping the wire uses - one plan answered by two transports must produce one
-//! number.
+//! [`crate::transport::FieldType`] vocabulary the wire uses, so one plan answered
+//! by two transports agrees on field kinds. The value pass is one vectorised
+//! [`arrow_cast::cast`] to `Utf8` per column rather than a per-cell downcast
+//! ladder.
 //!
 //! Completeness is decided here. The wire refused a first page by comparing the
 //! delivered count to the endpoint's `totalRows`; an ADBC read streams the whole
 //! result, so completeness is the stream draining fully. [`job_rows`] takes the
-//! drained rows plus a [`Reported`] total (the driver attaches its own job
-//! statistics to the schema metadata, measured in the provisioned leg) and
-//! refuses a delivered count that does not reach what was reported.
+//! drained rows plus a [`Reported`] total (the driver attaches job statistics to
+//! the schema metadata, measured in the provisioned leg) and refuses a delivered
+//! count that does not reach what was reported.
 
 use std::error::Error;
 
-use arrow_array::{Array, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray, StringViewArray};
+use arrow_array::Array as _;
+use arrow_array::{RecordBatch, StringArray};
+use arrow_cast::cast;
 use arrow_schema::{DataType, Schema};
 
 use crate::transport::{Cell, Field, FieldType, JobRows};
@@ -25,6 +28,10 @@ use crate::transport::{Cell, Field, FieldType, JobRows};
 pub enum Decode {
     /// A column whose Arrow type this adapter does not map.
     UnmappedColumn(String),
+    /// A batch that disagrees with the schema it was announced under — a stream
+    /// arriving over a C ABI from a foreign driver is exactly the case to refuse
+    /// rather than trust.
+    Shape { fields: usize, columns: usize },
     /// The stream was not complete: a reported total the delivered rows do not
     /// reach.
     Incomplete { delivered: usize, reported: usize },
@@ -34,6 +41,9 @@ impl core::fmt::Display for Decode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::UnmappedColumn(name) => write!(f, "unmapped result column `{name}`"),
+            Self::Shape { fields, columns } => {
+                write!(f, "result batch has {columns} columns for a {fields}-field schema")
+            }
             Self::Incomplete { delivered, reported } => {
                 write!(f, "incomplete answer: delivered {delivered} of {reported} reported rows")
             }
@@ -52,71 +62,27 @@ pub enum Reported {
     Total(usize),
 }
 
-/// Maps one Arrow column type into the adapter's closed field vocabulary.
+/// Maps one Arrow column type into the adapter's closed field vocabulary, the
+/// same six the wire accepts: `INT64`, `FLOAT64`, `NUMERIC`, `BOOL`, `STRING`,
+/// `DATE`.
 fn field_type(name: &str, dt: &DataType) -> FieldType {
     match dt {
         DataType::Int64 => FieldType::Int64,
         DataType::Float64 => FieldType::Float64,
+        DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => FieldType::Numeric,
         DataType::Boolean => FieldType::Bool,
         DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => FieldType::String,
+        DataType::Date32 | DataType::Date64 => FieldType::Date,
         other => FieldType::Unmapped(format!("{other} ({name})")),
     }
 }
 
-/// One column's cells, as text or null.
+/// Decodes drained batches into a [`JobRows`], refusing an unmapped column, a
+/// batch narrower than the schema, or an incomplete stream.
 ///
-/// A downcast that slips past `field_type`'s agreement is refused as an unmapped
-/// column rather than answered null.
-fn column(name: &str, array: &dyn Array) -> Result<Vec<Cell>, Decode> {
-    let mut out = Vec::with_capacity(array.len());
-    for row in 0..array.len() {
-        let cell = if array.is_null(row) {
-            Cell::Null
-        } else {
-            Cell::Text(match array.data_type() {
-                DataType::Int64 => array
-                    .as_any()
-                    .downcast_ref::<Int64Array>()
-                    .ok_or_else(|| Decode::UnmappedColumn(name.to_owned()))?
-                    .value(row)
-                    .to_string(),
-                DataType::Float64 => array
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .ok_or_else(|| Decode::UnmappedColumn(name.to_owned()))?
-                    .value(row)
-                    .to_string(),
-                DataType::Boolean => array
-                    .as_any()
-                    .downcast_ref::<BooleanArray>()
-                    .ok_or_else(|| Decode::UnmappedColumn(name.to_owned()))?
-                    .value(row)
-                    .to_string(),
-                DataType::Utf8 | DataType::LargeUtf8 => array
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| Decode::UnmappedColumn(name.to_owned()))?
-                    .value(row)
-                    .to_owned(),
-                DataType::Utf8View => array
-                    .as_any()
-                    .downcast_ref::<StringViewArray>()
-                    .ok_or_else(|| Decode::UnmappedColumn(name.to_owned()))?
-                    .value(row)
-                    .to_owned(),
-                _ => return Err(Decode::UnmappedColumn(name.to_owned())),
-            })
-        };
-        out.push(cell);
-    }
-    Ok(out)
-}
-
-/// Decodes drained batches into a [`JobRows`], refusing an unmapped column or an
-/// incomplete stream.
-///
-/// The schema-wide type pass runs before the value mapping, so a result with no
-/// rows still refuses an unmapped column.
+/// The schema-wide type pass runs before any value work — a result with no rows
+/// still refuses an unmapped column — and each batch's column count is checked
+/// against the schema before its cells are read (fail closed, not short).
 pub fn job_rows(schema: &Schema, batches: &[RecordBatch], reported: Reported) -> Result<JobRows, Decode> {
     let mut fields = Vec::with_capacity(schema.fields().len());
     for f in schema.fields() {
@@ -130,24 +96,31 @@ pub fn job_rows(schema: &Schema, batches: &[RecordBatch], reported: Reported) ->
     let mut rows: Vec<Vec<Cell>> = Vec::new();
     let mut delivered = 0usize;
     for batch in batches {
-        let cols: Vec<Vec<Cell>> = schema
-            .fields()
-            .iter()
-            .zip(batch.columns())
-            .map(|(f, col)| column(f.name(), &**col))
-            .collect::<Result<_, _>>()?;
-        for r in 0..batch.num_rows() {
-            let row = cols
-                .iter()
-                .map(|c| {
-                    // `r` is bounded by `batch.num_rows()`, which is exactly
-                    // `cols.len()` by construction; the `get` is defensive.
-                    c.get(r).cloned().unwrap_or(Cell::Null)
-                })
-                .collect();
-            rows.push(row);
+        if batch.num_columns() != schema.fields().len() {
+            return Err(Decode::Shape {
+                fields: schema.fields().len(),
+                columns: batch.num_columns(),
+            });
         }
-        delivered += batch.num_rows();
+        let n = batch.num_rows();
+        for r in 0..n {
+            let mut cells = Vec::with_capacity(batch.num_columns());
+            for col in batch.columns() {
+                let str_arr =
+                    cast(&**col, &DataType::Utf8).map_err(|e| Decode::UnmappedColumn(format!("column cast failed: {e}")))?;
+                let s = str_arr
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| Decode::UnmappedColumn("not a string after cast".to_owned()))?;
+                cells.push(if s.is_null(r) {
+                    Cell::Null
+                } else {
+                    Cell::Text(s.value(r).to_owned())
+                });
+            }
+            rows.push(cells);
+        }
+        delivered += n;
     }
 
     if let Reported::Total(total) = reported
@@ -165,10 +138,10 @@ pub fn job_rows(schema: &Schema, batches: &[RecordBatch], reported: Reported) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow_array::builder::{BooleanBuilder, Int64Builder, StringBuilder};
+    use arrow_array::builder::{Int64Builder, StringBuilder};
     use std::sync::Arc;
 
-    fn ints(v: &[i64]) -> Arc<Int64Array> {
+    fn ints(v: &[i64]) -> Arc<arrow_array::Int64Array> {
         let mut b = Int64Builder::new();
         for x in v {
             b.append_value(*x);
@@ -176,22 +149,11 @@ mod tests {
         Arc::new(b.finish())
     }
 
-    fn strings(v: &[Option<&str>]) -> Arc<StringArray> {
+    fn strings(v: &[Option<&str>]) -> Arc<arrow_array::StringArray> {
         let mut b = StringBuilder::new();
         for s in v {
             match s {
-                Some(s) => b.append_value(*s),
-                None => b.append_null(),
-            }
-        }
-        Arc::new(b.finish())
-    }
-
-    fn ints_nullable(v: &[Option<i64>]) -> Arc<Int64Array> {
-        let mut b = Int64Builder::new();
-        for x in v {
-            match x {
-                Some(x) => b.append_value(*x),
+                Some(s) => b.append_value(s),
                 None => b.append_null(),
             }
         }
@@ -221,6 +183,21 @@ mod tests {
     }
 
     #[test]
+    fn refuses_a_batch_narrower_than_the_schema() {
+        // Two fields announced, but the batch (its own 1-field schema, valid on
+        // its own) carries one column — the public job_rows API can be handed a
+        // schema that does not match the batches it is given.
+        let announced = Schema::new(vec![
+            arrow_schema::Field::new("id", DataType::Int64, false),
+            arrow_schema::Field::new("name", DataType::Utf8, false),
+        ]);
+        let batch_schema = Schema::new(vec![arrow_schema::Field::new("id", DataType::Int64, false)]);
+        let batch = RecordBatch::try_new(Arc::new(batch_schema), vec![ints(&[1, 2])]).unwrap();
+        let res = job_rows(&announced, &[batch], Reported::Unreported);
+        assert!(matches!(res, Err(Decode::Shape { fields: 2, columns: 1 })));
+    }
+
+    #[test]
     fn refuses_an_incomplete_stream() {
         let schema = Schema::new(vec![arrow_schema::Field::new("id", DataType::Int64, false)]);
         let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![ints(&[1, 2, 3])]).unwrap();
@@ -237,19 +214,36 @@ mod tests {
     #[test]
     fn a_null_cell_is_null_not_a_number() {
         let schema = Schema::new(vec![arrow_schema::Field::new("id", DataType::Int64, true)]);
-        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![ints_nullable(&[Some(7), None])]).unwrap();
+        let mut b = Int64Builder::new();
+        b.append_value(7);
+        b.append_null();
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![Arc::new(b.finish())]).unwrap();
         let rows = job_rows(&schema, &[batch], Reported::Unreported).unwrap();
         assert_eq!(rows.rows()[1][0], Cell::Null);
     }
 
     #[test]
-    fn a_null_cell_is_null_in_a_mapped_bool_column() {
-        let schema = Schema::new(vec![arrow_schema::Field::new("ok", DataType::Boolean, true)]);
-        let mut b = BooleanBuilder::new();
-        b.append_value(true);
-        b.append_null();
-        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![Arc::new(b.finish())]).unwrap();
+    fn a_date32_column_renders_iso() {
+        // 0 days after the epoch = 1970-01-01, ISO.
+        let schema = Schema::new(vec![arrow_schema::Field::new("d", DataType::Date32, true)]);
+        let arr = arrow_array::Date32Array::from(vec![Some(0)]);
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![Arc::new(arr)]).unwrap();
         let rows = job_rows(&schema, &[batch], Reported::Unreported).unwrap();
-        assert_eq!(rows.rows()[1][0], Cell::Null);
+        assert_eq!(*rows.fields()[0].kind(), crate::transport::FieldType::Date);
+        assert_eq!(rows.rows()[0][0], Cell::Text("1970-01-01".into()));
+    }
+
+    #[test]
+    fn a_decimal128_column_renders_exact_scale() {
+        // 12345 with scale 2 => 123.45, exact digits.
+        use arrow_array::array::Decimal128Array;
+        let schema = Schema::new(vec![arrow_schema::Field::new("amount", DataType::Decimal128(9, 2), true)]);
+        let arr = Decimal128Array::from(vec![Some(12345i128)])
+            .with_precision_and_scale(9, 2)
+            .unwrap();
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![Arc::new(arr)]).unwrap();
+        let rows = job_rows(&schema, &[batch], Reported::Unreported).unwrap();
+        assert_eq!(*rows.fields()[0].kind(), crate::transport::FieldType::Numeric);
+        assert_eq!(rows.rows()[0][0], Cell::Text("123.45".into()));
     }
 }

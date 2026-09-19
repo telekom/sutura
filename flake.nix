@@ -41,7 +41,7 @@
     # including the two static musl ones - gets a hermetic, reproducible native
     # driver (telekom/sutura#913). Apache-2.0. The Go driver's `go/pkg` facade
     # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
-    bigquery-adbc-src.url = "github:adbc-drivers/bigquery";
+    bigquery-adbc-src.url = "github:adbc-drivers/bigquery/go/v1.13.0";
     bigquery-adbc-src.flake = false;
   };
 
@@ -427,6 +427,14 @@
 
         inherit (shipped) binaries crossPackages imageTargets;
 
+        # The ADBC BigQuery driver packages, some binding-visible here so both
+        # `packages.*` and a `checks` entry point at the same four triples.
+        adbcDrivers = import ./nix/bigquery-adbc-drivers.nix {
+          pkgs = pkgs;
+          bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
+          buildDriver = import ./nix/bigquery-adbc.nix;
+        };
+
       in
       rec {
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
@@ -479,18 +487,37 @@
           });
 
         }
-        // (import ./nix/bigquery-adbc-drivers.nix {
-          pkgs = pkgs;
-          bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
-          buildDriver = import ./nix/bigquery-adbc.nix;
-        });
+        // adbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
         # Deliberately does NOT include the package: `nix flake check` runs its entries in
         # arbitrary order, and the release build must come AFTER lints and tests, not
-        # alongside them. CI builds the package as an explicit later step.
+        # alongside them. CI builds the package as an explicit later step. The single
+        # exception is `adbc-driver-bigquery` below - it only has to not break, and the
+        # reviewer found nothing in CI realised it, so it earns a slot here.
         checks = {
+          # The self-built ADBC BigQuery driver, as a gate with a REAL venue: the
+          # reviewer found nothing in CI realised these packages, so a broken driver
+          # would sail a green PR. `nix flake check` realises this derivation, which
+          # has each of the four cross-triple `libadbc_driver_bigquery.so` builds as
+          # an input and fails if any of them is missing. This is the one place the
+          # driver has to build before a PR can be green.
+          adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
+            buildInputs = [
+              adbcDrivers.adbc-driver-bigquery-aarch64-unknown-linux-gnu
+              adbcDrivers.adbc-driver-bigquery-aarch64-unknown-linux-musl
+              adbcDrivers.adbc-driver-bigquery-x86_64-unknown-linux-gnu
+              adbcDrivers.adbc-driver-bigquery-x86_64-unknown-linux-musl
+            ];
+          } ''
+            for d in $buildInputs; do
+              test -f "$d/lib/libadbc_driver_bigquery.so" \
+                || { echo "missing libadbc_driver_bigquery.so in $d" >&2; exit 1; }
+            done
+            mkdir -p "$out" && printf 'all four ADBC driver triples built\n' > "$out"
+          '';
+
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and

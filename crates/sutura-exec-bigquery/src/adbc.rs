@@ -86,6 +86,17 @@ impl JobTransport for AdbcBigQuery {
     type Error = AdbcError;
 
     fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+        // This transport cannot yet honour per-subject execution or bind
+        // parameters, and the type claims both (PerSubjectCredential source, a
+        // positional-? statement). Refuse loudly rather than run under the
+        // driver's ambient credential or ship an unbound statement — a silent
+        // drop is an identity regression and an unbound `?` is a runtime error.
+        if request.subject_bearer().is_some() {
+            return Err(AdbcError::Uncovered("execute as the asking subject"));
+        }
+        if !request.params().is_empty() {
+            return Err(AdbcError::Uncovered("bind statement parameters"));
+        }
         let (_driver, mut stmt) = self.connect(request)?;
         let reader = stmt.execute().map_err(AdbcError::Adbc)?;
         let schema = reader.schema();
@@ -107,7 +118,11 @@ impl JobTransport for AdbcBigQuery {
 
     fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
         // ADBC `GetObjects` is unverified for this driver; the port keeps
-        // "cannot list" distinct from "table absent".
+        // "cannot list" distinct from "table absent". Note what that means for a
+        // composed warehouse: `Warehouse::preflight` calls this at boot, so a
+        // non-empty bundle under this transport FAILS preflight (an outage), not
+        // a silent empty grant. Do not select this transport at composition until
+        // `GetObjects` is bound - that binding is the provisioned follow-on.
         Err(AdbcError::Uncovered("list tables"))
     }
 
