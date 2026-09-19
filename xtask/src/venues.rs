@@ -64,7 +64,6 @@ use crate::repo;
 // The acceptance venue's half. Its limit is a property of `.github/workflows/ci.yml` rather than of
 // the page, so it reads a different file with a different parser - and every assertion about it
 // lives beside that parser, where the fixture it needs is.
-mod acceptance;
 
 // The same venue's ENVIRONMENT contract, one layer out: `acceptance` reads what the job DOES with
 // each value, and this reads whether the environment can be made to carry it at all. Three lists
@@ -116,17 +115,6 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-venues: {PAGE} is not readable - it IS the map");
         return Verdict::Fail;
     };
-    let mut acceptance_problems = Vec::new();
-    let mut pairs = Vec::new();
-    for &(workflow, job) in acceptance::JOBS {
-        let Ok(text) = std::fs::read_to_string(root.join(workflow)) else {
-            eprintln!("xtask check-venues: {workflow} is not readable");
-            return Verdict::Fail;
-        };
-        pairs.push(format!("`{job}`"));
-        acceptance_problems.extend(acceptance::scan(workflow, job, &text));
-    }
-
     let tests = match test_names() {
         Ok(tests) => tests,
         Err(why) => {
@@ -165,14 +153,12 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
 
     let mut problems = page_problems(&page, &tests, &invoked, &runs_tests);
-    problems.extend(acceptance_problems);
     let contract = environment::problems(&root);
     problems.extend(contract.problems);
 
     if problems.is_empty() {
         println!(
-            "xtask check-venues: ok - {PAGE} and {} job(s), {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
-            pairs.join(", "),
+            "xtask check-venues: ok - {PAGE}, {} cited test(s), {} CI invocation(s) resolved, {} task(s) that run tests, {} environment name(s) reconciled across three lists",
             cited_tests(&page).len(),
             invoked.len(),
             runs_tests.len(),
@@ -850,10 +836,10 @@ Not built.
         // The anchor without which the three arms above are satisfied by a broken scan, and there
         // is no golden here to compare against - so three oracles that are not this reader.
         // `just --list` names the recipes, `justfile` carries the `cargo nextest` lines, and the
-        // page cites the two names below; the reader has to agree with all three.
+        // page cites the names below; the reader has to agree with all three.
         let root = crate::repo::root().expect("the repo root");
         let runs_tests = super::test_tasks(&root).expect("the justfile defines tasks that run tests");
-        for task in ["test", "bigquery-acceptance", "bigquery-exchanged-identity"] {
+        for task in ["test", "keycloak-served-test"] {
             assert!(
                 runs_tests.contains(task),
                 "`just {task}` runs `cargo nextest run` in the justfile and the scan resolved {} \
@@ -890,14 +876,14 @@ Not built.
     fn the_ci_scan_sees_the_venue_ci_actually_invokes() {
         // The anchor without which the arm above is satisfied by a broken scan. A set that found
         // nothing makes every `unrun` cell pass, and the gate's own floor only catches an empty
-        // one - so this names the invocation that must be in there: `nix run .#bigquery-acceptance`
-        // is the venue on this page that HAS a green run, and if the walk cannot see that one it
-        // cannot see the one that matters either.
+        // one - so this names the invocation that must be in there: `nix run .#keycloak-served-test`
+        // is the on-demand venue on this page that HAS a green run, and if the walk cannot see that
+        // one it cannot see the one that matters either.
         let root = crate::repo::root().expect("the repo root");
         let invoked = super::invoked(&root).expect("the CI scan reads .github/workflows");
         assert!(
-            invoked.contains("bigquery-acceptance"),
-            "the CI scan resolved {} name(s) and none of them is `bigquery-acceptance`, which \
+            invoked.contains("keycloak-served-test"),
+            "the CI scan resolved {} name(s) and none of them is `keycloak-served-test`, which \
              `.github/workflows/ci.yml` invokes - the walk is broken, not the workflows",
             invoked.len()
         );

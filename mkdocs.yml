@@ -232,7 +232,6 @@ nav:
       - The local chat demo: demo.md
       - Integrations: integrations.md
       - Where each identity claim is proven: where-identity-is-proven.md
-      - The wave-one E2E showcase: showcase-datahub-bigquery.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - What an agent identity can carry: what-agent-identity-can-carry.md
       - What an OKF-style catalog can carry: what-okf-can-carry.md

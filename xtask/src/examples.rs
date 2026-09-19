@@ -938,7 +938,7 @@ mod tests {
         let scan = Corpus::read(census, &members, crate_dir).expect("the corpus walk was truncated");
         let found = evidence(scan.sources(), scan.published()).expect("the evidence loop skipped a file");
 
-        for name in ["authored-sql", "multi-player", "raw-sql", "single-player", "wave-one"] {
+        for name in ["authored-sql", "multi-player", "raw-sql", "single-player"] {
             assert!(
                 scan.variants().contains(name),
                 "the real tree stopped publishing `examples/{name}` - update this list if that is intended"

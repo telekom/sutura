@@ -14,20 +14,6 @@ use super::{Contradicted, Evidence, Withdrawn};
 
 pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     Contradicted {
-        name: "additional named credential writes are held only by review",
-        wordings: &["for the CI key and by review for the two principal keys placed beside it"],
-        evidence: &[Evidence {
-            path: "xtask/src/venues/acceptance/properties.rs",
-            holds: "let mut placed: BTreeSet<&str> = commands",
-        }],
-        instead: "`just hygiene` checks recognised redirects from secret-naming commands and \
-                  requires each destination in a cleanup command's argument list; \
-                  `xtask/src/venues/acceptance/properties.rs` holds that scan. Indirect copies, \
-                  working-directory changes and whether cleanup executes remain review's",
-        only: &[],
-        except: &[],
-    },
-    Contradicted {
         // Issue 312, and the reason it is an entry rather than a rewrite alone: the wording was a
         // page's YAML `description`, which mkdocs-material renders into `<meta name="description">`
         // - so a reader who never opens the record is told a DataHub deployment carries no metric
@@ -549,35 +535,6 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "docs/adr/0017-what-a-bigquery-test-runs-against.md",
             "docs/adr/0018-what-the-bigquery-wire-is-built-from.md",
         ],
-    },
-    Contradicted {
-        // telekom/sutura#376. `docs/where-identity-is-proven.md`'s bq-test venue moved from
-        // `wired` to `yes` after a hosted run (35076526218). The wording it retired - the broker
-        // was built but never taken to a real exchange - fell with it; this row is the ratchet that
-        // refuses it coming back anywhere. The two ADR records that used to echo the old wording
-        // were amended in place on 2026-09-16 with the superseding sentence, so nothing is
-        // excepted to grandfather them. The run held both principals' own keys by construction, so
-        // it proved the STS/`iamcredentials` mechanics resolve per subject; the served half stayed
-        // unproven.
-        name: "the BigQuery exchange never ran against a real STS",
-        wordings: &[
-            "wired in serve, not proven live",
-            "no exchanged token has ever run against a real STS",
-        ],
-        // Refuted by the venue row's own yes: while the page carries the observed run the rule is
-        // live and forbids its wording; if the row ever reverts to `wired` the rule retires itself
-        // rather than forbidding a sentence that has become true again.
-        evidence: &[Evidence {
-            path: "docs/where-identity-is-proven.md",
-            holds: "The state is `yes`",
-        }],
-        instead: "`docs/where-identity-is-proven.md` records a hosted `workflow_dispatch` of \
-                  `bigquery-exchanged-identity` that exchanged each principal's job-time assertion \
-                  against a real STS and resolved it to that principal's own account. The job held \
-                  both principals' own keys by construction, so the mechanics resolve per subject \
-                  and no served binary has executed as a caller yet",
-        only: &[],
-        except: &[],
     },
     Contradicted {
         // github.com/telekom/sutura#159. `AGENTS.md` carried a *Built And Not Wired* section that

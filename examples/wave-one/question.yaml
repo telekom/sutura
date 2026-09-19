@@ -1,8 +1,0 @@
-# The one question this example asks, as each of the two principals: the certified `revenue`
-# metric the DataHub corpus carries, over exactly its anchor range. This is the body `served/e2e.rs`'s
-# cell posts to `POST /v1/query` and the answer its assertion pins.
-metric: revenue
-grain: month
-range:
-  start: 2026-06-01
-  end: 2026-07-01

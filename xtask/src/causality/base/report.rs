@@ -312,7 +312,7 @@ mod tests {
         );
         assert!(missing_module_file(text));
         assert!(!missing_module_file("error[E0432]: unresolved import `crate::thing`"));
-        let under_test = scoped("sutura-exec-bigquery", "corpus.rs", &["t"]);
+        let under_test = scoped("sutura-exec-bigquery", "crates/sutura-exec-bigquery/tests/corpus.rs", &["t"]);
         assert_eq!(classified(text, false, &under_test), BaseOutcome::DidNotCompile);
     }
 

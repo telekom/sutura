@@ -1,1 +1,0 @@
-{"jobComplete": true, "totalRows": "1", "errors": [{"reason": "warning"}], "schema": {"fields": [{"name": "n", "type": "INTEGER"}]}, "rows": [{"f": [{"v": "1"}]}]}

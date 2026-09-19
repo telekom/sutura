@@ -124,7 +124,8 @@ bench:
 
 # THE FOUR E2E TARGETS BELOW are all gates: `checks.nextest` runs each, because files, a loopback
 # port and a pipe need no network and no credential. Each exists to run its one target while working
-# on it, not as a second tier, and unlike `just bigquery-acceptance` nothing in them is `#[ignore]`d.
+# on it, not as a second tier, and unlike the (since-removed) BigQuery acceptance leg nothing in them
+# is `#[ignore]`d.
 
 # Run the end-to-end suite against the composed `sutura serve` command.
 #
