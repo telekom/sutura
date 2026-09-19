@@ -18,13 +18,13 @@ otherwise describe something other than what produced it.
 `SemanticCatalog::KIND` is what each adapter is measured against, and it is a per-adapter constant
 rather than a description:
 
-| Source | Crate | `KIND` | Measured against | What it can carry |
-| --- | --- | --- | --- | --- |
-| Markdown + YAML frontmatter | `sutura-catalog-local` | `Golden` | the hand-written oracle stating the same model | every kind the model defines |
-| DataHub | `sutura-catalog-datahub` | `Declaring` | its own `capabilities` declaration | `docs/adr/0016-what-datahub-can-carry.md` |
-| OpenMetadata | `sutura-catalog-openmetadata` | `Declaring` | its own `capabilities` declaration | [What an OpenMetadata catalog can carry](what-openmetadata-can-carry.md) |
-| OKF Frictionless Table Schema | `sutura-catalog-okf` | `Declaring` | its own `capabilities` declaration | [What an OKF-style catalog can carry](what-okf-can-carry.md) |
-| An RDBMS dictionary | `sutura-catalog-rdbms` | `Declaring` | its own `capabilities` declaration | [An RDBMS dictionary as a metadata source](rdbms-catalog-guidance.md) |
+| Source                        | Crate                         | `KIND`      | Measured against                               | What it can carry                                                        |
+| ----------------------------- | ----------------------------- | ----------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| Markdown + YAML frontmatter   | `sutura-catalog-local`        | `Golden`    | the hand-written oracle stating the same model | every kind the model defines                                             |
+| DataHub                       | `sutura-catalog-datahub`      | `Declaring` | its own `capabilities` declaration             | `docs/adr/0016-what-datahub-can-carry.md`                                |
+| OpenMetadata                  | `sutura-catalog-openmetadata` | `Declaring` | its own `capabilities` declaration             | [What an OpenMetadata catalog can carry](what-openmetadata-can-carry.md) |
+| OKF Frictionless Table Schema | `sutura-catalog-okf`          | `Declaring` | its own `capabilities` declaration             | [What an OKF-style catalog can carry](what-okf-can-carry.md)             |
+| An RDBMS dictionary           | `sutura-catalog-rdbms`        | `Declaring` | its own `capabilities` declaration             | [An RDBMS dictionary as a metadata source](rdbms-catalog-guidance.md)    |
 
 A `Declaring` adapter supplies part of the model and **declares the rest out**. An absence is
 declared rather than inferred from silence, which is why a partial source cannot quietly read as a
@@ -35,13 +35,13 @@ complete one.
 A data source executes a compiled plan. The `Warehouse` port is synchronous and `execute` takes a
 `Deadline`.
 
-| Source | Crate | Renders | Executes | Identity it executes under |
-| --- | --- | --- | --- | --- |
-| BigQuery | `sutura-exec-bigquery` | yes | yes | per subject - `PerSubjectCredential` |
-| Postgres | `sutura-exec-postgres` | yes | yes | one shared credential - `NoPlaceForASubject` |
-| DuckDB | `sutura-exec-duckdb` | yes | yes | one process identity - `NoPlaceForASubject` |
-| DataFusion | `sutura-exec-datafusion` | - | yes, one source's share of a federated answer | one process identity - `NoPlaceForASubject` |
-| ClickHouse | none yet | yes | **no** | - |
+| Source     | Crate                    | Renders | Executes                                      | Identity it executes under                   |
+| ---------- | ------------------------ | ------- | --------------------------------------------- | -------------------------------------------- |
+| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                           | per subject - `PerSubjectCredential`         |
+| Postgres   | `sutura-exec-postgres`   | yes     | yes                                           | one shared credential - `NoPlaceForASubject` |
+| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                           | one process identity - `NoPlaceForASubject`  |
+| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer | one process identity - `NoPlaceForASubject`  |
+| ClickHouse | none yet                 | yes     | **no**                                        | -                                            |
 
 ClickHouse renders and cannot be asked to answer: the dialect shipped without an executor. Its
 committed goldens therefore pin what this renderer emits and nothing a database agreed to.
