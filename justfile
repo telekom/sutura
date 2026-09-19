@@ -112,6 +112,16 @@ test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
+# NOT a gate: not in `just validate`, not in `just gates`, not in `ci` - `github.com/telekom/
+# sutura#915`. A benchmark that fails a build on noise is worse than no benchmark; this produces a
+# number to cite in a decision record, on demand. Each harness prints the host's own load average
+# first, because a number taken under this repository's usual multi-lane load is not comparable
+# with one taken idle.
+
+# Run every benchmark harness in the workspace.
+bench:
+    cargo bench --workspace --all-features
+
 # THE FOUR E2E TARGETS BELOW are all gates: `checks.nextest` runs each, because files, a loopback
 # port and a pipe need no network and no credential. Each exists to run its one target while working
 # on it, not as a second tier, and unlike `just bigquery-acceptance` nothing in them is `#[ignore]`d.
