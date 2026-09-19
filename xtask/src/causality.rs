@@ -853,6 +853,17 @@ mod tests {
     /// `github.com/telekom/sutura#837` direction 2, half one: a complete declaration on an
     /// inseparable diff is EVALUATED, and a mutation that kills by the cell's own assertion is
     /// accepted.
+    ///
+    /// NOT DISCRIMINATING ALONE, stated rather than hidden: the old `Plan::NotSeparable`
+    /// fallback (`report_not_separable`) also answers `Verdict::Pass`, unconditionally, so this
+    /// assertion by itself cannot be shown red-on-base - confirmed by hand: neutralising the
+    /// dispatch guard below with `&& false` leaves this test green. The causal evidence that the
+    /// NEW dispatch, not the old fallback, is what answers here is the CONTRAST with the two
+    /// tests after it: the same fixture shape with an invalid declaration
+    /// (`Mutation::DoesNotKill`, `Mutation::Missing`) answers `Verdict::Fail` under the same
+    /// neutralising mutation - reversed to green - which an unconditional fallback could never
+    /// do. A single arm sensitive to the patch's validity is not reachable through one that is
+    /// not.
     #[test]
     fn a_declared_claim_cell_is_evaluated_from_an_inseparable_plan() {
         assert_eq!(
@@ -865,7 +876,9 @@ mod tests {
 
     /// The arm is reached, not merely declared: a mutation that applies but does not kill is
     /// refused rather than passing by the old unconsulted route (`Verdict::Pass`, unconditionally,
-    /// before this decision).
+    /// before this decision). CONFIRMED BY HAND: neutralising the dispatch guard with `&& false`
+    /// turns this back into `Verdict::Pass` - this is one of the two tests that discriminate the
+    /// new dispatch from the old fallback.
     #[test]
     fn an_inseparable_claim_cell_whose_mutation_does_not_kill_is_refused() {
         assert_eq!(
@@ -877,7 +890,9 @@ mod tests {
     }
 
     /// `github.com/telekom/sutura#837` direction 2's own guard: a declaration with no committed
-    /// patch is `Cause::MissingPatch`, not treated as though nothing were declared.
+    /// patch is `Cause::MissingPatch`, not treated as though nothing were declared. CONFIRMED BY
+    /// HAND: neutralising the dispatch guard with `&& false` turns this back into
+    /// `Verdict::Pass` too - the second of the two discriminating tests.
     #[test]
     fn an_inseparable_claim_cell_with_no_committed_patch_is_refused_as_missing() {
         assert_eq!(
