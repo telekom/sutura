@@ -185,7 +185,6 @@ adbc_driver_manager = { version = "0.24", optional = true }
 # brings no TLS stack of this crate's own. `adbc_core` is the (aggregate) API;
 # `adbc_driver_manager` provides `ManagedDriver::load_from_path`.
 
-
 arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }
 

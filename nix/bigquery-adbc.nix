@@ -1,5 +1,5 @@
 # The ADBC BigQuery driver (`adbc-drivers/bigquery`, Apache-2.0), self-built from
-# source so that every release triple — including the two static musl ones — gets
+# source so that every release triple - including the two static musl ones - gets
 # a hermetic, reproducible native driver (telekom/sutura#913).
 #
 # Why self-built rather than `dbc install bigquery`: this repository's release
@@ -24,14 +24,15 @@
 # remaining triple yields its real hash on the first build after merge (the nix
 # error prints the expected value, exactly as this one was obtained).
 #
-# Output: `$out/lib/libadbc_driver_bigquery.so` — the ADBC v1 C ABI entrypoint
+# Output: `$out/lib/libadbc_driver_bigquery.so` - the ADBC v1 C ABI entrypoint
 # `AdbcDriverInit` that `adbc_driver_manager` dlopens.
 #
 # `src` must be the repository's `go/` directory (the Go module root).
 { pkgs, src, crossSystemName, vendorHash }:
 let
   # `pkgs` here is the cross package set the caller chose for this release triple.
-  # The driver requires go >= 1.27.1; nixpkgs' default `go` is older.
+  # The driver advertises a go newer than nixpkgs' default; pin `go_1_27` here so
+  # the driver and its toolchain cannot drift apart from this file's pin.
   buildGoModule = pkgs.buildGoModule.override { go = pkgs.buildPackages.go_1_27; };
 in
 buildGoModule {

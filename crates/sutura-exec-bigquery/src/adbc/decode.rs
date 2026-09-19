@@ -3,7 +3,7 @@
 //! The driver returns Arrow record batches; this pure half turns a schema +
 //! batches into the adapter's own `JobRows`, reusing the same
 //! [`crate::transport::FieldType`] vocabulary and the shared `crate::rowset::rows`
-//! mapping the wire uses — one plan answered by two transports must produce one
+//! mapping the wire uses - one plan answered by two transports must produce one
 //! number.
 //!
 //! Completeness is decided here. The wire refused a first page by comparing the

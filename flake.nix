@@ -37,8 +37,8 @@
     };
     jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
     jscpd-src.flake = false;
-    # The ADBC BigQuery driver, self-built from source so every release triple —
-    # including the two static musl ones — gets a hermetic, reproducible native
+    # The ADBC BigQuery driver, self-built from source so every release triple -
+    # including the two static musl ones - gets a hermetic, reproducible native
     # driver (telekom/sutura#913). Apache-2.0. The Go driver's `go/pkg` facade
     # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
     bigquery-adbc-src.url = "github:adbc-drivers/bigquery";

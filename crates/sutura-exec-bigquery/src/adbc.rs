@@ -9,7 +9,7 @@
 //!
 //! Behind the crate's default-off `adbc` feature, like the `wire`: the native
 //! driver and its Arrow graph are a per-triple addition a lean build should not
-//! link. Off is not hidden — every gate passes `--all-features`.
+//! link. Off is not hidden - every gate passes `--all-features`.
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
 // to resolve those types' methods and are never named directly.
