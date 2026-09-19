@@ -1,6 +1,5 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
-assertion_line: 36
 expression: pinned.definitions()
 ---
 models:
@@ -81,7 +80,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -91,7 +91,8 @@ metrics:
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -102,7 +103,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -134,7 +136,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -144,7 +147,8 @@ metrics:
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -155,7 +159,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -234,7 +239,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -244,13 +250,15 @@ metrics:
       product_name:
         name: product_name
         column: product_name
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values: ~
         description: "Declared without a value list, so it can be grouped by and not filtered on."
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -261,7 +269,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -316,7 +325,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -340,7 +350,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -350,7 +361,8 @@ metrics:
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -361,7 +373,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -397,7 +410,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -407,7 +421,8 @@ metrics:
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -418,7 +433,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer
@@ -445,7 +461,8 @@ metrics:
       product_family:
         name: product_family
         column: product_family
-        via: subscription_product
+        via:
+          - subscription_product
         allowed_values:
           - convergent
           - fixed_internet
@@ -455,7 +472,8 @@ metrics:
       region:
         name: region
         column: region
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - central
           - east
@@ -466,7 +484,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: subscription_customer
+        via:
+          - subscription_customer
         allowed_values:
           - business
           - consumer

@@ -17,7 +17,7 @@ use super::{
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
 };
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
@@ -146,7 +146,12 @@ fn metric(carrying: Carrying<'_>) -> Metric {
         let dimension = Dimension::new(
             DimensionName::parse("region").expect("a test dimension is a dimension"),
             column("region_code"),
-            Some(relationship_name("orders_customer")),
+            Some(
+                ViaChain::of(vec![
+                    RelationshipName::parse("orders_customer").expect("a test relationship is one"),
+                ])
+                .expect("a one-hop chain has hops"),
+            ),
             None,
             Description::default(),
         );

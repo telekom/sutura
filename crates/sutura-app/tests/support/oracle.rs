@@ -56,7 +56,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -101,11 +101,19 @@ fn anchor(value: &str) -> Anchor {
     Anchor::new(june(), AnchorValue::parse(value).expect("a corpus anchor value is a value"))
 }
 
-fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> Dimension {
+/// A dimension, with its hops given in declared order - one name is a one-hop chain.
+fn dimension(name: &str, col: &str, via: Option<&[&str]>, allowed: Option<&[&str]>) -> Dimension {
     Dimension::new(
         DimensionName::parse(name).expect("a corpus dimension is a dimension"),
         column(col),
-        via.map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship")),
+        via.map(|hops| {
+            ViaChain::of(
+                hops.iter()
+                    .map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship"))
+                    .collect(),
+            )
+            .expect("a corpus chain has hops")
+        }),
         allowed.map(values),
         Description::default(),
     )
@@ -130,7 +138,7 @@ fn segment() -> Dimension {
     dimension(
         "segment",
         "segment",
-        Some("subscription_customer"),
+        Some(&["subscription_customer"]),
         Some(&["business", "consumer", "wholesale"]),
     )
 }
@@ -140,7 +148,7 @@ fn region() -> Dimension {
     dimension(
         "region",
         "region",
-        Some("subscription_customer"),
+        Some(&["subscription_customer"]),
         Some(&["central", "east", "north", "south", "west"]),
     )
 }
@@ -150,7 +158,7 @@ fn product_family() -> Dimension {
     dimension(
         "product_family",
         "product_family",
-        Some("subscription_product"),
+        Some(&["subscription_product"]),
         Some(&["convergent", "fixed_internet", "mobile", "tv"]),
     )
 }
@@ -158,7 +166,7 @@ fn product_family() -> Dimension {
 /// The individual tariff. **No value list, so it can be grouped by and not filtered on** - which is
 /// what `refused-dimension-not-filterable.yaml` exists to reach.
 fn product_name() -> Dimension {
-    dimension("product_name", "product_name", Some("subscription_product"), None)
+    dimension("product_name", "product_name", Some(&["subscription_product"]), None)
 }
 
 /// **The one dimension in this catalog that names no relationship.**
@@ -682,7 +690,8 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                     Dimension::new(
                         d.name().clone(),
                         d.column().clone(),
-                        d.via().cloned(),
+                        d.via()
+                            .map(|hops| ViaChain::of(hops.to_vec()).expect("a parsed chain has hops")),
                         d.allowed_values().cloned(),
                         Description::default(),
                     )

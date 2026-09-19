@@ -136,11 +136,11 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             metric: resolution.metric.name().clone(),
         });
     };
-    // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
-    // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
-    // drop a source here.
+    // Every source besides the metric's own that a chain reaches. The LAST hop decides which source
+    // a dimension reads from (`is_remote`'s note), so the filter cannot drop a source here: a remote
+    // dimension's last hop sits on that source by construction.
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
-        .filter_map(|dim| dim.join.as_ref().map(|join| join.model.source()))
+        .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
 
     match remote.len() {
@@ -161,8 +161,16 @@ fn every_remote_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterat
 }
 
 /// Whether a dimension sits on a data system other than `own`.
+///
+/// The LAST hop decides: hop 1 may cross a source boundary - that is the federated case - but from
+/// the second hop on a chain stays on the data system its previous hop ended at, so a chain whose
+/// last hop is local is a local dimension, not a federated one.
 fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
-    dimension.join.as_ref().is_some_and(|join| join.model.source() != own)
+    dimension
+        .join
+        .as_ref()
+        .and_then(|hops| hops.last())
+        .is_some_and(|hop| hop.model.source() != own)
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
@@ -176,14 +184,22 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
     let own_path = model.table();
     let own_table = model.table_name();
 
-    // Deduplicated by relationship and then sorted, so two dimensions reached through one
-    // relationship produce one join, and the join order is a function of the plan rather than of the
-    // order the caller happened to list their dimensions in. A statement whose text depends on
-    // argument order has no stable golden.
+    // One `PlanJoin` per hop, in declared chain order: hop 1 first, then hop 2 against hop 1's
+    // target. Deduplicated by relationship, so two dimensions reached through one hop produce one
+    // join. **The global sort is gone, and it is the chain's doing:** a chain `[b, a]` must render
+    // `b` then `a`, and sorting by relationship name would render it `a` then `b` - a statement
+    // whose join order is a function of the alphabet rather than of the path. Determinism still
+    // holds without it: the dimensions arrive in question order (`every_dimension` walks the keys
+    // then the filters, both in the order the caller asked for), and each chain's hops are in the
+    // order its author declared, so the join list is a function of the plan rather than of anything
+    // unordered.
     let mut joins: Vec<PlanJoin> = Vec::new();
     for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            let name = join.relationship.name().clone();
+        let Some(hops) = resolved.join.as_ref() else {
+            continue;
+        };
+        for hop in hops {
+            let name = hop.relationship.name().clone();
             if joins.iter().any(|existing| *existing.relationship() == name) {
                 continue;
             }
@@ -192,14 +208,13 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
                 // The joined model's own path: a dimension table in another dataset is still one
                 // statement. Its columns are qualified by the bare name beside it, for the reason
                 // `own_table` above gives.
-                join.model.table().clone(),
-                join.relationship.join_type(),
-                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
+                hop.model.table().clone(),
+                hop.relationship.join_type(),
+                PlanColumn::new(own_table.clone(), hop.relationship.origin_column().clone()),
+                PlanColumn::new(hop.model.table_name().clone(), hop.relationship.target_column().clone()),
             ));
         }
     }
-    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
 
@@ -272,17 +287,21 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         }));
     }
 
-    // One remote data system (more are refused upstream); its dimensions must all join through one
-    // relationship, because the combiner links the legs on a single column. The two guards below are
-    // unreachable - `plan` calls this only for exactly one remote source, and a remote dimension has
-    // a join by construction - but a panic here would be reachable from a catalog plus a question, so
-    // they refuse instead.
+    // One remote data system (more are refused upstream); its dimensions must all be reached through
+    // one first hop, because the combiner links the legs on a single column - and a remote
+    // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
+    // from the second hop on a chain is same-source by the consistency check, so a remote chain's
+    // hops 2..n would live ON the lookup leg, which the splitter does not plan (see below). The
+    // guards below are unreachable - `plan` calls this only for exactly one remote source, and a
+    // remote dimension has a chain by construction - but a panic here would be reachable from a
+    // catalog plus a question, so they refuse instead.
     //
     // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
         return Err(PlanError::NoRemoteJoin);
     };
-    let Some(first_join) = first_remote.join.as_ref() else {
+    // `.first`: the link into the remote leg is the chain's first hop.
+    let Some(first_join) = first_remote.join.as_ref().and_then(|hops| hops.first()) else {
         return Err(PlanError::NoRemoteJoin);
     };
     let relationship = first_join.relationship;
@@ -290,7 +309,7 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     let remote_table = first_join.model.table_name();
     let remote_source = first_join.model.source();
     for dim in every_remote_dimension(resolution) {
-        let Some(join) = dim.join.as_ref() else {
+        let Some(join) = dim.join.as_ref().and_then(|hops| hops.first()) else {
             continue;
         };
         if join.relationship.name() != relationship.name() {
@@ -376,28 +395,36 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
     }
 
-    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
+    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg, one per
+    // hop in declared chain order and deduplicated by relationship. The per-hop source skip is kept
+    // though the consistency check now refuses any hop beyond the first that crosses a source
+    // boundary: a chain's hops 2..n CANNOT be remote, so this arm is unreachable-but-written, and it
+    // is what keeps the fact leg honest if the splitter is ever fed a resolution the assembler did
+    // not gate. The sort is gone for the reason `mono_plan`'s loop gives - a chain's declared order
+    // is the statement's join order.
     let mut joins: Vec<PlanJoin> = Vec::new();
     for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            if join.model.source() != model.source() {
+        let Some(hops) = resolved.join.as_ref() else {
+            continue;
+        };
+        for hop in hops {
+            if hop.model.source() != model.source() {
                 continue;
             }
-            let name = join.relationship.name().clone();
+            let name = hop.relationship.name().clone();
             if joins.iter().any(|existing| *existing.relationship() == name) {
                 continue;
             }
             joins.push(PlanJoin::new(
                 name,
                 // The joined model's own path, for the reason `mono_plan`'s loop gives.
-                join.model.table().clone(),
-                join.relationship.join_type(),
-                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
+                hop.model.table().clone(),
+                hop.relationship.join_type(),
+                PlanColumn::new(own_table.clone(), hop.relationship.origin_column().clone()),
+                PlanColumn::new(hop.model.table_name().clone(), hop.relationship.target_column().clone()),
             ));
         }
     }
-    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
@@ -612,12 +639,13 @@ fn every_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterator<Item
         .chain(resolution.filters.iter().map(|filter| &filter.dimension))
 }
 
-/// Which table a dimension's column is read from: the joined one when there is a join, the metric's
+/// Which table a dimension's column is read from: the last hop's when there is a chain, the metric's
 /// own otherwise.
 fn column_of(resolved: &ResolvedDimension<'_>, own_table: &TableName) -> PlanColumn {
     let table = resolved
         .join
         .as_ref()
-        .map_or_else(|| own_table.clone(), |join| join.model.table_name().clone());
+        .and_then(|hops| hops.last())
+        .map_or_else(|| own_table.clone(), |hop| hop.model.table_name().clone());
     PlanColumn::new(table, resolved.dimension.column().clone())
 }

@@ -1,6 +1,5 @@
 ---
 source: crates/sutura-app/tests/golden/catalogs.rs
-assertion_line: 36
 expression: pinned.definitions()
 ---
 models:
@@ -50,7 +49,8 @@ metrics:
       segment:
         name: segment
         column: segment
-        via: orders_to_customer
+        via:
+          - orders_to_customer
         allowed_values:
           - retail
           - wholesale

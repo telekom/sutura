@@ -8,8 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES,
-    MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+    ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -116,11 +117,18 @@ fn declaring(name: &str, dimensions: Vec<Dimension>) -> Result<Metric, Inconsist
     )
 }
 
-fn dimension(name: &str, col: &str, via: Option<&str>, values: Option<&[&str]>) -> Dimension {
+/// A dimension, with its hops given in declared order.
+///
+/// `&[]`-style slices rather than a count of `&str` arguments: most cases here are one hop, but the
+/// chain cases pass two, and `Some(&[])` would be an empty chain, which `ViaChain::of` refuses - so
+/// `None` stays the only no-hop spelling.
+fn dimension(name: &str, col: &str, via: Option<&[&str]>, values: Option<&[&str]>) -> Dimension {
     Dimension::new(
         dimension_name(name),
         column(col),
-        via.map(relationship_name),
+        via.map(|hops| {
+            ViaChain::of(hops.iter().map(|h| relationship_name(h)).collect::<Vec<_>>()).expect("a test chain has hops")
+        }),
         values.map(|v| v.iter().map(|s| value(s)).collect::<BTreeSet<_>>()),
         Description::default(),
     )
@@ -137,7 +145,7 @@ fn a_consistent_catalog_assembles_and_is_addressable_by_name() {
     let definitions = assemble_one(metric(
         "revenue",
         vec![
-            dimension("region", "region_code", Some("orders_customer"), Some(&["north"])),
+            dimension("region", "region_code", Some(&["orders_customer"]), Some(&["north"])),
             dimension("day_of", "order_date", None, None),
         ],
     ))
@@ -241,7 +249,7 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
     )];
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("orders_customer"), None)],
+        vec![dimension("region", "region_code", Some(&["orders_customer"]), None)],
     );
     assert_eq!(
         Definitions::assemble(models, fanning, vec![m]).unwrap_err(),
@@ -249,6 +257,7 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
             metric: metric_name("revenue"),
             dimension: dimension_name("region"),
             relationship: relationship_name("orders_customer"),
+            hop: 1,
         }
     );
 }
@@ -268,7 +277,7 @@ fn a_dimension_reached_through_a_relationship_that_starts_elsewhere_is_refused()
     )];
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("customer_orders"), None)],
+        vec![dimension("region", "region_code", Some(&["customer_orders"]), None)],
     );
     assert_eq!(
         Definitions::assemble(models, backwards, vec![m]).unwrap_err(),
@@ -287,7 +296,7 @@ fn an_empty_value_allowlist_is_refused_rather_than_meaning_nothing() {
     // refused for a reason that describes the question rather than the catalog.
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("orders_customer"), Some(&[]))],
+        vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&[]))],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -460,7 +469,7 @@ fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
             )],
             vec![metric(
                 "revenue",
-                vec![dimension("region", "region_code", Some("orders_customer"), None)]
+                vec![dimension("region", "region_code", Some(&["orders_customer"]), None)]
             )]
         )
         .unwrap_err(),
@@ -664,7 +673,7 @@ fn a_relationship_naming_a_column_that_does_not_exist_is_refused() {
 fn a_dimension_naming_a_relationship_that_does_not_exist_is_refused() {
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("no_such_join"), None)],
+        vec![dimension("region", "region_code", Some(&["no_such_join"]), None)],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -680,7 +689,7 @@ fn a_dimension_naming_a_relationship_that_does_not_exist_is_refused() {
 fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
     let m = metric(
         "revenue",
-        vec![dimension("region", "not_there", Some("orders_customer"), None)],
+        vec![dimension("region", "not_there", Some(&["orders_customer"]), None)],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -690,6 +699,140 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
             model: model_name("customers"),
             column: column("not_there"),
         }
+    );
+}
+
+/// `orders` → `customers` → `regions`, all on `local`: the fixture every multi-hop case walks.
+///
+/// `customers_regions` starts at `customers` - the target of hop 1 - so the two relationships join
+/// up and the chain is a single path.
+fn three_models() -> ModelsAndJoins {
+    let (mut models, mut relationships) = two_models();
+    models.push(model("regions", "local", &["code", "label"]));
+    models[1] = model("customers", "local", &["id", "region_code"]);
+    relationships.push(Relationship::new(
+        relationship_name("customers_regions"),
+        model_name("customers"),
+        column("region_code"),
+        model_name("regions"),
+        column("code"),
+        JoinType::ManyToOne,
+    ));
+    (models, relationships)
+}
+
+fn chain_metric() -> Metric {
+    metric(
+        "revenue",
+        vec![dimension(
+            "region",
+            "code",
+            Some(&["orders_customer", "customers_regions"]),
+            Some(&["north"]),
+        )],
+    )
+}
+
+#[test]
+fn a_dimension_through_a_chain_assembles_and_resolves_on_the_last_hops_model() {
+    let (models, relationships) = three_models();
+    let definitions = Definitions::assemble(models, relationships, vec![chain_metric()]).expect("a joined-up chain assembles");
+    // The column is read on the LAST hop's target, not on `customers`: `code` is a column of
+    // `regions`, and only `regions` has it.
+    let dimension = definitions
+        .metric(&metric_name("revenue"))
+        .expect("the metric is there")
+        .dimensions()
+        .iter()
+        .find(|d| d.1.name() == &dimension_name("region"))
+        .expect("the dimension is there");
+    assert_eq!(dimension.1.column(), &column("code"));
+    assert_eq!(
+        dimension.1.via(),
+        Some(&[relationship_name("orders_customer"), relationship_name("customers_regions")][..])
+    );
+}
+
+#[test]
+fn a_chain_hop_that_could_duplicate_rows_is_refused_naming_the_hop() {
+    let (models, mut relationships) = three_models();
+    relationships[1] = Relationship::new(
+        relationship_name("customers_regions"),
+        model_name("customers"),
+        column("region_code"),
+        model_name("regions"),
+        column("code"),
+        JoinType::OneToMany,
+    );
+    let m = chain_metric();
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![m]).unwrap_err(),
+        InconsistentDefinitions::JoinWouldDuplicateRows {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            relationship: relationship_name("customers_regions"),
+            hop: 2,
+        },
+        "the second hop is what would multiply rows, so the report names 2"
+    );
+}
+
+#[test]
+fn a_chain_whose_hop_does_not_start_at_the_previous_target_is_refused() {
+    // `customers_regions` starts at `regions` instead of at `customers`, so the chain is two
+    // relationships rather than one path.
+    let (models, mut relationships) = three_models();
+    relationships[1] = Relationship::new(
+        relationship_name("customers_regions"),
+        model_name("regions"),
+        column("code"),
+        model_name("customers"),
+        column("region_code"),
+        JoinType::ManyToOne,
+    );
+    let m = chain_metric();
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![m]).unwrap_err(),
+        InconsistentDefinitions::ChainDoesNotJoinUp {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            previous: relationship_name("orders_customer"),
+            relationship: relationship_name("customers_regions"),
+        }
+    );
+}
+
+#[test]
+fn a_chain_hop_onto_another_data_system_is_refused() {
+    // `regions` sits on `elsewhere`, and hop 2 crossing there would put the chained join on another
+    // data system's statement. Hop 1 is allowed to cross - that is the federated case - so the same
+    // models with a single-hop dimension on `orders_customer` still assemble below.
+    let (mut models, relationships) = three_models();
+    models[2] = model("regions", "elsewhere", &["code", "label"]);
+    let m = chain_metric();
+    assert_eq!(
+        Definitions::assemble(models.clone(), relationships.clone(), vec![m]).unwrap_err(),
+        InconsistentDefinitions::HopCrossesSource {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            relationship: relationship_name("customers_regions"),
+            own: SourceName::parse("local").expect("a test source is a source"),
+            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
+        }
+    );
+
+    let single = metric("revenue", vec![dimension("region", "id", Some(&["orders_customer"]), None)]);
+    drop(
+        Definitions::assemble(models, relationships, vec![single])
+            .expect("hop 1 crossing is the federated case and still assembles"),
+    );
+}
+
+#[test]
+fn an_empty_chain_is_not_representable() {
+    assert_eq!(
+        ViaChain::of(vec![]).expect_err("an empty chain is refused"),
+        InvalidViaChain::Empty
     );
 }
 
@@ -715,7 +858,7 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
     assert_eq!(
         assemble_one(metric(
             "revenue",
-            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+            vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&listed))],
         ))
         .expect_err("a dimension over the value bound does not assemble"),
         InconsistentDefinitions::TooManyValues {
@@ -732,7 +875,7 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
     drop(
         assemble_one(metric(
             "revenue",
-            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+            vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&listed))],
         ))
         .expect("exactly the limit assembles"),
     );

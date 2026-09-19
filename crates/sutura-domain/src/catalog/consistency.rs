@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
-use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, TableName};
+use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
 ///
@@ -128,6 +128,33 @@ pub enum InconsistentDefinitions {
         metric: MetricName,
         dimension: DimensionName,
         relationship: RelationshipName,
+        /// Which hop of the chain the relationship is - 1 for the single-hop case, so an author
+        /// reading the report finds the line to fix.
+        hop: usize,
+    },
+    #[error(
+        "dimension {dimension} of metric {metric} chains {relationship} after {previous}, but {relationship} starts at a model {previous} does not end at, so the chain is a set of relationships rather than a path"
+    )]
+    ChainDoesNotJoinUp {
+        metric: MetricName,
+        dimension: DimensionName,
+        previous: RelationshipName,
+        relationship: RelationshipName,
+    },
+    /// A chained join onto another data system's statement. Second and later hops only: hop 1
+    /// crossing a source boundary is the federated case, and the plan layer serves it.
+    #[error(
+        "dimension {dimension} of metric {metric} chains along {relationship} to a model on {target_source}, but the metric reads from {own}, and a chained join would put rows on another data system's statement"
+    )]
+    HopCrossesSource {
+        metric: MetricName,
+        dimension: DimensionName,
+        relationship: RelationshipName,
+        /// The field is `own` rather than `source`, because `thiserror` reads a field called
+        /// `source` as the `Error::source` chain and a `SourceName` there does not compile. Every
+        /// error that names a source field does so under a name that is not exactly `source`.
+        own: SourceName,
+        target_source: SourceName,
     },
     #[error(
         "dimension {dimension} of metric {metric} declares an empty value allowlist, so it permits filtering and permits no value"
@@ -416,9 +443,14 @@ impl Definitions {
             });
         }
 
-        let owning = match dimension.via.as_ref() {
-            None => model,
-            Some(name) => {
+        // A chain walks hop by hop, and `owning` tracks where the walk stands: the metric's model
+        // before the first hop, each hop's target after it. That makes the link-up check the same
+        // comparison for every hop - hop N's origin must be where the walk stands - while the error
+        // it reports differs: hop 1 failing is a relationship that does not start at the metric's
+        // model, hop N failing is a chain that is a set of relationships rather than a path.
+        let mut owning = model;
+        if let Some(chain) = dimension.via.as_ref() {
+            for (hop, name) in chain.as_slice().iter().enumerate() {
                 let relationship = relationships
                     .get(name)
                     .ok_or_else(|| InconsistentDefinitions::UnknownRelationship {
@@ -426,12 +458,28 @@ impl Definitions {
                         dimension: dimension.name.clone(),
                         relationship: name.clone(),
                     })?;
-                if relationship.origin_model != metric.model {
-                    return Err(InconsistentDefinitions::RelationshipNotFromMetricModel {
+                if relationship.origin_model != owning.name {
+                    if hop == 0 {
+                        return Err(InconsistentDefinitions::RelationshipNotFromMetricModel {
+                            metric: metric.name.clone(),
+                            dimension: dimension.name.clone(),
+                            relationship: name.clone(),
+                            model: metric.model.clone(),
+                        });
+                    }
+                    // No indexing: the previous hop is the last name before this one.
+                    let previous = chain
+                        .as_slice()
+                        .split_at(hop)
+                        .0
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| name.clone());
+                    return Err(InconsistentDefinitions::ChainDoesNotJoinUp {
                         metric: metric.name.clone(),
                         dimension: dimension.name.clone(),
+                        previous,
                         relationship: name.clone(),
-                        model: metric.model.clone(),
                     });
                 }
                 if relationship.join_type.may_duplicate_rows() {
@@ -439,19 +487,32 @@ impl Definitions {
                         metric: metric.name.clone(),
                         dimension: dimension.name.clone(),
                         relationship: name.clone(),
+                        hop: hop.saturating_add(1),
                     });
                 }
-                // `check_relationship` already proved this model exists, so the branch is not
-                // reachable. It is still written as a lookup rather than an `expect`, because the
-                // no-panic ban is not conditional on an argument being right.
-                models
-                    .get(&relationship.target_model)
-                    .ok_or_else(|| InconsistentDefinitions::RelationshipToUnknownModel {
+                // The chain is same-source from its second hop on: the metric's model declares
+                // where the statement runs, and a hop beyond the first whose target sits elsewhere
+                // would put the join on another data system's statement. Hop 1 may cross - a
+                // single remote dimension is the federated case the plan layer already serves; a
+                // chain is what this refusal exists to keep off another system's statement.
+                let target = models.get(&relationship.target_model).ok_or_else(|| {
+                    InconsistentDefinitions::RelationshipToUnknownModel {
                         relationship: name.clone(),
                         model: relationship.target_model.clone(),
-                    })?
+                    }
+                })?;
+                if hop > 0 && target.source() != model.source() {
+                    return Err(InconsistentDefinitions::HopCrossesSource {
+                        metric: metric.name.clone(),
+                        dimension: dimension.name.clone(),
+                        relationship: name.clone(),
+                        own: model.source().clone(),
+                        target_source: target.source().clone(),
+                    });
+                }
+                owning = target;
             }
-        };
+        }
 
         if !owning.has_column(&dimension.column) {
             return Err(InconsistentDefinitions::UnknownDimensionColumn {

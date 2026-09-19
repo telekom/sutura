@@ -598,6 +598,12 @@ One dimension, spelled exactly as a markdown metric's dimension is.
 A list entry with its own `name`, so a deployment declaring one name twice survives to
 `Definitions::assemble` to be refused rather than silently collapsing.
 
+**`via` is the same scalar-or-seq shape the markdown document spells, in and out.** The custom
+`Serialize` writes a scalar when the chain has one hop and a sequence otherwise, which is what
+keeps a recorded property byte-stable across a re-serialize: a deployment that stored a scalar
+does not come back as a one-element array. The input side accepts both, so a stored chain reads
+the same as a stored hop.
+
 #### Methods
 
 ```rust
@@ -606,11 +612,36 @@ pub fn into_domain(self) -> Dimension
 
 Into the domain type `Definitions::assemble` holds.
 
+The expect is on `ViaChain`'s own invariant, not on anything this adapter parsed: the
+property carries only chains built through `ViaChain::of`, so a non-empty chain is what
+arrives, and the domain type keeps its parse-only construction honest.
+
 ```rust
-pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
+pub fn new(name: DimensionName, column: ColumnName, via: Option<ViaChain>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
 ```
 
 A dimension, in the order `Definitions::assemble` wants it.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum ViaDoc`
+
+```rust
+pub enum ViaDoc
+```
+
+The hops a dimension is reached through, as the property spells them.
+
+One name, or a sequence of them. The same untagged shape the markdown adapter's `via:` takes, so
+the two adapters agree on what a stored chain means - #266's one-content-one-meaning rule, at
+this field.
+
+#### Variants
+
+- `One`
+- `Chain`
 
 #### Implements
 

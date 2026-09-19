@@ -24,11 +24,12 @@ use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, Top};
 
-/// A dimension, and the join needed to reach it.
+/// A dimension, and the chain of joins needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
     pub(crate) dimension: &'a Dimension,
-    /// `None` when the column is on the metric's own model.
-    pub(crate) join: Option<ResolvedJoin<'a>>,
+    /// Empty when the column is on the metric's own model; otherwise one per hop, in declared
+    /// chain order.
+    pub(crate) join: Option<Vec<ResolvedJoin<'a>>>,
 }
 
 /// One declared relationship, and the model on its far side.
@@ -224,35 +225,42 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     })
 }
 
-/// Finds one dimension and the model its column lives on.
+/// Finds one dimension and the chain of models its hops walk.
+///
+/// Each hop is looked up against the bundle in turn: the consistency check holds every hop's
+/// origin to the previous hop's target, so a mismatch here is a bundle the assembler let through,
+/// and `RelationshipAbsent`/`JoinTargetMissing` say so rather than guess.
 fn resolve_dimension<'a>(
     pinned: &'a PinnedDefinitions,
     metric: &'a Metric,
-
     name: &DimensionName,
 ) -> Result<ResolvedDimension<'a>, ResolveError> {
     let dimension = metric.dimension(name).ok_or_else(|| RefusalReason::DimensionNotPermitted {
         metric: metric.name().clone(),
         dimension: name.clone(),
     })?;
-    let Some(relationship_name) = dimension.via() else {
+    let Some(chain) = dimension.via() else {
         return Ok(ResolvedDimension { dimension, join: None });
     };
     let definitions = pinned.definitions();
-    let relationship = definitions
-        .relationship(relationship_name)
-        .ok_or_else(|| BundleInconsistent::RelationshipAbsent { dimension: name.clone() })?;
-    let joined = definitions
-        .model(relationship.target_model())
-        .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
-            model: relationship.target_model().clone(),
-        })?;
+    let mut hops = Vec::with_capacity(chain.len());
+    for relationship_name in chain {
+        let relationship = definitions
+            .relationship(relationship_name)
+            .ok_or_else(|| BundleInconsistent::RelationshipAbsent { dimension: name.clone() })?;
+        let joined = definitions
+            .model(relationship.target_model())
+            .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
+                model: relationship.target_model().clone(),
+            })?;
+        hops.push(ResolvedJoin {
+            relationship,
+            model: joined,
+        });
+    }
 
     Ok(ResolvedDimension {
         dimension,
-        join: Some(ResolvedJoin {
-            relationship,
-            model: joined,
-        }),
+        join: Some(hops),
     })
 }
