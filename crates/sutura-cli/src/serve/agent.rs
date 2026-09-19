@@ -8,13 +8,11 @@
 
 use std::sync::Arc;
 
-use sutura_app::spend::SpendObserver;
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_runtime::{Counter, Gauge};
 
 /// The erased serving service behind a [`Surface`].
 ///
@@ -41,9 +39,6 @@ impl Surface for Serving {
     fn spend_headroom_bytes(&self) -> Option<u64> {
         self.0.spend_headroom_bytes()
     }
-    fn spend_bytes_total(&self) -> Option<u64> {
-        self.0.spend_bytes_total()
-    }
 }
 
 /// The mounted streamable-HTTP transport over the serving surface, ready for
@@ -59,49 +54,17 @@ impl Surface for Serving {
 /// section. Reads the bundle off `service` before erasing it, so what this renders the prompt over
 /// is the exact bundle `Surface::answer` computes against - never a second catalog load that could
 /// drift from it.
-///
-/// `state` closes `github.com/telekom/sutura#892`: its gauge and counter (`ServiceState::spend_metrics`,
-/// already registered by `ServiceState::new`) are wrapped in [`SpendMetrics`] below and handed to
-/// the agent surface, so it pushes into the SAME series the HTTP surface does - `None` where this
-/// deployment has no `governance.per_replica_spend_ceiling` configured at all.
 pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
-    state: &sutura_http::ServiceState,
 ) -> Result<sutura_http::AgentMount, String> {
     let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
-    let spend_observer = state
-        .spend_metrics()
-        .map(|(headroom, total)| Arc::new(SpendMetrics { headroom, total }) as Arc<dyn SpendObserver>);
     Ok(sutura_http::AgentMount::new(sutura_mcp::http::service(
         Arc::new(Serving(service)),
         crate::commands::catalog_prose(settings.prompt().catalog_prose()),
         admission,
         settings.server().request_timeout(),
         Arc::from(instructions),
-        spend_observer,
     )))
-}
-
-/// [`SpendObserver`]'s one implementor this workspace ships - `#892` - mirroring whatever
-/// [`Surface::spend_headroom_bytes`]/[`Surface::spend_bytes_total`] report onto the SAME handles
-/// `sutura_http::ServiceState::new` already registered, never a second registration.
-struct SpendMetrics {
-    headroom: Gauge,
-    total: Counter,
-}
-
-impl SpendObserver for SpendMetrics {
-    fn observe_spend(&self, headroom_bytes: Option<u64>, spent_bytes_total: Option<u64>) {
-        // `set`, not `adjust`/`add`: both readings are already absolute and already monotonic
-        // where it matters, so mirroring what was read is correct regardless of how many times
-        // this is called - unlike accumulating a delta, which would double-count a repeat push.
-        if let Some(bytes) = headroom_bytes {
-            self.headroom.set(bytes);
-        }
-        if let Some(bytes) = spent_bytes_total {
-            self.total.set(bytes);
-        }
-    }
 }

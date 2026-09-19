@@ -315,8 +315,6 @@ pub(crate) async fn ask(
         // refusal or a `SurfaceFailure`: a charge is a reservation never released, so the ledger
         // can have moved even where the call went on to fail.
         let headroom = surface.spend_headroom_bytes();
-        // Same read, same reason, for the counter's twin series.
-        let spent_total = surface.spend_bytes_total();
         // Explicitly, and here rather than at the top of the closure: the admission `slot` and the
         // in-use `slot_guard` are released when the WORK finishes, which is what makes the bound a
         // bound on execution. Dropping them earlier would let a second question start on top of
@@ -326,13 +324,12 @@ pub(crate) async fn ask(
         // emitted while releasing is still attributable to this request.
         drop(slot);
         drop(slot_guard);
-        (answered, headroom, spent_total)
+        (answered, headroom)
     })
     .await;
     let outcome = match joined {
-        Ok((answered, headroom, spent_total)) => {
+        Ok((answered, headroom)) => {
             state.record_spend_headroom(headroom);
-            state.record_spend_bytes_total(spent_total);
             match answered {
                 Ok(answered) => answered,
                 Err(ref failure) => {

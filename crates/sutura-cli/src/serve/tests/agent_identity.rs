@@ -341,30 +341,22 @@ async fn post(app: axum::Router, token: &str, body: serde_json::Value) -> serde_
     serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the response body is JSON: {cause}"))
 }
 
-/// The mounted `/mcp` surface both cells below join against - the composition root's own state,
-/// leg 1 gate and mount, over a [`WorkloadIdentityBroker`] that reports every exchange it performs
-/// through the returned receiver. `label` names the published key set, so two calls in one process
-/// do not race over the same file.
-///
-/// Bundled with `PublishedKeySet` and `MockIssuer` rather than dropping either: the gate reads the
-/// key set at construction, inside this function, but a caller still mints tokens against `issuer`
-/// afterward, and dropping `PublishedKeySet` early would be a needless risk for a shared helper to
-/// take on its callers' behalf.
-type MountedAgentRoute = (
-    axum::Router,
-    MockIssuer,
-    PublishedKeySet,
-    tokio::sync::mpsc::UnboundedReceiver<Exchanged>,
-);
-
-fn mounted_agent_route(label: &str) -> MountedAgentRoute {
+#[tokio::test]
+async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_verified() {
+    // **The agent-route join, and the assertion neither half could make alone.** `establish_asked`
+    // retains the token leg 1 verified and `WorkloadIdentityBroker` offers an asker's token to an
+    // exchange - each against its own fixture, each green whatever the other did with the bytes.
+    // What is asserted here is the identity of those bytes on the mounted `/mcp` surface, through
+    // the composition root's own `mount` and the real `Asking::PerRequest` transport: an
+    // `establish_asked` that retained a MANGLED assertion (a scheme still on it, or a caller's
+    // NAME, or the process's own identity) passes every other agent-surface cell and fails here.
     let issuer = an_issuer();
-    let published = PublishedKeySet::of(&issuer, label).expect("the key set publishes");
+    let published = PublishedKeySet::of(&issuer, "agent-byte-join").expect("the key set publishes");
     let overlay = direct_overlay(&issuer, &published.path().to_string_lossy());
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
         .expect("the agent-route overlay loads");
 
-    let (exchange, asked) = an_exchange();
+    let (exchange, mut asked) = an_exchange();
     let broker = WorkloadIdentityBroker::empty(exchange)
         .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
@@ -387,11 +379,9 @@ fn mounted_agent_route(label: &str) -> MountedAgentRoute {
     );
 
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let settings = Arc::new(settings);
-    let state = sutura_http::ServiceState::new(Arc::clone(&service), Arc::clone(&settings), admission.clone());
     // The composition root's own mount: `sutura_mcp::http::service` (always `Asking::PerRequest`)
     // wrapped in the erased-surface `Serving` that `sutura serve` serves over.
-    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission, &state).expect("the agent mount builds");
+    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone()).expect("the agent mount builds");
     let gate = sutura_http::InboundGate::from_declaration(
         &settings
             .security()
@@ -400,21 +390,10 @@ fn mounted_agent_route(label: &str) -> MountedAgentRoute {
             .clone(),
     )
     .expect("a published key set builds a gate");
-    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission)
+        .with_inbound_identity(Arc::new(gate))
+        .with_agent_surface(mount);
     let app = sutura_http::router(&state).expect("the test router assembles");
-    (app, issuer, published, asked)
-}
-
-#[tokio::test]
-async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_verified() {
-    // **The agent-route join, and the assertion neither half could make alone.** `establish_asked`
-    // retains the token leg 1 verified and `WorkloadIdentityBroker` offers an asker's token to an
-    // exchange - each against its own fixture, each green whatever the other did with the bytes.
-    // What is asserted here is the identity of those bytes on the mounted `/mcp` surface, through
-    // the composition root's own `mount` and the real `Asking::PerRequest` transport: an
-    // `establish_asked` that retained a MANGLED assertion (a scheme still on it, or a caller's
-    // NAME, or the process's own identity) passes every other agent-surface cell and fails here.
-    let (app, issuer, _published, mut asked) = mounted_agent_route("agent-byte-join");
 
     let token = issuer
         .mint(&accepted_by("ada@example.com"))
@@ -455,7 +434,48 @@ async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_ve
 /// mounted `/mcp` surface the one-caller cell above joins, with two different bearer tokens.
 #[tokio::test]
 async fn two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange() {
-    let (app, issuer, _published, mut asked) = mounted_agent_route("agent-byte-join-two-callers");
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "agent-byte-join-two-callers").expect("the key set publishes");
+    let overlay = direct_overlay(&issuer, &published.path().to_string_lossy());
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
+        .expect("the agent-route overlay loads");
+
+    let (exchange, mut asked) = an_exchange();
+    let broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+        .expect("a one-cell result is a result set");
+    let warehouses = sutura_app::Warehouses::of(PersonaWarehouse {
+        source: source(),
+        posture: SourcePosture::ImpersonationAtSource,
+        result,
+    });
+
+    let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
+        sutura_app::surface::LocalService::start(
+            &catalog_of(bundle()),
+            warehouses,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            1 << 30,
+        )
+        .expect("the test bundle validates: the anchor path takes no credential"),
+    );
+
+    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone()).expect("the agent mount builds");
+    let gate = sutura_http::InboundGate::from_declaration(
+        &settings
+            .security()
+            .inbound()
+            .expect("this overlay declares an inbound identity")
+            .clone(),
+    )
+    .expect("a published key set builds a gate");
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission)
+        .with_inbound_identity(Arc::new(gate))
+        .with_agent_surface(mount);
+    let app = sutura_http::router(&state).expect("the test router assembles");
 
     // Two callers, two tokens the same issuer signs for two different subjects - the only thing
     // that varies between them.

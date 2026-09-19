@@ -85,7 +85,6 @@ signature it has now is the one two implementors settled, not the one a sketch g
 | `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
 | `AuditSink` | driven | The tracing sink in `sutura-runtime`, and the recording fakes |
 | `Surface` | driving | `LocalService`, this crate's own service, plus a failing double |
-| `SpendObserver` | driven | `sutura-cli`'s `serve::agent` module holds the one implementor this workspace ships - `sutura-app` declares it and never calls it itself, so two transports that must not depend on each other can still agree on a shape |
 
 **This table is the hexagon's BOUNDARY and not the grep result, and the difference is not a
 rounding error.** An adapter may declare a port of its own for a seam inside itself - a transport
@@ -93,7 +92,7 @@ for a job API, a reader for a metadata aspect - and several do; those are intern
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
 allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
 `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
-16 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+15 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**

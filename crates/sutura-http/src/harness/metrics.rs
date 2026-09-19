@@ -624,11 +624,9 @@ async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_i
 
     // Before any call: the untouched ceiling - the same reading a gauge that never pushed again
     // would still show for the rest of this test, which is exactly what makes the next two
-    // assertions worth having rather than one. `sutura_spend_bytes_total` (`#139`) starts at a
-    // real zero, unlike the gauge - nothing has been admitted yet.
+    // assertions worth having rather than one.
     let untouched = scrape(&app).await;
     assert_eq!(sample(&untouched, "sutura_spend_headroom_bytes"), 1_000, "{untouched}");
-    assert_eq!(sample(&untouched, "sutura_spend_bytes_total"), 0, "{untouched}");
 
     assert_eq!(
         call(&app, request("POST", "/v1/query", Some(super::TOKEN), Body::from(A_QUESTION)))
@@ -640,7 +638,6 @@ async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_i
     // Neither the boot reading nor zero: this is the sample a single-reading assertion could not
     // tell apart from a gauge set once and never touched again.
     assert_eq!(sample(&after_first, "sutura_spend_headroom_bytes"), 500, "{after_first}");
-    assert_eq!(sample(&after_first, "sutura_spend_bytes_total"), 500, "{after_first}");
 
     // 500 + 500 = 1000, exactly the ceiling - `sutura_app::spend`'s own cell holds "spending
     // exactly the ceiling is admitted", so this is still a `200` and drains headroom to zero.
@@ -652,10 +649,6 @@ async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_i
     );
     let drained = scrape(&app).await;
     assert_eq!(sample(&drained, "sutura_spend_headroom_bytes"), 0, "{drained}");
-    // The counter keeps growing exactly where the gauge bottoms out - the property `#139` exists
-    // for: summing the gauge across replicas would be wrong, this series is what a monitoring
-    // system sums instead.
-    assert_eq!(sample(&drained, "sutura_spend_bytes_total"), 1_000, "{drained}");
 
     // A third call would put the subject over the ceiling. The refusal itself charges nothing
     // further, so headroom HOLDS at zero rather than reverting to the boot reading - and the route
@@ -665,6 +658,4 @@ async fn spend_headroom_moves_with_admitted_calls_and_a_refusal_does_not_reset_i
     assert!(body.contains(r#""code":"budget_exhausted""#), "{body}");
     let after_refusal = scrape(&app).await;
     assert_eq!(sample(&after_refusal, "sutura_spend_headroom_bytes"), 0, "{after_refusal}");
-    // Never 1_500: a refusal admits nothing, so the counter must not have moved either.
-    assert_eq!(sample(&after_refusal, "sutura_spend_bytes_total"), 1_000, "{after_refusal}");
 }

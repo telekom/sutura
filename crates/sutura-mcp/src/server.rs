@@ -239,15 +239,6 @@ pub struct AgentSurface<S> {
     /// example the pinned bundle carries - on every call, not only the `initialize` this field
     /// answers. A clone here is a refcount bump, the same reason `admission` is held behind an `Arc`.
     instructions: Arc<str>,
-    /// Pushed with this replica's spend readings after every [`Capability::AskMetric`] call - see
-    /// [`Self::with_spend_observer`] and `sutura_app::spend::SpendObserver`.
-    ///
-    /// `None` by default rather than a required constructor argument, unlike every other field
-    /// above: over a pipe (`crate::serve_stdio`) and under `sutura`'s own `mcp` subcommand there is
-    /// no metrics registry to push into at all, so "no observer attached" is a real state here in
-    /// a way "no admission bound" never is for those fields - the same reason `SpendLedger`'s own
-    /// `budget` is `Option`.
-    spend_observer: Option<Arc<dyn sutura_app::spend::SpendObserver>>,
 }
 
 impl<S> AgentSurface<S> {
@@ -305,19 +296,7 @@ impl<S> AgentSurface<S> {
             admission,
             reply,
             instructions,
-            spend_observer: None,
         }
-    }
-
-    /// Attaches an observer to push this replica's spend readings through after every
-    /// [`Capability::AskMetric`] call - `github.com/telekom/sutura#892`. A builder rather than a
-    /// constructor argument, the same shape `sutura_http::ServiceState::with_inbound_identity`
-    /// uses, because most callers of [`Self::new`] - `crate::serve_stdio` and every test in this
-    /// crate's own suite included - have no metrics registry to attach at all.
-    #[must_use]
-    pub fn with_spend_observer(mut self, observer: Arc<dyn sutura_app::spend::SpendObserver>) -> Self {
-        self.spend_observer = Some(observer);
-        self
     }
 
     /// Who this call is attributed to and what it may invoke, resolved from `self.asking` and - under
@@ -456,7 +435,7 @@ where
                 // `Clone` at all.
                 let asked_as = asked.context().clone();
                 tokio::select! {
-                    result = answer(&self.service, &self.admission, self.reply, self.spend_observer.as_deref(), asked_as, query) => result,
+                    result = answer(&self.service, &self.admission, self.reply, asked_as, query) => result,
                     () = context.ct.cancelled() => {
                         tracing::warn!("stopped waiting for a tool call because its peer cancelled");
                         return Err(ErrorData::internal_error("the peer cancelled this tool call", None));
@@ -748,7 +727,6 @@ async fn answer<S>(
     service: &Arc<S>,
     admission: &Admission,
     reply: RequestTimeout,
-    spend_observer: Option<&dyn sutura_app::spend::SpendObserver>,
     asked_as: sutura_domain::identity::RequestContext,
     query: Query,
 ) -> CallToolResult
@@ -759,12 +737,7 @@ where
     // counting from, so the port's budget is inside the caller's whole wait for the same reason
     // `reply` itself wraps the admission window: `docs/adr/0029`.
     let deadline = Deadline::opened_at(Instant::now(), reply.budget());
-    match tokio::time::timeout(
-        reply.duration(),
-        admitted(service, admission, spend_observer, asked_as, query, deadline),
-    )
-    .await
-    {
+    match tokio::time::timeout(reply.duration(), admitted(service, admission, asked_as, query, deadline)).await {
         Ok(result) => result,
         Err(_elapsed) => outran_its_deadline(reply),
     }
@@ -785,7 +758,6 @@ where
 async fn admitted<S>(
     service: &Arc<S>,
     admission: &Admission,
-    spend_observer: Option<&dyn sutura_app::spend::SpendObserver>,
     asked_as: sutura_domain::identity::RequestContext,
     query: Query,
     deadline: Deadline,
@@ -805,12 +777,6 @@ where
         // resolved for THIS call, moved into the closure because the closure has to outlive the
         // request's own borrowed extensions - see `sutura_app::Asked`'s own reason for being `Clone`.
         let answered = service.answer(&asked_as, &query, deadline);
-        // Read here, on the same thread and right after the call that could have moved it - the
-        // same reason `sutura_http`'s `POST /v1/query` route reads it inside its own blocking
-        // closure rather than back on the async worker. Read regardless of whether `answered` is
-        // an answer, a refusal or a `SurfaceFailure`: a charge is a reservation never released.
-        let headroom = service.spend_headroom_bytes();
-        let spent_total = service.spend_bytes_total();
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, so it is not handed back by a peer that stopped waiting - and the closure
         // owning it is what makes that structural rather than an ordering somebody maintains.
@@ -818,25 +784,13 @@ where
         // Inside the span as well, because `spawn_carrying_span` scopes the whole closure: a
         // diagnostic emitted while releasing is still attributable to this call.
         drop(slot);
-        (answered, headroom, spent_total)
+        answered
     });
     match working.await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
-        Ok((answered, headroom, spent_total)) => {
-            // Pushed here rather than inside the blocking closure: the observer this crate holds is
-            // a plain trait object with no claim on running off the async worker, and every other
-            // caller of it (`sutura-cli`'s own implementor) writes to a bare atomic - see
-            // `sutura_app::spend::SpendObserver`'s own doc for why this crate never learns what it
-            // is attached to.
-            if let Some(observer) = spend_observer {
-                observer.observe_spend(headroom, spent_total);
-            }
-            match answered {
-                Ok(ref outcome) => produced(outcome),
-                Err(failure) => could_not_answer(&failure),
-            }
-        }
+        Ok(Ok(ref outcome)) => produced(outcome),
+        Ok(Err(failure)) => could_not_answer(&failure),
         // The blocking task did not finish: it panicked, or the runtime is shutting down. Reported
         // like a failure, because from a caller's side it is the same fact.
         Err(error) => {

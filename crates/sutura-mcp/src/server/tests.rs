@@ -126,23 +126,6 @@ fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
     (service, sink)
 }
 
-/// A service over [`testing::PricedWarehouse`], the one fixture in this crate whose dry run
-/// actually prices - `certified_service`'s own `FakeWarehouse` never does, so no ledger it wires
-/// is ever charged.
-fn priced_service(
-    ledger: sutura_app::SpendLedger,
-) -> LocalService<testing::PricedWarehouse, Arc<testing::CountingSink>, testing::GrantsTheSharedIdentity> {
-    LocalService::start(
-        &testing::FixedCatalog,
-        testing::priced_warehouse(),
-        Arc::new(testing::CountingSink::default()),
-        testing::broker(),
-        1 << 30,
-    )
-    .expect("the fixture bundle validates")
-    .with_spend_ledger(ledger)
-}
-
 /// The settings tree as an operator inherits it, with this test's own document over the top.
 ///
 /// A settings DOCUMENT and not two parsed numbers, which is what makes the bound below arrive the
@@ -804,17 +787,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     let call = tokio::spawn({
         let service = Arc::clone(&service);
         let admission = admission.clone();
-        async move {
-            super::answer(
-                &service,
-                &admission,
-                reply(""),
-                None,
-                crate::principal::established(),
-                a_query(),
-            )
-            .await
-        }
+        async move { super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await }
     });
     assert!(
         eventually(|| holding.inside() == 1).await,
@@ -837,15 +810,7 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     );
     // And the consequence, which is the whole point of holding it: nothing else may start on top of
     // work that is still running.
-    let shed = super::answer(
-        &service,
-        &admission,
-        reply(""),
-        None,
-        crate::principal::established(),
-        a_query(),
-    )
-    .await;
+    let shed = super::answer(&service, &admission, reply(""), crate::principal::established(), a_query()).await;
     assert_eq!(shed.is_error, Some(true), "a second question ran on top of the first");
 
     // Handed back when the WORK finishes, and not before.
@@ -855,62 +820,4 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
         "the slot never came back after the work finished"
     );
     assert_eq!(holding.inside(), 0);
-}
-
-/// `github.com/telekom/sutura#892`: a certified `ask_metric` call over the AGENT surface pushes
-/// this replica's CURRENT spend readings to an attached observer - the transport the readings
-/// used to be frozen at their boot value on, while `sutura-http`'s `POST /v1/query` route alone
-/// kept pushing. [`priced_service`] is what makes the ledger genuinely charged rather than merely
-/// present: `certified_service`'s own `FakeWarehouse` never prices a dry run, so a `SpendLedger`
-/// wired onto it would never move at all.
-#[tokio::test]
-async fn a_certified_question_pushes_its_spend_reading_to_the_attached_observer() {
-    let budget = sutura_app::SpendBudget::new(1_000, Duration::from_secs(60));
-    let service = Arc::new(priced_service(sutura_app::SpendLedger::new(Some(budget))));
-    let observer = Arc::new(testing::RecordingSpendObserver::default());
-    let surface = AgentSurface::new(
-        Arc::clone(&service),
-        crate::Asking::TheProcessOwner {
-            permitted: Permitted::every_capability(),
-        },
-        CatalogProse::Quoted,
-        admission(""),
-        reply(""),
-        testing::instructions(),
-    )
-    .with_spend_observer(Arc::clone(&observer) as Arc<dyn sutura_app::SpendObserver>);
-
-    let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-    let server = serve_server(surface, server_side);
-    let client = serve_client((), client_side);
-    let (server, client) = tokio::join!(server, client);
-    let running: RunningService<RoleServer, _> = server.expect("the server initializes");
-    drop(tokio::spawn(async move {
-        drop(running.waiting().await);
-    }));
-    let client = client.expect("the client initializes");
-
-    let first = client
-        .call_tool(ask(&a_certified_question()))
-        .await
-        .expect("a certified question is not a protocol error");
-    assert_ne!(first.is_error, Some(true), "{first:?}");
-    let second = client
-        .call_tool(ask(&a_certified_question()))
-        .await
-        .expect("a certified question is not a protocol error");
-    assert_ne!(second.is_error, Some(true), "{second:?}");
-
-    // Two calls, two pushes - never the boot reading pushed once and then left alone.
-    let readings = observer.readings();
-    assert_eq!(
-        readings,
-        vec![
-            (Some(1_000 - testing::PRICE_BYTES), Some(testing::PRICE_BYTES)),
-            (Some(1_000 - 2 * testing::PRICE_BYTES), Some(2 * testing::PRICE_BYTES)),
-        ],
-        "{readings:?}"
-    );
-
-    drop(client.cancel().await);
 }

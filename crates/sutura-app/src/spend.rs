@@ -21,7 +21,6 @@
 //! nothing constructs.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use sutura_domain::identity::Subject;
@@ -90,15 +89,6 @@ pub struct SpendLedger {
         reason = "charge() is a synchronous method, never held across an await point, so it cannot deadlock an executor - the same argument `sutura_runtime::testing::Capture` already makes for its own std Mutex"
     )]
     windows: std::sync::Mutex<HashMap<Subject, Window>>,
-    /// Every byte admitted since this ledger was built, across every subject and every window
-    /// that has since reset - **never reset itself**, unlike the per-subject windows above.
-    ///
-    /// A plain atomic rather than a field inside the same `Mutex`: nothing here re-reads it
-    /// alongside a window, so a lock shared with `windows` would only widen the critical section
-    /// `charge`'s own `#[expect]` already argues for keeping tight. See
-    /// [`Self::spent_bytes_total`] for why monotonicity is the whole point of this field existing
-    /// beside a gauge that already reports headroom.
-    total_spent_bytes: AtomicU64,
 }
 
 impl SpendLedger {
@@ -109,7 +99,6 @@ impl SpendLedger {
         Self {
             budget,
             windows: std::sync::Mutex::new(HashMap::new()),
-            total_spent_bytes: AtomicU64::new(0),
         }
     }
 
@@ -162,10 +151,6 @@ impl SpendLedger {
             };
         }
         window.spent_bytes = projected;
-        // Cumulative, and never rolled back by the window reset above: `spent_bytes_total` is the
-        // running total THIS PROCESS has admitted, which is exactly what a Prometheus counter needs
-        // to survive a rolling deploy's changing replica count - see that method's own doc.
-        self.total_spent_bytes.fetch_add(estimated_bytes, Ordering::Relaxed);
         Charge::Admitted
     }
 
@@ -195,40 +180,6 @@ impl SpendLedger {
             .min();
         Some(tightest.unwrap_or(budget.ceiling_bytes))
     }
-
-    /// Every byte this replica has admitted since it started, or `None` where no ceiling is
-    /// configured - the same "absent rather than zero" [`Self::headroom_bytes`] already applies.
-    ///
-    /// **Monotonic, and that is the whole reason this exists beside a gauge that already reports
-    /// headroom.** `sutura_spend_headroom_bytes` (`#884`) cannot be summed across replicas: it
-    /// resets to the full ceiling on every restart, and `sum()` over N replicas is `N * ceiling -
-    /// total_spend`, a number that moves whenever N does. This total only grows, so
-    /// `sum(rate(sutura_spend_bytes_total[5m]))` is correct across a restart (a monitoring
-    /// system's counter-reset handling) and across a changing replica count - `docs/adr/0030`'s
-    /// owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
-    /// enforcement, which stays per-replica either way.
-    #[must_use]
-    pub fn spent_bytes_total(&self) -> Option<u64> {
-        self.budget?;
-        Some(self.total_spent_bytes.load(Ordering::Relaxed))
-    }
-}
-
-/// Pushed with this replica's current spend readings after a transport answers.
-///
-/// So a second transport that must not depend on the first may still keep the same metric series
-/// current - `github.com/telekom/sutura#892`.
-///
-/// **Not invoked from inside this crate.** [`crate::surface::Surface::spend_headroom_bytes`] and
-/// [`crate::surface::Surface::spend_bytes_total`] are what a transport reads after `answer`
-/// returns; this trait is only the shared vocabulary for what it then does with that reading, so
-/// two transports that must not depend on each other can still agree on a shape. `sutura-cli` is
-/// the one crate holding both an HTTP and an MCP composition root, so its own concrete type is the
-/// only implementor this workspace ships.
-pub trait SpendObserver: Send + Sync {
-    /// `None` for either reading means this replica has no `governance.per_replica_spend_ceiling`
-    /// configured - never zero, the same discipline the readings themselves already carry.
-    fn observe_spend(&self, headroom_bytes: Option<u64>, spent_bytes_total: Option<u64>);
 }
 
 #[cfg(test)]
@@ -344,62 +295,5 @@ mod tests {
         // Alice's window has elapsed; nothing has re-charged her yet, so she is back at full
         // headroom rather than still reading as the tightest subject.
         assert_eq!(ledger.headroom_bytes(after_window), Some(1_000));
-    }
-
-    #[test]
-    fn no_budget_configured_reports_no_spend_total_at_all() {
-        let ledger = SpendLedger::no_budget();
-        assert_eq!(ledger.spent_bytes_total(), None);
-    }
-
-    #[test]
-    fn an_untouched_ledger_reports_a_zero_spend_total() {
-        // Zero is a real reading here, unlike headroom's own untouched value - nothing has been
-        // admitted yet, so the running total genuinely is zero rather than absent.
-        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
-        assert_eq!(ledger.spent_bytes_total(), Some(0));
-    }
-
-    #[test]
-    fn spend_total_grows_with_every_admitted_charge_and_ignores_a_refusal() {
-        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
-        let now = Instant::now();
-        assert_eq!(ledger.charge(&subject("alice"), 600, now), Charge::Admitted);
-        assert_eq!(ledger.spent_bytes_total(), Some(600));
-        // Refused: puts alice over the ceiling, admits nothing, adds nothing to the total.
-        assert!(matches!(ledger.charge(&subject("alice"), 500, now), Charge::Refused { .. }));
-        assert_eq!(ledger.spent_bytes_total(), Some(600));
-    }
-
-    #[test]
-    fn spend_total_survives_a_window_reset_that_zeroes_the_per_subject_headroom() {
-        // The property `#139` exists for: headroom bounces back to the full ceiling once a
-        // subject's window elapses, but the cumulative total must not - a restarted window is not
-        // spend being refunded, and summing this series across a rolling deploy depends on it only
-        // ever growing.
-        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
-        let now = Instant::now();
-        assert_eq!(ledger.charge(&subject("alice"), 900, now), Charge::Admitted);
-        assert_eq!(ledger.spent_bytes_total(), Some(900));
-        let after_window = now + Duration::from_secs(61);
-        assert_eq!(ledger.headroom_bytes(after_window), Some(1_000), "headroom bounces back");
-        assert_eq!(ledger.spent_bytes_total(), Some(900), "the total does not");
-        assert_eq!(ledger.charge(&subject("alice"), 100, after_window), Charge::Admitted);
-        assert_eq!(
-            ledger.spent_bytes_total(),
-            Some(1_000),
-            "and keeps accumulating across the reset"
-        );
-    }
-
-    #[test]
-    fn two_subjects_add_to_one_shared_spend_total() {
-        // Unlike headroom, which reports the tightest SUBJECT, the total is deployment-wide by
-        // construction - it has no per-subject shape to report at all.
-        let ledger = SpendLedger::new(Some(SpendBudget::new(10_000, Duration::from_secs(60))));
-        let now = Instant::now();
-        assert_eq!(ledger.charge(&subject("alice"), 100, now), Charge::Admitted);
-        assert_eq!(ledger.charge(&subject("bob"), 900, now), Charge::Admitted);
-        assert_eq!(ledger.spent_bytes_total(), Some(1_000));
     }
 }
