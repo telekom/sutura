@@ -31,7 +31,7 @@
 //!   a hand-built catalog in this module, and no credential is minted for anything.
 //! - **Every dialect.** The corpus declares it renders `DuckDb` and `Postgres`, and what
 //!   [`generate`](fn@sutura_sql::generate) produces for them is what [`statement_is_the_oracles_own`]
-//!   compares. `ClickHouse` and `BigQuery`
+//!   compares. `ClickHouse`, `BigQuery` and the `Dialect::Oracle` this crate now renders for
 //!   are out of scope here, which is why their renderings are not pinned.
 //! - **That the corpus is hard.** It is one aggregate over one metric plus four refusals - see
 //!   [`questions`] below for why none of the execute corpus's harder shapes is repeated here.
@@ -301,10 +301,10 @@ fn refusal_agents() -> Result<Vec<RefusalAgent>, FixtureError> {
 
 /// The dialects this corpus declares a mono plan renders to.
 ///
-/// Two of the four [`Dialect`]s, and the split is a stated limit rather than an omission: this
-/// corpus pins the two a one-table aggregate is most plainly exercised over, and adding the two
-/// backends means adding them to this list and re-deriving the statements. `ClickHouse` and
-/// `BigQuery` stay out of scope for the reason this module's header gives.
+/// Two of the five [`Dialect`]s, and the split is a stated limit rather than an omission: this
+/// corpus pins the two a one-table aggregate is most plainly exercised over, and adding a
+/// backend means adding it to this list and re-deriving the statements. `ClickHouse`, `BigQuery`
+/// and Oracle stay out of scope for the reason this module's header gives.
 const DECLARED_DIALECTS: &[Dialect] = &[Dialect::DuckDb, Dialect::Postgres];
 
 /// The capabilities a golden catalog - either half of the differential - declares.
