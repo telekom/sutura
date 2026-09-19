@@ -1,6 +1,6 @@
 //! What this module's own newtypes refuse, split out of `transport.rs` when it took the file past
 //! the 1000-line ceiling `cargo xtask max-lines` enforces. `JobDeadline`/`JobRequest` have no tests
-//! of their own here - `crate::tests` (the fake-transport suite) and `crate::wire::tests` (the real
+//! of their own here - `crate::tests` (the fake-transport suite) and `crate::tests` (the canned
 //! wire's own suite) are where a request actually carrying the right clock is proven; this file is
 //! the parse-and-refuse half of the resource-name and field-type newtypes.
 

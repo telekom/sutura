@@ -57,11 +57,6 @@ mod catalog;
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
 
-/// The exchanging broker a `bigquery` deployment is served under. `cfg`-gated like the adapter:
-/// a build that links none of `sutura-exec-bigquery` has no `StsOverHttp` to attach.
-#[cfg(feature = "bigquery")]
-mod broker;
-
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
 mod bigquery;
 
@@ -260,16 +255,13 @@ pub(crate) fn run() -> Result<(), String> {
             // not accept one. The gate reads the order of three call sites in this file; its own
             // header states what that is worth and what it cannot see.
             boot::refuse_absent_tables(&pinned, &engines)?;
-            // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
-            // same pinned agent and bounds the source composition already declares, so the exchange
-            // and the job share one connection pool and one set of pins - see `crate::broker`.
-            let broker = broker::build_broker(
-                settings.sources(),
-                settings.server().request_timeout(),
-                settings.security().credential_cache(),
-                outbound.as_ref(),
-                settings.security().inbound(),
-            )?;
+            // **The static broker, and the reason the exchanging one is gone:** the ADBC transport
+            // replaces the removed `wire` half, whose `StsOverHttp`/`IamCredentialsOverHttp` were
+            // the STS identity-exchange hops the served impersonation broker was built on, and the
+            // ADBC driver refuses a `subject_bearer`. So a served BigQuery source is answered under
+            // whatever the driver authenticates as - the static broker - and an impersonating entry
+            // is refused at the posture cross-check rather than exchanged.
+            let broker = StaticCredentialBroker::from_registry(settings.sources());
             (
                 started(
                     &catalogs,
@@ -316,39 +308,11 @@ pub(crate) fn run() -> Result<(), String> {
             // the first time (its `preflight` takes the port's default), which `boot.rs`'s own doc
             // says is informational rather than a defect.
             boot::refuse_absent_tables(&pinned, &mixed.engines)?;
-            // The broker choice `build_broker`'s own doc already generalised: it scans the WHOLE
-            // `sources:` registry for shared and impersonating entries, not only `bigquery`-kind
-            // ones, so "does this mix need the exchanging broker" is exactly "did it open a
-            // `BigQuery` source" - never "is this build entirely `BigQuery`".
-            #[cfg(feature = "bigquery")]
-            let served = if kind::needs_exchanging_broker(&mixed.engines) {
-                let broker = broker::build_broker(
-                    settings.sources(),
-                    settings.server().request_timeout(),
-                    settings.security().credential_cache(),
-                    outbound.as_ref(),
-                    settings.security().inbound(),
-                )?;
-                started(
-                    &catalogs,
-                    mixed.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?
-            } else {
-                let broker = StaticCredentialBroker::from_registry(settings.sources());
-                started(
-                    &catalogs,
-                    mixed.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?
-            };
-            #[cfg(not(feature = "bigquery"))]
+            // **The static broker for every openable kind, and the reason the exchanging one is
+            // gone:** the ADBC transport replaces the removed `wire` half, so there is no
+            // `StsOverHttp` hop left and a served BigQuery source cannot exchange a subject's
+            // credential. Every kind is answered under the deployment's own declared identity; an
+            // impersonating BigQuery entry is refused at the posture cross-check rather than traded.
             let served = {
                 let broker = StaticCredentialBroker::from_registry(settings.sources());
                 started(
@@ -652,11 +616,10 @@ pub(crate) type PostgresSource = sutura_exec_postgres::PostgresWarehouse;
 /// A `BigQuery` source as this binary composes it: the adapter, over the wire, over a credential file.
 ///
 /// Named once because it appears in a registry type, a `Warehouse` bound and a constructor's return,
-/// and because the three layers ARE the composition - `docs/adr/0018` is the record for the inner two.
+/// and because the three layers ARE the composition - the ADBC driver is the one reachable
+/// transport since the `wire` half was removed.
 #[cfg(feature = "bigquery")]
-pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
-    sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
->;
+pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>;
 
 /// The started service, with the adapter it was built over erased.///
 /// Named because `Result<Arc<dyn Surface>, String>` is over the `type_complexity` threshold this

@@ -9,8 +9,8 @@
 //!   against a fake that returns rows, which is what *ports get fakes, not mocked HTTP* asks for.
 //! - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
 //!   credential source is a real addition to a workspace that cross-compiles to musl and gates
-//!   licences exactly, and it arrives in exactly one place: [`crate::wire`], behind the crate's
-//!   default-off `wire` feature. `docs/adr/0018` prices it. The sentence that kept this seam empty for
+//!   licences exactly, and it arrives in exactly one place: [`crate::adbc`], behind the crate's
+//!   default-off `adbc` feature. The HTTP `wire` it replaced was removed with this adoption. The sentence that kept this seam empty for
 //!   a release - *nothing in this repository can verify a network client* - is now half spent: nothing
 //!   in CI can, and a developer's own project has. Three tests passed against a real dataset on
 //!   2026-08-30, over one hand-built `SUM` rather than the corpus.
@@ -57,8 +57,8 @@ pub enum JobDeadline {
     /// [`JobRequest::new`]'s own doc.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
-    /// the identity read build this arm; [`crate::wire::BigQueryWire::submit`] opens a fresh window
-    /// from this transport's own configured [`crate::wire::JobBounds`] instead.
+    /// the identity read build this arm; the ADBC driver opens a fresh window under its own
+    /// configured bounds instead.
     Boot,
 }
 
@@ -89,7 +89,7 @@ impl<'job> JobRequest<'job> {
     /// than from this adapter's own configured job bounds. `verify_anchor`, a fixture load or drop,
     /// and the identity read have no caller and no request timeout to read one from - `docs/adr/0029`
     /// calls that the boot path - so they pass `JobDeadline::Boot`, and `submit` opens a fresh window
-    /// from this transport's own [`crate::wire::JobBounds`] instead, exactly as every call did before
+    /// from this transport's own configured job bounds instead, exactly as every call did before
     /// this parameter existed.
     pub(crate) const fn new(
         statement: &'job str,
@@ -141,7 +141,7 @@ impl<'job> JobRequest<'job> {
     }
 
     /// Which clock this call answers to. See [`JobDeadline`] and the constructor's own doc for what
-    /// each arm means to [`crate::wire::BigQueryWire::submit`].
+    /// each arm means to the transport's own submit.
     #[inline]
     #[must_use]
     pub const fn deadline(&self) -> JobDeadline {
@@ -889,8 +889,8 @@ pub trait JobTransport {
     ///
     /// **The reply shape a cancelled job answers with is asserted rather than known**, and that is
     /// stated here rather than left implicit: `docs/adr/0029` asks it be measured against a real
-    /// endpoint before this predicate is fully trusted, and `crate::wire::WireError::NotComplete`'s
-    /// own doc says why that measurement is not yet in this repository's acceptance suite - the
+    /// endpoint before this predicate is fully trusted, and the cancelled-job shape the removed `wire`
+    /// asserted is not measured because that transport is gone with the ADBC adoption - the
     /// obvious way to reach it races a statement against a real deadline and this crate's corpus
     /// fixture is too small to lose that race reliably.
     ///

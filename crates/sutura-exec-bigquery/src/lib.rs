@@ -25,44 +25,28 @@
 //! as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
 //! answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
 //!
-//! The **wire** - one [`transport::JobTransport`] that speaks to the endpoint - is [`wire`], behind
-//! the default-off `wire` feature. `docs/adr/0018` is the decision that produced it and prices what
-//! it costs; the two reasons it was absent are answered rather than repealed:
+//! The **transport** - one [`transport::JobTransport`] that executes the statement - is [`adbc`],
+//! behind the default-off `adbc` feature: it loads the self-built `libadbc_driver_bigquery.so`
+//! (`nix/bigquery-adbc.nix`), runs the query through the driver, and decodes the Arrow result. The
+//! driver owns the HTTP transport and its own authentication, so this crate ships no TLS stack and
+//! reads no credential file - the previous HTTP `wire` transport and its STS/credential machinery
+//! were removed when ADBC became this adapter's only mode.
 //!
-//! 1. The dependency addition turned out to be **zero new packages in `Cargo.lock`**, measured:
-//!    `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
-//!    feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
-//!    decision a composition root makes in a manifest line.
-//! 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
-//!    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
-//!    service-account key - the first statement this repository generated to be accepted by
-//!    `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column
-//!    fixture, so it says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or
-//!    `ISOWEEK` - and the last is one of the two constructs `docs/adr/0017` measured the parse check
-//!    to be blind about. **The corpus-wide leg is `tests/corpus.rs`**, behind the default-off
-//!    `fixtures` feature: it loads the example fixtures into four tables through
-//!    [`BigQueryWarehouse::load_fixture`], runs the corpus questions, and compares its rows with the
-//!    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
-//!
-//! So nothing here may be cited as an invariant. `sutura serve` DOES link this adapter and dispatch
-//! `kind: bigquery` behind its default-off `bigquery` feature - `docs/adr/0017`'s second amendment
-//! records the day the last *not wired* was spent. A default build links none of it, and
-//! the `data_systems:` axis of the golden matrix gains no entry - because a cell in that registry
-//! runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
-//! `nix run` app and not a `checks.*` output.
+//! So nothing here may be cited as a round-tripped invariant. `sutura serve` links this adapter and
+//! dispatches `kind: bigquery` behind its default-off `bigquery` feature, but the ADBC driver path is
+//! not yet a shipped artefact and no live acceptance leg against a real dataset is wired under it -
+//! the `wire`-era acceptance/corpus/differential legs went away with the transport. A default build
+//! links none of this.
 //!
 //! # Identity
 //!
 //! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, which is what makes a source
 //! executed as the asking subject representable here: the credential a broker mints for the asker is
-//! carried as a [`Presented::SubjectToken`] and sent as this job's bearer, so the dataset evaluates
-//! the statement under whoever that token is. The [`wire`]'s own credential source stays for the
-//! shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
-//! a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
-//! the composition root that links this adapter: `crates/sutura-cli/src/serve/broker.rs` composes
-//! `sts::WorkloadIdentityBroker` today - built, though the run that proved the exchange drove no
-//! served binary, so a served source has not executed as a caller yet
-//! (`docs/where-identity-is-proven.md`).
+//! carried as a [`Presented::SubjectToken`] and sent as this job's bearer. **The ADBC transport does
+//! not yet do that** - [`adbc::AdbcBigQuery::run`] REFUSES a request carrying a `subject_bearer`
+//! until the driver's `bigquery.impersonate.*` threading is live, rather than executing under the
+//! driver's ambient credential while the type says otherwise (review telekom/sutura#913). Per-subject
+//! execution is therefore not reachable on this transport today.
 //!
 //! **ONE of the two subject shapes, and the other is refused rather than degraded.** A
 //! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
@@ -73,10 +57,10 @@
 //! it replaced existed: a leg accepted here would be submitted under the transport's own credential
 //! while provenance, read off this source's posture, reported the answer as impersonated.
 //!
-//! **What no version of this is:** a deployment where a served source executes as its asker.
-//! `sutura serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
-//! that exchanges is attached to a served source yet - see `sutura-cli`'s
-//! `crates/sutura-cli/src/serve/bigquery.rs`, `build_bigquery`.
+//! **What no version of this is:** a deployment where a served source executes as its asker. The
+//! served composition root attaches only the static broker now - the STS exchange hops that built the
+//! served impersonation broker were part of the removed `wire` half - so `sutura serve` refuses an
+//! `impersonation-at-source` `bigquery` entry at the posture cross-check.
 //!
 //! # Two things this adapter deliberately does not offer
 //!
@@ -112,8 +96,6 @@ mod preflight;
 #[cfg(feature = "adbc")]
 pub mod adbc;
 pub mod transport;
-#[cfg(feature = "wire")]
-pub mod wire;
 
 mod identity_read;
 pub use identity_read::SessionUser;
@@ -572,8 +554,8 @@ where
 ///
 /// Reaching this constructor is what makes the `adbc` module first-party:
 /// `BigQueryWarehouse<adbc::AdbcBigQuery>` is a concrete, constructible transport
-/// the composition root can pick, alongside the wire. Default-off (`adbc` feature),
-/// for the reason the wire is: the native driver is a per-triple addition.
+/// the composition root can pick. Default-off (`adbc` feature), for the reason
+/// any out-of-process transport is: the native driver is a per-triple addition.
 #[cfg(feature = "adbc")]
 impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// Opens a dataset over the ADBC transport.
@@ -638,7 +620,7 @@ where
     /// call's `CallDeadline` opens from what the port's own `Deadline` says is left, read at the
     /// instant this call reaches the wire - not from this adapter's own configured job bounds, which
     /// stay only for the boot path and the socket's own backstop ceiling. See
-    /// `crate::wire::BigQueryWire::submit`.
+    /// (the `wire` transport that used to do this was removed with the ADBC adoption).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
@@ -716,10 +698,8 @@ where
     /// sent or the service stopping it at `jobTimeoutMs`? Delegates to the TRANSPORT, for the same
     /// reason [`Self::result_did_not_fit`] and [`Self::source_refused`] do: `Self::Error` is
     /// `BigQueryError::Endpoint` wrapping the transport's own type, and only the transport can read
-    /// the wire-level shape. Every other variant is `false`, exhaustively: none of them is
-    /// [`crate::wire::WireError::DeadlineSpent`] or [`crate::wire::WireError::NotComplete`] wrapped in
-    /// [`Self::Error`] - see [`crate::wire::BigQueryWire::deadline_exceeded`] for what those are and
-    /// the acceptance cell that measures the second against a real endpoint.
+    /// the wire-level shape. Every other variant is `false`, exhaustively: the transport is the
+    /// ADBC driver now, and only it can read its own error shape for the port's deadline model.
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),

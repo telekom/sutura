@@ -511,12 +511,6 @@ ureq = { version = "3", default-features = false, features = ["rustls", "rustls-
 # switched the feature on for `sutura-http`, undoing half of a decision the `jsonwebtoken` entry below
 # states. `ring` costs neither, so `docs/adr/0018`'s 446-to-446 measurement survives.
 #
-# `default-features = false` drops `dev_urandom_fallback`, which is a fallback for a platform with no
-# `getrandom`; every target this ships to has one, and a silent fallback in a signing path is the shape
-# worth not having. `std` is back on, and it is not decoration: `ring::error::KeyRejected` implements
-# `std::error::Error` only under it, and without that the refusal could not carry its cause on a
-# `#[source]` - which is the one thing this workspace's error rule will not give up.
-ring = { version = "0.17", default-features = false, features = ["std"] }
 
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the

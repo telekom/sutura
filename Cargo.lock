@@ -4112,22 +4112,11 @@ dependencies = [
  "arrow-schema 59.2.0",
  "base64 0.23.1",
  "parking_lot",
- "rcgen",
- "ring",
- "rustls",
- "serde",
  "serde_json",
- "serde_norway",
- "sutura-app",
- "sutura-catalog-local",
  "sutura-conformance",
  "sutura-domain",
- "sutura-exec-datafusion",
- "sutura-semantic",
  "sutura-sql",
- "sutura-tls",
  "thiserror 2.0.20",
- "ureq",
 ]
 
 [[package]]

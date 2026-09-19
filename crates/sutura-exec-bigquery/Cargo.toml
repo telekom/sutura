@@ -10,47 +10,28 @@ publish = false
 description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQL and pushes it down."
 
 [features]
-# The WIRE: one `transport::JobTransport` implementor that speaks to the endpoint over HTTP, plus
-# the credential source it needs. `docs/adr/0018` is the decision; this table is the mechanism.
-#
-# **Default-off, and the reason is which side of the build the TLS stack gets compiled on.** With
-# the feature off this crate is what it was: rendering, credential and posture checks, value
-# mapping, and a port with no implementor - three dependencies, no network, no outbound stack. With
-# it on, `ureq` and its rustls closure are compiled for whatever target is building, and two of the
-# four release triples are musl. **No SHIPPED artifact links either half**, which is a narrower
-# statement than the one that stood here and is the true one: `sutura-cli` declares this crate
-# `optional` behind its `bigquery` feature, which turns `wire` on for both of its composition
-# roots, and the feature is not in a default build or in a release derivation. `sutura-http` reaches the broker
-# as a DEV-dependency, which propagates to nothing. And what those two roots refuse by name is no
-# longer `kind: bigquery` - it is the `impersonation-at-source` posture, with the shared one served.
-#
-# **Off is not hidden, which is the thing a default-off feature usually gets wrong.** Every gate
-# here passes `--all-features`: `just lint`, `just test`, the doctests, and `deny.toml`'s
-# `[graph] all-features = true`. So the wire is compiled, linted, tested and audited on every run;
-# what the default buys is that a future composition root has to ASK for the outbound stack, in a
-# manifest line a reviewer can see, rather than inheriting it by depending on this crate.
-wire = ["dep:ureq", "dep:serde", "dep:ring", "dep:sutura-tls"]
-
 # The ADBC TRANSPORT (telekom/sutura#913): loads the self-built
 # `libadbc_driver_bigquery.so` (`nix/bigquery-adbc.nix`, one per release triple)
-# through `adbc_driver_manager` and decodes its Arrow result sets.
+# through `adbc_driver_manager` and decodes its Arrow result sets. It is the ONLY
+# transport this crate offers - the previous HTTP `wire` transport was removed in
+# the same change that adopted ADBC as the normal BigQuery mode.
 #
-# **Default-off, and the reason is the same as `wire`: the driver's native `.so`
-# and its Arrow graph are an out-of-process/native addition a lean build should
-# not link.** Off is not hidden - every gate here passes `--all-features`, so the
-# module is compiled, linted and unit-tested even when a served artifact does not
-# request it.
+# **Default-off, and the reason is the same as any out-of-process transport: the
+# driver's native `.so` and its Arrow graph are a per-triple addition a lean
+# build should not link.** Off is not hidden - every gate here passes
+# `--all-features`, so the module is compiled, linted and unit-tested even when a
+# served artifact does not request it.
 adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:arrow-cast"]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
-# tables so the CORPUS can be run against a real dataset, which is `docs/adr/0017`'s first acceptance
+# tables so a corpus can be run against a real dataset, which is `docs/adr/0017`'s first acceptance
 # bullet and #78's importer shape pointed at this adapter.
 #
-# **Default-off, and unlike `wire` the reason is not a dependency - it adds none.** It is that this
+# **Default-off, and not because of a dependency - it adds none.** It is that this
 # feature is the only thing in the crate that can issue `CREATE OR REPLACE TABLE`, and a method that
 # replaces a table has no business in a build that serves questions. With the feature off,
-# `JobTransport` has the two methods it always had and nothing in the crate can write.
+# `JobTransport` has the methods it always had and nothing in the crate can write.
 #
 # **Why a feature and not a `#[cfg(test)]` helper**, which would be the cheaper-looking answer: the
 # acceptance legs are INTEGRATION targets, which cargo compiles as separate crates, so they cannot
@@ -58,75 +39,9 @@ adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arro
 # method on the shipped surface - which is what #78's `PostgresWarehouse::load_csv` is, and this is
 # the stricter of the two.
 #
-# Off is not hidden, for the reason the `wire` entry gives: every gate here passes `--all-features`,
+# Off is not hidden, for the reason the `adbc` entry gives: every gate here passes `--all-features`,
 # so the loader is compiled, linted and unit-tested on every run.
 fixtures = []
-
-# The acceptance leg needs the wire, so it is declared with `required-features` rather than gated by a
-# `#![cfg(feature = "wire")]` inside the file: cargo skips the target entirely instead of compiling an
-# empty one, and the requirement is visible where a reader looks for it.
-#
-# **An earlier version of this comment also claimed this was what let `cargo xtask test-causality` see
-# the change, and that was wrong** - recorded rather than deleted, because the wrong reason is a trap
-# worth naming. That gate builds its baseline in a worktree at HEAD, so it can see nothing at all in an
-# UNCOMMITTED tree; the green it first reported was the base suite running with none of this present.
-# And once committed it does not matter which way this target is gated, because the gate skips
-# non-Rust files: this manifest stays at HEAD either way, so the feature exists in the baseline and
-# `tests/acceptance.rs` gets compiled and fails on the missing module in both spellings. What the gate
-# genuinely cannot do is judge a new MODULE - reverting `lib.rs` removes `pub mod wire;` and the whole
-# subtree leaves the build - which is why the honest outcome here is INCONCLUSIVE and the evidence
-# belongs in the handoff.
-[[test]]
-name = "acceptance"
-path = "tests/acceptance.rs"
-required-features = ["wire"]
-
-# The CORPUS acceptance leg - `docs/adr/0017`'s two bullets that the smoke leg above does not reach.
-# A second target rather than more of `acceptance.rs`, for two reasons that both matter: that file is
-# already over half the 1000-line ceiling `cargo xtask max-lines` holds, and the two legs prove
-# different things over different fixtures - a reader who runs one should not have to read the other
-# to know which claim they got.
-#
-# `required-features` names both, because it loads tables (`fixtures`) and talks to the endpoint
-# (`wire`). `nix run .#bigquery-acceptance` passes `--all-features`, so it is picked up with no
-# registration; nothing else runs it, because every test in it is `#[ignore]`d.
-[[test]]
-name = "corpus"
-path = "tests/corpus.rs"
-required-features = ["wire", "fixtures"]
-
-# Explicit disposable-dataset / read-only-project venues; ordinary acceptance excludes this binary.
-[[test]]
-name = "cross_resource"
-path = "tests/cross_resource.rs"
-required-features = ["wire", "fixtures"]
-
-# The EXCHANGED-IDENTITY cell - the only leg here that holds no principal's key.
-#
-# **The two-principal cell (`tests/two_principals.rs`, this same shape) was withdrawn on
-# telekom/sutura#123: the maintainer's decision is that sutura does not re-verify a source's
-# row-level security, so BigQuery enforcing a row grant is trusted rather than re-proven here.** What
-# remains is the narrower, still-open claim: that the job executed AS the asking subject at all. `wire`
-# only, for the reason the withdrawn cell also needed no `fixtures`: this leg loads nothing and
-# creates nothing - it projects one fixed statement about the caller.
-#
-# It is NOT picked up by `nix run .#bigquery-acceptance`, which excludes this binary and the
-# explicitly selected `cross_resource` venue. Filtering by binary keeps newly added ordinary
-# acceptance tests reachable without a test-name list; each separate venue retains its own input and
-# execution contract.
-[[test]]
-name = "exchanged_identity"
-path = "tests/exchanged_identity.rs"
-required-features = ["wire"]
-
-# CI-only tooling, not a shipped binary - telekom/sutura#376. Mints the two subject assertions the
-# exchanged-identity cell needs from the per-principal service-account keys `bq-test` already holds,
-# at job time, so no third long-lived secret is added. An `[[example]]` rather than a `[[bin]]`: this
-# crate ships no binary of its own (`nix/shipped.nix`), and an example is unambiguously dev/CI tooling.
-[[example]]
-name = "mint_subject_assertion"
-path = "examples/mint_subject_assertion.rs"
-required-features = ["wire"]
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -137,95 +52,37 @@ sutura-domain = { workspace = true }
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
 # The exchanged-credential cache's own lock (`src/sts/cache.rs`, `docs/adr/0031`) - not
-# feature-gated, unlike the wire: the cache holds no network client and no TLS stack, it is a
+# feature-gated: the cache holds no network client and no TLS stack, it is a
 parking_lot = { workspace = true }
 
-# Always-on, not wire-gated, because the identity-exchange broker (core `sts.rs`, telekom/sutura#817)
-# decodes the `iss`/`aud` claims of the subject token it hands to Google STS - a broker-level check
-# that must run whether or not this build links the wire's HTTP client, and one the broker's fake
-# `StsExchange` tests exercise. The wire gate exists to keep the OUTBOUND STACK (ureq/rustls) off the
-# lean build; a JSON value and a base64url decode are already in every served binary through
-# `sutura-config`/`sutura-http`, so promoting them here adds no new package to `Cargo.lock` and no
-# network stack to any build. `serde` stays `optional` (it is only `serde_json`'s macro companion)
-# and real: the claim decode derives nothing, so only `serde_json`'s `Value` and `base64` are needed.
+# Always-on, not feature-gated, because the identity-exchange broker (core `sts.rs`, telekom/sutura#817)
+# decodes the `iss`/`aud` claims of the subject token it hands to the metadata service - a broker-level
+# check that must run whether or not this build links a transport, and one the broker's fake
+# `StsExchange` tests exercise. A JSON value and a base64url decode are already in every served binary
+# through `sutura-config`/`sutura-http`, so promoting them here adds no new package to `Cargo.lock`
+# and no network stack to any build.
 serde_json = { workspace = true }
 base64 = { workspace = true }
-
-# ---------------------------------------------------------------- the wire, feature-gated ----
-# These are the outbound-stack pieces: the client, the signing key for a service-account assertion,
-# and the trust-anchor read. Everything a served deployment needs to TALK, separate from the kinds
-# of value the broker decides without talking.
-#
-# The client. The whole argument for it - blocking because the port is, rustls because two release
-# triples are musl, and zero new packages in `Cargo.lock` because `libduckdb-sys` already resolves
-# exactly this version with exactly these two features - is on the workspace entry in the root
-# manifest, next to the pin.
-ureq = { workspace = true, optional = true }
-# `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the same bundle-or-system
-# read `sutura-exec-postgres` already depends on, so the two adapters share the PEM/system-store read
-# rather than each holding a copy. This crate builds no `RootCertStore`; `crate::wire::tls` turns the
-# loaded certificates into `ureq::tls::RootCerts` directly, which is the whole reason this crate does
-# not also need `rustls` or `rustls-pki-types` as a direct dependency beyond what `sutura-tls` gives.
-sutura-tls = { workspace = true, optional = true }
-# `serde` derives the fixed request/response shapes the wire serializes and deserializes
-# (`wire/sts.rs`, `wire/iamcredentials.rs`, `wire/tables.rs`, `wire/document.rs`). It rides the wire
-# feature: nothing outside the HTTP/TLS half of the crate needs `#[derive(Serialize)]`.
-serde = { workspace = true, optional = true }
-# The signature on a service-account assertion. `ring` is the TLS provider's signing engine and is
-# already resolved in `Cargo.lock` at this version, so it adds no package. `base64` is now always-on
-# (above) for the broker's subject-token decode; this stays wire-gated because constructing and
-# signing a service-account ASSERTION is something only the wire's credential read does.
-ring = { workspace = true, optional = true }
 
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }
 # The ADBC driver manager (telekom/sutura#913): loads the self-built
 # `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
 # and runs a statement, returning Arrow record batches. The driver owns its own
-# transport to BigQuery, so this feature brings no TLS stack of this crate's own.
+# transport to BigQuery, so this transport brings no TLS stack of this crate's own.
 
 arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }
 arrow-cast = { version = "59", optional = true }
 
-# Only `tests/corpus.rs` reads these, and only under `required-features`. **Every one of them is
-# already a workspace member and already in `Cargo.lock`, so this section adds no package** - what it
-# adds is link time on one test binary that nothing but the acceptance leg builds.
-#
-# The set is what a differential against the engine needs and no more: the CATALOG that reads the
-# example documents, the SERVICE that compiles a question into a plan, THE ENGINE that is the side
-# `docs/adr/0017`'s second bullet compares against, and the reader for the question files. There is
-# deliberately no `sutura-exec-duckdb` here: the engine is the reference, which is
-# `crates/sutura-app/tests/differential.rs`'s own reasoning.
 [dev-dependencies]
 # Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed
-# row comparison this leg's row check makes, and it is SHARED with
-# `crates/sutura-app/tests/differential.rs` rather than copied - the copy is what let both of them
-# compare cells through a display form and call a null equal to the word `null`.
+# row comparison the conformance binding's row check makes, and it is SHARED with
+# `crates/sutura-app/tests/differential.rs` rather than copied - the copy is what lets both compare
+# cells through a display form and call a null equal to the word `null`.
 sutura-domain = { workspace = true, features = ["agreement"] }
-sutura-app = { workspace = true }
-sutura-catalog-local = { workspace = true }
-# THE engine, and the far side of the comparison. A data source exists to run a subplan of what the
-# engine could otherwise compute itself, so the engine's answer is the one a pushdown has to
-# reproduce.
-sutura-exec-datafusion = { workspace = true }
-# The compiler, so the acceptance half of the leg can ask the endpoint about a plan WITHOUT executing
-# it. A dry run is free at the endpoint, and going through `sutura_app::answer` for that would have
-# executed every question a second time - so this is a cost decision, not a layering one.
-sutura-semantic = { workspace = true }
-serde_norway = { workspace = true }
-# The hermetic fake-TLS server `wire::tests::tls` dials - `github.com/telekom/sutura#125`'s
-# `security.outbound` cells. `WireAgent`'s own `HOST` is a compile-time constant this crate cannot
-# redirect (the module header states why that is a security property, not an oversight), so these
-# cells reach the agent's own `ureq::Agent` through its `pub(crate)` accessor at a loopback address
-# instead - which is why the server, unlike every other TLS fixture in this workspace, lives here
-# rather than as a `nix`-provisioned tier. Both crates are already resolved at these versions for
-# `sutura-exec-postgres`'s and `sutura-tls`'s own fixtures, so this adds no new package to
-# `Cargo.lock` - only link time on this crate's own test binary.
-rcgen = { workspace = true }
-rustls = { workspace = true }
 # The conformance packs, which `tests/conformance.rs` binds this adapter to over a canned transport
-# - see that file for why no tier and no `wire` feature is needed to make the binding honest. A
+# - see that file for why no tier and no transport feature is needed to make the binding honest. A
 # DEV-dependency and never more: the harness holds this adapter to the port's contract, and nothing
 # shipped should be able to reach it.
 sutura-conformance = { workspace = true }

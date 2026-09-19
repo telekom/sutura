@@ -21,7 +21,7 @@
 //! Everything this broker DECIDES - which sources exchange, that a source with no caller assertion is
 //! refused rather than answered as the process, that the caller's token is never logged - is
 //! exercised against a fake [`StsExchange`] that returns a canned credential. The real HTTP exchange
-//! arrives at that port as [`crate::wire::StsOverHttp`], behind the default-off `wire` feature, so the
+//! formerly arrived at that port as the `wire` transport's `StsOverHttp`, and did not share a size payload with the
 //! outbound TLS stack stays a decision a composition root makes.
 
 use base64::Engine as _;
@@ -273,7 +273,7 @@ pub trait StsExchange {
 /// and response shapes (RFC 8693 token exchange vs `{scope, lifetime}`) and different failure modes
 /// (STS `invalid_target` vs `iamcredentials`'s own `403` for "may not impersonate"). Everything this
 /// broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
-/// this port as [`crate::wire::IamCredentialsOverHttp`], behind the same default-off `wire` feature
+/// this port as the `wire` transport's `IamCredentialsOverHttp`, behind the same removal
 /// [`StsExchange`]'s real implementor is.
 pub trait ImpersonateAsAccount {
     /// Why the hop could not happen. The broker wraps it the same way it wraps [`StsExchange::Error`]
@@ -347,7 +347,7 @@ impl ImpersonateAsAccount for NoImpersonation {
 ///
 /// **The narrower shape this is NOT.** Every other time-dependent API in this workspace takes the
 /// instant as a parameter - `Expiry::passed_by`, `LegCredentials::still_usable_at`,
-/// `Minted::agreeing_with`, `crate::wire::AccessTokens::bearer` - and that is the better shape. It
+/// `Minted::agreeing_with`, the `wire` transport's `AccessTokens::bearer` - and that is the better shape. It
 /// is unavailable here because `CredentialBroker::mint` is a DOMAIN port signature carrying no
 /// instant, and widening it reaches ten implementors across eight crates. A held clock is what an
 /// adapter can do alone; the parameter is the follow-up.

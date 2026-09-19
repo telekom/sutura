@@ -205,7 +205,7 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// the STS exchange) verifies against `ureq`'s own compiled-in roots and presents no client
 /// certificate, unchanged from every release before this. `Some` is loaded through
 /// `sutura_tls::load_anchors`/`load_identity` here, ONCE, so every call site that builds a
-/// [`sutura_exec_bigquery::wire::WireAgent`] shares one read rather than re-reading a bundle, the
+/// the outbound transports share one read rather than re-reading a bundle, the
 /// host store or a client identity pair per source.
 ///
 /// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
