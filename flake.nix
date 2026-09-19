@@ -37,9 +37,15 @@
     };
     jscpd-src.url = "github:kucherenko/jscpd/v5.2.0";
     jscpd-src.flake = false;
+    # The ADBC BigQuery driver, self-built from source so every release triple —
+    # including the two static musl ones — gets a hermetic, reproducible native
+    # driver (telekom/sutura#913). Apache-2.0. The Go driver's `go/pkg` facade
+    # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
+    bigquery-adbc-src.url = "github:adbc-drivers/bigquery";
+    bigquery-adbc-src.flake = false;
   };
 
-  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, rust-overlay, jscpd-src, bigquery-adbc-src, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -472,7 +478,12 @@
             meta.mainProgram = "xtask";
           });
 
-        };
+        }
+        // (import ./nix/bigquery-adbc-drivers.nix {
+          pkgs = pkgs;
+          bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
+          buildDriver = import ./nix/bigquery-adbc.nix;
+        });
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.

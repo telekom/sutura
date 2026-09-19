@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "bigquery-adbc-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789734461,
+        "narHash": "sha256-uwcFnxACnwUMSjsFnlUBBD9sDIVWGcWOFriH9rhEIeM=",
+        "owner": "adbc-drivers",
+        "repo": "bigquery",
+        "rev": "69dedd3690236b114f309a115d1ebeb498cc63f0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "adbc-drivers",
+        "repo": "bigquery",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1787326676,
@@ -68,6 +84,7 @@
     },
     "root": {
       "inputs": {
+        "bigquery-adbc-src": "bigquery-adbc-src",
         "crane": "crane",
         "flake-utils": "flake-utils",
         "jscpd-src": "jscpd-src",
