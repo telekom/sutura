@@ -376,7 +376,7 @@ ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRU
 are precisely the two constructs `0017` MEASURED a parse check to be blind about, which makes them what
 a live run is worth most for. The corpus-wide leg `0017` specifies - load the fixtures, run the
 corpus's questions, compare rows with the engine - **is now built**, as
-`crates/sutura-exec-bigquery/tests/corpus.rs`. **Corrected: this said the corpus-wide leg *is not
+`corpus.rs`. **Corrected: this said the corpus-wide leg *is not
 built*, which made this the THIRD answer in this file to one question** - the status block said it,
 this bullet said it, and the correction further down this section contradicted both. What is still
 true of the run this bullet is about is its own first sentence: that run was one statement. The count
@@ -449,7 +449,7 @@ INT64"*. The fault was in the FIXTURE - the plan's metric label was the same wor
 ### What is still not claimed, and by what mechanism
 
 The leg is a **smoke leg**, and it is:
-`crates/sutura-exec-bigquery/tests/acceptance.rs`, five `#[ignore]`d tests, reached by
+`acceptance.rs`, five `#[ignore]`d tests, reached by
 `just bigquery-acceptance`, needing three variables a developer names in their own environment.
 
 **And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
@@ -468,7 +468,7 @@ at a dataset** - load the example fixtures, run the corpus's questions, compare 
 
 **Corrected:** this said *"and it is not built"*, and listed the sentences narrowed to match it -
 0017's amendment, `AGENTS.md`, `docs/architecture.md`, both plan pages, the justfile recipe and the
-leg's own header. **It is built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`, and it has run
+leg's own header. **It is built**, as `corpus.rs`, and it has run
 green against a real dataset; [0017](0017-what-a-bigquery-test-runs-against.md)'s third amendment is
 the record of that run and says which of the four bullets it answered. **The limit next to that: the
 three legs that reach a real dataset are `#[ignore]`d and outside `just validate`**, because a nix
@@ -863,9 +863,9 @@ accessor.
 and a caller that deliberately calls `as_str` can render it. This removes the accident, not the
 capability, and it says nothing about what the endpoint records on its own side. The tests are
 `the_endpoints_own_message_is_redacted_under_debug_and_absent_from_display` in
-`crates/sutura-exec-bigquery/src/wire/tests.rs`, and
+`tests.rs`, and
 `a_refusal_this_leg_dies_on_names_the_reason_and_never_the_message` in
-`crates/sutura-exec-bigquery/tests/exchanged_identity.rs`, which holds that the leg goes through the
+`exchanged_identity.rs`, which holds that the leg goes through the
 status-and-reason shape rather than rendering the error.
 
 ## Third amendment, 2026-09-12: provider reason text is closed before ordinary rendering
@@ -878,7 +878,7 @@ value renders only a static local marker. The same type is carried by incomplete
 errors, so no ordinary rendering of a shape-derived diagnostic can carry provider text either.
 
 `an_unrecognized_provider_reason_cannot_reach_ordinary_error_rendering` in
-`crates/sutura-exec-bigquery/src/wire/tests.rs` is the regression test for the boundary.
+`tests.rs` is the regression test for the boundary.
 
 ## Fourth amendment, 2026-09-16: `sutura-serve` folded into `sutura-cli`, and the artifact table's own row with it
 

@@ -14,14 +14,14 @@ is a `just` task.
 token, and answered from a REAL BigQuery project under `posture: shared-service-user` - one
 credential for whoever asks. The audit record's `subject` still names who asked, per token, even
 though the source itself executes as one shared identity. The served cell that drives this end to
-end is `crates/sutura-cli/tests/served/e2e.rs`'s `the_wave_one_path_answers_a_verified_caller_under_the_shared_key`.
+end is `e2e.rs`'s `the_wave_one_path_answers_a_verified_caller_under_the_shared_key`.
 
 **Does not demonstrate** execution AS the asking subject, and it says so rather than hiding it: that
 the deployment obtained, per subject, a service-account credential BigQuery resolves to a different
 principal than the deployment's own. That is exactly the row
 [`docs/where-identity-is-proven.md`](../../docs/where-identity-is-proven.md) keeps **`unrun`** - no
 `iamcredentials` hop is built and no per-subject assertion is minted. The `SESSION_USER()` cell in
-`crates/sutura-exec-bigquery/tests/exchanged_identity.rs` stays `#[ignore]`d behind the maintainer's
+`exchanged_identity.rs` stays `#[ignore]`d behind the maintainer's
 binding (issue #376 P2) and says so. It also does not demonstrate a **real DataHub HTTP tier**: PR 1
 answers the recorded corpus through an in-process fake server; the docker tier is the hosted job's
 (`--datahub tier`, PR 2).

@@ -477,7 +477,7 @@ credential (`shared-service-user`), so the per-subject half stays exactly where 
 keeps it.
 
 Not merely written - the run was observed: `the_endpoint_accepts_one_statement_this_repository_generated`
-(`crates/sutura-exec-bigquery/tests/acceptance.rs`) passed in the `bigquery-acceptance` job on
+(the removed `acceptance.rs`, deleted with the wire) passed in the deleted `bigquery-acceptance` job on
 2026-08-31, CI run [33382663404](https://github.com/telekom/sutura/actions/runs/33382663404/job/99464748052)
 against the `bq-test` environment's real dataset - the push that landed `docs/adr/0017`'s third
 amendment, which records the same run (8 tests passed, 5 the smoke leg's and 3 the corpus leg's).
@@ -489,9 +489,12 @@ of this page.
 
 ## A real token exchange, and two grants
 
-`just bigquery-exchanged-identity`, against the `bq-test` environment's workload-identity provider.
-`crates/sutura-exec-bigquery/tests/exchanged_identity.rs` is the standing test and its header is the
-long form of everything below.
+**Removed with the wire (2026-09-19, ADBC adoption).** This venue - the `bigquery-exchanged-identity`
+leg, its `exchanged_identity.rs` test and the `bigquery-exchanged-identity.yml` that
+ran it - was deleted together with the HTTP `wire` transport and the served STS-exchange broker they
+were built on. The ADBC transport refuses a `subject_bearer`, so per-subject execution through this
+adapter is not reachable today. What it proved while it stood is recorded below so the byte-level
+mechanics do not silently regress, but no current venue replays it.
 
 ### What only this venue can answer, and the word for its state today
 
@@ -509,8 +512,8 @@ credential the transport itself holds, without which an exchange that did nothin
 **The state is `yes`**, held by a run somebody observed. That success depended on
 `sts.googleapis.com`/`iamcredentials.googleapis.com` being enabled OUT OF BAND (this repository's
 Pulumi now enables them itself, so a fresh `up` reproduces the grant rather than assuming it). On
-2026-09-16 a `workflow_dispatch` of
-`.github/workflows/bigquery-exchanged-identity.yml` concluded `success` (run
+2026-09-16 a `workflow_dispatch` of the then-present
+`bigquery-exchanged-identity.yml` concluded `success` (run
 https://github.com/telekom/sutura/actions/runs/35076526218): the nextest log shows
 `each_principal_is_who_this_source_says_it_is_executing_as` PASS, whose assertion is
 `TheExpectedPrincipal` for each leg and their distinctness - a passing test prints no verdict, so

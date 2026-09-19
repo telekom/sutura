@@ -236,7 +236,7 @@ an adapter is buildable, not when.
 
 **Corrected, and this is the premise the rest of the two-exchange chain rests on, so read it before
 planning from that paragraph.** *The Security Token Service wants `id_token`* is too broad, and the
-built exchange contradicts it: `crates/sutura-exec-bigquery/src/wire/sts.rs` declares
+built exchange contradicts it: `sts.rs` declares
 `urn:ietf:params:oauth:token-type:jwt` as the subject token type, sends it, and a test asserts the
 sent value. **A WORKLOAD pool accepts `jwt`, and that is what shipped.** The `id_token` question is
 the WORKFORCE-pool one - the path described further up this record, where the principal is the person

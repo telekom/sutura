@@ -7,7 +7,7 @@
 //! edit, and an adapter in its own crate can prove itself without a suite of its own.
 //!
 //! Before this, an adapter that wanted the same coverage hand-wrote it -
-//! `crates/sutura-exec-bigquery/tests/corpus.rs` is that, and it is the assertion-in-two-places
+//! `corpus.rs` is that, and it is the assertion-in-two-places
 //! failure the record opens with.
 //!
 //! **What this file does not establish**, because the pack's own headers say so and this is the

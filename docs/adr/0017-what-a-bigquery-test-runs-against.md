@@ -315,7 +315,7 @@ table. Worth recording twice over:
 **The transport exists.** [0018](0018-what-the-bigquery-wire-is-built-from.md) is the dependency
 decision this record deferred, and `sutura_exec_bigquery::wire` is what came of it: `jobs.query` over
 a blocking HTTP client already resolved in `Cargo.lock`, behind a default-off feature, with the
-acceptance leg written as `crates/sutura-exec-bigquery/tests/acceptance.rs` and reached by
+acceptance leg written as `acceptance.rs` and reached by
 `just bigquery-acceptance`.
 
 So the last bullet above is corrected rather than left standing: a developer who wants to try it now
@@ -330,7 +330,7 @@ hand-built `SUM` over a two-column table a developer supplies. It contains no jo
 `ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
 check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
 is #78's importer shape pointed at a dataset - load the fixtures, run the corpus's questions, compare
-rows with the engine - and it is now built**, as `crates/sutura-exec-bigquery/tests/corpus.rs`.
+rows with the engine - and it is now built**, as `corpus.rs`.
 **Corrected: this sentence said *it is not built*, and the third amendment below already quotes it as
 the sentence that stopped being true** - so this record contradicted itself while `docs/adr/0018` and
 `docs/architecture.md` both cite it as their authority for the opposite. The quotation in that
@@ -459,7 +459,7 @@ being true, and it named itself as the thing to watch:
 > **The leg this page specifies is #78's importer shape pointed at a dataset - load the fixtures, run
 > the 21 questions, compare rows with the engine - and it is not built.**
 
-It is built. `crates/sutura-exec-bigquery/tests/corpus.rs`, three `#[ignore]`d tests behind the same
+It is built. `corpus.rs`, three `#[ignore]`d tests behind the same
 `just bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
 `bigquery-acceptance` job, 8 tests passed, five of them the smoke leg's and three this one's, against
 the `bq-test` environment's real dataset. So the sentence above is superseded by a measurement rather

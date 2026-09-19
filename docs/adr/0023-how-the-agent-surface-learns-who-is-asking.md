@@ -302,7 +302,7 @@ this decision to have settled.
 - **It is not a claim that two callers get two answers.** Nothing in the default suite asserts
   that two subjects read two different row sets: the scaffold for it is
   `two_subjects_with_different_grants_read_two_different_row_sets` at
-  `crates/sutura-exec-bigquery/tests/acceptance.rs:791`, `#[ignore]`d and needing a real project.
+  `acceptance.rs:791`, `#[ignore]`d and needing a real project.
   This record changes none of that.
 - **It does not decide the exchange chain.** See the next section: one hop is built, and the chain
   the requirement asks for is a separate design with its own failure modes.
@@ -339,7 +339,7 @@ let credential = self
 
 against the port at `crates/sutura-exec-bigquery/src/sts.rs:116`,
 `fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`,
-whose one non-test implementor is `StsOverHttp` at `crates/sutura-exec-bigquery/src/wire/sts.rs:114`.
+whose one non-test implementor is `StsOverHttp` at `sts.rs:114`.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -

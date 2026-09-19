@@ -5,7 +5,7 @@ description: A declared per-source subject-to-service-account map, a second port
 
 # The iamcredentials impersonation hop
 
-Status: **accepted.** `github.com/telekom/sutura#376` is the issue; `crates/sutura-exec-bigquery/src/wire/credential/id_token.rs`
+Status: **accepted.** `github.com/telekom/sutura#376` is the issue; `id_token.rs`
 and `docs/where-identity-is-proven.md` both name the gap this closes: a bare RFC 8693 exchange
 (`docs/adr/0008` part 2, `wire::StsOverHttp`) resolves a workload-identity pool subject and stops
 there. Every grant this stack provisions is anchored to a service account as an IAM member
@@ -78,7 +78,7 @@ inside this harness.** `bq-test`'s two principals are self-signed by their own k
 subject genuinely IS the account to impersonate and there is no separate caller. A production caller
 through the IdP (`docs/adr/0014`) has a `sub`/email that is never a GCP service-account identifier, so
 this option has nothing to map from outside the test harness. Not generalizable; not taken as the
-shipped mechanism, though it is exactly what `crates/sutura-exec-bigquery/tests/exchanged_identity.rs`
+shipped mechanism, though it is exactly what `exchanged_identity.rs`
 declares for its own two principals (self-impersonation), stated as that cell's own limit.
 
 **(3) Grant `principalSet://`/`principal://` directly to the federated identity, no hop - rejected.**

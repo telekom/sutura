@@ -31,8 +31,8 @@ in the PR this ADR ships beside):
   that priced its own dry run has nowhere to put the number.
 - **BigQuery's dry run is free and slotless** and its `QueryResponse` already carries
   `totalBytesProcessed` as a top-level field, beside `kind`, `jobReference` and `cacheHit` -
-  `crates/sutura-exec-bigquery/src/wire/document.rs`'s own header names it among the fields nothing
-  here reads. `crates/sutura-exec-bigquery/src/wire.rs`'s `validate_job` discards it today, in words:
+  `document.rs`'s own header names it among the fields nothing
+  here reads. `wire.rs`'s `validate_job` discards it today, in words:
   *"a dry run returns `totalBytesProcessed`, and this discards it... `PreFlight::Accepted` also
   carries no field for an estimate, so there is nowhere to put it."*
 - **`PrincipalChain`** is the key a budget would use, and says so in its own doc comment:

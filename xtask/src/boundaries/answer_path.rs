@@ -20,7 +20,7 @@
 //!
 //! The fix the finding offered was to narrow `answer` to `pub(crate)`, and that would be stronger -
 //! a bypass that does not compile. It is not available: `crates/sutura-app/tests/golden/service.rs`
-//! and `crates/sutura-exec-bigquery/tests/corpus.rs` are separate crates and they assert on
+//! and `corpus.rs` are separate crates and they assert on
 //! `ServiceError`'s VARIANTS, which the driving port erases into `SurfaceFailure` by design. Making
 //! the bypass impossible that way would take the typed-error assertions out of the conformance
 //! suite, which is a worse trade than this scan.

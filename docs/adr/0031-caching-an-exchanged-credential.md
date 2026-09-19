@@ -154,5 +154,5 @@ loses the one value (`RequestContext::chain().subject()`) the rest of this recor
 
 *The floor's own limit is inherited, not repeated* said "`sutura-serve` wires
 `with_floor(request_timeout.seconds())`". `sutura-serve` folded into `sutura-cli`'s `serve` module
-(`github.com/telekom/sutura#685` step 2); the call site is `crates/sutura-cli/src/serve/broker.rs`
+(`github.com/telekom/sutura#685` step 2); the call site is `broker.rs`
 now, and the claim about what it does and does not assert is unaffected.

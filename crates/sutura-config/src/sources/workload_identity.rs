@@ -165,7 +165,7 @@ impl WorkloadIdentityConfig {
 /// The service account a declared subject's exchanged credential is impersonated into.
 ///
 /// **Checked here, and checked again where it is sent.** The same reason [`WifAudience`] gives:
-/// `crates/sutura-exec-bigquery/src/wire/iamcredentials.rs` interpolates this value into a request
+/// A consumer that impersonates a service account interpolates this value into its request
 /// path and may not depend on this crate, so the format is validated once at declaration and once at
 /// the adapter that sends it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

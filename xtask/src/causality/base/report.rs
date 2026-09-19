@@ -307,12 +307,12 @@ mod tests {
         // rather than "the change is not separable at file level", which is a different fix.
         let text = concat!(
             "error[E0583]: file not found for module `naming`\n",
-            " --> crates/sutura-exec-bigquery/tests/corpus.rs:31:1\n",
+            " --> corpus.rs:31:1\n",
             "error: could not compile `sutura-exec-bigquery` (test \"corpus\")\n",
         );
         assert!(missing_module_file(text));
         assert!(!missing_module_file("error[E0432]: unresolved import `crate::thing`"));
-        let under_test = scoped("sutura-exec-bigquery", "crates/sutura-exec-bigquery/tests/corpus.rs", &["t"]);
+        let under_test = scoped("sutura-exec-bigquery", "corpus.rs", &["t"]);
         assert_eq!(classified(text, false, &under_test), BaseOutcome::DidNotCompile);
     }
 

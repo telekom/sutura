@@ -23,7 +23,7 @@ additive rather than a tax every existing source pays. This is the same "absent 
 `impersonate` (ADR 0032) already uses.
 
 **The broker refuses at boot a direct leg-one document can never satisfy.** When leg 1 is
-`InboundIdentity::Direct`, `build_broker` (`crates/sutura-cli/src/serve/broker.rs`) compares each
+`InboundIdentity::Direct`, `build_broker` (`broker.rs`) compares each
 impersonating source's declared expectations against the direct issuer and resource. They are the
 very values that must equal the pool's for the SAME document to satisfy both sides; when they cannot,
 the deployment refuses to start, naming the source and both pairs, rather than serve questions whose

@@ -11,7 +11,7 @@
 //!
 //! **CI wins unconditionally, and everything unrecognised is CI too.** [`decide`] checks
 //! `GITHUB_ACTIONS` first and returns [`Tolerance::Strict`] the moment it reads `"true"` - the exact
-//! spelling `crates/sutura-exec-bigquery/tests/corpus.rs`'s own `ci_run_id` cell already holds
+//! spelling `corpus.rs`'s own `ci_run_id` cell already holds
 //! (`GITHUB_ACTIONS=false was read as CI` is asserted there as a failure, so `"true"` is the only
 //! reading, not a truthy list). Only past that check does [`RELAXED`] get read, and an absent or
 //! unrecognised environment - not exactly one of those two branches - falls through to

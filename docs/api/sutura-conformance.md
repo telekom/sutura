@@ -33,7 +33,7 @@ mod conformance {
 
 1. **The packs live in their own crate**, depending on `sutura-domain` and on no adapter - so the
    harness is a dependency an adapter's own crate can take rather than a directory another
-   crate's tests reach into sideways. That is what `crates/sutura-exec-bigquery/tests/corpus.rs`
+   crate's tests reach into sideways. That was what `corpus.rs`
    could not do and had to hand-write instead.
 2. **Every behaviour keeps its own name per adapter.** A generic function per pack would give one
    test name per adapter, so a failure would say *the duckdb pack failed* and not which

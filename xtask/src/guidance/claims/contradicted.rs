@@ -520,11 +520,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // mints a per-leg credential is still unbuilt" - trusted from the same stale module doc
         // (`lib.rs:56-63`, last touched 2026-08-31 in #93, before #284). The broker IS built:
         // `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the
-        // exchange, and `crates/sutura-cli/src/serve/broker.rs` composes it (`build_broker`,
-        // #284; that path was `crates/sutura-serve/src/broker.rs` before `github.com/telekom/
-        // sutura#685` step 2 folded the crate in). The limit that stays true now is
-        // `.agents/skills/sutura/identity/SKILL.md`'s own row: built, though no served binary has
-        // executed as a caller yet (`docs/where-identity-is-proven.md`).
+        // exchange, and the served composition root composed it (`crates/sutura-serve/src/broker.rs`
+        // before `github.com/telekom/sutura#685` step 2 folded the crate in). The wire removal
+        // (ADBC adoption) deleted that composition and the ADBC transport REFUSES a subject_bearer,
+        // so the limit that stays true now is `.agents/skills/sutura/identity/SKILL.md`'s own row:
+        // built, though no served binary has executed as a caller yet (`docs/where-identity-is-proven.md`).
         name: "the BigQuery adapter has no place for a subject",
         wordings: &[
             "IMPERSONATION` still reads `NoPlaceForASubject`",
@@ -536,12 +536,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         }],
         instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
                   so a source declared `impersonation-at-source` can be opened here and the posture \
-                  cross-check no longer refuses it by name. The broker is built too: \
-                  `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker` performs the \
-                  exchange and `crates/sutura-cli/src/serve/broker.rs` composes it. What is still \
-                  true is narrower - proven by a hosted run whose job held both principals' own \
-                  keys, so it resolves per subject and no served binary has executed as a caller \
-                  yet (`docs/where-identity-is-proven.md`)",
+                  cross-check no longer refuses it by name. The ADBC transport REFUSES a \
+                  `subject_bearer` until the driver's impersonation threading is live, so what is \
+                  still true is narrower - proven by a hosted run whose job held both principals' \
+                  own keys, so it resolves per subject and no served binary has executed as a \
+                  caller yet (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what
