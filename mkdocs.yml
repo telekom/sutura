@@ -200,6 +200,8 @@ exclude_docs: |
   adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
   adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
   adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
+  adr/0036-a-knowledge-only-source-speaks-through-a-metric.md
+  crap.md
 
 # Explicit, not derived from filenames. A nav that falls out of directory order silently
 # reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
@@ -227,6 +229,7 @@ nav:
       - Serving over HTTP: serving.md
       - Verifying a release: verifying-a-release.md
       - The local chat demo: demo.md
+      - Integrations: integrations.md
       - Where each identity claim is proven: where-identity-is-proven.md
       - The wave-one E2E showcase: showcase-datahub-bigquery.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
@@ -237,7 +240,6 @@ nav:
   - Building it:
       - Architecture: architecture.md
       - Contributing: contributing.md
-      - The CRAP gate: crap.md
       - Building without direct egress: enterprise-mirrors.md
       - Publishing the docs: publishing.md
       - API:

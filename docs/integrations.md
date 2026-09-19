@@ -1,0 +1,72 @@
+---
+title: Integrations
+---
+
+# Integrations
+
+What this runtime reads definitions from, what it executes against, and how far each one is proven.
+
+Every extent claim below routes to the page or the declaration that holds it. Nothing is restated
+here, because a second copy of a capability claim is the copy that rots into an overstatement.
+
+## Metadata sources
+
+A metadata source supplies definitions. `SemanticCatalog::load` takes no request context, so no
+catalog can return a different definition per caller - the digest that travels with an answer would
+otherwise describe something other than what produced it.
+
+`SemanticCatalog::KIND` is what each adapter is measured against, and it is a per-adapter constant
+rather than a description:
+
+| Source | Crate | `KIND` | Measured against | What it can carry |
+| --- | --- | --- | --- | --- |
+| Markdown + YAML frontmatter | `sutura-catalog-local` | `Golden` | the hand-written oracle stating the same model | every kind the model defines |
+| DataHub | `sutura-catalog-datahub` | `Declaring` | its own `capabilities` declaration | `docs/adr/0016-what-datahub-can-carry.md` |
+| OpenMetadata | `sutura-catalog-openmetadata` | `Declaring` | its own `capabilities` declaration | [What an OpenMetadata catalog can carry](what-openmetadata-can-carry.md) |
+| OKF Frictionless Table Schema | `sutura-catalog-okf` | `Declaring` | its own `capabilities` declaration | [What an OKF-style catalog can carry](what-okf-can-carry.md) |
+| An RDBMS dictionary | `sutura-catalog-rdbms` | `Declaring` | its own `capabilities` declaration | [An RDBMS dictionary as a metadata source](rdbms-catalog-guidance.md) |
+
+A `Declaring` adapter supplies part of the model and **declares the rest out**. An absence is
+declared rather than inferred from silence, which is why a partial source cannot quietly read as a
+complete one.
+
+## Data sources
+
+A data source executes a compiled plan. The `Warehouse` port is synchronous and `execute` takes a
+`Deadline`.
+
+| Source | Crate | Renders | Executes | Identity it executes under |
+| --- | --- | --- | --- | --- |
+| BigQuery | `sutura-exec-bigquery` | yes | yes | per subject - `PerSubjectCredential` |
+| Postgres | `sutura-exec-postgres` | yes | yes | one shared credential - `NoPlaceForASubject` |
+| DuckDB | `sutura-exec-duckdb` | yes | yes | one process identity - `NoPlaceForASubject` |
+| DataFusion | `sutura-exec-datafusion` | - | yes, one source's share of a federated answer | one process identity - `NoPlaceForASubject` |
+| ClickHouse | none yet | yes | **no** | - |
+
+ClickHouse renders and cannot be asked to answer: the dialect shipped without an executor. Its
+committed goldens therefore pin what this renderer emits and nothing a database agreed to.
+
+## Identity: what "impersonation" does and does not mean here
+
+`Warehouse::IMPERSONATION` says whether there is **a place in an adapter's path** for a subject's own
+credential to arrive. It does not say that a subject's identity has been proven to reach that source.
+Those are two claims and only the first is a constant.
+
+`IMPERSONATION` is a constant the trait declares **with no default**, so an adapter cannot be
+silent about it: a new data source either answers, or does not compile. Saying so explicitly is the
+point of the declaration - a file engine is the easiest source in the world to assume nothing about,
+and *"nobody declared anything for the engine"* is how a deployment ends up believing its whole
+surface impersonates because its network source does.
+
+⚠ The trait forces each adapter to answer; **nothing forces the table above to list every adapter.**
+The per-adapter constant in the source is the authority, and this page is a reading of it.
+
+The two legs, stated separately because they are proven to different depths:
+
+- **Leg 1 - knowing who is asking.** Built.
+- **Leg 2 - a source executing *as* them.** Proven for BigQuery through a declared per-source map,
+  by a hosted run whose job holds both principals' keys by construction, so the exchange mechanics
+  resolve per subject. **No served binary has executed as a caller yet.**
+
+[Where each identity claim is proven](where-identity-is-proven.md) is the venue-by-venue table, and
+it is the only place that decides which venue may be cited for which claim.
