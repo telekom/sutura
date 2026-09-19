@@ -87,9 +87,10 @@ mod mcp;
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
 ///
 /// Behind the same features as every caller: only an adapter that links an outbound TLS stack has
-/// any material to rotate, so a default-features build (no `bigquery`/`postgres`/`datahub`) must not
-/// compile a `drive_rotation` no composition root calls.
-#[cfg(any(feature = "bigquery", feature = "postgres", feature = "datahub"))]
+/// any material to rotate, so a default-features build (no `postgres`/`datahub`) must not compile a
+/// `drive_rotation` no composition root calls. The removed BigQuery `wire`'s STS rotation used to be
+/// a third caller; only the postgres TLS and datahub reader rotators remain.
+#[cfg(any(feature = "postgres", feature = "datahub"))]
 mod rotation;
 /// The HTTP surface's composition root - `sutura serve`. Its own module rather than flattened
 /// here: `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary into this crate,
