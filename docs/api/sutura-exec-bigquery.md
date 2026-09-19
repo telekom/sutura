@@ -274,6 +274,16 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
+pub fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver_path: impl Into<String>) -> Self
+```
+
+Opens a dataset over the ADBC transport.
+
+`driver_path` is the on-disk location of the self-built
+`libadbc_driver_bigquery.so` (one per release triple, see
+`nix/bigquery-adbc.nix`).
+
+```rust
 pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
 ```
 
@@ -439,6 +449,144 @@ declaration, which has already refused a value that is not usable.
 
 A broker that mints a per-subject credential for impersonating sources and a declared witness for
 shared ones.
+
+## Module `adbc`
+
+The ADBC transport: loads the self-built `libadbc_driver_bigquery.so`
+(`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
+decodes its Arrow result sets.
+
+```text
+adbc_core + adbc_driver_manager → C ABI → libadbc_driver_bigquery.so
+  → BigQuery → Arrow RecordBatchReader → decode::job_rows → RowSet
+```
+
+Behind the crate's default-off `adbc` feature, like the `wire`: the native
+driver and its Arrow graph are a per-triple addition a lean build should not
+link. Off is not hidden - every gate passes `--all-features`.
+
+### `enum AdbcError`
+
+```rust
+pub enum AdbcError
+```
+
+Why the ADBC transport could not answer.
+
+#### Variants
+
+- `Load` - The driver `.so` could not be loaded.
+- `Adbc` - An ADBC call (connect, prepare, execute) failed.
+- `Batch` - A result batch could not be read from the stream.
+- `Decode` - The result set could not be decoded into the adapter's own shape.
+- `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct AdbcBigQuery`
+
+```rust
+pub struct AdbcBigQuery
+```
+
+A `BigQuery` endpoint over ADBC.
+
+#### Methods
+
+```rust
+pub fn new(driver_path: impl Into<String>) -> Self
+```
+
+Names the driver `.so` a composition root resolves to load.
+
+#### Implements
+
+`JobTransport`
+
+### `use Reported`
+
+The row count a stream reports, when it reports one at all.
+
+`Reported::Unreported` is an honest absence, never a defaulted `0`.
+
+### `use job_rows`
+
+Decodes drained batches into a `JobRows`, refusing an unmapped column, a
+batch narrower than the schema, or an incomplete stream.
+
+The schema-wide type pass runs before any value work - a result with no rows
+still refuses an unmapped column - and each batch's column count is checked
+against the schema before its cells are read (fail closed, not short).
+
+### Module `decode`
+
+Arrow -> `JobRows` decode for the ADBC transport (telekom/sutura#913).
+
+The driver returns Arrow record batches; this pure half turns a schema +
+batches into the adapter's own `JobRows`, reusing the same
+`crate::transport::FieldType` vocabulary the wire uses, so one plan answered
+by two transports agrees on field kinds. The value pass is one vectorised
+`arrow_cast::cast` to `Utf8` per column rather than a per-cell downcast
+ladder.
+
+Completeness is decided here. The wire refused a first page by comparing the
+delivered count to the endpoint's `totalRows`; an ADBC read streams the whole
+result, so completeness is the stream draining fully. `job_rows` takes the
+drained rows plus a `Reported` total (the driver attaches job statistics to
+the schema metadata, measured in the provisioned leg) and refuses a delivered
+count that does not reach what was reported.
+
+#### `enum Decode`
+
+```rust
+pub enum Decode
+```
+
+Why a result set could not be decoded.
+
+##### Variants
+
+- `UnmappedColumn` - A column whose Arrow type this adapter does not map.
+- `Shape` - A batch that disagrees with the schema it was announced under - a stream arriving over a C ABI from a foreign driver is exactly the case to refuse rather than trust.
+- `Incomplete` - The stream was not complete: a reported total the delivered rows do not reach.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum Reported`
+
+```rust
+pub enum Reported
+```
+
+The row count a stream reports, when it reports one at all.
+
+`Reported::Unreported` is an honest absence, never a defaulted `0`.
+
+##### Variants
+
+- `Unreported`
+- `Total`
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `fn job_rows`
+
+```rust
+pub fn job_rows(schema: &arrow_schema::Schema, batches: &[arrow_array::RecordBatch], reported: Reported) -> Result<crate::transport::JobRows, Decode>
+```
+
+Decodes drained batches into a `JobRows`, refusing an unmapped column, a
+batch narrower than the schema, or an incomplete stream.
+
+The schema-wide type pass runs before any value work - a result with no rows
+still refuses an unmapped column - and each batch's column count is checked
+against the schema before its cells are read (fail closed, not short).
 
 ## Module `transport`
 

@@ -236,7 +236,10 @@ ci:
     # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
     # validates against three vendored schema files, seconds rather than the minutes a release
     # profile build costs - `nix/helm-chart.nix` carries the derivation.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier helm-chart; do
+    # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
+    # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
+    # driver), so a broken driver triple reds this task like any other gate check.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier helm-chart adbc-driver-bigquery; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done

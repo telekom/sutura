@@ -583,13 +583,18 @@ jobs:
         # `measure-host(<label>):` line in this job's log - grep that prefix, since the summary is
         # served to a browser and to nothing a script can read. One label per stage, which is what
         # makes the three separable in that log.
+        # closure-free gate graph: reuse/fmt/jscpd + the self-built ADBC BigQuery
+        # driver. The driver check is here for the same closure-free reason - it is
+        # four nix cross-builds of the Go driver with no dependency on the Rust
+        # closure - and it is the ONE venue that realises those builds: round-1
+        # review of the ADBC PR found no gate built the driver.
         uses: ./.github/actions/measure-host
         with:
           label: closure-free gate graph
           run: |-
             set -eu
             nix build -L --keep-going .#checks.x86_64-linux.reuse .#checks.x86_64-linux.fmt \
-              .#checks.x86_64-linux.helm-chart
+              .#checks.x86_64-linux.helm-chart .#checks.x86_64-linux.adbc-driver-bigquery
 
       # UNCONDITIONAL, like `Structural gates` two stages down and for the same reason: it judges
       # every file, so gating it on the `rust` classification would let a docs or workflow file

@@ -67,3 +67,25 @@ free, restored under `MI_SECURE=4` since 3.5.0) was this hazard's first realised
 was on `nix/mimalloc.nix`'s side only until it was found and added to `build.rs`. Nothing
 mechanical stops a third define from doing the same - see issue #858's own proposal for a gate
 comparing the two define sets, not built here.
+
+## ADBC BigQuery driver (telekom/sutura#913)
+
+The native ADBC BigQuery driver is the Foundry `adbc-drivers/bigquery` (Apache-2.0),
+**self-built from source** rather than pulled as a CDN `.so` from `dbc install bigquery` -
+a CDN binary has no aarch64-musl artifact and is not reproducible for this repository's
+four release triples. It is pinned at the release tag `go/v1.13.0`
+(repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
+`main` past that pin.
+
+Three source-level adaptations, recorded here so nothing is silent:
+
+- **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
+  this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
+  to `go 1.27` and drops any `toolchain` directive at the source, so both the module-vendoring
+  FOD and the build accept the pinned toolchain. `1.27.1` is a patch floor; the relax changes
+  the directive, not dependencies.
+- **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
+  build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
+- **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
+  (`proxyVendor`), pinned by the one `vendorHash` every triple shares (the resolved module set
+  is libc/arch-independent on linux).

@@ -109,6 +109,8 @@ mod rowset;
 
 mod preflight;
 
+#[cfg(feature = "adbc")]
+pub mod adbc;
 pub mod transport;
 #[cfg(feature = "wire")]
 pub mod wire;
@@ -563,6 +565,37 @@ where
             | BigQueryError::Incomplete { .. }
             | BigQueryError::Shape { .. } => false,
         }
+    }
+}
+
+/// A warehouse whose transport is the ADBC driver (telekom/sutura#913).
+///
+/// Reaching this constructor is what makes the `adbc` module first-party:
+/// `BigQueryWarehouse<adbc::AdbcBigQuery>` is a concrete, constructible transport
+/// the composition root can pick, alongside the wire. Default-off (`adbc` feature),
+/// for the reason the wire is: the native driver is a per-triple addition.
+#[cfg(feature = "adbc")]
+impl BigQueryWarehouse<adbc::AdbcBigQuery> {
+    /// Opens a dataset over the ADBC transport.
+    ///
+    /// `driver_path` is the on-disk location of the self-built
+    /// `libadbc_driver_bigquery.so` (one per release triple, see
+    /// `nix/bigquery-adbc.nix`).
+    #[must_use]
+    pub fn over_adbc(
+        source: SourceName,
+        posture: SourcePosture,
+        billing_project: ProjectId,
+        default_dataset: DatasetId,
+        driver_path: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            source,
+            posture,
+            billing_project,
+            default_dataset,
+            adbc::AdbcBigQuery::new(driver_path),
+        )
     }
 }
 
