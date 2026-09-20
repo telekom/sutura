@@ -62,8 +62,8 @@ where
 {
     warehouse.deliverable(presented)?;
     // No parameters, for `load_fixture`'s reason inverted: there is no question to carry a
-    // value FROM. And the subject's bearer where the leg has one, which is the entire point -
-    // an identity read submitted under the transport's own credential would answer the
+    // value FROM. And the leg's own identity where it names one, which is the entire point -
+    // an identity read submitted under the transport's own identity would answer the
     // transport, every time, and pass.
     // No port `Deadline`: this read is not part of the `Warehouse` port and has no caller's request
     // timeout to answer to, so it is the boot path's own shape - `submit` opens a fresh window from
@@ -73,7 +73,7 @@ where
         &[],
         &warehouse.billing_project,
         &warehouse.default_dataset,
-        BigQueryWarehouse::<T>::subject_bearer(presented),
+        BigQueryWarehouse::<T>::job_identity(presented),
         JobDeadline::Boot,
     );
     let answered = warehouse

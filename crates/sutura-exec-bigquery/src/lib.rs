@@ -40,27 +40,39 @@
 //!
 //! # Identity
 //!
-//! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, which is what makes a source
-//! executed as the asking subject representable here: the credential a broker mints for the asker is
-//! carried as a [`Presented::SubjectToken`] and sent as this job's bearer. **The ADBC transport does
-//! not yet do that** - [`adbc::AdbcBigQuery::run`] REFUSES a request carrying a `subject_bearer`
-//! until the driver's `bigquery.impersonate.*` threading is live, rather than executing under the
-//! driver's ambient credential while the type says otherwise (review telekom/sutura#913). Per-subject
-//! execution is therefore not reachable on this transport today.
+//! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, and the mechanism that makes it
+//! true is a **principal switch** rather than a forwarded credential. A
+//! [`Presented::SubjectPrincipal`] names the service account this subject's query is to execute as;
+//! [`adbc`] sets it as the job's impersonation target through the driver's own
+//! `bigquery.impersonate.*` options, so the data system evaluates the statement as that account and
+//! [`SessionUser`] reads its address back. [`DeclaredPrincipalBroker`] is what resolves a verified
+//! subject to the account a source declared for it, and a subject the declaration does not name is
+//! refused rather than answered as the deployment.
 //!
-//! **ONE of the two subject shapes, and the other is refused rather than degraded.** A
-//! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
-//! DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-//! subject token, so [`Presented::agrees_with`] passes it
-//! and only this adapter can say it has nowhere to put it. [`BigQueryError::NoPrincipalSwitch`] is
-//! that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
-//! it replaced existed: a leg accepted here would be submitted under the transport's own credential
-//! while provenance, read off this source's posture, reported the answer as impersonated.
+//! **What that does NOT do, stated beside the claim.** The asking subject's own credential never
+//! reaches the data system. The connection is the one this deployment authenticated; the subject's
+//! verified identity only SELECTS which declared principal the job runs as. Two consequences, both
+//! real: the deployment holds `roles/iam.serviceAccountTokenCreator` on every principal it declares,
+//! and leg 1 - this deployment's own verification of the caller - is therefore the only thing
+//! between a caller and any of those principals. The withdrawn HTTP transport had a longer chain,
+//! because Google's own token service verified the caller's assertion against a workload-identity
+//! pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
+//! fifth amendment is the record, with the two alternatives that were priced against this one.
 //!
-//! **What no version of this is:** a deployment where a served source executes as its asker. The
-//! served composition root attaches only the static broker now - the STS exchange hops that built the
-//! served impersonation broker were part of the removed `wire` half - so `sutura serve` refuses an
-//! `impersonation-at-source` `bigquery` entry at the posture cross-check.
+//! **The other subject shape is refused rather than degraded.** A [`Presented::SubjectToken`] is
+//! credential material for a transport to present as this job's bearer. The pinned ADBC driver has
+//! no option that accepts one - its auth types take a credential FILE, a credential JSON document or
+//! an OAuth refresh token, and its impersonation options start from the process's own application
+//! default credentials - so [`adbc`] refuses that arm rather than dropping the material and running
+//! under the driver's own identity, which would report an answer as impersonated that ran as the
+//! process. Both shapes are one POSTURE to [`Presented::agrees_with`], so only a transport can tell
+//! them apart, and [`transport::JobIdentity`] is where it does.
+//!
+//! **What no version of this is, yet:** a served deployment that has been OBSERVED answering under
+//! its asker. The composition is built - `sutura serve` attaches [`DeclaredPrincipalBroker`] to a
+//! declared `impersonation-at-source` `bigquery` source - and no hosted run has yet resolved two
+//! subjects to two accounts through this transport. `docs/where-identity-is-proven.md` carries what
+//! may be cited and what may not.
 //!
 //! # Two things this adapter deliberately does not offer
 //!
@@ -109,13 +121,19 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
+/// The broker a served impersonating `BigQuery` source is answered through - `sts`'s sibling and
+/// the one a composition root can reach, since the exchanging broker's HTTP hops went away with the
+/// `wire` transport.
+mod principal;
+pub use principal::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, NoDeclaredPrincipals};
+
 mod sts;
 pub use sts::{
     ImpersonateAsAccount, NoImpersonation, StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity,
     WorkloadIdentityBroker,
 };
 
-use crate::transport::{DatasetId, JobDeadline, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -154,22 +172,6 @@ where
     /// which is a wrong number under a certified name.
     #[error("a leg of a federated plan over {table} arrived, and there is no combiner above it")]
     LegWithoutCombiner { table: String },
-    /// The leg presents a principal for the data system to switch to, and there is no such
-    /// mechanism here.
-    ///
-    /// **The narrow half of a refusal that used to be wholesale, and it has to stay refused.** This
-    /// adapter declares `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
-    /// [`SubjectToken`](sutura_domain::identity::Presented::SubjectToken) rides as this job's bearer, so the
-    /// dataset evaluates the statement under whoever the token is. `BigQuery` has no proxy-user or
-    /// `SET ROLE` equivalent for a [`SubjectPrincipal`](sutura_domain::identity::Presented::SubjectPrincipal),
-    /// so a leg carrying one has no material to send - and
-    /// [`agrees_with`](sutura_domain::identity::Presented::agrees_with) passes it, because the two shapes are
-    /// the same POSTURE. Accepting
-    /// it would submit the job under the credential the transport already holds while provenance,
-    /// read off this source's posture, reported the answer as impersonated: every row as the
-    /// process, recorded as the asker.
-    #[error("{presented} was minted for {at}, and this adapter can only send a subject's own bearer token")]
-    NoPrincipalSwitch { at: String, presented: &'static str },
     /// The leg's credential and this source's declared posture do not agree.
     #[error("the credential presented for this source does not agree with the posture it was opened under")]
     PresentedDisagreesWithPosture {
@@ -331,25 +333,18 @@ where
     /// `sutura-exec-duckdb` gives: a copy per method is two places for the arms to disagree, and the
     /// pre-flight is the call where a missing check would matter least and be noticed least.
     ///
-    /// **Two questions in order, and they are different questions.** The first is *can this adapter
-    /// deliver the SHAPE it was handed*, which [`Presented::agrees_with`] cannot answer - see
-    /// [`BigQueryError::NoPrincipalSwitch`]. The second is *does the shape agree with how the source
-    /// was DECLARED*, which is `agrees_with`'s exhaustive match over the pair.
-    ///
-    /// The order is the point rather than an accident: a principal switch at a source declared
-    /// shared is refused as the disagreement it is, because that is what an operator would fix,
-    /// which is why the shape check reads the posture too rather than the variant alone.
+    /// **One question here now, and the second one moved to where it can be answered.** This used
+    /// to ask *does the shape agree with the posture* and then *can this adapter deliver the shape*,
+    /// because the adapter itself refused a principal switch outright. It no longer does: the
+    /// adapter is generic in its transport, every [`Presented`] shape maps onto a
+    /// [`JobIdentity`](crate::transport::JobIdentity) arm, and which arms a transport can serve is
+    /// the transport's own fact. [`adbc`] serves the principal arm and refuses the bearer one; the
+    /// deleted HTTP transport was the other way round. An adapter-level match would have to be
+    /// changed for either, which is exactly the coupling `JobTransport` exists to remove.
     fn deliverable(&self, presented: &Presented) -> Mapped<(), T::Error> {
         presented
             .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })?;
-        match *presented {
-            Presented::SubjectToken { .. } | Presented::SharedServiceUser { .. } => Ok(()),
-            Presented::SubjectPrincipal { .. } => Err(BigQueryError::NoPrincipalSwitch {
-                at: String::from(self.source.as_str()),
-                presented: presented.as_str(),
-            }),
-        }
+            .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })
     }
 
     /// The plan, rendered as one `GoogleSQL` statement.
@@ -366,16 +361,18 @@ where
         }
     }
 
-    /// The credential one leg presents, as a bearer this job may send.
+    /// What one leg's presented credential means to a transport, as one of three arms.
     ///
-    /// `None` for the shared posture, which carries no material: that leg runs under the identity the
-    /// transport already holds. The principal-switch shape never reaches here - [`Self::deliverable`]
-    /// refuses it as [`BigQueryError::NoPrincipalSwitch`] - and its arm stays exhaustive rather than
-    /// wildcarded so a fourth presented shape is a compile error at this line.
-    const fn subject_bearer(presented: &Presented) -> Option<&sutura_domain::identity::Secret> {
+    /// **A total mapping and not a decision**, which is the difference from what this used to be: it
+    /// collapsed two of the three shapes to `None` and left the adapter to refuse one of them
+    /// separately. Every arm now has a spelling, so the question *can this be executed* belongs to
+    /// the transport that would execute it, and the match stays exhaustive rather than wildcarded so
+    /// a fourth presented shape is a compile error at this line.
+    const fn job_identity(presented: &Presented) -> JobIdentity<'_> {
         match presented {
-            Presented::SubjectToken { material } => Some(material),
-            Presented::SubjectPrincipal { .. } | Presented::SharedServiceUser { .. } => None,
+            Presented::SubjectToken { material } => JobIdentity::AsBearer(material),
+            Presented::SubjectPrincipal { name } => JobIdentity::AsPrincipal(name),
+            Presented::SharedServiceUser { .. } => JobIdentity::Transport,
         }
     }
 
@@ -383,15 +380,15 @@ where
     ///
     /// Named rather than inlined at three call sites, because the thing it decides is that the
     /// statement and its values travel in SEPARATE fields - which is the no-injection invariant at the
-    /// point where this adapter would be the one to break it - and that the asking subject's bearer
-    /// (where there is one) rides beside them rather than in the SQL.
+    /// point where this adapter would be the one to break it - and that who the job runs as rides
+    /// beside them rather than in the SQL.
     ///
-    /// `subject_bearer` is the [`Presented::SubjectToken`]'s material extracted by [`Self::subject_bearer`],
-    /// and `None` at the boot path, where there is no caller to present one.
+    /// `identity` is [`Self::job_identity`]'s reading of what the broker presented, and
+    /// [`JobIdentity::Transport`] at the boot path, where there is no caller to present anything.
     fn request<'job>(
         &'job self,
         query: &'job GeneratedQuery,
-        subject_bearer: Option<&'job sutura_domain::identity::Secret>,
+        identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> JobRequest<'job> {
         JobRequest::new(
@@ -399,7 +396,7 @@ where
             query.params(),
             &self.billing_project,
             &self.default_dataset,
-            subject_bearer,
+            identity,
             deadline,
         )
     }
@@ -440,16 +437,16 @@ where
         // No parameters, deliberately, and the no-injection invariant is about exactly this
         // position: a bind parameter carries a VALUE FROM A QUESTION, and there is no question here.
         // What makes the literals safe is that each one was parsed - see `crate::importer`.
-        // And no subject bearer for the same reason: a `CREATE OR REPLACE TABLE` is a thing the
-        // identity this transport already holds does to its own dataset, so handing it a subject's
-        // exchanged token would run a write under whoever last asked a question. And no port
+        // And `JobIdentity::Transport` for the same reason: a `CREATE OR REPLACE TABLE` is a thing
+        // the identity this transport already holds does to its own dataset, so naming a subject
+        // here would run a write as whoever last asked a question. And no port
         // `Deadline`: a fixture load has no caller and no request timeout - the boot path's own shape.
         let request = JobRequest::new(
             &statement,
             &[],
             &self.billing_project,
             &self.default_dataset,
-            None,
+            JobIdentity::Transport,
             JobDeadline::Boot,
         );
         self.transport
@@ -473,15 +470,16 @@ where
     #[cfg(feature = "fixtures")]
     pub fn drop_table(&self, table: &TableName) -> Dropped<T::Error> {
         let statement = crate::importer::Fixture::drop_statement(table);
-        // No parameters and no subject bearer, exactly as the load: a DROP is a thing the identity
-        // this transport already holds does to its own dataset, like the `CREATE` that built it. And
+        // No parameters and `JobIdentity::Transport`, exactly as the load: a DROP is a thing the
+        // identity this transport already holds does to its own dataset, like the `CREATE` that
+        // built it. And
         // no port `Deadline`, for the same reason `load_fixture` carries none.
         let request = JobRequest::new(
             &statement,
             &[],
             &self.billing_project,
             &self.default_dataset,
-            None,
+            JobIdentity::Transport,
             JobDeadline::Boot,
         );
         self.transport
@@ -535,7 +533,6 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
-            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::UnmappedType { .. }
             | BigQueryError::NotAnInteger { .. }
@@ -563,6 +560,11 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// `driver_path` is the on-disk location of the self-built
     /// `libadbc_driver_bigquery.so` (one per release triple, see
     /// `nix/bigquery-adbc.nix`).
+    ///
+    /// `impersonation` is whether this source impersonates and at what scope - the source's declared
+    /// `workload_identity.scope`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here
+    /// rather than read per request because it is a property of the source, and a declared scope the
+    /// driver would refuse then fails before a listener is bound.
     #[must_use]
     pub fn over_adbc(
         source: SourceName,
@@ -570,13 +572,14 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         billing_project: ProjectId,
         default_dataset: DatasetId,
         driver_path: impl Into<String>,
+        impersonation: adbc::Impersonation,
     ) -> Self {
         Self::new(
             source,
             posture,
             billing_project,
             default_dataset,
-            adbc::AdbcBigQuery::new(driver_path),
+            adbc::AdbcBigQuery::new(driver_path, impersonation),
         )
     }
 }
@@ -587,11 +590,19 @@ where
 {
     type Error = BigQueryError<T::Error>;
 
-    /// **How this adapter can carry a subject.** A leg presenting [`Presented::SubjectToken`] or
-    /// [`Presented::SubjectPrincipal`] has somewhere to go: the token rides as this job's bearer so
-    /// the endpoint evaluates under the asker, and a principal name is what the endpoint switches to.
-    /// So a source declared `impersonation-at-source` can be opened here, and [`Self::deliverable`]
-    /// accepts the two subject shapes instead of refusing them.
+    /// **How this adapter can carry a subject, and the limit the variant cannot express.** A leg
+    /// presenting either subject shape has somewhere to go: [`Self::job_identity`] maps both onto a
+    /// [`JobIdentity`] arm, and a source declared `impersonation-at-source` can therefore be opened
+    /// here. What actually executes as the asker is the PRINCIPAL arm, which [`adbc`] delivers
+    /// through the driver's impersonation options; the bearer arm is refused by that transport.
+    ///
+    /// [`ImpersonationCapability`] has two variants and this mechanism is neither of their names -
+    /// nothing a subject possesses arrives, only a principal the deployment becomes on that
+    /// subject's behalf. `PerSubjectCredential` is still the only value that lets
+    /// `deliverable_by` accept the impersonating posture, so it is the right one of the two; the
+    /// crate header states what the mechanism is instead of what the variant is called. Widening the
+    /// domain enum would reach every adapter, and no second reader of this constant needs the
+    /// distinction yet.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
     /// **This is the one adapter that prices a dry run.** [`Self::dry_run`] decodes
@@ -626,7 +637,7 @@ where
         let query = Self::render(executable)?;
         let estimated_bytes = self
             .transport
-            .validate(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
+            .validate(&self.request(&query, Self::job_identity(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Ok(PreFlight::Accepted { estimated_bytes })
     }
@@ -638,7 +649,7 @@ where
         let query = Self::render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
+            .run(&self.request(&query, Self::job_identity(presented), JobDeadline::Port(deadline)))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered)
     }
@@ -660,7 +671,7 @@ where
         let query = generate(plan.plan(), Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })?;
         let answered = self
             .transport
-            .run(&self.request(&query, None, JobDeadline::Boot))
+            .run(&self.request(&query, JobIdentity::Transport, JobDeadline::Boot))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered).map(AnchorRows::of)
     }
@@ -706,7 +717,6 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
-            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::UnmappedType { .. }
             | BigQueryError::NotAnInteger { .. }
@@ -760,7 +770,6 @@ where
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
-            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::UnmappedType { .. }
             | BigQueryError::NotAnInteger { .. }

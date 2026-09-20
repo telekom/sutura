@@ -336,14 +336,20 @@ fn doctor() {
     // **A `cfg!` and not a probe, and it says what was LINKED rather than what is reachable.**
     // Since `github.com/telekom/sutura#685` step 5 the published artefact ships every optional
     // feature (`nix/shipped.nix`'s `features` field on the `sutura` entry), so this line reads
-    // `bigquery, over the wire` there too; a build with the feature off - most narrowly, a plain
+    // `bigquery, over ADBC` there too; a build with the feature off - most narrowly, a plain
     // `cargo build -p sutura-cli` with none passed - is the one that reads `none`. `sutura doctor`
     // is where somebody holding a binary finds out which they have. It is the command the release
     // workflow smoke-tests, which is why it is worth being exact here.
+    //
+    // **It said `over the wire` until this line changed, and that had stopped being true**: the HTTP
+    // transport was deleted and this string was not, so the one command a release smoke-tests named
+    // a transport the binary no longer contained. It still says nothing about whether the driver
+    // `.so` is present - `cfg!` cannot know - which is why the wording is the transport and not a
+    // readiness claim.
     println!(
         "  data systems : {}",
         if cfg!(feature = "bigquery") {
-            "bigquery, over the wire - declare `sources.<alias>.kind: bigquery`"
+            "bigquery, over ADBC - declare `sources.<alias>.kind: bigquery`"
         } else {
             "none - this build reads files, and pushes down to nothing"
         }

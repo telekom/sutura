@@ -503,19 +503,29 @@
           # has each of the four cross-triple `libadbc_driver_bigquery.so` builds as
           # an input and fails if any of them is missing. This is the one place the
           # driver has to build before a PR can be green.
+          #
+          # **It was fail-open and the message was the tell.** The first shape looped
+          # over `$buildInputs` and then printed a literal "all four triples built",
+          # so `buildInputs = [ ]` exited 0 over zero drivers - and so does any
+          # expected count DERIVED from the same list (`0 -eq 0`). The floor is
+          # therefore a literal: four is what `nix/bigquery-adbc-drivers.nix`
+          # declares, and a fifth triple has to fail here until somebody bumps it,
+          # which is the right amount of friction for a release-artefact set.
+          # `attrValues` rather than four hand-written attribute names so this gate
+          # cannot name a driver the driver file no longer builds.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
-            buildInputs = [
-              adbcDrivers.adbc-driver-bigquery-aarch64-unknown-linux-gnu
-              adbcDrivers.adbc-driver-bigquery-aarch64-unknown-linux-musl
-              adbcDrivers.adbc-driver-bigquery-x86_64-unknown-linux-gnu
-              adbcDrivers.adbc-driver-bigquery-x86_64-unknown-linux-musl
-            ];
+            buildInputs = builtins.attrValues adbcDrivers;
           } ''
+            found=0
             for d in $buildInputs; do
               test -f "$d/lib/libadbc_driver_bigquery.so" \
                 || { echo "missing libadbc_driver_bigquery.so in $d" >&2; exit 1; }
+              found=$((found + 1))
             done
-            mkdir -p "$out" && printf 'all four ADBC driver triples built\n' > "$out"
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC driver triples built\n' "$found" > "$out/result"
           '';
 
           # `--all-features` is load-bearing, not thoroughness for its own sake: the

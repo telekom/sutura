@@ -124,7 +124,7 @@ pub(crate) const BUILT_IN_SOURCE: &str = "local";
 pub(crate) enum Opened {
     /// The in-process engine over a directory of files.
     Files(OpenedWith<DataFusionWarehouse>),
-    /// A `BigQuery` dataset, reached over the wire.
+    /// A `BigQuery` dataset, reached through the ADBC driver.
     #[cfg(feature = "bigquery")]
     BigQuery(OpenedWith<bigquery::BigQuerySource>),
     /// A `PostgreSQL` database, reached over the declared channel.

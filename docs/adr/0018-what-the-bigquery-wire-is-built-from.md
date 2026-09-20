@@ -1,16 +1,18 @@
 ---
 title: What the BigQuery wire is built from
-description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, why the REST endpoint over a client already in the graph costs zero new packages, and the consequence that a wire now exists and has been run against a real project - for one hand-built statement first, and since 2026-08-31 for the example corpus, which is a claim 0017's third amendment and the correction in the What is claimed section carry rather than this sentence.
+description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, and why the REST endpoint over a client already in the graph cost zero new packages. Superseded by its own fifth amendment: the transport it chose was deleted for the ADBC driver, and per-subject execution became a principal switch rather than a forwarded credential - which is weaker, and the amendment says how.
 ---
 
 # What the BigQuery wire is built from
 
-Status: **accepted.** The transport is built, feature-gated, linted, tested and audited - and since
-2026-08-30 it has been **run against a real project**, which is the first time anything in this
-repository has had a statement accepted by `BigQuery`. *What is claimed, and what is not* is the
-section at the end, and it is the one to read before taking a green run for more than it is:
-**one hand-built `SUM` was accepted first, and since 2026-08-31 the example corpus has run green
-against a real dataset too.**
+Status: **superseded by this record's own fifth amendment.** The transport this record decided was
+built, feature-gated, linted, tested and audited, and from 2026-08-30 it was **run against a real
+project** - the first time anything in this repository had a statement accepted by `BigQuery`. It has
+since been **deleted**: the ADBC driver is the adapter's only transport, and the `ureq` client, its
+agent, its bounds and its credential and exchange machinery went with it. The DEPENDENCY reasoning
+below is why every wrapper crate was refused and still holds as reasoning; the transport it chose
+does not ship. Read the fifth amendment first, then *What is claimed, and what is not* - the two
+hosted runs this line used to open on are runs of code that is no longer in the tree.
 
 **Corrected:** this status block read *one hand-built `SUM` was accepted, not the corpus* while the
 correction in *What is claimed, and what is not* records the corpus leg as built and run. A record
@@ -903,3 +905,81 @@ after every site below was written. Three, in the base body rather than in an ea
   citing `crates/sutura-cli/src/serve.rs`'s `OpenedSources::BigQuery` - the citation already named the
   post-fold file; only the crate name in the sentence was `sutura-serve`. It is `sutura-cli` linking
   the adapter, through the same type alias, unchanged otherwise.
+
+## Fifth amendment, 2026-09-20: ADBC replaces the wire, and impersonation becomes a principal switch
+
+The `wire` transport is gone. `adbc-drivers/bigquery` (Go, Apache-2.0), self-built per release triple
+by `nix/bigquery-adbc.nix` and pinned at `go/v1.13.0`, is the adapter's only transport, reached
+through `adbc_core` + `adbc_driver_manager` over the C ABI. The driver owns its own HTTP and its own
+authentication, so this crate ships no client and reads no credential file. Everything this record
+prices about the four wrapper crates - `anyhow` in a library, an Arrow major this workspace cannot
+carry - is a property of those crates and is unaffected; what is spent is the `ureq` conclusion it
+ends on.
+
+**The identity claim this record carried has changed mechanism, and the new one is weaker in a way
+that has to be written down.** The wire forwarded the asking subject's exchanged access token as the
+job's own bearer: Google's token service verified the caller's assertion against a workload-identity
+pool, `iamcredentials.generateAccessToken` resolved it to the account the declared per-source map
+named, and the job ran under that account. The pinned ADBC driver has **no option that accepts a
+per-subject access token** - its auth types take a credential file, a credential JSON document, or an
+OAuth client id/secret/refresh-token triple, and its `bigquery.impersonate.*` options build an
+impersonated token source from the process's own application default credentials
+(`go/connection.go`'s `newClient`, which passes no client options to
+`impersonate.CredentialsTokenSource` and replaces any other auth option with it).
+
+So `IMPERSONATION` stays `PerSubjectCredential` and what delivers it is
+`bigquery.impersonate.target_principal`, set per job to the account the declared map names for the
+asking subject. The domain already had the shape for that and already called it the weaker one:
+`Presented::SubjectPrincipal` is *a principal the data system switches to, on a connection the
+DEPLOYMENT authenticated.* The chain is now **leg 1 verifies the caller, this deployment maps the
+verified subject to a declared account, and this deployment's own identity is authorized to become
+it** - so the caller's possession of a credential is checked by sutura and by nobody else on the
+path, and the deployment holds `roles/iam.serviceAccountTokenCreator` on every account it declares.
+`docs/where-identity-is-proven.md` carries what a run would have to show; leg 2 is **not** proven on
+this transport.
+
+### The two alternatives, priced
+
+**Let the driver do the whole federation.** `bigquery.auth_type = json_credential_string` with a
+credential JSON of Google's `external_account` type reproduces the deleted chain exactly, inside the
+driver: the pool audience, the token endpoint and a `service_account_impersonation_url` naming the
+declared account, with the caller's assertion as the subject token. It keeps the property this
+amendment gives up - Google verifies the caller's assertion - and every value it needs is already in
+the settings tree. **The cost is that the subject token has to be on a filesystem path**: in
+`cloud.google.com/go/auth v0.23.2` an external account's `credential_source` is a file, a URL, an
+executable or an AWS metadata endpoint, and the programmatic supplier is a Go-level interface with no
+JSON spelling. That means writing a verified caller's own assertion to disk, once per request, with a
+lifetime nothing in the type system bounds - and `docs/adr/0020` is the record of a repository that
+treats a credential reaching a log as the defect. Refused here, and it is the option to revisit if
+the trust chain matters more than the exposure.
+
+**Add the option upstream.** A driver option taking an already-minted access token
+(`option.WithTokenSource(oauth2.StaticTokenSource(..))`) is about fifteen lines of Go and would let
+sutura keep the exchange in process and hand the result to the driver. It needs the exchange back -
+the deleted `StsOverHttp`/`IamCredentialsOverHttp` hops, or an HTTP client to rebuild them on - so it
+is a larger change than the one this amendment makes, and it belongs upstream rather than as a vendor
+patch (`VENDOR.md` records the three source-level adaptations this build already carries, and a forked
+public option surface is a different kind of debt from a `go.mod` floor relax). An unpatched driver
+refuses an unknown option key rather than ignoring it, so a deployment pointed at an upstream `.so`
+would fail closed - which is what makes this safe to propose and unsafe to assume.
+
+### What else moved with the transport
+
+- `WorkloadIdentityBroker` survives with its ports, its cache, its floor and its claim check, and has
+  **no implementor a composition root can reach** - both hops were the wire's. It is no longer what a
+  served deployment attaches.
+- `sutura serve` attaches `sutura_exec_bigquery::DeclaredPrincipalBroker` instead: the declared
+  subject-to-account map, presented as the identity each job runs as, with a startup refusal for a
+  declaration naming nobody and for the pool expectations `telekom/sutura#817` added, which described
+  an exchange this build does not perform.
+- **Between the transport's deletion and this amendment, a served `impersonation-at-source` `bigquery`
+  source booted clean and was refused on every question.** The posture cross-check passed on
+  `PerSubjectCredential` while the only broker attached was the static one, which holds nothing for an
+  impersonating source. That is the defect this amendment closes, and it is recorded rather than
+  quietly fixed because the shape - a control that reads as present at boot and is absent at request
+  time - is the one this repository treats as worse than an outage.
+- **No release artefact carries a driver.** `nix/shipped.nix` and `nix/oci.nix` publish none, while
+  `SUTURA_BIGQUERY_ADBC_DRIVER` is a hard startup requirement, so `bigquery` is non-functional out of
+  the box on all four triples. And a static musl binary cannot `dlopen` a `.so` at all, so two of the
+  four triples cannot load one however it is shipped. Both are open decisions, not conclusions of this
+  record.

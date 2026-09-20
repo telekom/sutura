@@ -32,8 +32,8 @@ use sutura_domain::warehouse::{ParamValue, Value};
 
 use crate::BigQueryWarehouse;
 use crate::transport::{
-    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobDeadline, JobRequest, JobRows, JobTransport, ListingTotal,
-    ProjectId,
+    Cell, DatasetAddress, DatasetId, Field, FieldType, HeldTables, JobDeadline, JobIdentity, JobRequest, JobRows, JobTransport,
+    ListingTotal, ProjectId,
 };
 
 // ------------------------------------------------------------------------------ the fake ----
@@ -52,7 +52,13 @@ pub(super) struct Asked {
     pub(super) params: Vec<String>,
     pub(super) project: String,
     pub(super) dataset: String,
+    /// The BEARER a job carried, where the leg named one. `None` for a shared leg and for a leg
+    /// that named a principal instead - the two subject shapes are recorded in separate fields
+    /// because a fake collapsing them could not tell "ran as the asker's credential" from "ran as
+    /// the account declared for the asker", which are different mechanisms with different limits.
     pub(super) subject: Option<String>,
+    /// The PRINCIPAL a job named, where the leg named one.
+    pub(super) principal: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
@@ -157,7 +163,14 @@ impl Recording {
             dataset: String::from(request.default_dataset().as_str()),
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
-            subject: request.subject_bearer().map(|secret| String::from(secret.expose_secret())),
+            subject: match request.identity() {
+                JobIdentity::AsBearer(material) => Some(String::from(material.expose_secret())),
+                JobIdentity::AsPrincipal(..) | JobIdentity::Transport => None,
+            },
+            principal: match request.identity() {
+                JobIdentity::AsPrincipal(name) => Some(String::from(name.as_str())),
+                JobIdentity::AsBearer(..) | JobIdentity::Transport => None,
+            },
             deadline: request.deadline(),
         });
     }

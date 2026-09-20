@@ -44,7 +44,7 @@ source build. The unsuffixed image tags at `ghcr.io/telekom/sutura` are this com
 [Building from source](#building-from-source) is at the bottom of this page.
 
 **The published binary carries every optional adapter**, since `github.com/telekom/sutura#685`
-step 5 - `sutura doctor`'s `data systems` line reads `bigquery, over the wire`, and reaching a
+step 5 - `sutura doctor`'s `data systems` line reads `bigquery, over ADBC`, and reaching a
 Postgres or DataHub source needs no separate build either. Nothing below relies on that, though:
 reading local files is enough for every command in this tutorial, up to and including a certified
 answer with its anchors re-executed. `just shipped` is what asserts what a release carries, out of

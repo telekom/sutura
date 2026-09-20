@@ -138,7 +138,7 @@ column only points a reader of the venues table at it.
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` | - |
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built | - |
-| **A served binary under a verified human caller** | nowhere yet | a provisioned WIF pool whose IdP issues subjects the declared map names, a project granting them `iam.workloadIdentityUser`, and a hosted run to demand it | not built | "that a human subject's own identity reaches the source" |
+| **A served binary under a verified human caller** | nowhere yet | a project with one service account per declared subject, the deployment's own identity granted `roles/iam.serviceAccountTokenCreator` on each, an IdP issuing the subjects the declared map names, and a hosted run to demand it | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -266,9 +266,13 @@ establishing who is asking and the other about what is minted for them.
 
 **What the two exchange-chain tests do NOT reach, and it is unchanged by them:** the fake at the port
 is a fake, so nothing here says a real authorization server accepts that document - that stays the
-last venue's only claim. And they are router tests rather than composed-binary ones for the reason
-below: this composition root refuses to boot an `impersonation-at-source` source while no shipped
-broker exchanges for one, so the binary cannot host them at all.
+last venue's only claim. And they are router tests rather than composed-binary ones because they are
+about the EXCHANGING broker, which no composition root can build: its two HTTP hops went away with
+the BigQuery `wire` transport. **What the served root attaches instead is
+`DeclaredPrincipalBroker`**, which presents the principal a source declared for the asking subject
+rather than a credential exchanged for them - so a `bigquery` source declared
+`impersonation-at-source` now boots, and these two tests are still about a broker the binary cannot
+host.
 
 ### And on the composed binary, which is a different claim from any of the above
 
@@ -321,10 +325,13 @@ blocking read with a budget rather than a sweep: the record is not ordered again
 
 **What the composed binary cannot host, and why the tests above stay at the router:** the key-set
 windows cannot be shortened from a settings file, so the rotation and rate-limit bounds would mean a
-test sleeping for the shipped minute; and the exchange half needs a source declared
-`impersonation-at-source`, which this composition root refuses to boot while no shipped broker
-exchanges for one. Those two are the honest reason `credential_unavailable_is_reachable_end_to_end`
-and `two_subjects_drive_two_different_exchanged_credentials` are router tests rather than binary ones.
+test sleeping for the shipped minute; and the exchange half needs the exchanging broker, which has no
+implementor a composition root can reach since the BigQuery `wire` transport was deleted. Those two
+are the honest reason `credential_unavailable_is_reachable_end_to_end` and
+`two_subjects_drive_two_different_exchanged_credentials` are router tests rather than binary ones.
+**The sentence this replaced said the root refuses to boot an `impersonation-at-source` source, and
+that stopped being true**: the served root attaches `DeclaredPrincipalBroker` to a declared
+`bigquery` source, so such a deployment boots - what it cannot host is a test about an EXCHANGE.
 
 **And the line the transport crate draws, because it decides which fixture a new test should reach
 for:** a test that goes through the **router** mints from this venue, through the shared helpers in
@@ -470,19 +477,67 @@ of this page.
 
 ## A served binary under a verified human caller
 
-**This venue runs nowhere yet, in the sense that decides what its column may claim: no job invokes
-it and no green run has been observed, so its one claim is `-` until a run is demanded.** The cell
-this row would earn is what a green `bigquery-exchanged-identity` run cannot touch - a SERVED binary
-answering under the declared per-source map: it boots with `security.inbound`, a verified human
-caller whose full `sub` is a declared map key is granted through the bigquery source (the hop ran,
-not the shared identity), and an undeclared caller is refused at the broker door before anything is
-exchanged. The standing cell is
-`served/e2e.rs::a_served_binary_executes_a_verified_human_caller_as_the_declared_account`,
-`#[ignore]`d - it needs the provisioned WIF pool plus the IdP-to-SA `iam.workloadIdentityUser`
-grant, and it will not run locally. **The raw `SESSION_USER() == declared SA` string stays the
-exchange venue's `exchanged_identity.rs` cell**: it is unreachable over `/v1/sql/run`, because
-`BigQueryWarehouse` keeps `ACCEPTS_RAW_STATEMENTS = false`, so the served surface's observable is
-the granted answer's `executed_as: impersonation-at-source`, not the raw account.
+**This venue runs nowhere, and there is no standing cell in it.** No job invokes it, no green run has
+been observed, and the two ignored cells that used to stand here - one in the served suite for the
+declared account and one in the exchange suite for the `SESSION_USER()` read - were deleted with the
+BigQuery `wire` transport and its hosted exchanged-identity workflow. They are not named here,
+because a citation of a test this workspace no longer contains is a citation of nothing and
+`cargo xtask check-venues` refuses one. So this venue's one claim is `-` until both a cell and a run
+exist again.
+
+### What leg 2 now needs, precisely
+
+The bar is the one the withdrawn venue met and not a weaker one: **one run in which two distinct
+verified subjects resolve to two distinct BigQuery principals, observed at the data system.** What
+changed is only the mechanism under it, so most of the provisioning still applies and one part of it
+does not.
+
+**Still applies.** One service account per declared subject, in one project, with the dataset grants
+that make the two accounts read different rows. The oracle is unchanged and it is
+`SELECT SESSION_USER()`, which `sutura_exec_bigquery::SessionUser` already reads back: it resolves to
+the impersonated account's own address rather than a `principal://` string, which is what
+`telekom/sutura#376`'s `iamcredentials.generateAccessToken` hop bought and what this transport's
+`bigquery.impersonate.target_principal` also goes through. The settings shape is unchanged too - the
+declared `workload_identity.impersonate` map, keyed on each subject's full verified `sub`.
+
+**No longer applies.** The Workload Identity Federation pool and OIDC provider
+(`test-infra/pulumi/google/__main__.py`, its `issuer_uri` configuration, and the
+`roles/iam.workloadIdentityUser` binding from the pool subject to each account). Nothing in this
+build exchanges a subject's token against a pool: `sutura serve` attaches
+`DeclaredPrincipalBroker`, which reads the verified subject and answers with a NAME, and the driver
+impersonates that account from the deployment's own application default credentials. The grant that
+replaces the pool binding is **`roles/iam.serviceAccountTokenCreator`, held by the deployment's own
+identity on each declared account.** That is a smaller and a *broader* grant at once - smaller
+because no federation is provisioned, broader because the deployment can become any declared account
+without a caller present, which is the limit `crates/sutura-exec-bigquery/src/lib.rs` states beside
+the claim and `docs/adr/0018`'s fifth amendment prices.
+
+**The run, as something somebody can execute.** A hosted job, in an environment holding a project
+and an IdP, that:
+
+1. provisions two service accounts and grants the job's own identity
+   `roles/iam.serviceAccountTokenCreator` on both;
+2. builds `sutura serve` with the `bigquery` feature, points `SUTURA_BIGQUERY_ADBC_DRIVER` at a
+   driver `.so` for the runner's triple (`nix build .#adbc-driver-bigquery-x86_64-unknown-linux-gnu`),
+   and declares one `bigquery` source `impersonation-at-source` whose `impersonate` map names both
+   subjects;
+3. asks one question as each of two verified callers and asserts the two answers differ in the way
+   the two accounts' dataset grants make them differ;
+4. carries a control leg proving the deployment's own identity is NEITHER account, because without it
+   a run in which both callers were answered as the deployment passes.
+
+**What that run would still not prove**, and it is the same exclusion the withdrawn venue carried in
+a different place: nothing about a caller's own possession of a credential at the data system. The
+caller's token is verified by this deployment and by nobody else on the path. A run can show two
+subjects resolving to two principals; it cannot show that a forged subject would have been stopped by
+anything other than leg 1.
+
+**And the observable over the served surface is narrower than the oracle.** `SELECT SESSION_USER()`
+is not reachable over `/v1/sql/run` - `BigQueryWarehouse` keeps `ACCEPTS_RAW_STATEMENTS = false` - so
+a served-binary cell reads the granted answer's `executed_as: impersonation-at-source` and the ROWS,
+never the account. The account is readable only through `SessionUser`, which is an adapter-level call
+with no HTTP route, so the two halves of this claim need two cells: one at the adapter for *which
+account* and one at the served binary for *which rows*.
 
 ## Keeping this page honest
 

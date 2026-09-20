@@ -57,8 +57,8 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// posture this adapter cannot deliver; the `impersonation-at-source` posture, which this binary
-/// attaches no exchanging broker for; a missing `SUTURA_BIGQUERY_ADBC_DRIVER`; and a project or
-/// dataset id the transport will not accept.
+/// attaches no broker for; a missing `SUTURA_BIGQUERY_ADBC_DRIVER`; and a project or dataset id the
+/// transport will not accept.
 #[cfg(feature = "bigquery")]
 pub(super) fn open(
     source: &SourceName,
@@ -92,16 +92,18 @@ pub(super) fn open(
         .posture()
         .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(|cause| render(&cause))?;
-    // **The adapter can carry a subject, and this composition root wires no broker that mints one.**
-    // The driver would execute whatever it is configured to authenticate as; refused here so an
-    // operator fixes the posture rather than believe a subject's authorization was evaluated.
+    // **The adapter can carry a subject, and this composition root wires no broker that names one.**
+    // `sutura serve` attaches `DeclaredPrincipalBroker`; this command attaches only the static
+    // broker, so the driver would execute whatever it is configured to authenticate as. Refused here
+    // so an operator fixes the posture rather than believe a subject's authorization was evaluated.
     match *identity.posture() {
         sutura_domain::source::SourcePosture::SharedServiceUser { .. } => {}
         sutura_domain::source::SourcePosture::ImpersonationAtSource => {
             return Err(format!(
-                "`sources.{source}` is `impersonation-at-source`, and the `sutura` command does not \
-                 attach a broker that exchanges a subject's credential - refusing rather than reading \
-                 every row as this process; no fallback"
+                "`sources.{source}` is `impersonation-at-source`, and the `sutura` command attaches \
+                 no broker that names the principal a subject executes as - refusing rather than \
+                 reading every row as this process; no fallback. `sutura serve` is the root that \
+                 attaches one"
             ));
         }
     }
@@ -124,6 +126,11 @@ pub(super) fn open(
         project,
         dataset,
         driver_path,
+        // `Disabled`, and the match above is what makes that the whole truth here rather than a
+        // default: this command refuses `impersonation-at-source` by name, so the only posture that
+        // reaches this line is the shared one. A transport that could impersonate would be one this
+        // root attaches no broker to name a principal with.
+        sutura_exec_bigquery::adbc::Impersonation::Disabled,
     );
     Ok(Opened::BigQuery(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
@@ -417,8 +424,9 @@ mod tests {
         // the whole point of `deliverable_by` being called per adapter rather than per deployment.
         // `sutura-exec-bigquery` declares `PerSubjectCredential`, so the capability half PASSES for an
         // `impersonation-at-source` entry. What cannot happen is the COMPOSITION's half: this command
-        // attaches no broker that exchanges a subject's credential, so answering would read every row
-        // as this process while the declaration promised a subject's authorization was evaluated.
+        // attaches no broker that names the principal a subject executes as, so answering would read
+        // every row as this process while the declaration promised a subject's authorization was
+        // evaluated. `sutura serve` attaches one; this root is the other binary.
         //
         // **Refused BEFORE the credential file is read**, and the last assertion is what pins that
         // order: a posture the composition cannot honour is not worth a filesystem read, and an
@@ -438,7 +446,7 @@ mod tests {
         .expect_err("an impersonating posture with no exchanging broker must not answer");
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
         assert!(
-            error.contains("does not attach a broker"),
+            error.contains("attaches no broker"),
             "the refusal must say the composition is the gap, not the adapter: {error}"
         );
         assert!(

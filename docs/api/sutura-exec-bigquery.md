@@ -49,27 +49,39 @@ links none of this.
 
 # Identity
 
-`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, which is what makes a source
-executed as the asking subject representable here: the credential a broker mints for the asker is
-carried as a `Presented::SubjectToken` and sent as this job's bearer. **The ADBC transport does
-not yet do that** - `adbc::AdbcBigQuery::run` REFUSES a request carrying a `subject_bearer`
-until the driver's `bigquery.impersonate.*` threading is live, rather than executing under the
-driver's ambient credential while the type says otherwise (review telekom/sutura#913). Per-subject
-execution is therefore not reachable on this transport today.
+`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, and the mechanism that makes it
+true is a **principal switch** rather than a forwarded credential. A
+`Presented::SubjectPrincipal` names the service account this subject's query is to execute as;
+`adbc` sets it as the job's impersonation target through the driver's own
+`bigquery.impersonate.*` options, so the data system evaluates the statement as that account and
+`SessionUser` reads its address back. `DeclaredPrincipalBroker` is what resolves a verified
+subject to the account a source declared for it, and a subject the declaration does not name is
+refused rather than answered as the deployment.
 
-**ONE of the two subject shapes, and the other is refused rather than degraded.** A
-`Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
-DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
-subject token, so `Presented::agrees_with` passes it
-and only this adapter can say it has nowhere to put it. `BigQueryError::NoPrincipalSwitch` is
-that refusal, and the reason it is a refusal is the reason the whole-shape `NoPlaceForASubject`
-it replaced existed: a leg accepted here would be submitted under the transport's own credential
-while provenance, read off this source's posture, reported the answer as impersonated.
+**What that does NOT do, stated beside the claim.** The asking subject's own credential never
+reaches the data system. The connection is the one this deployment authenticated; the subject's
+verified identity only SELECTS which declared principal the job runs as. Two consequences, both
+real: the deployment holds `roles/iam.serviceAccountTokenCreator` on every principal it declares,
+and leg 1 - this deployment's own verification of the caller - is therefore the only thing
+between a caller and any of those principals. The withdrawn HTTP transport had a longer chain,
+because Google's own token service verified the caller's assertion against a workload-identity
+pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
+fifth amendment is the record, with the two alternatives that were priced against this one.
 
-**What no version of this is:** a deployment where a served source executes as its asker. The
-served composition root attaches only the static broker now - the STS exchange hops that built the
-served impersonation broker were part of the removed `wire` half - so `sutura serve` refuses an
-`impersonation-at-source` `bigquery` entry at the posture cross-check.
+**The other subject shape is refused rather than degraded.** A `Presented::SubjectToken` is
+credential material for a transport to present as this job's bearer. The pinned ADBC driver has
+no option that accepts one - its auth types take a credential FILE, a credential JSON document or
+an OAuth refresh token, and its impersonation options start from the process's own application
+default credentials - so `adbc` refuses that arm rather than dropping the material and running
+under the driver's own identity, which would report an answer as impersonated that ran as the
+process. Both shapes are one POSTURE to `Presented::agrees_with`, so only a transport can tell
+them apart, and `transport::JobIdentity` is where it does.
+
+**What no version of this is, yet:** a served deployment that has been OBSERVED answering under
+its asker. The composition is built - `sutura serve` attaches `DeclaredPrincipalBroker` to a
+declared `impersonation-at-source` `bigquery` source - and no hosted run has yet resolved two
+subjects to two accounts through this transport. `docs/where-identity-is-proven.md` carries what
+may be cited and what may not.
 
 # Two things this adapter deliberately does not offer
 
@@ -105,19 +117,6 @@ an owned `#[source]`.
   **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
   leg run with nothing above it returns rows at a finer grouping than the question asked for,
   which is a wrong number under a certified name.
-- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and there is no such mechanism here.
-
-  **The narrow half of a refusal that used to be wholesale, and it has to stay refused.** This
-  adapter declares `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
-  `SubjectToken` rides as this job's bearer, so the
-  dataset evaluates the statement under whoever the token is. `BigQuery` has no proxy-user or
-  `SET ROLE` equivalent for a `SubjectPrincipal`,
-  so a leg carrying one has no material to send - and
-  `agrees_with` passes it, because the two shapes are
-  the same POSTURE. Accepting
-  it would submit the job under the credential the transport already holds while provenance,
-  read off this source's posture, reported the answer as impersonated: every row as the
-  process, recorded as the asker.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `UnmappedType` - A column came back as a type this adapter does not map.
 
@@ -258,7 +257,7 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
-pub fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver_path: impl Into<String>) -> Self
+pub fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver_path: impl Into<String>, impersonation: adbc::Impersonation) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
@@ -266,6 +265,11 @@ Opens a dataset over the ADBC transport.
 `driver_path` is the on-disk location of the self-built
 `libadbc_driver_bigquery.so` (one per release triple, see
 `nix/bigquery-adbc.nix`).
+
+`impersonation` is whether this source impersonates and at what scope - the source's declared
+`workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
+rather than read per request because it is a property of the source, and a declared scope the
+driver would refuse then fails before a listener is bound.
 
 ```rust
 pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
@@ -338,6 +342,40 @@ What one load answers with: the row count, or why it did not happen.
 Named because `Result<usize, FixtureNotLoaded<T::Error>>` is over the `type_complexity` threshold
 this workspace tightened, and for the reason `crate::Mapped` is named: the generic error is the
 point, and erasing it would lose which transport failed.
+
+## `use DeclaredPrincipalBroker`
+
+Presents the principal a source declared for the asking subject, and the operator's witness for a
+shared one.
+
+**Both maps, because one plan may read one of each and a broker is per answer rather than per
+source** - the same reason `crate::WorkloadIdentityBroker` holds two.
+
+## `use DeclaredPrincipals`
+
+The subjects one source may be asked as, and the account each of them resolves to.
+
+**A parsed type and not a bare map, because the empty map is the interesting value.** An
+impersonating source with no declared subject can serve nobody: every request would be refused,
+while the boot log said the source opened. That is the exact defect this whole change exists to
+remove, so the emptiness is refused at the boundary that can turn it into a startup failure
+rather than documented at the one that cannot.
+
+## `use DeclaredPrincipalsUnusable`
+
+A defect in this broker itself, which no configuration reaches.
+
+Stated rather than unwrapped for `sutura_config::StaticCredentialsUnusable`'s reason: the one
+thing minting can fail on is a credential set that does not cover the sources it was asked
+about, and this broker builds its map from that same set. `unwrap_used` is denied and a panic
+here would be process death under `panic = "abort"` for a case a type already describes.
+
+## `use NoDeclaredPrincipals`
+
+Why a declared impersonation map is not one a source can be served under.
+
+One variant, and an enum for the reason every other error in this crate is one: a second reason
+has somewhere to go.
 
 ## `use ImpersonateAsAccount`
 
@@ -449,6 +487,20 @@ Behind the crate's default-off `adbc` feature, like the `wire`: the native
 driver and its Arrow graph are a per-triple addition a lean build should not
 link. Off is not hidden - every gate passes `--all-features`.
 
+# Who a job runs as
+
+One of the driver's own options, and `identity` is where the whole decision lives and is
+asserted: a `JobIdentity::AsPrincipal` becomes
+`bigquery.impersonate.target_principal`, so the data system evaluates the statement as the
+account a source declared for that subject. A shared leg sends no impersonation option and runs
+as the process. A bearer is REFUSED - the pinned driver has nowhere to put one - rather than
+dropped, which would run somebody else's question under this deployment's identity.
+
+**Nothing is shared between two jobs.** The driver handle, the database and the connection are
+locals of `AdbcBigQuery::connect`, built from one request's own options; the endpoint itself
+owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
+here - stated with its limit in `AdbcBigQuery`'s own documentation.
+
 ### `enum AdbcError`
 
 ```rust
@@ -464,6 +516,13 @@ Why the ADBC transport could not answer.
 - `Batch` - A result batch could not be read from the stream.
 - `Decode` - The result set could not be decoded into the adapter's own shape.
 - `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
+- `UnusableTarget` - A leg named a principal that is not an account this transport can ask the driver to become.
+
+  **Its own variant rather than an `Self::Uncovered` string**, because the two say different
+  things to whoever reads them: `Uncovered` is *this transport does not do that*, which is a
+  fact about the driver, and this is *the declaration named something unsendable*, which is a
+  fact about a settings file. The cause carries a position and never the value - see
+  `identity::UnusableIdentityOption`.
 
 #### Implements
 
@@ -477,17 +536,64 @@ pub struct AdbcBigQuery
 
 A `BigQuery` endpoint over ADBC.
 
+**Two owned values and nothing else, which is load-bearing rather than tidy.** There is no
+connection here, no database handle and no token: `Self::connect` builds all three per job from
+that job's own request and drops them with it. That is what keeps one subject's principal off
+another subject's query - not a check, but the absence of anything two jobs could share.
+
+**The limit beside it:** nothing in the type system forbids a future field from holding a
+connection, and a pool keyed on anything but the identity would be exactly the cross-user leak
+this shape avoids. `identity::tests::one_subjects_principal_never_appears_in_the_next_subjects_options`
+is the cell that dies if the option list starts being memoised; a *connection* cache would need
+its own.
+
 #### Methods
 
 ```rust
-pub fn new(driver_path: impl Into<String>) -> Self
+pub fn new(driver_path: impl Into<String>, impersonation: Impersonation) -> Self
 ```
 
-Names the driver `.so` a composition root resolves to load.
+Names the driver `.so` a composition root resolves to load, and whether this source
+impersonates.
 
 #### Implements
 
 `JobTransport`
+
+### `use Impersonation`
+
+Whether this source impersonates at all, and at what scope when it does.
+
+**A two-variant type rather than an `Option<ImpersonationScopes>`, because the absence is a
+DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
+`workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
+which of these a transport holds is decided once, at composition, from a value an operator wrote.
+`None` would have needed a reader to decide what a missing scope permits, and the honest answer
+(*invent the client library's default and hope*) is what this type exists not to do.
+
+### `use ImpersonationScopes`
+
+The scopes an impersonated credential is minted for, as the driver takes them.
+
+**One declared scope and not a list**, because that is what a source declares
+(`sources.<alias>.workload_identity.scope`) and because the driver's own parsing of this option
+is a comma split - so a type that accepted several would have to render the separator the parse
+below refuses. A deployment needing two scopes is a change to the settings tree first.
+
+### `use TargetAccount`
+
+The account one job is executed as.
+
+A newtype rather than a `&str` for the reason every identifier in this crate is one: it reaches a
+request, so *an instance exists* has to mean *this is sendable*.
+
+### `use UnusableIdentityOption`
+
+Why a value this transport was about to send is not one it can send.
+
+**Positions, never the value**, for the reason `sutura_config`'s own refusal about the same text
+carries one: these are operator-written strings on their way into a request, and neither a log
+nor an error body is a place for them.
 
 ### `use Reported`
 
@@ -643,6 +749,51 @@ reads as exactly the regression it would be.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `enum JobIdentity`
+
+```rust
+pub enum JobIdentity<'job>
+```
+
+Which identity one job is to be executed as.
+
+**Three variants and not an `Option<&Secret>`, because there are three ways a leg can name who
+runs it and the previous shape could spell only two.** The domain presents three shapes
+(`sutura_domain::identity::Presented`) and this is their transport-side image, one to one - so
+the mapping in `BigQueryWarehouse` is total and a transport's own `match` is exhaustive. Under the
+old `Option` a principal switch had no spelling at all, which is why the adapter had to refuse it
+one layer above rather than let the transport answer for it.
+
+**A transport declares which arms it can serve by refusing the others**, and the two subject arms
+are genuinely different capabilities rather than one with a formatting choice: a bearer is
+credential material the transport presents, and a principal is a name the transport asks the data
+system to become on a connection the DEPLOYMENT authenticated. `docs/adr/0008` part 4 is why the
+weaker of those is its own shape and not a field on the stronger one.
+
+`Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
+
+#### Variants
+
+- `Transport` - Whatever identity the transport itself already holds.
+
+  The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
+  "no caller" means to a request.
+- `AsPrincipal` - A principal the transport directs the data system to execute this job as.
+
+  **The asking subject's identity, and NOT the asking subject's credential.** The connection is
+  still the one the deployment authenticated; what changes per job is the principal the data
+  system evaluates the statement as. `crate::adbc` serves this arm, and its module
+  documentation states exactly what that buys and what it does not.
+- `AsBearer` - The asking subject's own credential, for a transport that can present one as this job's bearer.
+
+  No transport in this crate serves this arm today - `crate::adbc` refuses it rather than
+  dropping the material and running under its own identity, which would report an answer as
+  impersonated that ran as the process.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
 ### `struct JobRequest`
 
 ```rust
@@ -681,6 +832,17 @@ dataset beside the SQL, so a bare backticked table name resolves there. The gene
 same shape it emits for every other dialect.
 
 ```rust
+pub const fn identity(&self) -> JobIdentity<'_>
+```
+
+Who this job is to be executed as.
+
+**This is the half that makes a `BigQuery` source execute as the asker**, and which of
+`JobIdentity`'s arms a leg carries is decided once, above, from what the broker presented -
+never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
+ignored it would answer as itself while provenance reported the asker.
+
+```rust
 pub const fn params(&self) -> &[ParamValue]
 ```
 
@@ -694,19 +856,6 @@ pub const fn statement(&self) -> &str
 ```
 
 The statement, with its values still absent from it.
-
-```rust
-pub const fn subject_bearer(&self) -> Option<&Secret>
-```
-
-The asking subject's own credential, where the leg carried one.
-
-**This is the half that makes a `BigQuery` source execute as the asker.** A
-`Presented::SubjectToken` carries the
-credential a broker minted for the asking subject - an exchanged Google access token scoped
-to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
-evaluates the statement under whoever the token says. `None` for the shared posture, whose
-leg runs under the identity the transport itself already holds.
 
 #### Implements
 

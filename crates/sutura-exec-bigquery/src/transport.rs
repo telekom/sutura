@@ -62,6 +62,45 @@ pub enum JobDeadline {
     Boot,
 }
 
+/// Which identity one job is to be executed as.
+///
+/// **Three variants and not an `Option<&Secret>`, because there are three ways a leg can name who
+/// runs it and the previous shape could spell only two.** The domain presents three shapes
+/// ([`sutura_domain::identity::Presented`]) and this is their transport-side image, one to one - so
+/// the mapping in `BigQueryWarehouse` is total and a transport's own `match` is exhaustive. Under the
+/// old `Option` a principal switch had no spelling at all, which is why the adapter had to refuse it
+/// one layer above rather than let the transport answer for it.
+///
+/// **A transport declares which arms it can serve by refusing the others**, and the two subject arms
+/// are genuinely different capabilities rather than one with a formatting choice: a bearer is
+/// credential material the transport presents, and a principal is a name the transport asks the data
+/// system to become on a connection the DEPLOYMENT authenticated. `docs/adr/0008` part 4 is why the
+/// weaker of those is its own shape and not a field on the stronger one.
+///
+/// `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
+#[derive(Debug, Clone, Copy)]
+pub enum JobIdentity<'job> {
+    /// Whatever identity the transport itself already holds.
+    ///
+    /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
+    /// "no caller" means to a request.
+    Transport,
+    /// A principal the transport directs the data system to execute this job as.
+    ///
+    /// **The asking subject's identity, and NOT the asking subject's credential.** The connection is
+    /// still the one the deployment authenticated; what changes per job is the principal the data
+    /// system evaluates the statement as. [`crate::adbc`] serves this arm, and its module
+    /// documentation states exactly what that buys and what it does not.
+    AsPrincipal(&'job sutura_domain::identity::PrincipalName),
+    /// The asking subject's own credential, for a transport that can present one as this job's
+    /// bearer.
+    ///
+    /// No transport in this crate serves this arm today - [`crate::adbc`] refuses it rather than
+    /// dropping the material and running under its own identity, which would report an answer as
+    /// impersonated that ran as the process.
+    AsBearer(&'job Secret),
+}
+
 /// One query job, as this adapter asks for it.
 ///
 /// Borrowed rather than owned throughout: it is built per call, handed to one transport, and dropped.
@@ -72,7 +111,7 @@ pub struct JobRequest<'job> {
     params: &'job [ParamValue],
     billing_project: &'job ProjectId,
     default_dataset: &'job DatasetId,
-    subject_bearer: Option<&'job Secret>,
+    identity: JobIdentity<'job>,
     deadline: JobDeadline,
 }
 
@@ -96,7 +135,7 @@ impl<'job> JobRequest<'job> {
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
         default_dataset: &'job DatasetId,
-        subject_bearer: Option<&'job Secret>,
+        identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> Self {
         Self {
@@ -104,7 +143,7 @@ impl<'job> JobRequest<'job> {
             params,
             billing_project,
             default_dataset,
-            subject_bearer,
+            identity,
             deadline,
         }
     }
@@ -126,18 +165,16 @@ impl<'job> JobRequest<'job> {
         self.params
     }
 
-    /// The asking subject's own credential, where the leg carried one.
+    /// Who this job is to be executed as.
     ///
-    /// **This is the half that makes a `BigQuery` source execute as the asker.** A
-    /// [`Presented::SubjectToken`](sutura_domain::identity::Presented::SubjectToken) carries the
-    /// credential a broker minted for the asking subject - an exchanged Google access token scoped
-    /// to that subject - and the transport sends it as its bearer for THIS job, so the endpoint
-    /// evaluates the statement under whoever the token says. `None` for the shared posture, whose
-    /// leg runs under the identity the transport itself already holds.
+    /// **This is the half that makes a `BigQuery` source execute as the asker**, and which of
+    /// [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented -
+    /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
+    /// ignored it would answer as itself while provenance reported the asker.
     #[inline]
     #[must_use]
-    pub const fn subject_bearer(&self) -> Option<&Secret> {
-        self.subject_bearer
+    pub const fn identity(&self) -> JobIdentity<'_> {
+        self.identity
     }
 
     /// Which clock this call answers to. See [`JobDeadline`] and the constructor's own doc for what
