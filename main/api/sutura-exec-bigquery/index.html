@@ -1081,6 +1081,8 @@
       
         
       
+        
+      
     
     
     
@@ -1485,6 +1487,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-clickhouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sutura-tls/" class="md-nav__link">
         
   
@@ -1854,8 +1884,12 @@ an owned <code>#[source]</code>.</p>
 <ul>
 <li><code>Endpoint</code> - The endpoint did not answer.</li>
 <li><code>Render</code> - The plan would not render.</li>
-<li><code>LegWithoutCombiner</code> - A federated leg arrived, and there is nothing above it to combine legs.</li>
+<li><code>UnresolvableConnection</code> - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.</li>
 </ul>
+<p><strong>Unreachable in practice</strong>: see <code>UnresolvableConnection</code>'s own documentation for why. A
+  typed variant rather than a panic for the same reason every other "unreachable" case in
+  this workspace is one - the input reaching it is not bounded by the type system alone.
+- <code>LegWithoutCombiner</code> - A federated leg arrived, and there is nothing above it to combine legs.</p>
 <p><strong>A refusal to execute rather than an execution</strong>, worded as <code>sutura-exec-duckdb</code> words it: a
   leg run with nothing above it returns rows at a finer grouping than the question asked for,
   which is a wrong number under a certified name.
@@ -1996,6 +2030,14 @@ nothing that federates.</p>
 Nothing here quotes what came back: see that variant.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="use-unresolvableconnection"><code>use UnresolvableConnection</code><a class="headerlink" href="#use-unresolvableconnection" title="Permanent link">&para;</a></h2>
+<p>Why this connection's own billing project could not be read as the domain's project vocabulary.</p>
+<p><strong>Unreachable in practice, and a typed branch rather than an <code>.expect()</code> because a panic here
+would be reachable from a live query, not just a catalog file.</strong>
+<code>sutura_config::sources::placement::BillingProject::parse</code> accepts 6 to 30 characters of
+<code>[a-z0-9-]</code>, starting with a letter and never ending in a hyphen - a strict subset of what
+<code>ProjectName::parse</code> accepts, so a billing project that reached this adapter at all already
+satisfies it.</p>
 <h2 id="use-sessionuser"><code>use SessionUser</code><a class="headerlink" href="#use-sessionuser" title="Permanent link">&para;</a></h2>
 <p>An endpoint identity answer whose <code>Debug</code> never renders its contents.</p>
 <p><code>Self::as_str</code> and <code>Display</code> expose the unchanged answer. This is a <code>Debug</code> boundary,

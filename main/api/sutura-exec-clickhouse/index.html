@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-catalog-openmetadata/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-exec-clickhouse/">
       
       
-        <link rel="prev" href="../sutura-catalog-okf/">
+        <link rel="prev" href="../sutura-exec-postgres/">
       
       
-        <link rel="next" href="../sutura-catalog-rdbms/">
+        <link rel="next" href="../sutura-tls/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>sutura-catalog-openmetadata - sutura</title>
+        <title>sutura-exec-clickhouse - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sutura-catalog-openmetadata" class="md-skip">
+        <a href="#sutura-exec-clickhouse" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              sutura-catalog-openmetadata
+              sutura-exec-clickhouse
             
           </span>
         </div>
@@ -1250,19 +1250,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-openmetadata/" class="md-nav__link">
         
   
   
@@ -1278,7 +1269,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -1484,10 +1474,19 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../sutura-exec-clickhouse/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1503,6 +1502,7 @@
   
 
       </a>
+      
     </li>
   
 
@@ -1790,255 +1790,257 @@
      Edit the doc comments in the crate source instead, then regenerate.
      The commands are on the API reference landing page. -->
 
-<h1 id="sutura-catalog-openmetadata">sutura-catalog-openmetadata<a class="headerlink" href="#sutura-catalog-openmetadata" title="Permanent link">&para;</a></h1>
-<p>The public API of <code>sutura-catalog-openmetadata</code>, rendered from rustdoc JSON.</p>
-<p>A <code>SemanticCatalog</code> over an <code>OpenMetadata</code> deployment: the richest of the three measured metadata
-sources, and still a <strong>declaring</strong> one.</p>
-<p><code>docs/what-openmetadata-can-carry.md</code> is the finding that decides this adapter's whole shape.
-<code>OpenMetadata</code> carries a typed metric entity and declared relationship cardinality - both richer
-than <code>DataHub</code> or <code>Frictionless Table Schema</code> - but keeps <strong>two half-a-definition slots</strong>: a measure's
-aggregation-to-column binding lives in <code>measures[].expression</code> / <code>metricExpression.code</code> as free
-text in a dialect set (<code>SQL</code>/<code>Java</code>/<code>JavaScript</code>/<code>Python</code>/<code>External</code>) that does not intersect this
-repository's typed <code>Term</code>, and the required filter is a raw SQL <code>where</code>. ADR 0016's refusal fires
-on both: a measure carried as a raw expression string is half a definition, and taking it would
-certify a foreign dialect's free text.</p>
-<p>So this adapter is a <code>CatalogKind::Declaring</code> source that provides the physical model, the
-descriptions, and the declared non-duplicating joins, and treats the kind it cannot faithfully
-express exactly as the finding says: a metric whose measure is an expression string is
-<strong>reported and not defined</strong> - its <code>metricType</code> is decidable but its bound column is not
-resolvable from the foreign text, so it is decoded and set aside, never minted into a domain
-<code>Measure</code>. <code>capabilities()</code> declares the deployment-dependent kinds (<code>Metrics</code>, <code>Grains</code> reached
-through those metrics, and <code>Cardinality</code> observed only through a dimension reached via a
-relationship) as <strong>declared-and-empty may-provide kinds</strong>, the 0011 state
-<code>DefinitionCapabilities::of_may_provide</code> exists for.</p>
-<h1 id="what-is-built-here-and-what-is-not">What is built here, and what is NOT<a class="headerlink" href="#what-is-built-here-and-what-is-not" title="Permanent link">&para;</a></h1>
-<p>This crate contains everything <code>OpenMetadataCatalog</code> DECIDES about the documents a reader
-extracts. It is tested against a fake reader that serves recorded documents - the port gets a fake,
-not mocked HTTP. <code>SnapshotReader</code> is the seam a real reader over <code>OpenMetadata</code>'s <code>REST</code> API
-(<code>/api/v1/tables</code>, <code>/api/v1/metrics</code>, …) implements, with a bearer credential; that HTTP reader is
-deliberately NOT in this first PR, so the crate stays green (a service has no network in the nix
-sandbox). The <code>http</code> reader + the live provisioned leg are the recorded follow-up.</p>
-<h1 id="the-declaration-and-what-it-means-for-the-bundle">The declaration, and what it means for the bundle<a class="headerlink" href="#the-declaration-and-what-it-means-for-the-bundle" title="Permanent link">&para;</a></h1>
-<p><code>Structure</code>, <code>Descriptions</code> and <code>Relationships</code> are provided unconditionally: a <code>Table</code> with its
-<code>columns[]</code> becomes a model, its <code>description</code> the model's description, and a <code>tableConstraint</code> /
-<code>foreignKey</code> whose <code>relationshipType</code> is declared <code>ONE_TO_ONE</code> / <code>MANY_TO_ONE</code> / <code>ONE_TO_MANY</code> a
-relationship. A relationship whose cardinality is absent <strong>or</strong> <code>MANY_TO_MANY</code> is refused naming
-it - this is the pleasant surprise the finding records: <code>OpenMetadata</code> declares cardinality when it
-is there and stays silent when it is not, so an undeclared relationship licenses nothing, and a
-row-duplicating one is refused by this adapter rather than defaulted in either direction. A bundle
-whose relationships are all unconstrained therefore carries none, lawfully.</p>
-<p><code>Metrics</code>, <code>Grains</code> and <code>Cardinality</code> are declared-and-empty may-provide kinds: whether a bundle
-carries any is the deployment's decision (it defined a metric whose binding resolves, or it did
-not), so absence is faithful rather than an aspirational claim. The metric entity IS decoded and
-<code>metricType</code> + <code>granularity</code> + <code>dimensions[].type</code> are read, but <code>Measure</code> is minted only where a
-column binding resolves to a domain <code>Term</code> without certifying a foreign dialect's free text - which
-the recorded fixtures deliberately do not - so today those kinds arrive empty and the expression
-strings stay reported-not-defined, exactly as the ADR 0016 refusal demands.</p>
-<p><code>RequiredFilters</code>, <code>AllowedValues</code> and <code>Anchors</code> are not declared at all: the filter is a raw SQL
-<code>where</code> never parsed into <code>RequiredFilter</code>, a dimension carries no allowlist, and the metric/table
-entities carry no <code>Anchor</code>. <code>KnowledgeCapabilities::none()</code> on the knowledge half, because only
-prose travels (descriptions/tags) and none of the referent-bearing kinds is read.</p>
-<h2 id="trait-snapshotreader"><code>trait SnapshotReader</code><a class="headerlink" href="#trait-snapshotreader" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">SnapshotReader</span>
+<h1 id="sutura-exec-clickhouse">sutura-exec-clickhouse<a class="headerlink" href="#sutura-exec-clickhouse" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-exec-clickhouse</code>, rendered from rustdoc JSON.</p>
+<p>A <code>Warehouse</code> adapter over <code>ClickHouse</code>, over its HTTP interface.</p>
+<p>One connection under the deployment's declared identity (<code>SharedServiceUser</code>) - the static
+half, like <code>sutura_exec_postgres</code>: no OAuth, no impersonation.</p>
+<h1 id="why-ureq-and-not-an-async-driver">Why <code>ureq</code> and not an async driver<a class="headerlink" href="#why-ureq-and-not-an-async-driver" title="Permanent link">&para;</a></h1>
+<p><strong>The port carries no <code>async fn</code>, and <code>ureq</code> is natively blocking - so this adapter needs no
+<code>tokio</code> runtime and no <code>block_on</code> at all.</strong> That is not a simplification made for this crate
+alone: <code>sutura-exec-bigquery</code>'s own <code>Cargo.toml</code> states the reasoning for its <code>ureq</code>-based wire
+at length, and it transfers unchanged - <code>Warehouse::execute</code> reaches this adapter through
+<code>sutura_runtime::spawn_carrying_span</code>, on a blocking-pool thread, and starting a runtime
+<em>there</em> (which an async driver wrapped the way <code>sutura_exec_postgres</code> wraps <code>tokio-postgres</code>
+would need) is exactly the <code>reqwest::blocking</code> shape that entry warns against. <code>ClickHouse</code>'s
+own HTTP interface asks for nothing more than one request/response per statement, which is
+<code>ureq</code>'s whole job. <strong>A pure-Rust driver either way</strong>: <code>ureq</code> with the <code>rustls</code> feature links
+no C TLS library, and this crate's own <code>tls</code> module (over <code>sutura-tls</code>) is what most of
+<code>sutura_exec_postgres::tls</code>'s reasoning transfers to.</p>
+<h1 id="why-a-driver-shaped-seam-and-not-just-a-hand-rolled-client">Why a driver-shaped seam, and not just a hand-rolled client<a class="headerlink" href="#why-a-driver-shaped-seam-and-not-just-a-hand-rolled-client" title="Permanent link">&para;</a></h1>
+<p><code>transport::ClickHouseTransport</code> is the port this adapter's own port methods call through -
+<code>transport::Http</code> for a real connection, and a canned implementor for the
+crate's own unit tests. The split exists for the reason <code>sutura-exec-bigquery</code>'s <code>JobTransport</code> does: no
+venue that runs <code>just validate</code> can reach a live <code>ClickHouse</code> (<code>compose.services.yaml</code>'s
+<code>clickhouse</code> service is a docker-compose tier; the nix sandbox has no docker socket and no
+<code>clickhouse-tier.nix</code> exists), so a binding that dialled out would either panic in every
+such venue or have to declare itself absent - and <code>sutura_conformance::venue::
+refuse_a_declared_absence</code> fires against an absent fixture whenever <code>SUTURA_DEV_REQUIRE_TIER</code>
+is set, which it is inside <code>checks.nextest</code> because the Postgres tier is up there, a fact
+about THAT tier and not about this one. A canned transport sidesteps the question entirely:
+Nothing here claims to be a live endpoint.</p>
+<p><code>Warehouse::Error</code> for this adapter is <code>ClickHouseError</code>, generic over <code>T::Error</code> - the same
+shape <code>sutura_exec_bigquery::BigQueryError&lt;E&gt;</code>
+takes, for the same reason: <code>transport::ClickHouseTransport::source_refused</code>/
+<code>transport::ClickHouseTransport::deadline_exceeded</code> let the TRANSPORT answer the port's own
+two predicates about a failure only it can read the wire-level shape of.</p>
+<h1 id="parameters-travel-as-clickhouses-own-named-parameters-never-as-text">Parameters travel as <code>ClickHouse</code>'s own named parameters, never as text<a class="headerlink" href="#parameters-travel-as-clickhouses-own-named-parameters-never-as-text" title="Permanent link">&para;</a></h1>
+<p><code>transport::Http</code> rewrites each rendered <code>?</code> into <code>{pN:Type}</code> and sends the value as a
+separate <code>param_pN</code> field, which the SERVER binds by the declared type - see
+<code>transport::rewrite_placeholders</code>'s own doc for why counting <code>?</code> occurrences against
+<code>params.len()</code> is safe rather than a guess.</p>
+<h1 id="deadline-and-what-was-checked-about-it-see-deadlines-own-header"><code>Deadline</code>, and what was checked about it - see <code>deadline</code>'s own header<a class="headerlink" href="#deadline-and-what-was-checked-about-it-see-deadlines-own-header" title="Permanent link">&para;</a></h1>
+<p>Every <code>execute</code>/<code>declared_key</code>/<code>verify_anchor</code> round trip sends <code>max_execution_time</code>, computed
+from what the port's <code>sutura_domain::warehouse::deadline::Deadline</code> has left. <code>deadline</code>'s
+module header states what was measured about that setting's semantics and its limit, mirroring
+<code>sutura_exec_postgres::deadline</code>'s own record for <code>SET LOCAL statement_timeout</code>.</p>
+<h1 id="what-is-not-here">What is NOT here<a class="headerlink" href="#what-is-not-here" title="Permanent link">&para;</a></h1>
+<p><strong>No composition root links this crate.</strong> Nothing in <code>sutura-cli</code>'s <code>sources.rs</code> or <code>serve</code>
+module names a <code>kind: clickhouse</code>, so no served deployment can reach a <code>ClickHouse</code> source
+today. <code>crate-map</code>'s rule is a default-off feature on whichever composition root wants to
+serve one, and none does yet. Wiring that in is a <code>sutura-cli</code> change, out of this crate's
+own scope.</p>
+<p><strong>No raw-SQL tool support</strong> (<code>Warehouse::ACCEPTS_RAW_STATEMENTS</code> stays at its <code>false</code> default)
+and <strong>no leg execution</strong> (<code>Warehouse::EXECUTES_LEGS</code> stays at its <code>false</code> default, so
+<code>Executable::Leg</code> answers <code>ClickHouseError::LegWithoutCombiner</code> exactly as
+<code>sutura_exec_postgres</code> and <code>sutura_exec_bigquery</code> both do).</p>
+<p><strong>No <code>dry_run</code> override.</strong> <code>ClickHouse</code>'s HTTP interface has no cheap "prepare, do not run"
+step this adapter could ask for without paying most of the cost of running the statement, so
+this stays at the port's own default (<code>Ok(PreFlight::NotAsked)</code>) - the same honest absence
+<code>Warehouse::dry_run</code>'s own doc names for an adapter where checking is not cheaper than running.</p>
+<h2 id="enum-clickhouseerror"><code>enum ClickHouseError</code><a class="headerlink" href="#enum-clickhouseerror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ClickHouseError</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Where the documents a <code>OpenMetadataCatalog</code> decides over come from.</p>
-<p><strong>The fake seam.</strong> Everything above this trait is decided and tested against recorded documents;
-a real implementor speaks to <code>OpenMetadata</code>'s <code>REST</code> API, decodes into <code>document::Snapshot</code>, and maps
-its own failures into <code>OpenMetadataError::Read</code>. Every other test reads against the recorded
-source. A port rather than a method on the catalog, for the same reason the warehouse port exists:
-a catalog that could be swapped for a live source without the conversion changing is the point.</p>
-<h2 id="enum-openmetadataerror"><code>enum OpenMetadataError</code><a class="headerlink" href="#enum-openmetadataerror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OpenMetadataError</span>
-</span></code></pre></div>
-<p>Why a record could not be read as a catalog.</p>
-<p>Every variant is a typed contract rather than a message; the variant is what a caller can branch
-on. The mapping variants carry the entity name they were refused on, because a catalog is many
-entities and "invalid identifier" with no name sends a reader back to all of them.</p>
+<p>Why this data system could not answer.</p>
+<p>Generic in the transport's own error type - the shape <code>sutura_exec_bigquery::BigQueryError&lt;E&gt;</code>
+takes, for the same reason: <code>E</code> is <code>T::Error</code>, the one place a failure's wire-level shape
+lives, and this adapter's own <code>source_refused</code>/<code>deadline_exceeded</code> delegate to it through
+<code>ClickHouseError::Endpoint</code>.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>Read</code></li>
-<li><code>Identifier</code></li>
-<li><code>UnknownSource</code></li>
-<li><code>MissingDescription</code></li>
-<li><code>Description</code></li>
-<li><code>CardinalityUnrepresentable</code></li>
-<li><code>Inconsistent</code></li>
-<li><code>Knowledge</code></li>
-<li><code>Digest</code></li>
+<li><code>Endpoint</code> - The endpoint (or the canned pack) did not answer.</li>
+<li><code>Render</code></li>
+<li><code>LegWithoutCombiner</code> - A leg without a combiner - <code>Warehouse::EXECUTES_LEGS</code> stays at its default; see the crate header.</li>
+<li><code>NoPlaceForASubject</code> - The credential broker handed this adapter subject material it has nowhere to put.</li>
+<li><code>PresentedDisagreesWithPosture</code></li>
+<li><code>UnsupportedType</code> - A column came back as a <code>ClickHouse</code> type this adapter does not map.</li>
+<li><code>NotFinite</code> - A floating-point column came back as a value that is not a number.</li>
+<li><code>MalformedResponse</code> - The response body was not the JSON shape this adapter reads.</li>
+<li><code>Shape</code></li>
+<li><code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
-<h2 id="struct-openmetadatacatalog"><code>struct OpenMetadataCatalog</code><a class="headerlink" href="#struct-openmetadatacatalog" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span>
+<h2 id="struct-clickhousewarehouse"><code>struct ClickHouseWarehouse</code><a class="headerlink" href="#struct-clickhousewarehouse" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ClickHouseWarehouse</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>A catalog read from an <code>OpenMetadata</code> deployment's documents.</p>
-<p>Generic in its reader rather than holding a boxed one, matching the warehouse adapters: there is
-one per composition and a generic keeps the chosen reader visible. It carries the deployment's
-source mapping - which service/database alias answers to which <code>SourceName</code> - and the declared
-name and version it is recorded under.</p>
+<p>A <code>ClickHouse</code> connection, behind the <code>Warehouse</code> port.</p>
+<p>Generic in <code>ClickHouseTransport</code> so this crate's own conformance pack can bind the port to a
+canned implementor with no live endpoint; see this crate's own header.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">,</span><span class="w"> </span><span class="n">sources</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeMap</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">SourceName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">reader</span><span class="p">:</span><span class="w"> </span><span class="nc">R</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">transport</span><span class="p">:</span><span class="w"> </span><span class="nc">T</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>Opens a catalog over an <code>OpenMetadata</code> reader.</p>
-<p><code>sources</code> is the deployment's mapping from a service/database alias to the <code>sources.&lt;alias&gt;</code> a
-model on that platform reads from. A model on a platform with no entry is refused at load
-(<code>OpenMetadataError::UnknownSource</code>) rather than guessed.</p>
+<p>Opens an adapter over an already-constructed transport - <code>T = transport::Http</code> for a real
+connection, and a fake for the conformance pack.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Clone</code>, <code>Debug</code>, <code>SemanticCatalog</code></p>
-<h2 id="module-document">Module <code>document</code><a class="headerlink" href="#module-document" title="Permanent link">&para;</a></h2>
-<p>The ingestion shape a <code>super::SnapshotReader</code> returns: what this adapter needs from <code>OpenMetadata</code>.</p>
-<p><strong>These are not literally <code>OpenMetadata</code>'s wire documents, and saying which is the point.</strong>
-<code>OpenMetadata</code> serves its entities inside a <code>REST</code> envelope with more fields than any one consumer
-cares about, and a document that claimed to be that envelope while refusing every field it did not
-name would be a false promise the moment a real response arrived. So the shapes here are the
-adapter's own canonical statement of the entity CONTENT a reader must extract and decode - the
-decision side of <code>docs/what-openmetadata-can-carry.md</code>'s transport note - and <code>deny_unknown_fields</code>
-holds over THIS shape and over the recorded fixtures a reader decodes, rather than over
-<code>OpenMetadata</code>'s envelope. A real HTTP reader maps the service's document into one of these.</p>
-<p>The fields track the entities <code>docs/what-openmetadata-can-carry.md</code> measured: a <code>Table</code> and its
-<code>columns[]</code>, a <code>tableConstraint</code> / <code>foreignKey</code> with a <code>relationshipType</code> whose cardinality is
-named when present and silent when not, and a <code>Metric</code> whose <code>metricType</code> is decidable but whose
-bound column is not resolvable from its free-text expression. Everything an adapter DECIDES below
-this shape is tested against a fake reader that serves recorded documents, which is the port's own
-rule.</p>
-<p><code>RelationshipType</code> mirrors <code>OpenMetadata</code>'s cardinality enumeration: <code>ONE_TO_ONE</code>, <code>MANY_TO_ONE</code>,
-<code>ONE_TO_MANY</code> are non-duplicating and license a <code>JoinType</code>, while <code>MANY_TO_MANY</code> - or a silent
-absence - licences nothing and is refused by the conversion, because <code>JoinType</code> has no
-many-to-many shape and a relationship nobody vouched for licenses no join. The fields are private
-with accessors, per the workspace's <code>check-boundaries</code> rule that a library crate's types are its
-contract; an untyped value (a <code>name</code>, a <code>column</code>, a <code>service</code>) is parsed during the conversion,
-not in these carriers.</p>
-<h3 id="struct-snapshot"><code>struct Snapshot</code><a class="headerlink" href="#struct-snapshot" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Snapshot</span>
+<p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="module-tls">Module <code>tls</code><a class="headerlink" href="#module-tls" title="Permanent link">&para;</a></h2>
+<p>Building the <code>ureq::tls::TlsConfig</code> a TLS <code>clickhouse</code> source channel verifies with.</p>
+<p>This is the TLS half of <code>sutura_config::sources::transport</code>, turned into a verifier - the same
+job <code>sutura_exec_postgres::tls</code> does for <code>rustls::ClientConfig</code>, so that module's own header is
+this one's rather than restated: configuration owns the three-state DECLARATION (<code>plaintext</code> /
+<code>verified</code> / <code>mutual</code>), and this module owns turning a declared <code>verified</code> or <code>mutual</code> channel
+into the thing the client connects with. <strong>The declared-trust-store rule extends rather than
+forks</strong> (<code>docs/adr/0010</code>): a PEM bundle or the host's system store, read once by <code>config</code> and
+never a fallback, exactly as the Postgres source channel reads it.</p>
+<p>The read itself lives in <code>sutura-tls</code>, shared with the Postgres source channel and the
+<code>BigQuery</code> wire so the refusals for an unreadable, empty or malformed bundle/identity are not a
+third hand-written copy. What is this crate's own is folding the read bytes into the shape
+<code>ureq::tls::TlsConfig</code> wants - <code>ureq::tls::Certificate</code>/<code>ureq::tls::PrivateKey</code> rather than
+<code>rustls</code>'s own DER newtypes, because <code>ureq</code> never hands this adapter a <code>rustls::ClientConfig</code> to
+build.</p>
+<h1 id="why-this-is-a-fallible-step-separate-from-opening-the-transport">Why this is a fallible step SEPARATE from opening the transport<a class="headerlink" href="#why-this-is-a-fallible-step-separate-from-opening-the-transport" title="Permanent link">&para;</a></h1>
+<p><code>transport::Http::connect</code>/<code>connect_secured</code> take an already-built <code>ureq::tls::TlsConfig</code> and
+cannot fail, because <code>ureq::Agent::new_with_config</code> does no I/O - <code>ureq</code> dials lazily, on the
+first request. So <code>TlsError</code> is its own type here rather than a variant folded into
+<code>crate::ClickHouseError</code>: nothing about it can arrive from <code>Warehouse::execute</code>, only from
+whoever resolves a declared channel into a config before opening the adapter.</p>
+<h3 id="enum-tlserror"><code>enum TlsError</code><a class="headerlink" href="#enum-tlserror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsError</span>
 </span></code></pre></div>
-<p>Everything a reader fetched, before any of it is converted.</p>
-<p><code>deny_unknown_fields</code> here too - the three entity groups are the whole of what a reader must
-extract, and a snapshot carrying a fourth is a reader this adapter has not been told to expect.</p>
-<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metrics</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Metric</span><span class="p">]</span>
-</span></code></pre></div>
-<p>The metrics this snapshot carries.</p>
-<p>Read so the reported-not-defined cell can prove a metric a snapshot carries never becomes a
-domain <code>Metric</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
-</span></code></pre></div>
-<p>How many declared relationships the snapshot carries.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationships</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The declared relationships, by name.</p>
-<p>Iterated rather than indexed, so a caller cannot name a relationship the snapshot does not
-carry: the pair comes from one place.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tables</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Table</span><span class="p">]</span>
-</span></code></pre></div>
-<p>The tables this snapshot carries.</p>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="struct-table"><code>struct Table</code><a class="headerlink" href="#struct-table" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Table</span>
-</span></code></pre></div>
-<p>What a <code>Table</code> entity supplies a model: a table, its columns, the service it lives on, and a
-description.</p>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
-</span></code></pre></div>
-<p>The physical column set.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">description</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>Free-text prose about the table, if any.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
-</span></code></pre></div>
-<p>The table (and model) name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
-</span></code></pre></div>
-<p>The service this table lives on.</p>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="enum-relationshiptype"><code>enum RelationshipType</code><a class="headerlink" href="#enum-relationshiptype" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RelationshipType</span>
-</span></code></pre></div>
-<p><code>OpenMetadata</code>'s relationship cardinality, as a closed set.</p>
-<p>Named when present and silent when not; <code>ManyToMany</code> is refused by the conversion because
-<code>JoinType</code> has no many-to-many shape.</p>
+<p>Why this crate could not build a <code>ureq::tls::TlsConfig</code> from a declared channel.</p>
+<p>The same six refusals <code>sutura_exec_postgres::PostgresError</code> carries for the identical read,
+field for field - <code>from_load_error</code> is the mapping.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>OneToOne</code></li>
-<li><code>ManyToOne</code></li>
-<li><code>OneToMany</code></li>
-<li><code>ManyToMany</code></li>
+<li><code>AnchorsRead</code></li>
+<li><code>AnchorsEmpty</code></li>
+<li><code>IdentityRead</code></li>
+<li><code>IdentityIncomplete</code></li>
+<li><code>IdentityKey</code></li>
+<li><code>SystemStoreRead</code></li>
+<li><code>SystemStoreEmpty</code></li>
 </ul>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-tlsanchors"><code>enum TlsAnchors</code><a class="headerlink" href="#enum-tlsanchors" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsAnchors</span>
+</span></code></pre></div>
+<p>The trust anchors a TLS source channel verifies against, resolved from the declaration.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Bundle</code> - A PEM bundle at this absolute path.</li>
+<li><code>System</code> - The host's own trust store. Reached only when the deployment explicitly wrote <code>transport_anchors: system</code>; never a fallback.</li>
+</ul>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-tlsidentity"><code>struct TlsIdentity</code><a class="headerlink" href="#struct-tlsidentity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsIdentity</span>
+</span></code></pre></div>
+<p>The client certificate and key a <code>mutual</code> channel presents, resolved from the declaration.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A client identity from its declared paths.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="struct-structuralrelationship"><code>struct StructuralRelationship</code><a class="headerlink" href="#struct-structuralrelationship" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">StructuralRelationship</span>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-config"><code>fn config</code><a class="headerlink" href="#fn-config" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsAnchors</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">tls</span><span class="p">::</span><span class="n">TlsConfig</span><span class="p">,</span><span class="w"> </span><span class="n">TlsError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>One declared relationship's structural endpoints and its cardinality.</p>
-<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<p>Builds the <code>ureq::tls::TlsConfig</code> a TLS source channel verifies (and, for <code>mutual</code>, presents)
+with, from the resolved anchor material and an optional client identity.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>The six refusals <code>TlsError</code> carries: an unreadable or empty bundle, an unreadable or empty
+system store, and an unreadable or malformed identity.</p>
+<h2 id="module-transport">Module <code>transport</code><a class="headerlink" href="#module-transport" title="Permanent link">&para;</a></h2>
+<p>The seam this adapter's <code>execute</code>/<code>verify_anchor</code>/<code>declared_key</code> call through.</p>
+<p><code>Http</code> is the one implementor a real connection uses, and the crate's own unit tests bind
+the port to a CANNED implementor instead, over the exact same trait - the shape
+<code>sutura-exec-bigquery</code>'s <code>JobTransport</code> already established for the identical reason (no live
+server this repository can reach in every venue that runs the suite; see this crate's own
+<code>lib.rs</code> header).</p>
+<p><code>ClickHouseTransport::run</code> takes the RENDERED statement and its bound <code>ParamValue</code>s
+untouched - never a rewritten string - so what each implementor does with them is its own
+business. <code>Http</code> rewrites <code>?</code> into <code>ClickHouse</code>'s own named-parameter syntax
+(<code>{p0:String}</code>, ...) and sends each value as a separate <code>param_p0=...</code> query field, which
+<code>ClickHouse</code> binds server-side by the declared type: nothing here concatenates a value into the
+statement text - see <code>rewrite_placeholders</code> for why counting <code>?</code> occurrences is safe rather
+than a guess.</p>
+<h3 id="trait-clickhousetransport"><code>trait ClickHouseTransport</code><a class="headerlink" href="#trait-clickhousetransport" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">ClickHouseTransport</span>
 </span></code></pre></div>
-<p>The column of the origin model the join is on.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">origin_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<p>Where a statement runs, seen from this adapter's own port.</p>
+<p>The <code>Warehouse</code> port itself is synchronous, and so is this: <code>ureq</code> is a blocking client and
+needs no runtime of its own - see this crate's <code>Cargo.toml</code> for the reasoning <code>sutura-exec-
+bigquery</code>'s <code>wire</code> entry states at length, which applies here unchanged.</p>
+<h3 id="struct-endpoint"><code>struct Endpoint</code><a class="headerlink" href="#struct-endpoint" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Endpoint</span>
 </span></code></pre></div>
-<p>The model the join starts from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">relationship_type</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">RelationshipType</span><span class="o">&gt;</span>
+<p>A <code>ClickHouse</code> HTTP endpoint address.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plaintext</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>The cardinality, named when <code>OpenMetadata</code> declares it and silent when it does not.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_column</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<p>A plaintext (<code>http://</code>) endpoint.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>The column of the target model the join is on.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">target_model</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
-</span></code></pre></div>
-<p>The model the join reaches.</p>
+<p>A TLS-verified (<code>https://</code>) endpoint.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="struct-metric"><code>struct Metric</code><a class="headerlink" href="#struct-metric" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Metric</span>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="struct-basicauth"><code>struct BasicAuth</code><a class="headerlink" href="#struct-basicauth" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BasicAuth</span>
 </span></code></pre></div>
-<p>What a <code>Metric</code> entity supplies.</p>
-<p><strong>Deliberately minimal and deliberately un-analysed at conversion.</strong> <code>metricType</code> is decidable
-but the bound column is not resolvable from <code>metricExpression</code> / <code>measures[].expression</code> - free
-text in a foreign dialect - and a measure carried as such is reported and not defined. The metric
-is decoded (so the reported-not-defined cell can prove it is carried and ignored) and never
-minted into a domain <code>Metric</code>.</p>
-<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">aggregation</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<p>The credential a <code>clickhouse</code> source presents over HTTP Basic authentication.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">user</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">password</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">Secret</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<p>The decidable aggregation-kind word, e.g. <code>SUM</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expression</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The raw expression text a deployment wrote to bind the measure to a column.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granularity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
-</span></code></pre></div>
-<p>The declared granularity, e.g. <code>DAY</code>, if any.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
-</span></code></pre></div>
-<p>The metric's name.</p>
+<p>A user/password pair, as the deployment declared it.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
-<p>The recorded fixture corpus and the fake reader that serves it.</p>
-<p>This is the only <code>SnapshotReader</code> implementor today, and it is the <strong>fake</strong> the port is tested
-against - recorded documents, not mocked HTTP. The corpus is a bundle of two models and one
-declared non-duplicating join, plus one metric whose measure is an expression string; the metric
-is carried and never minted, because its bound column is not resolvable from a foreign-dialect
-expression (the reported-not-defined half this crate's declaration promises).</p>
-<p>The documents are decoded through <code>serde_json</code> at read time, so the same deserialization path a
-real reader over <code>OpenMetadata</code>'s <code>REST</code> API would use is exercised, and <code>deny_unknown_fields</code> on
-the wire shapes holds over these recorded documents. <code>over_fixture_source</code> is what the conformance
-registry calls to register the adapter; it is <code>pub</code> because an integration suite is a separate
-crate and cannot reach a <code>#[cfg(test)]</code> item.</p>
-<h3 id="struct-fixturereader"><code>struct FixtureReader</code><a class="headerlink" href="#struct-fixturereader" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureReader</span>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="enum-httperror"><code>enum HttpError</code><a class="headerlink" href="#enum-httperror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">HttpError</span>
 </span></code></pre></div>
-<p>The fake <code>SnapshotReader</code> that serves the recorded corpus.</p>
+<p>Why <code>Http</code> could not answer.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Transport</code> - The endpoint could not be dialled, or its reply could not be read.</li>
+<li><code>ServerRefused</code> - The endpoint answered with a non-2xx status.</li>
+</ul>
+<p><code>message</code> is its response body, which <code>ClickHouse</code>'s own error text names its exception
+  CODE inside (<code>Code: 159. DB::Exception: ...</code>) - see <code>Http::deadline_exceeded</code>/
+  <code>Http::source_refused</code> for the two matches this adapter makes against it, and their own
+  stated limit: neither is a typed code, because the driver hands back text and nothing more
+  structured.
+- <code>PlaceholderMismatch</code> - The rendered statement's own <code>?</code> count did not match the bound parameters - a defect in this crate's rewrite rather than in the plan; see <code>rewrite_placeholders</code>.
+- <code>DeadlineSpent</code> - The deadline was already spent before a request was ever sent.
+- <code>InvalidEndpoint</code></p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
-<p><code>Clone</code>, <code>Debug</code>, <code>SnapshotReader</code></p>
-<h3 id="fn-over_fixture_source"><code>fn over_fixture_source</code><a class="headerlink" href="#fn-over_fixture_source" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">over_fixture_source</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">pinned</span><span class="p">::</span><span class="n">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">OpenMetadataCatalog</span><span class="o">&lt;</span><span class="n">FixtureReader</span><span class="o">&gt;</span>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-http"><code>struct Http</code><a class="headerlink" href="#struct-http" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Http</span>
 </span></code></pre></div>
-<p>An <code>OpenMetadataCatalog</code> over the recorded corpus.</p>
-<p>The source mapping answers the one service the corpus names - <code>warehouse</code> - with the deployment's
-declared source, which is what lets a model on that platform be opened. This is the constructor
-the conformance registry uses to register the adapter.</p>
+<p>The real transport: one <code>ureq::Agent</code>, built once and kept for this adapter's life.</p>
+<p>The same shape <code>sutura_exec_postgres::PostgresWarehouse</code> keeps its one connection in. A rotated
+TLS config takes effect on the next agent a composition root builds, never on an agent already
+standing - <code>ureq::Agent</code>'s configuration is fixed at construction, so this is not a choice made
+here but the shape the client already has.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">auth</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">BasicAuth</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens the transport over <code>endpoint</code> with no TLS at all - a <code>plaintext</code> channel, or the
+fixture tier's loopback path.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">connect_secured</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">auth</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">BasicAuth</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nc">ureq</span><span class="p">::</span><span class="n">tls</span><span class="p">::</span><span class="n">TlsConfig</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens the transport secured as the caller resolved: <code>tls</code> is the <code>ureq::tls::TlsConfig</code>
+<code>crate::tls::config</code> built from the declared channel. Both this and <code>Self::connect</code> are
+produced by the composition root, which is the only place that can see the declared
+<code>sutura_config::sources::transport::SourceTransport</code> - the same boundary
+<code>PostgresWarehouse::connect_secured</code>'s own signature draws.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>ClickHouseTransport</code>, <code>Debug</code></p>
+<h3 id="type_alias-runresult"><code>type_alias RunResult</code><a class="headerlink" href="#type_alias-runresult" title="Permanent link">&para;</a></h3>
+<p>What one <code>ClickHouseTransport::run</code> answers on success.</p>
+<p>A <code>type</code> alias so the trait's own signature reads as one name rather than as the two-level
+generic clippy's <code>type_complexity</code> lint asks not to repeat.</p>
 
 
 

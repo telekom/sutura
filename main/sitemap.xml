@@ -129,6 +129,10 @@
          <lastmod>2026-09-20</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-exec-clickhouse/</loc>
+         <lastmod>2026-09-20</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-exec-datafusion/</loc>
          <lastmod>2026-09-20</lastmod>
     </url>
