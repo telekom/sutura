@@ -85,6 +85,13 @@ pub(super) enum CaseError {
     /// A header field appeared more than once.
     #[error("case `{file}` field `{field}` appeared more than once")]
     DuplicateField { file: &'static str, field: &'static str },
+    /// The file's own `name:` disagreed with the name it is registered under in `FILES`.
+    ///
+    /// The two are the same string written twice - once in the entry, once in the file - and
+    /// nothing compared them, so a misspelling in either left a corpus that loaded and reported a
+    /// green run under a name no file carries.
+    #[error("case `{file}` is registered under that name but its own `name:` field says `{name}`")]
+    NameDisagrees { file: &'static str, name: String },
     /// The `rows:` section was missing or empty.
     #[error("case `{file}` has no expected rows")]
     NoRows { file: &'static str },
@@ -181,6 +188,9 @@ fn parse(file: &'static str, content: &str) -> Result<Case, CaseError> {
     }
 
     let name = name.ok_or(CaseError::MissingField { file, field: "name" })?;
+    if name != file {
+        return Err(CaseError::NameDisagrees { file, name });
+    }
     let metric = metric.ok_or(CaseError::MissingField { file, field: "metric" })?;
     let aggregate = aggregate.ok_or(CaseError::MissingField {
         file,
@@ -431,6 +441,31 @@ mod tests {
     }
 
     /// A missing `order` field is a parse error, not a default.
+    #[test]
+    fn a_name_that_disagrees_with_its_registration_is_rejected() {
+        // The gap this closes: `FILES` repeats each case's name so a failure report can name the
+        // file without parsing it, and nothing compared the two copies. A misspelling in either
+        // gave `133 passed` under a name no file carries.
+        let disagreeing =
+            "name: not-the-registered-name\nmetric: m\naggregate: sum\ncolumn: c\nkeys:\norder: asserted\nrows:\ntext:a\tint:1\n";
+        let err = super::parse("total-by-region-and-day", disagreeing)
+            .expect_err("a file whose own name disagrees with its registration is refused")
+            .to_string();
+        assert!(
+            err.contains("not-the-registered-name") && err.contains("total-by-region-and-day"),
+            "the error should name both the registration and the file's own name: {err}"
+        );
+    }
+
+    #[test]
+    fn every_case_file_agrees_with_the_name_it_is_registered_under() {
+        // Over the real corpus, not a fixture: the check above proves the refusal exists, this
+        // proves the shipped corpus satisfies it.
+        for (file, content) in FILES {
+            super::parse(file, content).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
+
     #[test]
     fn a_missing_order_field_is_rejected() {
         let malformed = "name: broken\nmetric: m\naggregate: sum\ncolumn: c\nkeys:\nrows:\ntext:a\tint:1\n";
