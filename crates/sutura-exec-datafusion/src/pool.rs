@@ -200,11 +200,7 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         // The deadline stopping a question is a different bound entirely - `Warehouse::deadline_exceeded`
         // is what a caller asks instead, and answering `true` here would tell `working_set_exhausted`
         // to name a byte ceiling for a question the clock stopped, not the pool.
-        | DataFusionError::DeadlineExceeded { .. }
-        // Unreachable through the one production splitter, for `sutura_sql::GenerateError::RankingExceedsTerms`'s
-        // reason - and were it ever reached, it would be before the plan resolved into anything a
-        // reservation could apply to.
-        | DataFusionError::RankingExceedsTerms { .. } => false,
+        | DataFusionError::DeadlineExceeded { .. } => false,
     }
 }
 
