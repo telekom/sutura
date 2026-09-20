@@ -356,12 +356,18 @@ pub enum InvalidSourceRegistry {
     /// no transport in this build", which was true while the shipped mechanism was a principal
     /// switch on the deployment's own credentials - and stopped being true when workload-identity
     /// federation replaced it. The pool's own exchange needs the audience, and Google's library
-    /// refuses an empty one outright, so all three keys are read now: `audience` and `scope` become
-    /// the credential document the driver federates with, and `impersonate`'s KEYS decide which
-    /// callers may be served at all. Its VALUES are the one thing still unread - see
-    /// `sutura_exec_bigquery::DeclaredPrincipals::names`.
+    /// refuses an empty one outright.
+    ///
+    /// **Corrected twice, and the second correction is narrower than the first.** The same round
+    /// said `audience` *and* `scope` become the credential document. Only the audience does: the
+    /// document shape has no `scopes` member and the driver's own scope option means
+    /// service-account impersonation, so `scope` is declared and sent by nothing - measured against
+    /// the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
+    /// `impersonate`'s KEYS decide which callers may be served at all, and `scope` plus
+    /// `impersonate`'s VALUES are read by nothing - see
+    /// `sutura_exec_bigquery::DeclaredPrincipals::names` for the second of those.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, the `scope` the exchanged credential carries, and the `impersonate` map naming which subjects may be served here"
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, the `scope` (declared for a future transport, and sent by none in this build - the driver applies its own), and the `impersonate` map naming which subjects may be served here"
     )]
     MissingWorkloadIdentity { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.

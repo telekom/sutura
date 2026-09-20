@@ -5,9 +5,10 @@
 //! EXCHANGES - it hands the caller's own assertion to a token service and presents what comes back
 //! as the leg's bearer. Its two HTTP hops went away with the `wire` transport, and the ADBC driver
 //! cannot take a bearer anyway, so that broker has no implementor a composition root can reach. What
-//! the ADBC transport needs is narrower and different in kind: not credential material, but the NAME
-//! of the account the driver is to become for this job. No socket, no clock, no cache and no expiry -
-//! a principal's name does not age out.
+//! the ADBC transport needs is narrower and different in kind: not a token to exchange, but the
+//! asking subject's OWN assertion for the driver to federate against the pool this source declares.
+//! No socket and no cache - Google's token service performs the exchange - but an EXPIRY, because
+//! what this presents is credential material and credential material ages out.
 //!
 //! Forking the exchanging broker for that would have put two answers to *what does this leg present*
 //! inside one 800-line type. Two brokers, each with one answer, is the shape `docs/adr/0008` part 4
@@ -30,9 +31,12 @@
 //!
 //! # The limit, beside the claim
 //!
-//! This broker reads the subject leg 1 verified and answers with a name. It does not prove the
-//! caller holds anything at the data system, and the data system never sees the caller's credential -
-//! `crate`'s own header states what that costs relative to the withdrawn exchange.
+//! This broker decides WHETHER this caller may be served at a source and presents the caller's own
+//! verified assertion for it. It does not decide WHO the caller becomes at the data system - the
+//! declared pool resolves that, so the accounts named in `impersonate`'s VALUES are read by nothing
+//! (see [`DeclaredPrincipals::names`]). And nothing here proves Google accepted the assertion: that
+//! is leg 2, it needs a hosted run, and `docs/where-identity-is-proven.md` records the venue as
+//! `wired`.
 
 use std::collections::BTreeMap;
 
@@ -196,7 +200,16 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // assertion has nothing for Google's token service to verify, and answering as the process
         // is the fallback this whole path exists to remove.
         let assertion = context.assertion();
+        // **The assertion's OWN expiry, and a broker that federates has no other.** An earlier round
+        // minted `NothingExpires` here, which was honest while this broker presented a principal's
+        // name - a name does not age - and became a check that always answers yes the moment it
+        // started presenting credential material. `BoundToTheRequest::still_usable_at` reads this.
+        let assertion_expires = context.assertion_expires();
         let mut presented = BTreeMap::new();
+        // One per source, folded by `Expiry::earliest` below: a shared leg runs on a credential this
+        // broker did not mint and does not age with the caller, so giving a shared-only plan the
+        // caller's expiry would refuse answers for a lifetime that does not apply to them.
+        let mut deadlines = Vec::new();
         for source in sources.iter() {
             if let Some(declared) = self.shared.get(source) {
                 drop(presented.insert(
@@ -205,6 +218,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                         declared: declared.clone(),
                     },
                 ));
+                deadlines.push(Expiry::NothingExpires);
                 continue;
             }
             // Unreachable: the pass above established that every source has one of the two halves.
@@ -227,21 +241,32 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
+            // A context carrying material with no expiry is not a shape `RequestContext` can build -
+            // they are one field - so this arm cannot be reached with an assertion and no bound.
+            // Refused rather than defaulted anyway, because the alternative default is forever.
+            let Some(expires) = assertion_expires else {
+                return Ok(Minted::Refused { source: source.clone() });
+            };
             drop(presented.insert(
                 source.clone(),
                 Presented::SubjectToken {
                     material: assertion.clone(),
                 },
             ));
+            deadlines.push(expires);
         }
-        // **Nothing here expires, and that is a statement rather than a default.** What this broker
-        // presents is a NAME, which has no lifetime; the credential the driver mints to become that
-        // principal is minted inside the driver, after this, under its own bound. So this broker has
-        // no floor to apply either - `docs/adr/0008` part 6's floor is about a credential aging out
-        // mid-answer, and there is no credential here to age. The limit that follows: a job the
-        // driver's own impersonated credential cannot outlive fails at the driver, and nothing in
-        // sutura refuses it first.
-        LegCredentials::minted(asked_by.clone(), Expiry::NothingExpires, sources, presented)
+        // **The earliest of what was presented, which is what `Expiry::earliest` exists for.** A
+        // federated leg is valid for exactly as long as the caller's own assertion is; a shared leg
+        // carries no lifetime this broker knows, so it contributes the fold's identity rather than
+        // a guess. A plan reading one of each is bounded by the assertion, which is the
+        // conservative direction and the correct one - the federated leg is the one that stops
+        // working.
+        //
+        // **The limit beside it**: this is not a FLOOR. `docs/adr/0008` part 6 asks for a refusal
+        // when a credential would age out mid-answer; what is here is the bound
+        // `BoundToTheRequest::still_usable_at` compares against, so an assertion valid at the start of
+        // a long answer and expired at the end is refused by Google rather than here.
+        LegCredentials::minted(asked_by.clone(), Expiry::earliest(deadlines), sources, presented)
             .map(|credentials| Minted::Granted { credentials })
             .map_err(|cause| DeclaredPrincipalsUnusable::Coverage { cause })
     }

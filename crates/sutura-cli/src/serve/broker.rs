@@ -42,18 +42,19 @@ pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<D
         let Some(workload) = source.workload_identity() else {
             continue;
         };
-        // **A declaration this build cannot honour is refused at boot, not ignored at boot.** The
-        // pool expectations tie leg 1's issuer and audience to what a workload-identity pool
-        // accepts, and the only thing that ever read them was the STS exchange this build does not
-        // have. Left in place they would read as a control that is in place, which is the exact
-        // shape `sutura_config`'s own `VerificationIdentityOnASharedSource` refuses.
+        // **A declaration nothing in this process checks is refused at boot, not ignored at boot.**
+        // The exchange DOES happen now - Google's token service performs it against the declared
+        // pool - but it happens THERE, so the pool's own provider configuration is what decides
+        // which issuer and which audience are acceptable. These two keys would have this deployment
+        // re-state that decision and then not enforce it, which is the exact shape
+        // `sutura_config`'s own `VerificationIdentityOnASharedSource` refuses.
         if workload.expected_issuer().is_some() || workload.expected_audience().is_some() {
             return Err(format!(
                 "`sources.{alias}.workload_identity` declares the pool expectations \
-                 `expected_issuer`/`expected_audience`, and no transport in this build exchanges a \
-                 subject's token against a pool - so nothing would check them. This adapter executes \
-                 as the principal `impersonate` names, under the identity this deployment holds. \
-                 Remove both keys"
+                 `expected_issuer`/`expected_audience`, and nothing in this process checks them - \
+                 the asker's own assertion is federated to the identity pool, which applies its \
+                 provider's own issuer and audience conditions. Declare them on the pool's provider \
+                 and remove both keys here"
             ));
         }
         // The declared subject -> service-account map, re-expressed once here into the adapter's own

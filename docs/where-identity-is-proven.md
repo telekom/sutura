@@ -197,7 +197,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
 | **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | - |
-| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **wired** - the standing cells are `each_subject_executes_as_the_account_this_source_declared_for_it` and its control `the_deployments_own_identity_is_neither_declared_account`, dispatched by `.github/workflows/bigquery-declared-principal.yml`; no run observed | - |
+| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **wired** - the standing cells are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control `the_deployments_own_identity_is_neither_subjects_principal`, dispatched by `.github/workflows/bigquery-declared-principal.yml`; no run observed | - |
 ## The fake at the port
 
 `AGENTS.md`'s *Conventions* says why: *ports get fakes, not mocked HTTP - that is what lets the whole
@@ -477,8 +477,8 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 **`wired`, and that is the whole of what this venue is today: a job reaches its two cells and no run
 of either has been observed.** `.github/workflows/bigquery-declared-principal.yml` is
 `workflow_dispatch`-only against the `bq-test` environment, so a person dispatches it; the two cells
-are `each_subject_executes_as_the_account_this_source_declared_for_it` and its control
-`the_deployments_own_identity_is_neither_declared_account`, both `#[ignore]`d and both panicking
+are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
+`the_deployments_own_identity_is_neither_subjects_principal`, both `#[ignore]`d and both panicking
 with the name of any environment value they lack rather than skipping. Until a run is observed and
 reported here this venue may not be cited, and the ADBC adoption's own merge precondition is that
 somebody dispatches it.
@@ -546,17 +546,23 @@ applying: nothing impersonates a declared account from the deployment's credenti
 The oracle is unchanged - `SELECT SESSION_USER()`, read through
 `sutura_exec_bigquery::SessionUser`. What it returns depends on the pool: the credential document this
 transport builds names no service-account impersonation URL, so the credential IS the pool principal
-and two subjects read as two distinct principals. The settings
-shape is the declared `workload_identity` block - `audience` (the pool), `scope`, and the
-`impersonate` map whose KEYS decide which subjects may be served.
+and two subjects read as two distinct principals. **What the cells therefore assert is that the two
+answers DIFFER and that neither is the deployment's own**, not what either string is: nothing this
+job holds predicts a pool-resolved principal. The settings shape is the declared `workload_identity`
+block - `audience` (the pool, and the only one of the three the transport sends), the `impersonate`
+map whose KEYS decide which subjects may be served, and `scope`, which reaches nothing: the
+credential document has no `scopes` member and the driver's own scope option means service-account
+impersonation.
 
 **The run, and the first half of it is now built rather than described.**
 `.github/workflows/bigquery-declared-principal.yml` is the job: it places one credential - the
 deployment's own - builds the driver for the runner's triple, and runs the two cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
-two service accounts, the job's own identity granted `roles/iam.serviceAccountTokenCreator` on both,
-`SUTURA_BQ_DATASET`, and the two account addresses. **Nobody has dispatched it**, which is why that
-venue says `wired` and not `yes`.
+two service accounts with their own keys, each bound `roles/iam.workloadIdentityUser` on the pool,
+the pool's audience, and `SUTURA_BQ_DATASET`. The two account ADDRESSES are no longer needed - the
+cells compare the two answers against each other rather than against a declared account, because
+the pool decides the principal. **Nobody has dispatched it**, which is why that venue says `wired`
+and not `yes`.
 
 The second half - this venue - is still only described, and it is a served deployment that:
 

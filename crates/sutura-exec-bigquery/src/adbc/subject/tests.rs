@@ -12,11 +12,8 @@ use super::{SECRET_HEADER, SubjectSource, UnusablePool, WorkloadPool};
 
 /// The pool every cell below federates against.
 fn pool() -> WorkloadPool {
-    WorkloadPool::parse(
-        "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/analysts/providers/sso",
-        "https://www.googleapis.com/auth/cloud-platform",
-    )
-    .expect("a provider resource and a scope are usable")
+    WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/analysts/providers/sso")
+        .expect("a provider resource is usable")
 }
 
 /// The document one source hands the driver, as JSON.
@@ -47,6 +44,16 @@ enum Answered {
 
 /// `GET`s the loopback source the way the driver's own provider does.
 fn fetch(url: &str, header: Option<(&str, &str)>) -> Answered {
+    fetch_sending(url, header.as_slice())
+}
+
+/// The same fetch, with as many headers as a cell needs - one of them may be padding.
+///
+/// **The client's own read deadline is generous and present.** Without it a cell that measures
+/// *the endpoint did not wedge* would HANG instead of failing when the endpoint does wedge, and a
+/// hung cell is a worse verdict than a red one. Well above the endpoint's own window, so it never
+/// decides a passing case.
+fn fetch_sending(url: &str, headers: &[(&str, &str)]) -> Answered {
     use std::fmt::Write as _;
 
     let rest = url.strip_prefix("http://").unwrap_or(url);
@@ -54,11 +61,14 @@ fn fetch(url: &str, header: Option<(&str, &str)>) -> Answered {
     let Ok(mut stream) = TcpStream::connect(authority) else {
         return Answered::Refused(String::from("the loopback source is not listening"));
     };
+    if stream.set_read_timeout(Some(std::time::Duration::from_secs(20))).is_err() {
+        return Answered::Refused(String::from("the client deadline could not be set"));
+    }
     let mut request = format!("GET /{path} HTTP/1.1\r\nhost: {authority}\r\n");
-    if let Some((name, value)) = header
-        && write!(request, "{name}: {value}\r\n").is_err()
-    {
-        return Answered::Refused(String::from("the header could not be written"));
+    for (name, value) in headers {
+        if write!(request, "{name}: {value}\r\n").is_err() {
+            return Answered::Refused(String::from("the header could not be written"));
+        }
     }
     request.push_str("connection: close\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
@@ -175,12 +185,13 @@ fn the_listener_is_gone_once_the_source_is_dropped() {
     // The other direction of the same coupling: an endpoint serving a subject's assertion after the
     // question it belonged to was answered is an authenticated leak with no owner.
     //
-    // **What this cell holds, and what it does not - measured rather than assumed.** It holds that
-    // a dropped source STOPS SERVING: replacing `Drop`'s `serving.join()` with a discard leaves
-    // this green, so the JOIN is held by `Drop`'s own code and by no cell. What the join buys is
-    // that there is no WINDOW - the port is closed before `drop` returns rather than shortly after
-    // - and a window is a race, so a deterministic cell for it does not exist. The stop signal is
-    // what is asserted here; the absence of a window is read off `Drop`.
+    // **What this cell holds, and what it does not.** It holds that a dropped source STOPS
+    // SERVING: replacing `Drop`'s `serving.join()` with a discard leaves this green, so the join is
+    // not what this cell measures. **A round of review corrected the sentence that used to stand
+    // here**, which said a deterministic cell for the join did not exist; it does, and it is
+    // `the_serving_thread_has_recorded_its_own_exit_once_drop_returns` - an exit sentinel the thread
+    // sets itself, read after a `drop` that had a connection in flight. The stop signal is what is
+    // asserted here.
     let (url, secret) = {
         let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
         let pair = credentials(&document(&held));
@@ -238,20 +249,114 @@ fn the_credential_document_is_redacted_under_debug() {
 
 #[test]
 fn a_declared_pool_value_that_could_reshape_the_document_is_refused_at_composition() {
-    // Both values land in a JSON document and a URL, so both are screened - and the screening is at
+    // The audience lands in a JSON document and a URL, so it is screened - and the screening is at
     // COMPOSITION, so an unusable declaration fails to start rather than failing every question.
     for hostile in ["has space", "has\"quote", "has{brace}", ""] {
         assert!(
-            WorkloadPool::parse(hostile, "https://www.googleapis.com/auth/cloud-platform").is_err(),
+            WorkloadPool::parse(hostile).is_err(),
             "`{hostile}` is not an audience this transport may send"
         );
-        assert!(
-            WorkloadPool::parse("//iam.googleapis.com/p/1", hostile).is_err(),
-            "`{hostile}` is not a scope this transport may send"
-        );
     }
+    assert!(matches!(WorkloadPool::parse(""), Err(UnusablePool::Empty)));
+    // And the bound is a bound rather than a comment: one character past it is refused, and the
+    // refusal carries the position and never the text.
+    let over = "a".repeat(257);
     assert!(matches!(
-        WorkloadPool::parse("", "https://example.com/auth"),
-        Err(UnusablePool::Empty { .. })
+        WorkloadPool::parse(&over),
+        Err(UnusablePool::TooLong { found: 257, most: 256 })
     ));
+}
+
+/// A connection that sends nothing, held open for as long as the returned value is.
+///
+/// The measured availability defect wore exactly this shape: no credentials, no data, one socket.
+fn idle_connection(url: &str) -> TcpStream {
+    let rest = url.strip_prefix("http://").unwrap_or(url);
+    let (authority, _) = rest.split_once('/').unwrap_or((rest, ""));
+    TcpStream::connect(authority).expect("the loopback source is listening")
+}
+
+#[test]
+fn a_head_past_the_bound_is_refused_even_when_it_presents_both_values() {
+    // **The bound is on BYTES READ, and this cell is why that phrasing matters.** It used to be a
+    // check between lines - `while head.len() < MOST_REQUEST_BYTES` around a `read_line`, which is
+    // unbounded WITHIN one line - and a review measured 268 MB accepted on a single line against a
+    // nominal 8 KiB. A caller that presents both correct values and then pads past the bound is the
+    // shape that tells the two implementations apart: truncate-and-match serves it, and a ceiling
+    // on bytes read refuses it.
+    let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
+    let (url, secret) = credentials(&document(&held));
+    let padding = "a".repeat(9 * 1024);
+    let attempt = fetch_sending(&url, &[(SECRET_HEADER, secret.as_str()), ("x-pad", padding.as_str())]);
+    let Answered::Refused(refused) = attempt else {
+        panic!("a head of {} bytes was served the assertion", padding.len());
+    };
+    assert!(
+        refused.contains("404"),
+        "an over-long head is refused like any other: {refused}"
+    );
+    // And the endpoint is still the endpoint afterwards: refusing an oversized head must not be a
+    // way to take the source down for the question it belongs to.
+    assert_eq!(
+        fetch(&url, Some((SECRET_HEADER, &secret))),
+        Answered::Served(String::from("an.assertion.value")),
+        "an oversized head left the endpoint unusable"
+    );
+}
+
+#[test]
+fn an_idle_local_connection_cannot_wedge_the_endpoint() {
+    // **Measured with NO credentials at all**: a local process connected, sent nothing, and the
+    // driver's own fetch never got served because the accept loop is serial and the socket had no
+    // deadline. Availability is a security property here - a wedged endpoint means every
+    // impersonated question fails - so the deadline is a constant and this is its cell.
+    //
+    // The limit stated beside it: a process that keeps opening connections can still DELAY a fetch
+    // by up to one window each time. It cannot prevent one, and it cannot read anything.
+    let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
+    let (url, secret) = credentials(&document(&held));
+    let squatter = idle_connection(&url);
+    assert_eq!(
+        fetch(&url, Some((SECRET_HEADER, &secret))),
+        Answered::Served(String::from("an.assertion.value")),
+        "one idle local connection wedged the subject-token endpoint"
+    );
+    drop(squatter);
+}
+
+#[test]
+fn the_endpoint_is_closed_before_drop_returns_even_with_a_connection_in_flight() {
+    // **The cell an earlier round of this file said could not exist**, and it closes the gap that
+    // round measured: `the_listener_is_gone_once_the_source_is_dropped` stayed GREEN with `Drop`'s
+    // `serving.join()` replaced by a discard, so the join was held by no cell. The reason it was a
+    // race is that with nothing in flight the thread returns immediately once woken - the window is
+    // microseconds and cannot be observed reliably.
+    //
+    // **With a connection in flight it is not a race.** The serving thread is inside its read
+    // window on the idle socket, so it cannot have returned; the listener MOVES into that thread,
+    // so the port stays open until it does. An unjoined `drop` therefore returns with the port
+    // still open, and a join makes the connection below fail. No sleep, no polling, no sentinel.
+    let idle;
+    let authority = {
+        let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
+        let (url, _) = credentials(&document(&held));
+        idle = idle_connection(&url);
+        let authority = url
+            .strip_prefix("http://")
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(authority, _)| String::from(authority))
+            .expect("the URL carries an authority");
+        assert!(
+            TcpStream::connect(&authority).is_ok(),
+            "the endpoint was not listening while the source was held"
+        );
+        drop(held);
+        authority
+    };
+    assert!(
+        TcpStream::connect(&authority).is_err(),
+        "drop returned while the serving thread was still inside a connection, so the subject-token \
+         endpoint outlived the source that owned it"
+    );
+    drop(idle);
 }

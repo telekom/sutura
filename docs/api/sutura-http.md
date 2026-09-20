@@ -1410,6 +1410,18 @@ pub const fn chain(&self) -> &PrincipalChain
 Who this call is attributed to.
 
 ```rust
+pub const fn expires(&self) -> u64
+```
+
+When the assertion above stops being one, in seconds since the Unix epoch.
+
+The `exp` this verification already enforced, carried forward so a broker that presents the
+assertion can mint a leg with the same bound rather than with none. Reading it is not a
+second lifetime check: `crate::inbound::token::TokenValidator::verify` already refused an
+expired token, and this is what stops one accepted at second 0 of a long answer from being
+treated as valid forever.
+
+```rust
 pub const fn groups(&self) -> &Groups
 ```
 

@@ -14,10 +14,17 @@ use super::{DeclaredPrincipalBroker, DeclaredPrincipals, NoDeclaredPrincipals};
 /// The instant every agreement below is measured against: 2096-10-02.
 ///
 /// **Far out on purpose**, for `sts::tests::A_FIXED_NOW`'s recorded reason: a suite measured
-/// against the wall clock is one scheduled to go red on a date nobody is watching. Nothing this
-/// broker mints expires, so the instant is arbitrary - and an arbitrary instant seventy years out
-/// is the one that demonstrates it rather than asserting it.
+/// against the wall clock is one scheduled to go red on a date nobody is watching. Before
+/// [`A_FIXTURE_EXPIRY`], so a fixture caller's assertion is still usable at it - the cell that cares
+/// about the other direction names its own instants.
 const A_FIXED_NOW: u64 = 4_000_000_000;
+
+/// The instant a fixture caller's assertion stops being one: 2100-01-01.
+///
+/// After [`A_FIXED_NOW`], because most cells here are about what was presented and to whom rather
+/// than about when it lapses. `the_minted_expiry_is_the_asking_assertions_own` is the cell on the
+/// lifetime itself and states its instants inline.
+const A_FIXTURE_EXPIRY: u64 = 4_102_444_800;
 
 fn source(name: &str) -> SourceName {
     SourceName::parse(name).expect("a test source name is a name")
@@ -39,6 +46,7 @@ fn caller(raw: &str) -> RequestContext {
     RequestContext::with_assertion(
         PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject")),
         sutura_domain::identity::Secret::new(format!("assertion.for.{raw}")),
+        A_FIXTURE_EXPIRY,
     )
 }
 
@@ -250,4 +258,73 @@ fn an_empty_broker_can_serve_nothing() {
         .mint(&caller("analyst-a@example.com"), &SourceSet::of(source("warehouse")))
         .expect("an empty broker refuses rather than erring");
     assert!(matches!(refused, Minted::Refused { .. }), "{refused:?}");
+}
+
+/// The same caller, with the instant its assertion stops being one stated by the cell.
+fn caller_expiring_at(raw: &str, unix_seconds: u64) -> RequestContext {
+    RequestContext::with_assertion(
+        PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject")),
+        sutura_domain::identity::Secret::new(format!("assertion.for.{raw}")),
+        unix_seconds,
+    )
+}
+
+#[test]
+fn the_minted_expiry_is_the_asking_assertions_own() {
+    // **A round of this broker minted `Expiry::NothingExpires`**, which was honest while it
+    // presented a principal's NAME - a name does not age - and became a check that always answers
+    // yes the moment it started presenting the caller's own assertion. A federated leg is valid for
+    // exactly as long as that assertion is, and `still_usable_at` is the reader.
+    //
+    // Measured through `agreeing_with`, which is the door the application goes through, rather than
+    // by reading a field: the expiry only matters if a boundary compares it.
+    let lapses_at = 1_700_000_000;
+    let asked = SourceSet::of(source("warehouse"));
+    let minted = warehouse()
+        .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
+        .expect("a declared caller is served");
+    let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    let refused = minted
+        .agreeing_with(&asked_by, &asked, lapses_at + 1)
+        .expect_err("an assertion that has lapsed is not one a leg may present");
+    assert!(
+        matches!(
+            refused,
+            sutura_domain::identity::CredentialsDoNotFitTheRequest::Expired {
+                deadline_unix_seconds,
+                ..
+            } if deadline_unix_seconds == lapses_at
+        ),
+        "the refusal names the assertion's own deadline: {refused:?}"
+    );
+    // And one second earlier it is usable, so the cell is about the deadline rather than about
+    // everything being refused.
+    let minted = warehouse()
+        .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
+        .expect("a declared caller is served");
+    drop(
+        minted
+            .agreeing_with(&asked_by, &asked, lapses_at - 1)
+            .expect("an assertion still in date is one a leg may present"),
+    );
+}
+
+#[test]
+fn a_shared_only_plan_does_not_inherit_the_callers_own_deadline() {
+    // The other direction of the same fold, and the reason it is `Expiry::earliest` over one entry
+    // per source rather than one expiry for the whole mint. A shared leg runs on a credential this
+    // broker did not mint and which does not age with the caller; giving it the caller's deadline
+    // would refuse answers for a lifetime that does not apply to them.
+    let lapses_at = 1_700_000_000;
+    let asked = SourceSet::of(source("replica"));
+    let broker = DeclaredPrincipalBroker::empty().shared(source("replica"), declared_shared());
+    let minted = broker
+        .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
+        .expect("a declared shared source is served");
+    let asked_by = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
+    drop(
+        minted
+            .agreeing_with(&asked_by, &asked, lapses_at + 100_000)
+            .expect("a shared leg does not lapse when the caller's own assertion does"),
+    );
 }

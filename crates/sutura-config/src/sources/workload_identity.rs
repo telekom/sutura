@@ -133,7 +133,19 @@ impl WorkloadIdentityConfig {
         &self.audience
     }
 
-    /// The scope the exchanged credential carries.
+    /// The scope the exchanged credential would carry, and **no transport in this build sends it.**
+    ///
+    /// Stated here because this is where an operator declares it. The shipped path federates the
+    /// asker's own assertion through an `external_account` credential document, and the pinned
+    /// driver has nowhere to put a scope: the document shape
+    /// (`cloud.google.com/go/auth@v0.23.2`'s `credsfile::ExternalAccountFile`) has no `scopes`
+    /// member, and the driver's own `bigquery.impersonate.scopes` option is read as a request for
+    /// service-account impersonation, which replaces the federated credential rather than scoping
+    /// it. The `BigQuery` client's own default scope applies instead.
+    ///
+    /// **Declared and unread, not declared and ignored** - the distinction is that this is the
+    /// sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
+    /// Removing the key is a settings break and a follow-up; misreporting it is a defect now.
     #[inline]
     #[must_use]
     pub const fn scope(&self) -> &WifScope {

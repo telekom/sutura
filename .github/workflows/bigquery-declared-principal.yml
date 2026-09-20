@@ -117,46 +117,6 @@ jobs:
           out="$(nix build --no-link --print-out-paths .#adbc-driver-bigquery-x86_64-unknown-linux-gnu)"
           echo "SUTURA_BIGQUERY_ADBC_DRIVER=$out/lib/libadbc_driver_bigquery.so" >> "$GITHUB_ENV"
 
-      # The cell itself. `nix run .#bigquery-declared-principal` is `check-venues`' anchor for this
-      # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
-      # than from an environment variable, and the two account addresses are what the leg asserts
-      # `SESSION_USER()` returns.
-      #
-      # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
-      # dispatch against not-yet-granted accounts is the run most likely to reach it, and the
-      # message to expect there is an `iamcredentials` 403 - which means the grant is missing, not
-      # that the mechanism is wrong.
-      - name: Declared-principal leg
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-          SUTURA_BQ_SCOPE: https://www.googleapis.com/auth/cloud-platform
-          SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
-          SUTURA_BQ_PRINCIPAL_A: ${{ secrets.SUTURA_BQ_PRINCIPAL_A_EMAIL }}
-          SUTURA_BQ_PRINCIPAL_B: ${{ secrets.SUTURA_BQ_PRINCIPAL_B_EMAIL }}
-          SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
-          SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
-            echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the principals live in" >&2
-            exit 1
-          fi
-          if [ -z "${SUTURA_BQ_AUDIENCE:-}" ]; then
-            echo "the bq-test environment holds no workload audience - it is the pool each assertion is exchanged against" >&2
-            exit 1
-          fi
-          if [ -z "${SUTURA_BQ_PRINCIPAL_A:-}" ] || [ -z "${SUTURA_BQ_PRINCIPAL_B:-}" ]; then
-            echo "the bq-test environment defines fewer than two expected principals - one cannot show two" >&2
-            exit 1
-          fi
-          # The assertions reach the leg as VALUES rather than paths, because the credential source
-          # this transport builds is a loopback URL and the assertion never touches a file on the
-          # far side either. Read here, in one step, from files this job placed and removes.
-          SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
-          SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
-            nix run .#bigquery-declared-principal -- --no-capture
-
       # THE TWO ASSERTIONS, one per principal, minted from that principal's OWN key -
       # `telekom/sutura#376`'s "no new long-lived secret" design, needed again now that the
       # transport federates the asker's own assertion rather than switching to a declared account.
@@ -167,6 +127,11 @@ jobs:
       # Every value here is a `secrets.*`/`vars.*`/`runner.temp` reference, so nothing a forker or
       # commenter controls reaches a shell body - and both keys and both assertions travel as FILE
       # PATHS, never through `${{ }}` into a command line.
+      #
+      # **This step runs BEFORE the leg, and the leg checks rather than assuming it did.** The first
+      # revision of this file placed it after, where the leg's `cat` of a file nobody had written
+      # failed under `set -eu` with nothing naming why; step order is held by no gate, so the leg
+      # refuses an absent or empty assertion file by name instead.
       - name: Mint the two subject assertions
         env:
           SUTURA_BQ_PRINCIPAL_A_KEY: ${{ secrets.SVC_SUTURUA_BQ_PRINCIPAL_A }}
@@ -190,6 +155,49 @@ jobs:
           # The raw keys are spent once minted; removed promptly rather than held for the rest of
           # the job, narrowing the window either sits in cleartext on this runner.
           rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
+
+      # The cell itself. `nix run .#bigquery-declared-principal` is `check-venues`' anchor for this
+      # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
+      # than from an environment variable.
+      #
+      # **What the leg asserts is that the two answers DIFFER**, not what either one is: the
+      # credential document names no service-account impersonation URL, so the pool resolves each
+      # subject to its own principal and no address this job holds predicts the string
+      # `SESSION_USER()` returns. The two declared account addresses were what an earlier round
+      # compared against, under the deleted principal switch; they are not passed any more.
+      #
+      # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
+      # dispatch against a pool with no binding for these subjects is the run most likely to reach
+      # it, and the message to expect there is an STS refusal of the subject token - which means the
+      # pool's provider or its `roles/iam.workloadIdentityUser` binding is missing, not that the
+      # mechanism is wrong.
+      - name: Declared-principal leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+          SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
+          SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
+            echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the principals live in" >&2
+            exit 1
+          fi
+          if [ -z "${SUTURA_BQ_AUDIENCE:-}" ]; then
+            echo "the bq-test environment holds no workload audience - it is the pool each assertion is exchanged against" >&2
+            exit 1
+          fi
+          if [ ! -s "$SUTURA_BQ_ASSERTION_A_FILE" ] || [ ! -s "$SUTURA_BQ_ASSERTION_B_FILE" ]; then
+            echo "one of the two minted assertions is missing or empty - one subject cannot show two" >&2
+            exit 1
+          fi
+          # The assertions reach the leg as VALUES rather than paths, because the credential source
+          # this transport builds is a loopback URL and the assertion never touches a file on the
+          # far side either. Read here, in one step, from files this job placed and removes.
+          SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
+          SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
+            nix run .#bigquery-declared-principal -- --no-capture
 
       - name: Remove the credentials
         if: always()

@@ -357,8 +357,14 @@ mod tests {
         SourceSet::of(source())
     }
 
+    /// The instant a fixture caller's assertion stops being one.
+    ///
+    /// Far future, because the cells here are not about the lifetime - they are about what was presented
+    /// and to whom. The one cell that IS about the lifetime states its own instant inline.
+    const A_FIXTURE_EXPIRY: u64 = 4_102_444_800;
+
     fn context_for(who: Subject) -> RequestContext {
-        RequestContext::with_assertion(PrincipalChain::of(who), Secret::new("a-caller-assertion"))
+        RequestContext::with_assertion(PrincipalChain::of(who), Secret::new("a-caller-assertion"), A_FIXTURE_EXPIRY)
     }
 
     #[derive(Debug, thiserror::Error)]
@@ -778,12 +784,16 @@ mod tests {
         let broker = broker_with_cache(exchange, 8, 300);
         let alice = subject("alice");
 
-        let direct = RequestContext::with_assertion(PrincipalChain::of(alice.clone()), Secret::new("alice-direct-token"));
+        let direct = RequestContext::with_assertion(
+            PrincipalChain::of(alice.clone()),
+            Secret::new("alice-direct-token"),
+            A_FIXTURE_EXPIRY,
+        );
         let _first = broker.mint(&direct, &one_source()).expect("a fixture mint does not error");
 
         let delegated_chain =
             PrincipalChain::of(alice).acting(ActorChain::of(Actor::parse("agent-x").expect("a test actor is an actor")));
-        let delegated = RequestContext::with_assertion(delegated_chain, Secret::new("agent-x-delegated-token"));
+        let delegated = RequestContext::with_assertion(delegated_chain, Secret::new("agent-x-delegated-token"), A_FIXTURE_EXPIRY);
         let _second = broker.mint(&delegated, &one_source()).expect("a fixture mint does not error");
 
         assert_eq!(
@@ -807,6 +817,7 @@ mod tests {
         let first = RequestContext::with_assertion(
             PrincipalChain::of(alice.clone()).for_task(first_task),
             Secret::new("alice-task-a-token"),
+            A_FIXTURE_EXPIRY,
         );
         let _first = broker.mint(&first, &one_source()).expect("a fixture mint does not error");
 
@@ -814,6 +825,7 @@ mod tests {
         let second = RequestContext::with_assertion(
             PrincipalChain::of(alice).for_task(second_task),
             Secret::new("alice-task-b-token"),
+            A_FIXTURE_EXPIRY,
         );
         let _second = broker.mint(&second, &one_source()).expect("a fixture mint does not error");
 

@@ -112,13 +112,19 @@ fn caller(assertion: Option<&str>) -> RequestContext {
     caller_with("someone@example.com", assertion)
 }
 
+/// The instant a fixture caller's assertion stops being one.
+///
+/// Far future, because the cells here are not about the lifetime - they are about what was presented
+/// and to whom. The one cell that IS about the lifetime states its own instant inline.
+const A_FIXTURE_EXPIRY: u64 = 4_102_444_800;
+
 /// A caller whose verified `sub` is `raw` - the general shape [`caller`] specialises. Used by the
 /// collision cells, which need a caller whose MASK collides with `someone@example.com`'s
 /// (`steve@example.com` masks identically to `s***@e***.c***`) while its FULL subject differs.
 fn caller_with(raw: &str, assertion: Option<&str>) -> RequestContext {
     let chain = PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject"));
     match assertion {
-        Some(raw) => RequestContext::with_assertion(chain, Secret::new(raw)),
+        Some(raw) => RequestContext::with_assertion(chain, Secret::new(raw), A_FIXTURE_EXPIRY),
         None => RequestContext::of(chain),
     }
 }

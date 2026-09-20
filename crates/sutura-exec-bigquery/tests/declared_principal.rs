@@ -1,5 +1,5 @@
-//! Leg 2 for `BigQuery`, as a hosted leg: does a declared subject's question really execute as the
-//! account this source declared for it?
+//! Leg 2 for `BigQuery`, as a hosted leg: does a declared subject's question really execute as that
+//! subject's own principal at the identity pool, rather than as this deployment?
 //!
 //! **This is the venue `docs/where-identity-is-proven.md` calls *a served binary under a verified
 //! human caller*, minus the served binary** - and that split is the honest half of the claim. The
@@ -19,13 +19,15 @@
 //! # What a green run here does and does not establish
 //!
 //! Establishes: two distinct subjects resolve to two distinct `BigQuery` principals through the
-//! ADBC path, and the deployment's own identity is neither of them.
+//! ADBC path, the deployment's own identity is neither of them, and - since the credential each
+//! question runs under is built from that subject's own assertion - Google's token service accepted
+//! that assertion against the declared pool. A run here is what turns leg 2 from wired into proven.
 //!
-//! Does NOT establish: that a CALLER's own credential was checked by anything but this deployment.
-//! It is not in the chain - `crate`'s own header states why - so this leg shows the resolution is
-//! per subject and nothing about what would stop a forged subject. Nor does it establish that the
-//! served surface applies the two accounts' row grants; that is a second cell in a venue nobody has
-//! built.
+//! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
+//! two accounts' grants. And it asserts nothing about WHICH account each subject becomes, because
+//! the credential document names no service-account impersonation URL: the pool resolves a subject
+//! to its own principal, so the declared `impersonate` VALUES are not in this chain and an
+//! expectation written against them would be an expectation against a deleted mechanism.
 
 #![cfg(feature = "adbc")]
 
@@ -35,7 +37,7 @@
 #[cfg(test)]
 mod declared_principal {
 
-    use sutura_domain::identity::{Presented, PrincipalName};
+    use sutura_domain::identity::{Presented, Secret};
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
@@ -65,8 +67,7 @@ mod declared_principal {
         let driver = required("SUTURA_BIGQUERY_ADBC_DRIVER");
         let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
         let dataset = DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
-        let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE"), &required("SUTURA_BQ_SCOPE"))
-            .expect("the declared pool audience and scope are usable");
+        let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
         BigQueryWarehouse::over_adbc(
             source(),
             SourcePosture::ImpersonationAtSource,
@@ -77,11 +78,17 @@ mod declared_principal {
         )
     }
 
-    /// The identity a question runs as when this source is asked as `account`.
-    fn executed_as(account: &str) -> String {
+    /// The identity a question runs as when this source is asked with `assertion`.
+    ///
+    /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
+    /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
+    /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
+    /// document, and the transport puts it behind a workload-identity credential document for the
+    /// driver to federate.
+    fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
-        let presented = Presented::SubjectPrincipal {
-            name: PrincipalName::parse(account).expect("a declared account is a principal name"),
+        let presented = Presented::SubjectToken {
+            material: Secret::new(assertion),
         };
         String::from(
             warehouse
@@ -92,27 +99,29 @@ mod declared_principal {
     }
 
     #[test]
-    #[ignore = "needs a real BigQuery project, the driver .so, and two accounts this identity may impersonate"]
-    fn each_subject_executes_as_the_account_this_source_declared_for_it() {
-        // **THE leg-2 bar, and it is the same one the withdrawn HTTP venue met**: two distinct subjects
-        // resolve to two distinct BigQuery principals, observed at the data system rather than at a
-        // seam. `SESSION_USER()` resolves to the impersonated account's own address - that is what
-        // `telekom/sutura#376`'s `iamcredentials` hop bought and what the driver's
-        // `bigquery.impersonate.target_principal` goes through as well - so a `principal://` string
-        // here would mean the hop did not happen.
+    #[ignore = "needs a real BigQuery project, the driver .so, and two assertions the declared pool accepts"]
+    fn each_subject_executes_as_its_own_principal_at_the_declared_pool() {
+        // **THE leg-2 bar, and it is the same one the withdrawn HTTP venue met**: two distinct
+        // subjects resolve to two distinct BigQuery principals, observed at the data system rather
+        // than at a seam.
+        //
+        // **What the oracle now returns, and why the expectation changed with the mechanism.** The
+        // credential document names no `service_account_impersonation_url`, so the credential IS the
+        // principal the pool resolved the subject to and `SESSION_USER()` reads as that. An earlier
+        // round of this cell compared the answer to the service-account address `impersonate`
+        // declared, and its comment said a `principal://` string would mean the hop did not happen -
+        // both of which were true of the DELETED principal switch and neither of which is true here.
+        // So this asserts what the mechanism actually produces: two subjects, two distinct
+        // principals, from the subjects' own assertions.
         let first_assertion = required("SUTURA_BQ_ASSERTION_A");
         let second_assertion = required("SUTURA_BQ_ASSERTION_B");
         assert_ne!(
             first_assertion, second_assertion,
             "one assertion presented twice is one subject, and proves nothing about two"
         );
-        let first = required("SUTURA_BQ_PRINCIPAL_A");
-        let second = required("SUTURA_BQ_PRINCIPAL_B");
-        assert_ne!(first, second, "two principals that are one principal prove nothing");
         let ran_as_first = executed_as(&first_assertion);
         let ran_as_second = executed_as(&second_assertion);
-        assert_eq!(ran_as_first, first, "the first subject's question ran as somebody else");
-        assert_eq!(ran_as_second, second, "the second subject's question ran as somebody else");
+        assert!(!ran_as_first.trim().is_empty(), "the dataset named no identity at all");
         assert_ne!(
             ran_as_first, ran_as_second,
             "both subjects resolved to one principal, which is the shared-identity outcome wearing leg 2's name"
@@ -121,12 +130,13 @@ mod declared_principal {
 
     #[test]
     #[ignore = "needs a real BigQuery project, the driver .so, and the running identity's own account"]
-    fn the_deployments_own_identity_is_neither_declared_account() {
-        // **THE CONTROL, and without it the cell above passes on a deployment that answered both
-        // questions as itself** - which is precisely what it would do if the impersonation option were
-        // dropped. A shared leg carries no principal, so this read goes out as whatever the driver
-        // authenticates as; if that is already one of the two accounts, the other cell's two answers
-        // could both be the process and one of them would still match.
+    fn the_deployments_own_identity_is_neither_subjects_principal() {
+        // **THE CONTROL, and without it the cell above cannot tell federation from the deployment
+        // answering as itself.** A shared leg carries no subject, so this read goes out as whatever
+        // the driver's application default credentials authenticate as. Compared against the two
+        // subjects' OWN observed principals rather than against the declared accounts: the declared
+        // accounts are not in this chain any more, so comparing to them would be a control over a
+        // mechanism that is gone.
         let declared = SharedIdentityDeclared::of(
             AcknowledgementReason::parse("the control leg reads this venue's own identity, under no subject at all")
                 .expect("a reason is a reason"),
@@ -147,12 +157,12 @@ mod declared_principal {
                 .expect("the dataset answered the identity read")
                 .as_str(),
         );
-        for declared_account in ["SUTURA_BQ_PRINCIPAL_A", "SUTURA_BQ_PRINCIPAL_B"] {
+        for assertion in ["SUTURA_BQ_ASSERTION_A", "SUTURA_BQ_ASSERTION_B"] {
             assert_ne!(
                 ours,
-                required(declared_account),
-                "this venue's own identity IS one of the declared accounts, so the leg beside this one \
-                 cannot tell impersonation from the deployment answering as itself"
+                executed_as(&required(assertion)),
+                "a subject's question ran as this deployment's own identity, so the leg beside this one \
+                 cannot tell federation from the deployment answering as itself"
             );
         }
     }

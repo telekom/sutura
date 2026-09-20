@@ -30,9 +30,8 @@ fn impersonating() -> Impersonation {
     Impersonation::ThroughPool(
         super::subject::WorkloadPool::parse(
             "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso",
-            "https://www.googleapis.com/auth/cloud-platform",
         )
-        .expect("a provider resource and a scope are usable"),
+        .expect("a provider resource is usable"),
     )
 }
 

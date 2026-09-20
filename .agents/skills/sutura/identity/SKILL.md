@@ -202,10 +202,15 @@ now makes the second call (`iamcredentials.generateAccessToken`) to the account
 `WorkloadIdentity::target_for` declares (telekom/sutura#774), so a source's exchange resolves to a
 service account rather than stopping at the pool subject. **All three of those types were deleted
 with the HTTP transport** (`docs/adr/0018`, fifth amendment), so the run that paragraph cited is a
-run of code this tree does not contain; what ships instead sets the driver's own
-`bigquery.impersonate.target_principal` per job, and the caller's own credential is not in that
-chain at all. The limit beside the claim: **leg 2 is not proven.** The venue that would prove it is
-`wired` in `docs/where-identity-is-proven.md` and nobody has dispatched it.
+run of code this tree does not contain. **And what ships is not the principal switch either** - a
+round of this row said the transport sets `bigquery.impersonate.target_principal` per job with the
+caller's credential nowhere in the chain, which was true for two rounds and was rejected. The
+shipped mechanism is Workload Identity Federation: the asker's own verified assertion becomes an
+`external_account` credential document (`docs/adr/0018`, sixth amendment), so Google's token service
+verifies it and the source executes as the principal the declared pool resolves that subject to. The
+limit beside the claim: **leg 2 is not proven.** Nothing reachable from this repository shows Google
+ACCEPTING an assertion - the venue that would is `wired` in `docs/where-identity-is-proven.md` and
+nobody has dispatched it.
 
 **And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
 identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject

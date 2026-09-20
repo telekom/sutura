@@ -64,18 +64,16 @@ pub enum JobDeadline {
 
 /// Which identity one job is to be executed as.
 ///
-/// **Three variants and not an `Option<&Secret>`, because there are three ways a leg can name who
-/// runs it and the previous shape could spell only two.** The domain presents three shapes
-/// ([`sutura_domain::identity::Presented`]) and this is their transport-side image, one to one - so
-/// the mapping in `BigQueryWarehouse` is total and a transport's own `match` is exhaustive. Under the
-/// old `Option` a principal switch had no spelling at all, which is why the adapter had to refuse it
-/// one layer above rather than let the transport answer for it.
+/// **TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
+/// a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
+/// authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
+/// question answered under the deployment's identity while provenance reported it as the asker's has
+/// no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
 ///
-/// **A transport declares which arms it can serve by refusing the others**, and the two subject arms
-/// are genuinely different capabilities rather than one with a formatting choice: a bearer is
-/// credential material the transport presents, and a principal is a name the transport asks the data
-/// system to become on a connection the DEPLOYMENT authenticated. `docs/adr/0008` part 4 is why the
-/// weaker of those is its own shape and not a field on the stronger one.
+/// **The domain still presents three shapes** ([`sutura_domain::identity::Presented`]), so the
+/// mapping is 3 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where the third becomes
+/// a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a transport's
+/// fact and `Presented::agrees_with` passes both subject shapes - they are one POSTURE.
 ///
 /// `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
 #[derive(Debug, Clone, Copy)]

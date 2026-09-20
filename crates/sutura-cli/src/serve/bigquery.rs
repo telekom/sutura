@@ -164,14 +164,18 @@ fn build_bigquery(
     // exchange needs it, and `externalaccount::Options::validate` refuses an empty one - so an
     // unusable declaration fails here, before a listener is bound, rather than on the first
     // impersonated question.
+    //
+    // **`scope` is NOT, and it is the only declared value on this path that reaches nothing.** The
+    // pinned driver has nowhere to put it - `WorkloadPool` carries the measurement - so it is not
+    // handed over, not screened twice, and named as unread where the operator declares it
+    // (`sutura_config`'s `WifScope`). A value carried here and dropped later would be the shape this
+    // whole change exists to remove.
     let impersonation = match configured.workload_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
         Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
-            sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str(), workload.scope().as_str()).map_err(
-                |cause| {
-                    format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
-                },
-            )?,
+            sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str()).map_err(|cause| {
+                format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
+            })?,
         ),
     };
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(

@@ -1,6 +1,6 @@
 ---
 title: What the BigQuery wire is built from
-description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, and why the REST endpoint over a client already in the graph cost zero new packages. Superseded by its own fifth amendment: the transport it chose was deleted for the ADBC driver, and per-subject execution became a principal switch rather than a forwarded credential - which is weaker, and the amendment says how.
+description: The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, and why the REST endpoint over a client already in the graph cost zero new packages. Superseded by its own fifth and sixth amendments: the transport it chose was deleted for the ADBC driver, and per-subject execution is workload-identity federation of the asker's own assertion - the fifth amendment's principal switch was rejected and deleted, and the sixth says what replaced it.
 ---
 
 # What the BigQuery wire is built from
@@ -392,9 +392,9 @@ per-subject execution.
 
 **Corrected: the constant moved, and this section did not follow it.** `IMPERSONATION` is
 `ImpersonationCapability::PerSubjectCredential` now. A leg presenting `Presented::SubjectToken` has
-somewhere to go: the token rides as the job's bearer - `Presented::SubjectPrincipal` is still refused
-(`BigQueryError::NoPrincipalSwitch`), since this adapter has no connection-level principal switch to
-give it. **What this section's premise still gets right:** the corpus leg tested here runs on the
+somewhere to go: the assertion becomes an `external_account` credential document the driver
+federates against the declared pool (sixth amendment) - `Presented::SubjectPrincipal` is refused
+(`BigQueryError::NoPrincipalSwitch`), since the mechanism that shape names was deleted. **What this section's premise still gets right:** the corpus leg tested here runs on the
 service-account credential, so a green run says nothing about the per-subject path. What that path
 needs is built, not unbuilt: `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`
 mints the per-leg credential and `sutura-serve`'s `bigquery` composition attaches it (#284). The
@@ -1143,3 +1143,42 @@ socket, and the exchange needs a pool, a project and a hosted run, so
 multi-hop case the owner named (Keycloak or Entra, then an RFC 8693 exchange, then the pool) is not
 built: `WorkloadIdentityBroker` is the home for that hop and still has no HTTP implementor, so what
 ships is the single-hop case where the caller's own verified document is what the pool trusts.
+
+### Addendum to the sixth amendment, 2026-09-20: what review measured on the loopback source
+
+Three corrections, all from breaking the thing rather than reading it. They do not change the
+mechanism; they are the bounds the first cut of it did not have.
+
+**The request bound was nominal.** `MOST_REQUEST_BYTES` was checked BETWEEN lines around a
+`read_line`, which is unbounded WITHIN one line - a review measured 268 MB accepted on a single line
+against a nominal 8 KiB, and raising the constant to `usize::MAX` killed no cell. The read is now
+capped at one byte past the bound and a head that reaches the cap is refused rather than truncated
+and matched, so a caller cannot present both correct values and then any amount of padding.
+
+**One idle connection was a denial of service, and it hung shutdown.** With no credentials at all, a
+local process could connect, send nothing, and the driver's own fetch was never served - the accept
+loop is serial and the socket had no deadline - after which `Drop`'s join never returned. Every
+accepted socket now carries a read and write deadline. **The limit that remains**: connections are
+still handled one at a time, so a process that keeps opening them can DELAY a fetch by up to one
+window each time. It cannot prevent one and it cannot read anything. Handling connections
+concurrently would trade that for a detached handler holding the assertion after the request it
+belonged to ended, which is the guarantee `Drop` exists to give.
+
+**`scope` reaches nothing, and the fifth amendment's replacement did not change that.** Measured
+against the pinned sources: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`)
+has no `scopes` member, so the credential document cannot carry one; and the driver's only scope
+option is `bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` reads as a
+request for service-account impersonation - it then demands a target principal and REPLACES the
+federated credential with an impersonated token source. So `sources.<alias>.workload_identity.scope`
+is declared and sent by nothing; it is not screened in the transport either, because a screened value
+that goes nowhere reads as a control that is in place. `audience` is the one of the three keys the
+transport sends, and `impersonate`'s keys are read for authorization while its values are not read at
+all.
+
+**And the hosted venue asserted the deleted mechanism.** `each_subject_executes_as_the_account_this_source_declared_for_it`
+built a `Presented::SubjectPrincipal` - the shape this adapter now refuses - so it could not have
+reached a dataset, and its comment said a `principal://` answer would mean the hop did not happen,
+which is exactly what this mechanism produces. Rewritten as
+`each_subject_executes_as_its_own_principal_at_the_declared_pool`: two subjects, two DISTINCT
+principals, neither of them the deployment's own. Nothing predicts either string, because the pool
+resolves it.

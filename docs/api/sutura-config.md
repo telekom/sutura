@@ -4751,10 +4751,16 @@ convenience, and nothing needs to clone a startup refusal.
   no transport in this build", which was true while the shipped mechanism was a principal
   switch on the deployment's own credentials - and stopped being true when workload-identity
   federation replaced it. The pool's own exchange needs the audience, and Google's library
-  refuses an empty one outright, so all three keys are read now: `audience` and `scope` become
-  the credential document the driver federates with, and `impersonate`'s KEYS decide which
-  callers may be served at all. Its VALUES are the one thing still unread - see
-  `sutura_exec_bigquery::DeclaredPrincipals::names`.
+  refuses an empty one outright.
+
+  **Corrected twice, and the second correction is narrower than the first.** The same round
+  said `audience` *and* `scope` become the credential document. Only the audience does: the
+  document shape has no `scopes` member and the driver's own scope option means
+  service-account impersonation, so `scope` is declared and sent by nothing - measured against
+  the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
+  `impersonate`'s KEYS decide which callers may be served at all, and `scope` plus
+  `impersonate`'s VALUES are read by nothing - see
+  `sutura_exec_bigquery::DeclaredPrincipals::names` for the second of those.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -5506,7 +5512,19 @@ the audience as a provider resource (the `WifAudience` parse).
 pub const fn scope(&self) -> &WifScope
 ```
 
-The scope the exchanged credential carries.
+The scope the exchanged credential would carry, and **no transport in this build sends it.**
+
+Stated here because this is where an operator declares it. The shipped path federates the
+asker's own assertion through an `external_account` credential document, and the pinned
+driver has nowhere to put a scope: the document shape
+(`cloud.google.com/go/auth@v0.23.2`'s `credsfile::ExternalAccountFile`) has no `scopes`
+member, and the driver's own `bigquery.impersonate.scopes` option is read as a request for
+service-account impersonation, which replaces the federated credential rather than scoping
+it. The `BigQuery` client's own default scope applies instead.
+
+**Declared and unread, not declared and ignored** - the distinction is that this is the
+sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
+Removing the key is a settings break and a follow-up; misreporting it is a defect now.
 
 ##### Implements
 

@@ -67,6 +67,22 @@
 //! error body or a `{:?}` cannot carry it. That is the property to preserve; breaking it is the
 //! leak, not the open port.
 //!
+//! # What a local process CAN still do, which is delay and not read
+//!
+//! A round of review measured two availability defects here and both were unauthenticated: one
+//! request line with no newline was read to 268 MB against a nominal 8 KiB bound, and ONE idle
+//! connection wedged the endpoint so the driver's own fetch timed out and `Drop` never returned.
+//! Both are closed by bounds rather than by prose - [`MOST_REQUEST_BYTES`] is now a ceiling on bytes
+//! READ and not a check between lines, and every accepted connection is read and written under
+//! [`READ_WINDOW`].
+//!
+//! **The limit those bounds leave**: connections are handled ONE AT A TIME, so a local process that
+//! keeps opening them can delay a fetch by up to the read window per connection. That is
+//! availability and not confidentiality - a delayed fetch fails the question, and no arm of it
+//! reaches the assertion. Handling connections concurrently would trade it for something worse: a
+//! detached handler holding the assertion could outlive the request that built it, which is exactly
+//! what [`SubjectSource::drop`] exists to make impossible.
+//!
 //! # The lifetime, which fails mid-query rather than at boot
 //!
 //! `externalaccount::NewTokenProvider` wraps its provider in `auth.NewCachedTokenProvider`, so the
@@ -75,9 +91,14 @@
 //! therefore lives for as long as the [`SubjectSource`] is held - `AdbcBigQuery::run` holds it
 //! across the whole execution - and serves every correctly-authenticated fetch in that window
 //! rather than exactly one. `a_fetch_after_the_connection_was_built_is_still_served` is the cell on
-//! that; `the_listener_is_gone_once_the_source_is_dropped` is the other direction.
+//! that; `the_listener_is_gone_once_the_source_is_dropped` and
+//! `the_endpoint_is_closed_before_drop_returns_even_with_a_connection_in_flight` are the other
+//! direction. The second of those exists because the first passed with `Drop`'s join deleted: a
+//! stop flag being SET says nothing about the thread having seen it, and the race is only a race
+//! while no connection is in flight. With one in flight the thread is inside its read window, so an
+//! unjoined `drop` demonstrably returns with the port still open.
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,42 +129,56 @@ const SUBJECT_TOKEN_TYPE: &str = "urn:ietf:params:oauth:token-type:jwt";
 /// is why this is a constant and not a comment.
 const MOST_REQUEST_BYTES: usize = 8 * 1024;
 
+/// How long one connection may take to send its head and read its answer.
+///
+/// **A deadline on every accepted socket, because the loop is serial.** Without it a local process
+/// that connected and sent nothing held the endpoint for as long as it liked: the driver's own fetch
+/// never got served and `Drop`'s join never returned, both measured. Generous for the one real
+/// client - a Go HTTP library on loopback writes its request in one syscall - and short enough that
+/// a wedge is a delay.
+const READ_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Everything about a source that does not change per request: the pool it exchanges against.
 ///
 /// **Parsed at composition, so an unusable declaration fails to start.** The audience is the pool
 /// provider resource the subject token is exchanged for - `externalaccount::Options::validate`
 /// refuses an empty one outright, so a deployment that declared nothing would fail on its first
 /// question instead of at boot.
+///
+/// **One field, and the declared SCOPE is not it.** `sources.<alias>.workload_identity.scope` is
+/// parsed by `sutura_config` and reaches nothing here, because the pinned driver has nowhere to put
+/// it: `credsfile::ExternalAccountFile` (`cloud.google.com/go/auth@v0.23.2`) has no `scopes` member,
+/// so the document cannot carry one, and the driver's only scope option is
+/// `bigquery.impersonate.scopes`, which `connection.go`'s `hasImpersonationOptions` treats as a
+/// request for the DELETED mechanism - it then demands a target principal and replaces the
+/// federated credential with an impersonated token source. A screened value this transport cannot
+/// send would read as a control that is in place, so it is not held here at all and the operator is
+/// told where they declare it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadPool {
     audience: String,
-    scope: String,
 }
 
 /// Why a declared pool is not one this transport can exchange against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum UnusablePool {
     /// There was nothing there.
-    #[error("the {what} this source declares is empty")]
-    Empty {
-        /// Which of the two values.
-        what: &'static str,
-    },
+    #[error("the workload identity audience this source declares is empty")]
+    Empty,
     /// Longer than the value's own bound.
-    #[error("the {what} this source declares is {found} characters and at most {most} are usable")]
+    #[error(
+        "the workload identity audience this source declares is {found} characters and at most \
+         {most} are usable"
+    )]
     TooLong {
-        /// Which of the two values.
-        what: &'static str,
         /// How long it was.
         found: usize,
         /// The bound.
         most: usize,
     },
     /// A character outside the accepted set, at a position.
-    #[error("the {what} this source declares carries an unusable character at {at}")]
+    #[error("the workload identity audience this source declares carries an unusable character at {at}")]
     Character {
-        /// Which of the two values.
-        what: &'static str,
         /// Where, so an operator can find it without the refusal quoting it.
         at: usize,
     },
@@ -153,23 +188,36 @@ impl WorkloadPool {
     /// A provider resource is bounded the way the endpoint documents it.
     const MOST_AUDIENCE: usize = 256;
 
-    /// A scope is a URL, so its bound is a URL's.
-    const MOST_SCOPE: usize = 1024;
-
-    /// Parses the audience and scope one impersonating source declares.
+    /// Parses the audience one impersonating source declares.
     ///
-    /// **Both reach a JSON document this transport builds**, so both are checked here as well as in
-    /// the settings tree - the reason `crate::transport::ProjectId` is parsed twice. The accepted
-    /// sets exclude every character that could close a JSON string or a URL, so a declaration
-    /// cannot reshape the document it lands in.
+    /// **It reaches a JSON document this transport builds**, so it is checked here as well as in the
+    /// settings tree - the reason `crate::transport::ProjectId` is parsed twice. The accepted set
+    /// excludes every character that could close a JSON string or a URL, so a declaration cannot
+    /// reshape the document it lands in.
     ///
     /// # Errors
     ///
     /// [`UnusablePool`], which carries a position and never the text.
-    pub fn parse(audience: &str, scope: &str) -> Result<Self, UnusablePool> {
-        let audience = bounded(audience, "workload identity audience", Self::MOST_AUDIENCE)?;
-        let scope = bounded(scope, "workload identity scope", Self::MOST_SCOPE)?;
-        Ok(Self { audience, scope })
+    pub fn parse(audience: &str) -> Result<Self, UnusablePool> {
+        let trimmed = audience.trim();
+        if trimmed.is_empty() {
+            return Err(UnusablePool::Empty);
+        }
+        let found = trimmed.chars().count();
+        if found > Self::MOST_AUDIENCE {
+            return Err(UnusablePool::TooLong {
+                found,
+                most: Self::MOST_AUDIENCE,
+            });
+        }
+        if let Some(at) = trimmed.char_indices().find_map(|(at, c)| {
+            (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '%')).then_some(at)
+        }) {
+            return Err(UnusablePool::Character { at });
+        }
+        Ok(Self {
+            audience: String::from(trimmed),
+        })
     }
 
     /// The pool provider resource a subject token is exchanged against.
@@ -178,38 +226,6 @@ impl WorkloadPool {
     pub fn audience(&self) -> &str {
         &self.audience
     }
-
-    /// The scope the exchanged credential carries.
-    #[inline]
-    #[must_use]
-    pub fn scope(&self) -> &str {
-        &self.scope
-    }
-}
-
-/// Trims, bounds and screens one declared value.
-///
-/// One function for the two, because *a declared value reaches a request* is one rule and two
-/// copies of it are two places for the accepted set to drift.
-fn bounded(raw: &str, what: &'static str, most: usize) -> Result<String, UnusablePool> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(UnusablePool::Empty { what });
-    }
-    if trimmed.chars().count() > most {
-        return Err(UnusablePool::TooLong {
-            what,
-            found: trimmed.chars().count(),
-            most,
-        });
-    }
-    if let Some(at) = trimmed
-        .char_indices()
-        .find_map(|(at, c)| (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '%')).then_some(at))
-    {
-        return Err(UnusablePool::Character { what, at });
-    }
-    Ok(String::from(trimmed))
 }
 
 /// One request's subject token, served over loopback for as long as this value is held.
@@ -257,6 +273,11 @@ impl SubjectSource {
             let wanted = format!("/{nonce}");
             let secret = secret.clone();
             let stop = Arc::clone(&stop);
+            // **The listener MOVES into the thread**, which is what makes the join observable: the
+            // port is open for exactly as long as this closure has not returned, so a `Drop` that
+            // did not wait leaves it open and a connection attempt after `drop` succeeds. That is
+            // the whole mechanism behind
+            // `the_endpoint_is_closed_before_drop_returns_even_with_a_connection_in_flight`.
             move || serve(&listener, &wanted, &secret, &body, &stop)
         });
         Ok(Self {
@@ -305,6 +326,11 @@ impl Drop for SubjectSource {
     /// **Joined rather than detached**, so `run` returning means the port is gone: a detached
     /// thread would leave an authenticated subject-token endpoint open for an unbounded time after
     /// the question it belonged to was answered.
+    ///
+    /// **And the wait is bounded**, which it was not: a local process that connected and sent
+    /// nothing held this join open for as long as it stayed connected. Every accepted socket now
+    /// carries [`READ_WINDOW`], so the worst case is one in-flight connection's window plus the
+    /// wake below.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         // One connection to wake the blocking `accept`, so the loop reaches its own stop check
@@ -328,6 +354,14 @@ fn serve(listener: &TcpListener, wanted: &str, secret: &str, body: &str, stop: &
             return;
         }
         let Ok(stream) = incoming else { continue };
+        // **The deadline goes on before anything is read.** A socket with no timeout is what let one
+        // idle local connection wedge this loop; a socket whose deadline could not be set is refused
+        // outright rather than served without one, because "served without a deadline" is the state
+        // being removed.
+        if stream.set_read_timeout(Some(READ_WINDOW)).is_err() || stream.set_write_timeout(Some(READ_WINDOW)).is_err() {
+            drop(stream.shutdown(Shutdown::Both));
+            continue;
+        }
         // A failed write is not this loop's business: the client went away, and the next fetch -
         // the cached provider's re-mint - gets its own connection.
         drop(answer(&stream, wanted, secret, body));
@@ -337,22 +371,9 @@ fn serve(listener: &TcpListener, wanted: &str, secret: &str, body: &str, stop: &
 
 /// Reads one request head and writes one response.
 fn answer(stream: &TcpStream, wanted: &str, secret: &str, body: &str) -> std::io::Result<()> {
-    let mut reader = BufReader::new(stream);
-    let mut head = String::new();
-    // Bounded, and the bound is the whole head rather than per line: the one real client sends a
-    // few hundred bytes, so anything approaching this is not it.
-    while head.len() < MOST_REQUEST_BYTES {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            break;
-        }
-        let blank = line.trim().is_empty();
-        head.push_str(&line);
-        if blank {
-            break;
-        }
-    }
-    let granted = head.len() <= MOST_REQUEST_BYTES && authenticated(&head, wanted, secret);
+    // One `is_some_and`, so an unreadable head, an over-long head and a head presenting the wrong
+    // values are one refusal with one body - a caller cannot tell which of them it hit.
+    let granted = head_of(stream).is_some_and(|head| authenticated(&head, wanted, secret));
     let mut stream = stream;
     if granted {
         write!(
@@ -370,12 +391,42 @@ fn answer(stream: &TcpStream, wanted: &str, secret: &str, body: &str) -> std::io
     }
 }
 
+/// Reads one request head, or nothing.
+///
+/// **`None` is every way the read did not produce a head this endpoint will act on**, and the bound
+/// is on BYTES READ rather than checked between lines. That distinction was a real defect: a
+/// `read_line` is unbounded within one line, so a request line with no newline was measured reading
+/// 268 MB against a nominal 8 KiB. The reader is capped at one byte PAST the bound, so a head that
+/// reached the cap is refused rather than truncated and matched - a truncation would have let a
+/// caller present both values and then any amount of padding.
+fn head_of(stream: &TcpStream) -> Option<String> {
+    let mut reader = BufReader::new(stream).take(u64::try_from(MOST_REQUEST_BYTES).unwrap_or(u64::MAX).saturating_add(1));
+    let mut head = String::new();
+    loop {
+        let mut line = String::new();
+        // A read error and an invalid-UTF-8 request are both "no head", which is also what a
+        // timed-out idle connection arrives as.
+        if reader.read_line(&mut line).ok()? == 0 {
+            break;
+        }
+        let blank = line.trim().is_empty();
+        head.push_str(&line);
+        if blank {
+            break;
+        }
+    }
+    (head.len() <= MOST_REQUEST_BYTES).then_some(head)
+}
+
 /// Does this request head present BOTH the path nonce and the header secret?
 ///
 /// **Both, and neither is sufficient**, which is what makes the open port's bound the one the module
-/// header states. The comparison is a plain `==` on values this process generated - there is no
-/// remote guessing loop to time, because the values are 128 bits of process-local randomness and a
-/// caller gets one connection per attempt.
+/// header states. The comparison is a plain `==` on values this process generated, and it is NOT
+/// constant time: a review measured a right nonce answering in 225 us against 166 us for a wrong one
+/// over 60 samples. What that oracle confirms is a nonce a caller already holds - it does not
+/// recover one, because there is nothing to walk towards through 128 bits of process-local
+/// randomness and each attempt costs a fresh connection. Stated rather than fixed, because the
+/// comparison a constant-time crate would replace is not the value at risk.
 fn authenticated(head: &str, wanted: &str, secret: &str) -> bool {
     let mut lines = head.lines();
     let Some(request) = lines.next() else {

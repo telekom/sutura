@@ -361,10 +361,9 @@ where
     /// **One question here now, and the second one moved to where it can be answered.** This used
     /// to ask *does the shape agree with the posture* and then *can this adapter deliver the shape*,
     /// because the adapter itself refused a principal switch outright. It no longer does: the
-    /// adapter is generic in its transport, every [`Presented`] shape maps onto a
-    /// [`JobIdentity`](crate::transport::JobIdentity) arm, and which arms a transport can serve is
-    /// the transport's own fact. [`adbc`] serves the principal arm and refuses the bearer one; the
-    /// deleted HTTP transport was the other way round. An adapter-level match would have to be
+    /// adapter is generic in its transport, and *which shapes can be delivered* moved to
+    /// [`Self::job_identity`] - which refuses [`Presented::SubjectPrincipal`], the shape whose
+    /// mechanism was deleted. An adapter-level match over postures AND shapes would have to be
     /// changed for either, which is exactly the coupling `JobTransport` exists to remove.
     fn deliverable(&self, presented: &Presented) -> Mapped<(), T::Error> {
         presented
@@ -386,13 +385,13 @@ where
         }
     }
 
-    /// What one leg's presented credential means to a transport, as one of three arms.
+    /// What one leg's presented credential means to a transport: two arms, or a refusal.
     ///
-    /// **A total mapping and not a decision**, which is the difference from what this used to be: it
-    /// collapsed two of the three shapes to `None` and left the adapter to refuse one of them
-    /// separately. Every arm now has a spelling, so the question *can this be executed* belongs to
-    /// the transport that would execute it, and the match stays exhaustive rather than wildcarded so
-    /// a fourth presented shape is a compile error at this line.
+    /// **Exhaustive over three shapes and never wildcarded**, so a fourth [`Presented`] variant is a
+    /// compile error at this line rather than a shape that falls through to whatever the last arm
+    /// was. Two shapes have a [`JobIdentity`](crate::transport::JobIdentity) spelling; the third is
+    /// refused HERE and not by a transport, because the mechanism it names was deleted from every
+    /// transport in this crate.
     fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
             Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject(material)),
@@ -624,19 +623,21 @@ where
 {
     type Error = BigQueryError<T::Error>;
 
-    /// **How this adapter can carry a subject, and the limit the variant cannot express.** A leg
-    /// presenting either subject shape has somewhere to go: [`Self::job_identity`] maps both onto a
-    /// [`JobIdentity`] arm, and a source declared `impersonation-at-source` can therefore be opened
-    /// here. What actually executes as the asker is the PRINCIPAL arm, which [`adbc`] delivers
-    /// through the driver's impersonation options; the bearer arm is refused by that transport.
+    /// **The variant's own name is what this mechanism is, which it was not for two rounds.** The
+    /// asking subject's own verified assertion is what reaches the data system: [`Self::job_identity`]
+    /// maps [`Presented::SubjectToken`] onto [`JobIdentity::AsSubject`], and [`adbc`] federates it
+    /// through an `external_account` credential document so Google's token service verifies it. A
+    /// per-subject credential, presented per subject - so `PerSubjectCredential` is the accurate
+    /// value and not merely the only workable one.
     ///
-    /// [`ImpersonationCapability`] has two variants and this mechanism is neither of their names -
-    /// nothing a subject possesses arrives, only a principal the deployment becomes on that
-    /// subject's behalf. `PerSubjectCredential` is still the only value that lets
-    /// `deliverable_by` accept the impersonating posture, so it is the right one of the two; the
-    /// crate header states what the mechanism is instead of what the variant is called. Widening the
-    /// domain enum would reach every adapter, and no second reader of this constant needs the
-    /// distinction yet.
+    /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
+    /// principal the deployment becomes on that subject's behalf", which described the deleted
+    /// principal switch. That mechanism is gone and its `JobIdentity` arm with it;
+    /// [`Presented::SubjectPrincipal`] is what this adapter now refuses.
+    ///
+    /// **The limit beside the claim**: this constant says a subject's own credential has somewhere
+    /// to go here. It does not say Google has ever accepted one - that is leg 2, it needs a hosted
+    /// run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
     /// **This is the one adapter that prices a dry run.** [`Self::dry_run`] decodes

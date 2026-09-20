@@ -10218,22 +10218,22 @@ declaration is told why, not just that.
 
 - `PerSubjectCredential` - There is a place in this adapter's path for the ASKING SUBJECT to arrive, so a source declared `SourcePosture::ImpersonationAtSource` can be opened here.
 
-  **Wider than its name, and the name is the older half.** It read *a place for a subject's own
-  credential to arrive*, which is one of the two mechanisms
-  `crate::identity::Presented` models and not the one every shipping adapter uses: a
-  `SubjectPrincipal` carries a principal the
-  data system switches to on a connection the DEPLOYMENT authenticated, and nothing a subject
-  possesses arrives at all. `sutura-exec-bigquery` declares this constant and delivers exactly
-  that shape, so the sentence and the code disagreed - which is the defect, not the choice of
-  mechanism.
+  **The name is accurate again, and a round of this doc argued the opposite.** It said the
+  variant was "wider than its name" because the only shipping adapter that declared it
+  delivered a `SubjectPrincipal` - a principal
+  the data system switches to on a connection the DEPLOYMENT authenticated, with nothing the
+  subject possesses in the chain. That mechanism was deleted:
+  `sutura-exec-bigquery` federates the asker's own verified assertion and REFUSES the principal
+  shape, so a subject's own credential is exactly what arrives.
 
-  **What this variant therefore does NOT tell a reader**, and the boot check does not need it
-  to: which of the two mechanisms an adapter uses, and so how much of the caller's own
-  authorization is in the chain. Those differ - `docs/adr/0008` part 4 is why the weaker one is
-  its own `Presented` shape - and the only thing `SourcePosture::deliverable_by` asks is whether the
-  impersonating posture is deliverable at all. An adapter states the mechanism in its own
-  documentation; a third variant naming the principal switch is a vocabulary decision nobody
-  has taken.
+  **So a third variant naming the principal switch has nothing left to name**, and this is
+  where that decision is recorded rather than in the adapter that prompted it. Should a future
+  adapter deliver the weaker shape, the vocabulary question comes back with it.
+
+  **What this variant still does NOT tell a reader**, and the boot check does not need it to:
+  how much of the caller's own authorization is in the chain at the source. That is the
+  adapter's own documentation, and the only thing `SourcePosture::deliverable_by` asks is
+  whether the impersonating posture is deliverable at all.
 - `NoPlaceForASubject` - There is not. An in-process engine over local files is this: one process, one operating-system identity, and nowhere for a subject to appear. Saying so explicitly is the point of the declaration - a file engine is the easiest source in the world to assume nothing about, and "nobody declared anything for the engine" is how a deployment ends up believing its whole surface impersonates because its *network* source does.
 
 #### Methods

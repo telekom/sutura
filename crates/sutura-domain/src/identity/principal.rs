@@ -632,7 +632,16 @@ impl PrincipalChain {
 #[derive(Debug, Clone)]
 pub struct RequestContext {
     chain: PrincipalChain,
-    assertion: Option<crate::identity::Secret>,
+    /// The caller's own credential and when it stops being one, as ONE field.
+    ///
+    /// **A pair rather than two `Option`s, because the two must not be able to disagree.** A broker
+    /// that presents the assertion has to mint an [`crate::identity::Expiry`] for it, and separate
+    /// fields would allow "material with no expiry" - which is what
+    /// [`crate::identity::Expiry::NothingExpires`] means, and which is false of every assertion leg
+    /// 1 verifies. `exp` is in the transport's own `required_spec_claims`, so a verified caller
+    /// always has one - and [`Self::with_assertion`] takes the instant rather than an `Expiry`, so
+    /// the forever variant cannot be written into this pair at all.
+    assertion: Option<(crate::identity::Secret, crate::identity::Expiry)>,
     /// What a deployment mapped this caller's verified group claim onto - `docs/adr/0028`. Empty
     /// for [`Subject::TheDeploymentItself`] and for every constructor below that does not call
     /// [`Self::granting`]; nothing here interprets emptiness as "the whole catalog" - that reading
@@ -653,19 +662,35 @@ impl RequestContext {
         }
     }
 
-    /// The same context, with the caller's own credential assertion the transport retained.
+    /// The same context, with the caller's own credential assertion the transport retained and the
+    /// moment that assertion stops being one.
     ///
     /// **This is the port change `docs/adr/0008` part 2 asked for and `docs/adr/0014` gated.** A
     /// broker that performs an exchange could not read the caller's token from the [`RequestContext`]
     /// it was handed, because nothing named what the caller presented - only who. This constructor is
     /// the thing that carries it, and it appears next to the first broker that exchanges rather than
     /// before it.
+    ///
+    /// **The expiry is an instant and not an [`crate::identity::Expiry`]**, which is the whole
+    /// mechanism: `Expiry` has a
+    /// [`NothingExpires`](crate::identity::Expiry::NothingExpires) variant, and *credential material
+    /// that never expires* is not a state a verified assertion can be in - `exp` is in the
+    /// transport's own required claims. Taking the seconds and wrapping them here means a caller
+    /// CANNOT pass the forever variant, so
+    /// [`crate::identity::BoundToTheRequest::still_usable_at`] cannot be handed a leg it will always
+    /// answer yes for. The parameter did not exist while every broker either exchanged the assertion
+    /// for something with its own lifetime or presented a principal's NAME, which does not age.
     #[inline]
     #[must_use]
-    pub fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret) -> Self {
+    pub fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret, not_after_unix_seconds: u64) -> Self {
         Self {
             chain,
-            assertion: Some(assertion),
+            assertion: Some((
+                assertion,
+                crate::identity::Expiry::At {
+                    unix_seconds: not_after_unix_seconds,
+                },
+            )),
             audiences: crate::catalog::GrantedAudiences::none(),
         }
     }
@@ -697,8 +722,20 @@ impl RequestContext {
     /// performs an exchange refuses a request whose caller presented nothing to exchange, as
     /// [`crate::query::RefusalReason::CredentialUnavailable`].
     #[inline]
-    pub const fn assertion(&self) -> Option<&crate::identity::Secret> {
-        self.assertion.as_ref()
+    pub fn assertion(&self) -> Option<&crate::identity::Secret> {
+        self.assertion.as_ref().map(|(material, _)| material)
+    }
+
+    /// When the assertion above stops being one, where there is an assertion at all.
+    ///
+    /// `None` is "there is no caller credential here", which is a different answer from "it never
+    /// expires" - and the reason this is not an [`crate::identity::Expiry`] with a
+    /// [`NothingExpires`](crate::identity::Expiry::NothingExpires) fallback. A broker that reads
+    /// this and finds `None` on a path that needs the caller's own material has to refuse; folding
+    /// the two answers together would hand it a credential that outlives every clock.
+    #[inline]
+    pub fn assertion_expires(&self) -> Option<crate::identity::Expiry> {
+        self.assertion.as_ref().map(|&(_, expires)| expires)
     }
 
     /// The task this request belongs to, if one was named.
