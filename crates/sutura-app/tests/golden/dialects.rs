@@ -443,7 +443,7 @@ fn stated_limit(dialect: Dialect) -> Option<&'static str> {
              community image, by tag, brought up by hand - and no `oracle-tier.nix` exists the way \
              `nix/postgres-tier.nix` does, so the nix sandbox `just validate` runs in cannot reach one. The \
              render goldens pin what this workspace's own generator emits; nothing here establishes that a real \
-             Oracle accepts the statement or agrees on the number. ⚠ And the parse-back check cannot close that \
+             Oracle accepts the statement or agrees on the number. And the parse-back check cannot close that \
              gap: `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is the standing proof that a \
              construct which parses can still mean the wrong thing.",
         ),
