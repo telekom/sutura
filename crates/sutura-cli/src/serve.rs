@@ -445,6 +445,30 @@ pub(crate) fn run() -> Result<(), String> {
     served
 }
 
+/// The agent surface's transport, built AFTER the state exists - `github.com/telekom/sutura#892`.
+///
+/// **Why after, when `main`'s pre-#892 order built it before.** The state owns this replica's spend
+/// gauge, and the agent surface is handed a handle to the same one, so both surfaces drive ONE spend
+/// series rather than two that disagree. That handle only exists once the state does, which is what
+/// moves this call below `ServiceState::new` and costs the `settings`-still-owned convenience the
+/// previous order had.
+///
+/// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
+/// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
+/// attached, so "the agent surface is only served where a caller can be verified" cannot be
+/// un-paired by a later edit.
+fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
+    if !state.settings().server().agent_surface_enabled() {
+        return Ok(None);
+    }
+    Ok(Some(agent::mount(
+        state.surface(),
+        state.settings(),
+        state.admission().clone(),
+        state.spend_headroom_gauge(),
+    )?))
+}
+
 /// Leg 1, for a deployment that declared one.
 ///
 /// **`None` is a posture and not a gap.** A deployment with no `security.inbound` block is a
