@@ -432,6 +432,21 @@ fn stated_limit(dialect: Dialect) -> Option<&'static str> {
              that this axis does not repeat mechanically. Its render goldens pin what this workspace's own \
              generator emits and nothing about whether a real ClickHouse accepts it or agrees on the number.",
         ),
+        // Arrived with `github.com/telekom/sutura#127` PR 1, the RENDERING half, which is why this arm
+        // exists at all: the match is exhaustive over `Dialect` precisely so a dialect cannot land
+        // without answering here, and this one landed on `main` while this branch was in review.
+        Dialect::Oracle => Some(
+            "No adapter executes Oracle on this tree - `ls crates/` has no `sutura-exec-oracle`, because \
+             `github.com/telekom/sutura#127` split the rendering half (landed) from the adapter and its venue \
+             (a separate change). So Oracle has 29 `sql` and 28 `params` render goldens and ZERO \
+             `rows`/`refused`/`error`/`anchor_report` goldens. Its venue is decided but not provisioned - a \
+             community image, by tag, brought up by hand - and no `oracle-tier.nix` exists the way \
+             `nix/postgres-tier.nix` does, so the nix sandbox `just validate` runs in cannot reach one. The \
+             render goldens pin what this workspace's own generator emits; nothing here establishes that a real \
+             Oracle accepts the statement or agrees on the number. ⚠ And the parse-back check cannot close that \
+             gap: `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is the standing proof that a \
+             construct which parses can still mean the wrong thing.",
+        ),
     }
 }
 
