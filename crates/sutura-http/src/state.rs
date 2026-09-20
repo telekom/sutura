@@ -71,13 +71,14 @@ pub struct ServiceState {
     /// that record is why the scrape handler's own state carries no [`crate::surface::Surface`] to
     /// poll.
     ///
-    /// **Not pushed from a served agent surface.** `sutura-mcp` answers through the same
-    /// `Surface::answer` and charges the same ledger, but it carries no dependency on this crate -
-    /// and must not, since a transport does not link another transport - so nothing on that path
-    /// can reach this field. `docs/adr/0015`'s amendment records the consequence: on a deployment
-    /// serving both surfaces with a ceiling configured, this gauge holds its boot-time reading (the
-    /// full ceiling) while the agent surface alone drains the ledger, until the next HTTP query
-    /// pushes a fresh one. Not fixed here.
+    /// **Pushed from the served agent surface via the mount the composition root attaches.**
+    /// `sutura-mcp` answers through the same `Surface::answer` and charges the same ledger, but it
+    /// carries no dependency on this crate - and must not, since a transport does not link another
+    /// transport - so nothing on that path can reach this field directly. `docs/adr/0015`'s
+    /// amendment records that constraint as the reason the push had to be done this way: the
+    /// composition root (`sutura-cli/src/serve::agent_mount`) hands a handle to this gauge across
+    /// that boundary into the `Serving` wrapper it builds around the agent transport, so both
+    /// surfaces drive one `sutura_spend_headroom_bytes` series rather than two that disagree.
     spend_headroom: Option<Gauge>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that

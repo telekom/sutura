@@ -345,3 +345,27 @@ responses without parsing a body. A missing declaration is recorded as `internal
 by the `Label`-typed update API, the closed pre-registered label set and the exact-exposition
 snapshot. Its limit says explicitly that `'static` alone proves no provenance and none of these
 mechanisms bounds the product of label dimensions an author chooses.
+
+## Third amendment, 2026-09-20: the agent-surface push, and deviation 7 corrected
+
+The Second amendment's deviation 7 said `sutura_spend_headroom_bytes` was "pushed from one transport
+only" and "Not fixed here; tracked as a follow-up" for the agent surface. `telekom/sutura#892` is
+the fix. The registration-conditional and the `/metrics`-never-polls halves of that item are
+unchanged: the gauge is still absent where no ceiling is configured, and the scrape handler still
+carries no `Surface` to poll (Decision 1 is unweakened). What changed is the push.
+
+The composition root (`sutura-cli/src/serve::agent_mount`) now hands a handle to this state's own
+gauge across the crate boundary into the `Serving` wrapper it builds around the agent transport
+(`sutura-cli/src/serve/agent.rs`). That wrapper pushes a fresh reading after every `Surface::answer`
+and every `Surface::run_sql` call, the same way the `POST /v1/query` route does - so both surfaces
+drive one `sutura_spend_headroom_bytes` series rather than two that disagree. The crate-dependency
+constraint the Second amendment named as the reason nothing on that path could reach this field is
+the reason it had to be done this way: `sutura-mcp` still carries no dependency on `sutura-http`
+and structurally must not (a transport does not link another transport), so the gauge handle
+crosses that boundary at the composition root rather than through a direct import.
+
+Two cells hold the push: `a_served_agent_surface_pushes_spend_headroom_after_an_answer` and
+`a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call`
+(`crates/sutura-cli/src/serve/tests/agent_identity.rs`), both through the composition root's own
+`agent_mount(&state)` helper. `.agents/skills/sutura/invariants/SKILL.md`'s spend-headroom row
+names the cells and the mutations they kill.
