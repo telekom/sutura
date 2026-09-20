@@ -1,0 +1,9 @@
+name: wide-total-by-day
+metric: wide_amount_total
+aggregate: sum
+column: wide_amount
+keys:
+order: asserted
+rows:
+text:2026-01-01	text:10000000000000000006
+text:2026-01-02	int:15
