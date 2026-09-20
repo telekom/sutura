@@ -357,10 +357,17 @@ carries no `Surface` to poll (Decision 1 is unweakened). What changed is the pus
 The composition root (`sutura-cli/src/serve::agent_mount`) now hands a handle to this state's own
 gauge across the crate boundary into the `Serving` wrapper it builds around the agent transport
 (`sutura-cli/src/serve/agent.rs`). That wrapper pushes a fresh reading after every `Surface::answer`
-and every `Surface::run_sql` call, the same way the `POST /v1/query` route does - so both surfaces
-drive one `sutura_spend_headroom_bytes` series rather than two that disagree. The crate-dependency
-constraint the Second amendment named as the reason nothing on that path could reach this field is
-the reason it had to be done this way: `sutura-mcp` still carries no dependency on `sutura-http`
+and every `Surface::run_sql` call - so both surfaces drive one `sutura_spend_headroom_bytes` series
+rather than two that disagree. **The parity is not exact, and the direction is worth stating:**
+`record_spend_headroom` has exactly one caller, `sutura-http/src/routes/v1/query.rs`, so
+`POST /v1/query` pushes and `POST /v1/run_sql` does not. The agent surface therefore refreshes the
+gauge on a path the HTTP surface leaves alone. That is not a missed charge - the ledger is charged in
+`sutura_app::answer`/`answer_federated` and never by `run_sql` - but headroom recovers when a window
+rolls over, so a `run_sql` push corrects a stale-LOW reading and only the agent surface gets that
+correction.
+
+The crate-dependency constraint the Second amendment named as the reason nothing on that path could
+reach this field is the reason it had to be done this way: `sutura-mcp` still carries no dependency on `sutura-http`
 and structurally must not (a transport does not link another transport), so the gauge handle
 crosses that boundary at the composition root rather than through a direct import.
 
