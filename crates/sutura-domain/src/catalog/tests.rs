@@ -829,6 +829,30 @@ fn a_chain_hop_onto_another_data_system_is_refused() {
 }
 
 #[test]
+fn a_chain_that_crosses_a_data_system_and_comes_back_is_refused() {
+    // The hole the target-only comparison left, and it was a WRONG ANSWER rather than an error:
+    // `customers` sits on `elsewhere` and `regions` back on `local`, so hop 2's TARGET is local and
+    // a check reading the target alone accepted the chain. `sutura_semantic` reads a chain's source
+    // off its LAST hop, so this loaded as a purely local dimension and the whole-answer plan put
+    // `elsewhere`'s table into one `local` statement - under a certified metric name, with no
+    // refusal anywhere. Hop 2's ORIGIN is what gives it away, which is why both ends are compared.
+    let (mut models, relationships) = three_models();
+    models[1] = model("customers", "elsewhere", &["id", "region_code"]);
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![chain_metric()]).unwrap_err(),
+        InconsistentDefinitions::HopCrossesSource {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            relationship: relationship_name("customers_regions"),
+            own: SourceName::parse("local").expect("a test source is a source"),
+            // `elsewhere` is where the hop STARTS here, not where it ends: the field names the
+            // system that is not the metric's, at whichever end of the hop it turned up.
+            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
+        }
+    );
+}
+
+#[test]
 fn an_empty_chain_is_not_representable() {
     assert_eq!(
         ViaChain::of(vec![]).expect_err("an empty chain is refused"),

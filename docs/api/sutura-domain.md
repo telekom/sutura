@@ -1140,10 +1140,15 @@ An attribute a metric declares it can be broken down by.
 declared relationship - or through a chain of them, in the order the author wrote them. The
 order is load-bearing: hop N's origin must be hop N-1's target, so a chain is a single path and
 not a set of relationships, and the planner renders the joins in that order rather than choosing
-one. **Every hop is refused if it could duplicate rows, and every hop from the second on is
-refused if it crosses a data system boundary**: hop 1 may cross - a single remote dimension is
-the federated case the plan layer serves - so a chain never spans sources once it has left the
-metric's model, and no accepted hop changes what a measure sees.
+one. **Every hop is refused if it could duplicate rows, and a chain crosses a data system
+boundary at most once, only at its first hop**: hop 1 may cross - a single remote dimension is
+the federated case the plan layer serves, by splitting the question into one link and one lookup
+table - and a later hop is refused unless BOTH its ends sit on the metric's own source. So an
+accepted chain is either wholly local or exactly one crossing hop, which are the two shapes the
+plan layer can render, and no accepted hop changes what a measure sees. **The limit next to the
+claim:** that is `Definitions::assemble`'s check, so it holds for a bundle that was assembled
+here; `sutura_semantic`'s plan stage asks the same question again over the resolved chain,
+because a load check alone is one edit away from being bypassed.
 
 `allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
 filtered: a filter needs an allowlist, because the alternative is comparing against a value the

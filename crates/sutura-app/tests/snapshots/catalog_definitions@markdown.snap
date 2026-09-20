@@ -32,6 +32,14 @@ models:
       - product_key
       - product_name
     description: "The tariff catalog: one row per sellable product.\n\nThere is no price column, and the absence is the point. A list price is not what a\nsubscription was billed, so a revenue metric that summed it would answer a question\nabout the price list under the name of a question about revenue. The billed figure sits\non the monthly snapshot, where whatever made it differ from the list price has already\nbeen applied."
+  regions:
+    name: regions
+    source: local
+    table: dim_region
+    columns:
+      - region
+      - sales_area
+    description: "One row per region, holding the one attribute a region rolls up into. Nothing here is\nadditive, so a join to it cannot change a measure.\n\nThis model exists for the shape rather than for the attribute. It is the only model in\nthis catalog that a fact table does not carry a key for: `fct_subscription_monthly` has\nno region column at all, so `sales_area` is reachable only by joining `dim_customer`\nfirst and `dim_region` after it. That is a TWO-hop chain, and it is the case a catalog\nof single-hop dimensions never renders - hop 2's `ON` clause has to name `dim_customer`,\nthe table hop 1 arrived at, and a planner that qualified every hop by the fact table\ninstead produced `fct_subscription_monthly.region`, a column that does not exist. It\nfailed as a binder error here and would have been a silently different grouping on a\nfact table that happened to carry a column of that name.\n\n`region` is the join key and is the same text `dim_customer.region` holds. Five regions,\neach in exactly one sales area, so the rollup is a partition: a total by `sales_area`\nreconciles with the same total by `region` and with the ungrouped one."
   subscriptions:
     name: subscriptions
     source: local
@@ -47,6 +55,13 @@ models:
       - subscription_key
     description: "One row per subscription per month: what that subscription was worth in the month, and\nwhat state it was in at the end of it.\n\nA snapshot, not a log. `month` is the first day of the month being described, so every\nrow of a month carries the same date and a day grain would bucket them all onto the\nfirst. That is why no metric on this model declares one: the answer would be arithmetic\nthat looks like a daily series and is not.\n\nMoney is held in minor units so that a total is exact. A metric that summed a decimal\ncolumn would depend on how two languages happen to print the same bits, and an anchor\ncomparison over that is a test that fails for the wrong reason.\n\n`status` and `churned_in_month` describe the same event from two sides and both are\nhere on purpose. `status` is a state at the end of the month, which is what a revenue\ndefinition narrows on. `churned_in_month` is something that happened inside the month,\nwhich is what a churn count counts. In the general case neither follows from the other:\na subscription that terminates and is restored ends the month in a state that says\nnothing about the termination.\n\n`contract_term` is the one attribute here that belongs to the subscription rather than to the\ncustomer or to the product, so it is the one dimension a metric on this model reaches without a\njoin. Every other dimension in this catalog is declared `via` a relationship, and a catalog\nwhere that was true of all of them would never once compile the plainest case there is: a\ngroup-by key read straight off the fact table, contributing no join of its own. It is\ndeclared on two metrics rather than one so the case survives either of them being rewritten."
 relationships:
+  customer_region:
+    name: customer_region
+    origin_model: customers
+    origin_column: region
+    target_model: regions
+    target_column: region
+    join_type: many_to_one
   subscription_customer:
     name: subscription_customer
     origin_model: subscriptions
@@ -266,6 +281,17 @@ metrics:
           - south
           - west
         description: Where the customer is.
+      sales_area:
+        name: sales_area
+        column: sales_area
+        via:
+          - subscription_customer
+          - customer_region
+        allowed_values:
+          - central
+          - north_east
+          - south_west
+        description: "Which sales area the customer's region rolls up into. The one dimension here reached through a chain of two relationships rather than one."
       segment:
         name: segment
         column: segment
@@ -281,7 +307,7 @@ metrics:
         start: 2026-06-01
         end: 2026-07-01
       value: "202121"
-    description: "Recurring revenue recognised in the month, in minor units, from active subscriptions\nonly.\n\nThe filter is part of the name. This metric does not mean \"revenue, which you may narrow\nto active if you remember to\": it means the active figure, and a statement that left the\npredicate out would return revenue including terminated subscriptions under a certified\nname. That is the failure arrived at by omission rather than by tampering, so the\npredicate is compiled into every question about this metric and a caller can neither see\nit nor turn it off.\n\n`status` is therefore not a dimension here. A dimension is something a caller may group\nby or filter on, and either would be a way to ask this metric for a number it does not\nmean.\n\n`contract_term` is the one dimension here that names no relationship, and it is declared\nfor what that costs the compiler rather than for the split it reveals. Every other\ndimension on this metric is reached `via` a many-to-one join, so a catalog holding only\nthose would never render the case where a group-by key is read straight off the fact\ntable and contributes no join of its own. It is declared on\n`subscription_months_billed` too, so the case survives either metric being rewritten.\n\nThe anchor is what this metric produced for June 2026 when it was certified. It is\nre-executed on every run and at startup, so a definition that has stopped meaning what it\nclaimed fails readiness rather than answering."
+    description: "Recurring revenue recognised in the month, in minor units, from active subscriptions\nonly.\n\nThe filter is part of the name. This metric does not mean \"revenue, which you may narrow\nto active if you remember to\": it means the active figure, and a statement that left the\npredicate out would return revenue including terminated subscriptions under a certified\nname. That is the failure arrived at by omission rather than by tampering, so the\npredicate is compiled into every question about this metric and a caller can neither see\nit nor turn it off.\n\n`status` is therefore not a dimension here. A dimension is something a caller may group\nby or filter on, and either would be a way to ask this metric for a number it does not\nmean.\n\n`contract_term` is the one dimension here that names no relationship, and it is declared\nfor what that costs the compiler rather than for the split it reveals. Every other\ndimension on this metric is reached `via` a many-to-one join, so a catalog holding only\nthose would never render the case where a group-by key is read straight off the fact\ntable and contributes no join of its own. It is declared on\n`subscription_months_billed` too, so the case survives either metric being rewritten.\n\n`sales_area` is the opposite end of the same axis: the one dimension in this catalog\nreached through a chain of TWO relationships, `subscription_customer` then\n`customer_region`. A catalog of single-hop dimensions renders only `ON <fact>.<key> =\n<dim>.<key>`, so it cannot tell a planner that qualifies each hop by the fact table from\none that walks the path - both produce the same statement for one hop. `examples/okf`\nand the other corpora here are single-hop, which is why this dimension lives on the\nmetric the whole golden suite and the executed corpus read.\n\nThe anchor is what this metric produced for June 2026 when it was certified. It is\nre-executed on every run and at startup, so a definition that has stopped meaning what it\nclaimed fails readiness rather than answering."
     audience: Open
   revenue_per_churned_subscription:
     name: revenue_per_churned_subscription

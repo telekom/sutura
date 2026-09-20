@@ -269,7 +269,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `c764275c6522d717e32649d075cd3475c6e563b8aaad0183b5a4ed10f89364ad`
+- Definitions digest: `73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -322,6 +322,7 @@ not infer a meaning from the name alone and present it as the definition.
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `product_name` - group by only - no set of values is declared, so it cannot be filtered
   - `region` - group by or filter. Values: central, east, north, south, west
+  - `sales_area` - group by or filter. Values: central, north_east, south_west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
 **Caveat `revenue_is_in_minor_units`** - about this metric as a whole.

@@ -142,9 +142,18 @@ pub enum InconsistentDefinitions {
         relationship: RelationshipName,
     },
     /// A chained join onto another data system's statement. Second and later hops only: hop 1
-    /// crossing a source boundary is the federated case, and the plan layer serves it.
+    /// crossing a source boundary is the federated case, and the plan layer serves it by splitting
+    /// the question.
+    ///
+    /// **Both ends of the hop are compared, and comparing only the target was a wrong answer.** A
+    /// chain that crossed at hop 1 and came back at hop 2 has a local target on that second hop, so
+    /// a check reading the target alone accepted it - and then
+    /// `sutura_semantic`'s `is_remote` reads such a chain off its LAST hop, calls it local, and the
+    /// whole-answer plan renders the other system's table into one statement under a certified
+    /// metric name. So a chain crosses at most once and only at its first hop, which is exactly the
+    /// shape the federated splitter plans: one link, one lookup table.
     #[error(
-        "dimension {dimension} of metric {metric} chains along {relationship} to a model on {target_source}, but the metric reads from {own}, and a chained join would put rows on another data system's statement"
+        "dimension {dimension} of metric {metric} chains along {relationship}, which joins a table on {target_source}, but the metric reads from {own}, and a chained join would put rows on another data system's statement"
     )]
     HopCrossesSource {
         metric: MetricName,
@@ -154,6 +163,9 @@ pub enum InconsistentDefinitions {
         /// `source` as the `Error::source` chain and a `SourceName` there does not compile. Every
         /// error that names a source field does so under a name that is not exactly `source`.
         own: SourceName,
+        /// The other data system this hop touches - at either end of it. A hop that ARRIVES
+        /// elsewhere and one that DEPARTS from elsewhere are the same defect, and the field names
+        /// the system that is not the metric's rather than which end of the hop it was on.
         target_source: SourceName,
     },
     #[error(
@@ -491,23 +503,31 @@ impl Definitions {
                     });
                 }
                 // The chain is same-source from its second hop on: the metric's model declares
-                // where the statement runs, and a hop beyond the first whose target sits elsewhere
-                // would put the join on another data system's statement. Hop 1 may cross - a
-                // single remote dimension is the federated case the plan layer already serves; a
-                // chain is what this refusal exists to keep off another system's statement.
+                // where the statement runs, and a hop beyond the first with an end elsewhere would
+                // put the join on another data system's statement. Hop 1 may cross - a single
+                // remote dimension is the federated case the plan layer already serves; a chain is
+                // what this refusal exists to keep off another system's statement.
+                //
+                // **BOTH ends, and `owning` is the end that was missing.** `owning` is where the
+                // walk stands, so it is this hop's origin; comparing the TARGET alone accepted a
+                // chain that crossed at hop 1 and returned at hop 2, whose last hop is local and
+                // which therefore reached the whole-answer plan as a local dimension carrying a
+                // join onto the other system. The variant's own note carries the report.
                 let target = models.get(&relationship.target_model).ok_or_else(|| {
                     InconsistentDefinitions::RelationshipToUnknownModel {
                         relationship: name.clone(),
                         model: relationship.target_model.clone(),
                     }
                 })?;
-                if hop > 0 && target.source() != model.source() {
+                if hop > 0
+                    && let Some(elsewhere) = [owning, target].into_iter().find(|end| end.source() != model.source())
+                {
                     return Err(InconsistentDefinitions::HopCrossesSource {
                         metric: metric.name.clone(),
                         dimension: dimension.name.clone(),
                         relationship: name.clone(),
                         own: model.source().clone(),
-                        target_source: target.source().clone(),
+                        target_source: elsewhere.source().clone(),
                     });
                 }
                 owning = target;

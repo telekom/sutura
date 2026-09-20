@@ -26,7 +26,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree c764275c6522d717e32649d075cd3475c6e563b8aaad0183b5a4ed10f89364ad
+-- definitions local-working-tree 73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76
 period	recurring_revenue
 2026-01-01	237320
 2026-02-01	232822
@@ -135,9 +135,23 @@ because this snapshot holds one row per subscription per month and the metric de
 month grain. The two would part company the moment either of those changed, which is why they are
 two documents and two anchors rather than one.
 
-## The dimension that needs no join
+## The two dimensions that are not one hop away
 
-Every dimension in this catalog is reached `via` a declared relationship except one.
+Every other dimension in this catalog is one declared relationship off the fact table. Two are
+not, at opposite ends of the same axis, and both are here because a catalog of single-hop
+dimensions renders a statement that cannot tell a correct planner from a broken one.
+
+`sales_area` is reached through a CHAIN: `subscription_customer`, then `customer_region`. The sales
+area is an attribute of the region, the region is an attribute of the customer, and
+`data/fct_subscription_monthly.csv` carries neither - so the statement needs two joins, and hop 2's
+`ON` clause has to name `dim_customer`, the table hop 1 arrived at. A planner that qualified every
+hop by the fact table instead wrote `fct_subscription_monthly.region`, which is not a column of it:
+a binder error here, and a silently different grouping on a fact table that happened to carry a
+column of that name. `questions/recurring-revenue-by-sales-area.yaml` is that statement, and
+because `sales_area` partitions `region` its June total is the same 202121 - which is the assertion
+rather than the snapshot.
+
+The other one needs no join at all.
 `contract_term` - `monthly` or `annual` - sits on the snapshot row itself, so it names no
 relationship and contributes no join: the compiler reads the group-by key straight off the fact
 table. It is declared on `recurring_revenue` and on `subscription_months_billed`, so the case

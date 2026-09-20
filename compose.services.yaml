@@ -511,7 +511,7 @@ services:
       start_period: 45s
 
   # The Oracle data source (`github.com/telekom/sutura#127`). `sutura_dev::scope::SERVICES` names
-  # `oracle`, this publishes 1521 ephemerally, and `xtask dev-up --with-oracle` reads back whatever
+  # `oracle`, this publishes 1521 ephemerally, and `xtask dev-up --with oracle` reads back whatever
   # it landed on.
   oracle:
     # CI venue: compose only.
@@ -520,12 +520,17 @@ services:
     #   the shape of. A `checks.*` derivation has no docker socket and no network, so there is
     #   nothing there for it to bring up.
     # Converges: never, for the reason above - `docs/adr/0010`'s neighbours (`postgresql_18`,
-    #   Keycloak) converge because nixpkgs carries the server; this one cannot. The provisioned
-    #   instance is reached by `just test` in a docker-capable dev shell, over this tier, and NO nix
-    #   check covers it: a green `just validate` says nothing about a real Oracle answering a
-    #   question. `sutura-exec-oracle`'s own `available()` reads discovery the same way
-    #   `sutura-exec-postgres`'s does and skips its cells - loudly, on stderr - when this tier is
-    #   not up, which is every nix check and every machine with no docker socket.
+    #   Keycloak) converge because nixpkgs carries the server; this one cannot. So NO nix check
+    #   covers it: a green `just validate` says nothing about a real Oracle answering a
+    #   question. And NO Rust cell reaches it either, whichever venue it is in: the matrix's
+    #   `DataSystemUnderTest for OracleWarehouse` answers `available()` FALSE unconditionally and
+    #   reads no discovery at all - unlike `sutura-exec-postgres`, which does. That is deliberate
+    #   and `crates/sutura-app/tests/adapters/adapters.rs` carries the two reasons beside the
+    #   `impl`: `SUTURA_DEV_REQUIRE_TIER` is per PROCESS rather than per service, so a discovery
+    #   read here would go fatal the moment the unrelated Postgres tier came up, and no CSV-fixture
+    #   importer exists for this adapter to load the corpus with. So bringing this tier up changes
+    #   what a developer can drive by hand and changes no cell's verdict. The render cells in
+    #   `crates/sutura-app/tests/golden/dialects.rs` are the whole of this adapter's suite coverage.
     # `-faststart`: the database is pre-built in the image rather than created on first boot, which
     # is the difference between a usable job and a slow one for a tier that comes up on every run.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/gvenzl/oracle-free:23.26.3-faststart

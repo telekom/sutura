@@ -384,7 +384,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `c764275c6522d717e32649d075cd3475c6e563b8aaad0183b5a4ed10f89364ad`
+- Definitions digest: `73e20e0dd80199d97431ec9ff9543afc520b334e39fe06b9b3b5cd1da3b81f76`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -596,6 +596,7 @@ carry on under the rules above.
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `product_name` - group by only - no set of values is declared, so it cannot be filtered
   - `region` - group by or filter. Values: central, east, north, south, west
+  - `sales_area` - group by or filter. Values: central, north_east, south_west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
 > Recurring revenue recognised in the month, in minor units, from active subscriptions
@@ -618,6 +619,14 @@ carry on under the rules above.
 > those would never render the case where a group-by key is read straight off the fact
 > table and contributes no join of its own. It is declared on
 > `subscription_months_billed` too, so the case survives either metric being rewritten.
+>
+> `sales_area` is the opposite end of the same axis: the one dimension in this catalog
+> reached through a chain of TWO relationships, `subscription_customer` then
+> `customer_region`. A catalog of single-hop dimensions renders only `ON <fact>.<key> =
+> <dim>.<key>`, so it cannot tell a planner that qualifies each hop by the fact table from
+> one that walks the path - both produce the same statement for one hop. `examples/okf`
+> and the other corpora here are single-hop, which is why this dimension lives on the
+> metric the whole golden suite and the executed corpus read.
 >
 > The anchor is what this metric produced for June 2026 when it was certified. It is
 > re-executed on every run and at startup, so a definition that has stopped meaning what it
