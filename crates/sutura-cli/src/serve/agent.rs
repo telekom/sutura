@@ -13,7 +13,7 @@ use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_runtime::Gauge;
+use sutura_http::SpendHeadroomPush;
 
 /// The erased serving service behind a [`Surface`].
 ///
@@ -28,9 +28,13 @@ use sutura_runtime::Gauge;
 /// it must keep honest lives here instead - the composition root hands this wrapper the same
 /// `sutura_runtime::Gauge` the HTTP route writes, so both surfaces drive one
 /// `sutura_spend_headroom_bytes` series.
+///
+/// The handle arrives as a [`SpendHeadroomPush`] rather than an `Option<Gauge>`, so this wrapper
+/// cannot be built over a gauge that is not the served state's own, and a build over no gauge at
+/// all had to say `NoCeilingConfigured` out loud.
 struct Serving {
     surface: Arc<dyn Surface>,
-    spend_headroom: Option<Gauge>,
+    spend_headroom: SpendHeadroomPush,
 }
 
 impl Surface for Serving {
@@ -64,7 +68,7 @@ impl Serving {
     /// ceiling at all. Mirrors `ServiceState::record_spend_headroom`: a `None` reading leaves the
     /// gauge untouched rather than fabricating zero.
     fn push_headroom(&self) {
-        if let (Some(gauge), Some(bytes)) = (&self.spend_headroom, self.spend_headroom_bytes()) {
+        if let (Some(gauge), Some(bytes)) = (self.spend_headroom.gauge(), self.spend_headroom_bytes()) {
             gauge.set(bytes);
         }
     }
@@ -87,18 +91,21 @@ pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
-    spend_headroom: Option<Gauge>,
+    spend_headroom: SpendHeadroomPush,
 ) -> Result<sutura_http::AgentMount, String> {
     let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
     let serving = Arc::new(Serving {
         surface: service,
-        spend_headroom,
+        spend_headroom: spend_headroom.clone(),
     });
-    Ok(sutura_http::AgentMount::new(sutura_mcp::http::service(
-        serving,
-        crate::commands::catalog_prose(settings.prompt().catalog_prose()),
-        admission,
-        settings.server().request_timeout(),
-        Arc::from(instructions),
-    )))
+    Ok(sutura_http::AgentMount::new(
+        sutura_mcp::http::service(
+            serving,
+            crate::commands::catalog_prose(settings.prompt().catalog_prose()),
+            admission,
+            settings.server().request_timeout(),
+            Arc::from(instructions),
+        ),
+        spend_headroom,
+    ))
 }
