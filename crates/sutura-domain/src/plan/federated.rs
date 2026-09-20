@@ -108,11 +108,10 @@ pub struct FederatedPlan {
     /// lookup keys from the lookup result, and the two never overlap because a dimension belongs to
     /// exactly one leg.
     keys: Vec<AnswerKey>,
-    /// Case 2's `top` - `github.com/telekom/sutura#777`: a lookup-side key or an inner join forces
-    /// the rank to be taken above the combine rather than pushed to the fact leg, so this is `None`
-    /// whenever [`LegPlan::fact_top`] already carries it (case 1, or no `top` at all) and `Some`
-    /// exactly when the answer's own rows still need ranking and truncating after
-    /// [`combine`](Self::combine) returns them.
+    /// The federated `top`, ranked above the combine - `github.com/telekom/sutura#777`'s case 2,
+    /// the only case the splitter can produce: a `top` not pushed to a fact leg ranks and
+    /// truncates the combined answer after [`combine`](Self::combine) returns it. `None` when the
+    /// question carries no `top`.
     top: Option<Top>,
 }
 
@@ -285,15 +284,14 @@ impl FederatedPlan {
         })
     }
 
-    /// Attaches case 2's `top` - `github.com/telekom/sutura#777` - so
+    /// Attaches the federated `top` - `github.com/telekom/sutura#777` - so
     /// [`combine`](Self::combine)'s caller knows the answer still needs ranking and truncating
     /// after the legs are joined.
     ///
     /// A builder rather than a constructor argument, for
     /// [`QueryPlan::with_top`](crate::plan::QueryPlan::with_top)'s reason: every existing caller of
     /// [`Self::new`] keeps its argument list, and a plan built without it is byte-for-byte one
-    /// built before this field existed. Case 1 never calls this: its `top` lives on the fact leg
-    /// instead, because it is exact there and would only be redundant here.
+    /// built before this field existed.
     #[inline]
     #[must_use]
     pub const fn with_top(mut self, top: Top) -> Self {

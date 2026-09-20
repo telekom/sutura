@@ -66,3 +66,5 @@ devenv.local.nix
 # the directories is the half that keeps them out of a commit.
 /.playwright-mcp/
 /.claude/worktrees/
+.gh-state/
+.gh-state/

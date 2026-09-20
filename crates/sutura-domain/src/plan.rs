@@ -42,7 +42,7 @@ pub use crate::plan::federated::{
     AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
 pub use crate::plan::label::ResultLabel;
-pub use crate::plan::leg::{Executable, FactTop, LegPlan, LegTerm};
+pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// The most rows any plan may return.

@@ -37,7 +37,7 @@ use sutura_domain::plan::{
     PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
     plan_required_filter,
 };
-use sutura_domain::query::{RefusalReason, Top};
+use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, ResolvedFilter};
@@ -431,8 +431,6 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     // `docs/adr/0009` decides the direction.
     let include_unmatched = remote_filters.is_empty();
 
-    let (case_1_pushdown, fact_top) = case_1(resolution.top, include_unmatched, &answer_keys, &federation);
-
     let fact = sutura_domain::plan::LegPlan::Fact {
         source: model.source().clone(),
         metric: metric.name().clone(),
@@ -442,7 +440,6 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         terms,
         bindings: fact_bindings,
         range: resolution.range,
-        top: fact_top,
     };
 
     let lookup = sutura_domain::plan::LegPlan::Lookup {
@@ -462,8 +459,9 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         federation,
         answer_keys,
     )?;
-    // Case 2: a `top` that could not be pushed to the fact leg still ranks the answer, just above
-    // the combine instead of inside a leg's own statement.
+    // A `top` still ranks the answer, just above the combine - the splitter's one case,
+    // `github.com/telekom/sutura#777`'s case 2. A federated `top` is never pushed into a leg's own
+    // statement; every federated `top` ranks after the combine instead.
     //
     // **The cause is no longer erased, and this is the whole of `telekom/sutura#338`.** It used to
     // become `RefusalReason::FederationNotExecutable`, which is ALSO what a build whose adapter does
@@ -472,48 +470,9 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     // leaves it as `PlanError::NotAssembled` now, keeping the typed cause, because a defect in our
     // own wiring is not a governance answer and a caller must not be handed one it could retry.
     Ok(match resolution.top {
-        Some(top) if !case_1_pushdown => plan.with_top(top),
-        _ => plan,
+        Some(top) => plan.with_top(top),
+        None => plan,
     })
-}
-
-/// `github.com/telekom/sutura#777`'s two-case rule, decided mechanically from facts the plan
-/// already carries: every answer key on the fact leg, and a LEFT join. Both together mean the
-/// fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop one, and
-/// no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own rows and
-/// keeping `top.n()` of them is exact. Anything else (a lookup-side key, or an INNER join) has to
-/// rank above the combine instead, which the caller's own `FederatedPlan::with_top` carries.
-///
-/// Returns whether case 1 applies, and the [`FactTop`](sutura_domain::plan::FactTop) to attach to
-/// the fact leg if so - `None` otherwise, whether because there is no `top` at all or because
-/// case 2 applies instead.
-///
-/// **Measured unreachable from any question `plan()` actually dispatches here for.** Reaching this
-/// function at all requires a remote dimension among `resolution.keys` OR `resolution.filters`
-/// (`every_dimension`, this module) - that is `plan()`'s own Mono/Federated split. Case 1 requires
-/// the opposite of both: `include_unmatched` needs zero remote filters, and "every answer key is
-/// `Fact`" needs zero remote group-by keys. The two conditions cannot both hold, so this always
-/// returns `(false, None)` in production; only a constructed `FederatedPlan` in a test reaches the
-/// orchestration this feeds. `github.com/telekom/sutura#890` is the trace and the two ways to close
-/// it - cut the pushdown, or change what this is computed from.
-fn case_1(
-    top: Option<Top>,
-    include_unmatched: bool,
-    answer_keys: &[sutura_domain::plan::AnswerKey],
-    federation: &Federation,
-) -> (bool, Option<sutura_domain::plan::FactTop>) {
-    let case_1_pushdown = top.is_some()
-        && include_unmatched
-        && answer_keys
-            .iter()
-            .all(|key| matches!(key.side(), sutura_domain::plan::LegSide::Fact));
-    let fact_top = if case_1_pushdown {
-        // `.expect`: guarded by `case_1_pushdown`'s own `top.is_some()` above.
-        top.map(|top| sutura_domain::plan::FactTop::new(top, federation.ranking()))
-    } else {
-        None
-    };
-    (case_1_pushdown, fact_top)
 }
 
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.

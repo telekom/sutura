@@ -190,8 +190,6 @@ pub enum DataFusionError {
     /// about an unbounded scan.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
-    #[error("a case-1 top ranked by {position}, and this leg carries {terms} terms")]
-    RankingExceedsTerms { position: usize, terms: usize },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     ///
     /// **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
