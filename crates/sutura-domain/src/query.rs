@@ -569,10 +569,7 @@ pub enum RefusalReason {
     /// A federated `top` was ranked over a combined set the row ceiling had already cut, so the
     /// ranking is over an arbitrary slice rather than over the dimension.
     ///
-    /// **Case 2 only - `github.com/telekom/sutura#777`.** Every answer key on the fact leg with a
-    /// LEFT join (case 1) pushes the order and the limit all the way down to the fact leg, which
-    /// returns `top.n()` rows exactly and never reaches this refusal at all. This fires only when a
-    /// lookup-side key or an inner join forces the rank to be taken *after* the legs are combined -
+    /// **`github.com/telekom/sutura#777`'s case 2.** A federated `top` ranks above the combine,
     /// and the combined set, before that rank is applied, already hit [`crate::plan::RowCeiling`].
     /// The top ten of an arbitrary ten thousand wears the shape of a right answer and is not one,
     /// which is the failure this repository refuses everywhere else it can be reached.

@@ -11,13 +11,11 @@
 //!    and a per-leg quotient is unrepresentable rather than avoided.
 //! 2. The bucket and the joins belong to the fact leg alone. A lookup leg reads a table with no
 //!    time column, so it groups by its projected keys and that is its whole aggregate.
-//! 3. It emits no `LIMIT`, with one exception. A leg is not an answer:
+//! 3. It emits no `LIMIT`. A leg is not an answer:
 //!    `sutura_domain::plan::MAX_ROWS` caps one answer's rows, and a cap applied per leg would
 //!    refuse a question no answer was too large for. What bounds a leg here is the working-set
-//!    ceiling in `crate::pool`. The exception is a [`LegPlan::Fact`] carrying a
-//!    [`FactTop`](sutura_domain::plan::FactTop) - case 1's pushdown,
-//!    `github.com/telekom/sutura#777` - where the leg's own rows are exactly the answer's rows, so
-//!    `top.n()` is the right limit for the leg to carry.
+//!    ceiling in `crate::pool`. A federated `top` ranks after the combine
+//!    (`github.com/telekom/sutura#777`'s case 2), never inside a leg.
 //! 4. The filter is OPTIONAL. A whole plan always carries the two bounds of its range, which is why
 //!    [`DataFusionError::NoPredicate`] exists on that path; a lookup leg for a remote dimension
 //!    carrying no filter has no predicate at all, and no filter node is the correct plan rather
@@ -37,50 +35,14 @@
 //! is on that path - `docs/adr/0007`'s *the engine is also a data source* is the sentence this
 //! module lives under.
 
-use datafusion::arrow::datatypes::DataType;
-use datafusion::common::{Column, JoinType as EngineJoin};
-use datafusion::functions::expr_fn::nullif;
-use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit};
-use sutura_domain::federation::Ranking;
-use sutura_domain::measure::ZeroDenominator;
+use datafusion::common::JoinType as EngineJoin;
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use sutura_domain::model::JoinType;
-use sutura_domain::plan::{LegPlan, LegTerm, PlanJoin};
+use sutura_domain::plan::{LegPlan, PlanJoin};
 
 use crate::DataFusionError;
 use crate::collect::outputs;
 use crate::translate::{bucket_expression, column, predicate, term_expression};
-
-/// A case-1 `top`'s ranking, over the leg's own PROJECTED term columns - `github.com/telekom/sutura#777`.
-///
-/// **By alias, not by recomputing the raw expression.** [`Ranking::Term`] names a position in
-/// [`Federation::carried`](sutura_domain::federation::Federation::carried) order, which is the
-/// same order this leg's own terms were labelled in - so the sort key is the already-aggregated
-/// output column at that label, the same way [`crate::collect::outputs`] builds the tie-break over
-/// the grouped columns rather than re-truncating a raw one.
-fn ranking_by_label(ranking: &Ranking, terms: &[LegTerm]) -> Result<Expr, DataFusionError> {
-    match *ranking {
-        Ranking::Term(position) => terms
-            .get(position)
-            .map(|term| Expr::Column(Column::new_unqualified(term.label())))
-            .ok_or(DataFusionError::RankingExceedsTerms {
-                position,
-                terms: terms.len(),
-            }),
-        Ranking::Quotient {
-            ref numerator,
-            ref denominator,
-            zero_denominator,
-        } => {
-            let top = cast(ranking_by_label(numerator, terms)?, DataType::Float64);
-            let bottom = ranking_by_label(denominator, terms)?;
-            let bottom = match zero_denominator {
-                ZeroDenominator::Null => nullif(cast(bottom, DataType::Float64), lit(0.0_f64)),
-                ZeroDenominator::Fail => bottom,
-            };
-            Ok(top / bottom)
-        }
-    }
-}
 
 /// The same-source hops this leg keeps as joins of its own.
 ///
@@ -163,20 +125,13 @@ pub(crate) fn logical(
             .filter(remaining.fold(first, Expr::and))
             .map_err(|cause| DataFusionError::Build { cause })?;
     }
-
     // Keys, then the bucket if this leg has one, which is the order `LegPlan::result_labels` states
-    // - so the aggregate's output fields line up with the labels position for position. A case-1
-    // `top` is carried out of the match too, because ranking it needs the leg's own terms, which
-    // this arm alone builds - `github.com/telekom/sutura#777`.
+    // - so the aggregate's output fields line up with the labels position for position.
     let mut grouping: Vec<Expr> = leg.keys().iter().map(|key| column(key.column())).collect();
     let mut aggregates = Vec::new();
-    let mut pushed_top = None;
     match *leg {
         LegPlan::Fact {
-            ref bucket,
-            ref terms,
-            ref top,
-            ..
+            ref bucket, ref terms, ..
         } => {
             grouping.push(bucket_expression(bucket.grain(), bucket.column()));
             // Zero to four of them, and EMPTY is not a special case: a fact leg with no terms groups
@@ -184,9 +139,6 @@ pub(crate) fn logical(
             // `CountDistinct` needs above.
             for term in terms {
                 aggregates.push(term_expression(term.term())?);
-            }
-            if let Some(fact_top) = top {
-                pushed_top = Some((fact_top.top(), ranking_by_label(fact_top.ranking(), terms)?));
             }
         }
         // No bucket and no term. It groups by its projected keys, which is the distinct set of
@@ -220,25 +172,8 @@ pub(crate) fn logical(
     let projected = builder
         .project(projection)
         .map_err(|cause| DataFusionError::Build { cause })?;
-    match pushed_top {
-        // Case 1: the ranking replaces the tie-break-only order, and the leg's own row count
-        // replaces the absent limit - a `top` pushed to a leg is bounded by construction and
-        // there is nothing to detect. `LIMIT` (`.limit`) is emitted ONLY here: every other leg
-        // still emits none, for this function's own header's reason 3.
-        Some((top, ranking)) => {
-            let ascending = matches!(top.direction(), sutura_domain::query::TopDirection::Asc);
-            let mut sorts = Vec::with_capacity(ordering.len().saturating_add(1));
-            sorts.push(ranking.sort(ascending, false));
-            sorts.extend(ordering.into_iter().map(|e| e.sort(true, false)));
-            projected
-                .sort(sorts)
-                .and_then(|sorted| sorted.limit(0, Some(usize::try_from(top.n().get()).unwrap_or(usize::MAX))))
-                .and_then(LogicalPlanBuilder::build)
-                .map_err(|cause| DataFusionError::Build { cause })
-        }
-        None => projected
-            .sort_by(ordering)
-            .and_then(LogicalPlanBuilder::build)
-            .map_err(|cause| DataFusionError::Build { cause }),
-    }
+    projected
+        .sort_by(ordering)
+        .and_then(LogicalPlanBuilder::build)
+        .map_err(|cause| DataFusionError::Build { cause })
 }

@@ -116,16 +116,6 @@ pub enum GenerateError {
     /// describing it twice.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
-    /// A case-1 [`FactTop::ranking`](sutura_domain::plan::FactTop::ranking) named a term position
-    /// this leg does not carry.
-    ///
-    /// Unreachable: [`sutura_domain::federation::Federation::ranking`] walks the same
-    /// [`sutura_domain::federation::Above`] tree `Federation::carried` collects its leaves from, in
-    /// the same order the splitter zips into this leg's own [`LegTerm`](sutura_domain::plan::LegTerm)
-    /// list - so a position this ranking names is always one of this leg's own terms. Its own
-    /// variant rather than a panic, for [`NoPredicate`](Self::NoPredicate)'s reason.
-    #[error("a case-1 `top` ranked by term {position}, and this leg carries {terms} of them")]
-    RankingExceedsTerms { position: usize, terms: usize },
 }
 
 /// The dialect layer's name for a data system.
@@ -655,14 +645,13 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 ///    there is no [`PlanMeasure`] in a [`LegPlan`] to hand it.
 /// 2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
 ///    no time column, so it projects its keys and groups by them, which is a distinct key set.
-/// 3. **It emits no `LIMIT`, with one exception.** A leg is not an answer:
+///
+/// 3. **It emits no `LIMIT`.** A leg is not an answer:
 ///    `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
 ///    [`QueryPlan::row_limit`] is how an adapter asks for one more than the cap, so a cap applied per
 ///    leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
-///    at the conversion boundary, which belongs with the code that converts. The exception is a
-///    [`LegPlan::Fact`] carrying a [`FactTop`](sutura_domain::plan::FactTop) - case 1's pushdown,
-///    `github.com/telekom/sutura#777` - where the leg's OWN rows are exactly the answer's rows, so
-///    `top.n()` is the right limit for the leg to carry rather than an approximation of one.
+///    at the conversion boundary, which belongs with the code that converts. A federated `top` ranks
+///    after the combine (`github.com/telekom/sutura#777`'s case 2), never inside a leg.
 /// 4. **The `WHERE` clause is optional.** A [`QueryPlan`] always carries the two bounds of its range
 ///    so [`GenerateError::NoPredicate`] is unreachable there; a lookup leg for a remote dimension
 ///    that carries no filter has no predicate at all, and no clause is the correct rendering rather
@@ -680,14 +669,6 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// which builds a logical plan instead. So what pins this is the golden family under
 /// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
 /// dialect it was generated for - and none of those five is what a release executes.
-/// Case 1's own pushdown, carried out of [`generate_leg`]'s rendering match because ranking it
-/// needs the bucket expression and the term list that arm alone builds.
-struct PushedTop {
-    top: sutura_domain::query::Top,
-    ranking: Expr,
-    bucket_expr: Expr,
-}
-
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.
@@ -698,33 +679,21 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
         grouping.push(column(key.column()));
     }
 
-    // THE rendering arm. A third leg shape does not compile until it says what it projects. A
-    // case-1 `top` is carried out of the match too, because ranking it needs the bucket expression
-    // and the term list this arm alone builds - `github.com/telekom/sutura#777`.
-    let mut pushed_top: Option<PushedTop> = None;
+    // THE rendering arm. A third leg shape does not compile until it says what it projects.
     let joins: &[PlanJoin] = match *leg {
         LegPlan::Fact {
             ref bucket,
             ref terms,
             ref tables,
-            ref top,
             ..
         } => {
             let bucket_expr = bucket_expression(bucket, dialect);
             projection.push(aliased(bucket_expr.clone(), bucket.label())?);
-            grouping.push(bucket_expr.clone());
+            grouping.push(bucket_expr);
             // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
             // here: the projection is then the key list and the bucket, grouped by itself.
             for term in terms {
                 projection.push(aliased(term_expression(term.term(), dialect), term.label())?);
-            }
-            if let Some(fact_top) = top {
-                let ranking = top::ranking_expression(fact_top.ranking(), terms, dialect)?;
-                pushed_top = Some(PushedTop {
-                    top: fact_top.top(),
-                    ranking,
-                    bucket_expr,
-                });
             }
             tables.joins()
         }
@@ -746,24 +715,9 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
     }
 
     let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
-    // Case 1: the same substitution `generate`'s own `top` branch makes - the ranking replaces the
-    // tie-break-only order and the leg's own row count replaces the absent limit, because a `top`
-    // pushed to a leg is bounded by construction and there is nothing to detect. `LIMIT` is emitted
-    // ONLY here: every other leg still emits none, for this function's own header's reason 3.
-    let statement = statement.group_by(grouping);
-    let ast = match pushed_top {
-        Some(PushedTop {
-            top,
-            ranking,
-            bucket_expr,
-        }) => statement
-            .order_by(top::ordering(top, ranking, bucket_expr, tiebreak))
-            .limit(usize::try_from(top.n().get()).unwrap_or(usize::MAX))
-            .build(),
-        // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
-        // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
-        None => statement.order_by(tiebreak).build(),
-    };
+    // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
+    // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
+    let ast = statement.group_by(grouping).order_by(tiebreak).build();
 
     Ok(GeneratedQuery::new(
         leg.source().clone(),

@@ -106,7 +106,6 @@ pub(super) fn fact_leg(terms: Vec<LegTerm>) -> LegPlan {
         terms,
         bindings: PlanBindings::none(),
         range: range(),
-        top: None,
     }
 }
 
