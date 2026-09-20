@@ -52,6 +52,33 @@ transport, minted-for in a broker and composed in a root, and a fixture living i
 three cannot be driven from the other two. What it may never be cited for is written where it is
 defined, because a venue that cannot state its limit is how *verified* drifts.
 
+# A fourth half, and it is not about a service at all
+
+`bench_venue` prints the host's own load average before a benchmark under `crates/*/benches/`
+measures anything. It lives here rather than duplicated in each bench binary because
+`cargo xtask check-jscpd` refuses to exempt a clone under `crates/`, and two independent
+binaries printing the same probe is exactly that clone - `github.com/telekom/sutura#915`.
+
+## Module `bench_venue`
+
+Whether the host was too busy for a benchmark's number to mean anything.
+
+A fourth half of this crate, unrelated to the other three: `benches/*.rs` under `crates/` is a
+venue `cargo xtask check-jscpd` refuses to exempt a clone in, so the load-average probe two
+independent bench binaries both print before measuring anything lives here once instead of
+twice - `github.com/telekom/sutura#915`. A measurement taken under this repository's usual
+multi-lane load is not comparable with one taken idle, and the point of `print()` is that a
+reader of the numbers below it never has to take that on faith.
+
+### `fn print`
+
+```rust
+pub fn print()
+```
+
+Prints the host's own 1-minute load average beside its core count, before anything is
+measured, and says so loudly when there is more runnable work than this host has cores.
+
 ## Module `discovery`
 
 The discovery file: the only way to learn where a provisioned service is listening.

@@ -44,6 +44,7 @@ sutura-catalog-rdbms = { workspace = true }
 # filter, the grain, the allowlist, the anchor and the knowledge out - `docs/what-okf-can-carry.md`,
 # `#153`. Measured against its own declaration like `sutura-catalog-datahub`. `docs/adr/0016`.
 sutura-catalog-okf = { workspace = true }
+sutura-catalog-openmetadata = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.
@@ -80,6 +81,9 @@ serde_norway = { workspace = true }
 # without needing one of each data system in CI. It never re-emits, so it cannot introduce the
 # parser-differential problem that makes translation unusable on the query path.
 polyglot-sql = { workspace = true }
+# The benchmark harness for `benches/answer_path.rs` - `github.com/telekom/sutura#915`. Dev-only,
+# for the same reason every other entry in this table does not reach a shipped consumer.
+divan = { workspace = true }
 
 # Forwards `sutura-exec-bigquery`'s own default-off `fixtures`, and exists for exactly one reason:
 # `#[cfg(feature = ..)]` reads the CURRENT crate's features, so `NoLocalTier`'s `impl JobTransport`
@@ -90,6 +94,13 @@ polyglot-sql = { workspace = true }
 # turns both on together; nothing shipped reads a feature this crate declares only for its own tests.
 [features]
 fixtures = ["sutura-exec-bigquery/fixtures"]
+
+# `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
+# `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,
+# `just test` or `ci`.
+[[bench]]
+name = "answer_path"
+harness = false
 
 [lints]
 workspace = true

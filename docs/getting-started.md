@@ -480,7 +480,7 @@ required_filters:
 Four things matter before you write one:
 
 - **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
-  for `sum(price * quantity)`, and [the closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
+  for `sum(price * quantity)`, and `docs/adr/0002-a-closed-vocabulary-for-measures.md` argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
   vocabulary cannot say can be declared under the explicitly named `authored_sql:` sibling, and
   today that declaration loads and pins and nothing more: no published adapter compiles or executes

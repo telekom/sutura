@@ -324,3 +324,40 @@ for the same "deployment shape, not a knob" reason. It rotates whatever was decl
 `security.outbound.transport_anchors` for the HTTP adapters, the per-source `transport_*` for
 Postgres - and an absent declaration leaves `compiled-in` roots untouched. The DataHub reader is the
 FOURTH consumer (`telekom/sutura#768` made it read the declaration); it was never review-held.
+
+## Third amendment, 2026-09-19: `security.outbound` grows an optional client identity, correcting PR 2
+
+PR 2's own text above says the deployment-wide declaration is "anchors only, no client identity,
+because every endpoint it covers takes a bearer token and not a certificate" - true of the endpoint,
+and stated too broadly: `github.com/telekom/sutura#911` (owner-decided 2026-09-18, on #911 and #125)
+adds an optional `client_certificate`/`client_key` pair beside `transport_anchors`, declared as
+PATHS TO FILES ON DISK rather than inline material, for a certificate manager that writes into a
+mounted secret and rotates it in place. What it is for is never the fixed-host endpoint itself -
+`HOST` still takes a bearer token on every wire this covers - it is a peer IN FRONT of one (a
+gateway, a proxy) that a deployment configures to demand a certificate from the connection. Absent
+is unchanged: no certificate presented, exactly as every release before this.
+
+**The mechanism already existed; this fills in a `None`.** `sutura_tls::Rotator::new` already took
+`identity: Option<Identity>` and already handed a rebuild closure `Option<LoadedIdentity>` - both
+outbound HTTP call sites (`sutura_exec_bigquery::wire::WireAgent::rotating_agent`,
+`sutura_catalog_datahub::http::HttpAspectReader::rotating_agent`) passed `None` for it and their
+`rebuild` closures ignored the parameter they were handed. Rotation therefore comes for the identity
+half the same way it already did for anchors: `sutura_tls::Declared` pairs the two (identity can
+never be declared without anchors - the schema nests both under one `security.outbound:` block that
+already requires `transport_anchors` whenever it is written), so a composition root threads one
+`Option<Declared>` rather than two independently-optional values a call site could disagree on.
+
+**Deployment-wide only, per PR 2's own reasoning restated rather than revisited**: the two wires this
+covers dial a compile-time-constant host, so a per-entry `bigquery` identity would have nothing to
+attach to - the same argument that keeps `transport_*` refused on `files`/`bigquery` source entries.
+
+**`ureq`'s own `PrivateKey::from_der` cannot be called from outside `ureq`** - measured against
+`ureq-3.4.2`'s `pub use cert::{Certificate, PemItem, PrivateKey, parse_pem}`, which never re-exports
+`KeyKind`, the type that constructor's first argument needs. Both wires' `client_cert` conversion
+re-armors the already-loaded DER as PEM instead (`sutura_tls::LoadedIdentity::key_kind` chooses the
+label) and calls `Certificate::from_pem`/`PrivateKey::from_pem`, the pair `ureq` does expose.
+
+**The limit stated where the claim is made, twice.** First, presenting a certificate is not a peer
+verifying it: no shipped source is configured to demand one, so the new cells prove presentation and
+nothing downstream. Second, this is not a leg-2 claim - it authenticates the DEPLOYMENT's transport,
+not the asking subject; `AGENTS.md`'s leg-2 sentence is unchanged.

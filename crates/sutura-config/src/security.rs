@@ -314,8 +314,8 @@ pub mod deployment;
 pub mod outbound;
 
 pub use crate::security::deployment::{DeploymentIdentity, InvalidDeploymentIdentity, UnknownDeploymentIdentity};
-pub(crate) use crate::security::outbound::parse_outbound;
-pub use crate::security::outbound::{InvalidOutbound, OutboundAnchors};
+pub use crate::security::outbound::{InvalidOutbound, OutboundAnchors, OutboundIdentity};
+pub(crate) use crate::security::outbound::{parse_outbound, parse_outbound_identity};
 
 /// The access posture, and the declaration that goes with a non-loopback bind.
 ///
@@ -359,6 +359,11 @@ pub struct SecuritySettings {
     /// nobody turned on.
     credential_cache: CredentialCacheSettings,
     outbound: Option<OutboundAnchors>,
+    /// `security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911` - see
+    /// [`OutboundIdentity`]. Independent of `outbound` in this struct's shape, though never
+    /// written without it: the schema nests both under the same `security.outbound:` block, so a
+    /// deployment cannot write an identity with `outbound` absent.
+    outbound_identity: Option<OutboundIdentity>,
     /// `docs/adr/0028` - never an `Option`: absence is the empty mapping, which grants nothing and
     /// is the safe direction here. See `crate::audience::AudienceMapping`.
     audience_mapping: crate::audience::AudienceMapping,
@@ -387,6 +392,7 @@ impl SecuritySettings {
         metrics_token: Option<AccessToken>,
         credential_cache: CredentialCacheSettings,
         outbound: Option<OutboundAnchors>,
+        outbound_identity: Option<OutboundIdentity>,
         audience_mapping: crate::audience::AudienceMapping,
     ) -> Self {
         Self {
@@ -397,6 +403,7 @@ impl SecuritySettings {
             metrics_token,
             credential_cache,
             outbound,
+            outbound_identity,
             audience_mapping,
         }
     }
@@ -425,6 +432,16 @@ impl SecuritySettings {
     #[must_use]
     pub const fn outbound(&self) -> Option<&OutboundAnchors> {
         self.outbound.as_ref()
+    }
+
+    /// The deployment-wide client identity a fixed-host outbound client presents, if declared.
+    ///
+    /// `None` means no client certificate is presented - see [`OutboundIdentity`]'s own doc for why
+    /// that is today's behaviour, unchanged.
+    #[inline]
+    #[must_use]
+    pub const fn outbound_identity(&self) -> Option<&OutboundIdentity> {
+        self.outbound_identity.as_ref()
     }
 
     /// The token that gates `/metrics`, when one is configured.
@@ -595,6 +612,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             None,
+            None,
             crate::audience::AudienceMapping::default(),
         );
         let rendered = format!("{settings:?}");
@@ -667,6 +685,7 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             None,
+            None,
             crate::audience::AudienceMapping::default(),
         );
         let without = SecuritySettings::default();
@@ -686,6 +705,7 @@ mod tests {
             None,
             None,
             CredentialCacheSettings::default(),
+            None,
             None,
             crate::audience::AudienceMapping::default(),
         );
@@ -871,7 +891,8 @@ mod tests {
         assert_eq!(
             parse_outbound(Some("outbound-ca.pem")),
             Err(InvalidOutbound::RelativePath {
-                path: std::path::PathBuf::from("outbound-ca.pem")
+                key: "transport_anchors",
+                path: std::path::PathBuf::from("outbound-ca.pem"),
             })
         );
     }
@@ -880,6 +901,7 @@ mod tests {
     fn security_settings_outbound_accessor_round_trips() {
         let none = SecuritySettings::default();
         assert!(none.outbound().is_none());
+        assert!(none.outbound_identity().is_none());
         let declared = SecuritySettings::new(
             None,
             TlsTermination::None,
@@ -888,8 +910,19 @@ mod tests {
             None,
             CredentialCacheSettings::default(),
             Some(OutboundAnchors::System),
+            Some(
+                crate::security::outbound::parse_outbound_identity(
+                    Some("/etc/sutura/outbound.crt"),
+                    Some("/etc/sutura/outbound.key"),
+                )
+                .unwrap()
+                .expect("both halves written"),
+            ),
             crate::audience::AudienceMapping::default(),
         );
         assert_eq!(declared.outbound(), Some(&OutboundAnchors::System));
+        let identity = declared.outbound_identity().expect("an identity was declared");
+        assert_eq!(identity.certificate(), &std::path::PathBuf::from("/etc/sutura/outbound.crt"));
+        assert_eq!(identity.key(), &std::path::PathBuf::from("/etc/sutura/outbound.key"));
     }
 }

@@ -209,11 +209,87 @@ impl LoadedIdentity {
         &self.chain
     }
 
+    /// The private key's DER encoding kind - see [`KeyKind`].
+    ///
+    /// **Why this exists rather than a caller matching `PrivateKeyDer` itself.** Matching
+    /// `rustls_pki_types::PrivateKeyDer`'s variant directly would make `rustls-pki-types` a
+    /// dependency of every caller merely to ask which kind a key is - `sutura_exec_bigquery`'s own
+    /// `wire::tls::client_cert` needs exactly this, to choose the PEM label a re-armored key is
+    /// written under (`ureq`'s own key type recovers its kind from that label, not from a value a
+    /// caller passes it). This crate already depends on `rustls-pki-types` for the read; this
+    /// method is the answer in this crate's own vocabulary.
+    #[must_use]
+    #[expect(
+        clippy::unreachable,
+        reason = "load_private_key's only constructor, PrivateKeyDer::from_pem_slice, recognizes \
+                  exactly the three PEM section kinds matched above and nothing else parses - the \
+                  wildcard exists for PrivateKeyDer's #[non_exhaustive], not for a reachable key"
+    )]
+    pub fn key_kind(&self) -> KeyKind {
+        match &self.key {
+            PrivateKeyDer::Pkcs1(_) => KeyKind::Pkcs1,
+            PrivateKeyDer::Sec1(_) => KeyKind::Sec1,
+            PrivateKeyDer::Pkcs8(_) => KeyKind::Pkcs8,
+            _ => unreachable!("PrivateKeyDer::from_pem_slice produces only Pkcs1/Sec1/Pkcs8"),
+        }
+    }
+
     /// The chain and the key, consumed together - `PrivateKeyDer` implements no `Clone`, so there is
     /// no `&self` accessor for it that would not lie about ownership.
     #[must_use]
     pub fn into_parts(self) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
         (self.chain, self.key)
+    }
+}
+
+/// The three private-key DER encodings [`load_identity`] can present - [`LoadedIdentity::key_kind`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyKind {
+    /// PKCS#1 (RSA).
+    Pkcs1,
+    /// SEC1 (EC).
+    Sec1,
+    /// PKCS#8.
+    Pkcs8,
+}
+
+/// A resolved `security.outbound` declaration: the anchors always present once the block is
+/// written, and the optional client identity beside them - `github.com/telekom/sutura#911`.
+///
+/// **Why one type and not two independently-optional parameters.** A composition root threads
+/// this from boot to every fixed-host consumer (the `BigQuery` wire, the `datahub` reader); an
+/// identity can never be declared without anchors (`security.outbound` always requires
+/// `transport_anchors` once the block itself exists), so pairing them is a type that cannot
+/// disagree with that invariant rather than two values a call site could thread inconsistently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declared {
+    anchors: Anchors,
+    identity: Option<Identity>,
+}
+
+impl Declared {
+    /// Pairs a resolved anchor declaration with its optional client identity.
+    #[must_use]
+    pub const fn new(anchors: Anchors, identity: Option<Identity>) -> Self {
+        Self { anchors, identity }
+    }
+
+    /// The declared anchors.
+    #[must_use]
+    pub const fn anchors(&self) -> &Anchors {
+        &self.anchors
+    }
+
+    /// The declared client identity, if any.
+    #[must_use]
+    pub const fn identity(&self) -> Option<&Identity> {
+        self.identity.as_ref()
+    }
+
+    /// Consumes into its parts - what [`Rotator::new`] takes separately.
+    #[must_use]
+    pub fn into_parts(self) -> (Anchors, Option<Identity>) {
+        (self.anchors, self.identity)
     }
 }
 
@@ -408,6 +484,30 @@ mod tests {
         let identity = Identity::new(certificate, key);
         let loaded = load_identity(&identity).expect("a pair loads");
         assert_eq!(loaded.chain().len(), 1);
+    }
+
+    #[test]
+    fn a_loaded_identitys_key_kind_is_pkcs8() {
+        // `rcgen`'s own `KeyPair::serialize_pem` always emits PKCS#8 - internally every kind it
+        // supports round-trips through `PrivatePkcs8KeyDer` - so this pins the value a real
+        // deployment's own openssl/step-issued key would produce just as often, without this test
+        // depending on a second key format nothing else here generates.
+        let scratch = Scratch::new("key-kind");
+        let (certificate, key) = scratch.pair("client");
+        let loaded = load_identity(&Identity::new(certificate, key)).expect("a pair loads");
+        assert_eq!(loaded.key_kind(), KeyKind::Pkcs8);
+    }
+
+    #[test]
+    fn declared_pairs_anchors_with_an_optional_identity_and_unpacks_both() {
+        let scratch = Scratch::new("declared");
+        let anchors = Anchors::Bundle(scratch.cert("root"));
+        let (certificate, key) = scratch.pair("client");
+        let identity = Identity::new(certificate, key);
+        let declared = Declared::new(anchors.clone(), Some(identity.clone()));
+        assert_eq!(declared.anchors(), &anchors);
+        assert_eq!(declared.identity(), Some(&identity));
+        assert_eq!(declared.into_parts(), (anchors, Some(identity)));
     }
 
     #[test]

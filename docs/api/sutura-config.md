@@ -702,8 +702,11 @@ There is no source entry a per-entry `transport_anchors` on a `bigquery` kind co
 on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
 declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
 
-**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
-not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+**Anchors are required whenever the block is written; a client identity beside them is
+optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a
+bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer
+in front of it (a gateway, a proxy) that a deployment wants to authenticate the connection
+itself, hence `OutboundIdentity` rather than a field on this type - see that type's own doc.
 
 Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
 anchors: these clients always speak TLS regardless of configuration, and an absent block means
@@ -711,6 +714,24 @@ anchors: these clients always speak TLS regardless of configuration, and an abse
 behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
 `InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
 argument `security.inbound` with no `mode` already makes.
+
+## `use OutboundIdentity`
+
+The client certificate and key every fixed-host outbound client presents -
+`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`.
+
+**Its own type, not `crate::sources::transport::ClientIdentity` reused** - the same reason
+`OutboundAnchors` is its own type beside `crate::sources::transport::TrustAnchors`: this
+module is a self-contained declaration, and the two identity pairs are declared under
+different keys with different refusal wording even though the SHAPE (a certificate, a key,
+both absolute) is identical.
+
+**Absence is not a refusal - it is today's behaviour, unchanged.** No shipped source is
+configured to demand a client certificate from this deployment, so an absent pair means no
+certificate is presented, exactly as before this declaration existed. A WRITTEN half with no
+partner IS a refusal (`InvalidOutbound::IdentityMissingHalf`) - the same argument a source's
+own `mutual` identity makes: a partial pair would start with the certificate quietly
+unpresented, which is worse than a deployment that never asked for one.
 
 ## `use SecuritySettings`
 
@@ -3701,7 +3722,7 @@ pub const fn metrics_token(&self) -> Option<&AccessToken>
 The token that gates `/metrics`, when one is configured.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>, audience_mapping: crate::audience::AudienceMapping) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>, metrics_token: Option<AccessToken>, credential_cache: CredentialCacheSettings, outbound: Option<OutboundAnchors>, outbound_identity: Option<OutboundIdentity>, audience_mapping: crate::audience::AudienceMapping) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -3728,6 +3749,15 @@ The deployment-wide trust anchors a fixed-host outbound client verifies against,
 `OutboundAnchors`. A composition root reads this once at boot and hands the resolved
 material to `WireAgent::secured` (or its equivalent) rather than each call site reading
 settings for itself.
+
+```rust
+pub const fn outbound_identity(&self) -> Option<&OutboundIdentity>
+```
+
+The deployment-wide client identity a fixed-host outbound client presents, if declared.
+
+`None` means no client certificate is presented - see `OutboundIdentity`'s own doc for why
+that is today's behaviour, unchanged.
 
 ```rust
 pub const fn tls_termination(&self) -> TlsTermination
@@ -3823,8 +3853,11 @@ There is no source entry a per-entry `transport_anchors` on a `bigquery` kind co
 on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
 declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
 
-**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
-not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+**Anchors are required whenever the block is written; a client identity beside them is
+optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a
+bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer
+in front of it (a gateway, a proxy) that a deployment wants to authenticate the connection
+itself, hence `OutboundIdentity` rather than a field on this type - see that type's own doc.
 
 Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
 anchors: these clients always speak TLS regardless of configuration, and an absent block means
@@ -3832,6 +3865,24 @@ anchors: these clients always speak TLS regardless of configuration, and an abse
 behaviour. A PRESENT block with no `transport_anchors` IS a refusal - see
 `InvalidOutbound::NoAnchors` - because a block that names nothing declares nothing, the same
 argument `security.inbound` with no `mode` already makes.
+
+### `use OutboundIdentity`
+
+The client certificate and key every fixed-host outbound client presents -
+`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`.
+
+**Its own type, not `crate::sources::transport::ClientIdentity` reused** - the same reason
+`OutboundAnchors` is its own type beside `crate::sources::transport::TrustAnchors`: this
+module is a self-contained declaration, and the two identity pairs are declared under
+different keys with different refusal wording even though the SHAPE (a certificate, a key,
+both absolute) is identical.
+
+**Absence is not a refusal - it is today's behaviour, unchanged.** No shipped source is
+configured to demand a client certificate from this deployment, so an absent pair means no
+certificate is presented, exactly as before this declaration existed. A WRITTEN half with no
+partner IS a refusal (`InvalidOutbound::IdentityMissingHalf`) - the same argument a source's
+own `mutual` identity makes: a partial pair would start with the certificate quietly
+unpresented, which is worse than a deployment that never asked for one.
 
 ### Module `deployment`
 
@@ -4005,8 +4056,11 @@ There is no source entry a per-entry `transport_anchors` on a `bigquery` kind co
 on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
 declaration is the shape that has something to attach to. See `docs/adr/0010`'s amendment.
 
-**Anchors only - no client identity.** Every fixed-host client this covers takes a bearer token,
-not a certificate, so a `ClientIdentity` field here would be a shape nothing exercises.
+**Anchors are required whenever the block is written; a client identity beside them is
+optional** - `github.com/telekom/sutura#911`. Every fixed-host client this covers speaks a
+bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer
+in front of it (a gateway, a proxy) that a deployment wants to authenticate the connection
+itself, hence `OutboundIdentity` rather than a field on this type - see that type's own doc.
 
 Absent `security.outbound` is not a refusal, unlike a source that asks for TLS and names no
 anchors: these clients always speak TLS regardless of configuration, and an absent block means
@@ -4024,6 +4078,46 @@ argument `security.inbound` with no `mode` already makes.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
 
+#### `struct OutboundIdentity`
+
+```rust
+pub struct OutboundIdentity
+```
+
+The client certificate and key every fixed-host outbound client presents -
+`security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`.
+
+**Its own type, not `crate::sources::transport::ClientIdentity` reused** - the same reason
+`OutboundAnchors` is its own type beside `crate::sources::transport::TrustAnchors`: this
+module is a self-contained declaration, and the two identity pairs are declared under
+different keys with different refusal wording even though the SHAPE (a certificate, a key,
+both absolute) is identical.
+
+**Absence is not a refusal - it is today's behaviour, unchanged.** No shipped source is
+configured to demand a client certificate from this deployment, so an absent pair means no
+certificate is presented, exactly as before this declaration existed. A WRITTEN half with no
+partner IS a refusal (`InvalidOutbound::IdentityMissingHalf`) - the same argument a source's
+own `mutual` identity makes: a partial pair would start with the certificate quietly
+unpresented, which is worse than a deployment that never asked for one.
+
+##### Methods
+
+```rust
+pub const fn certificate(&self) -> &std::path::PathBuf
+```
+
+The certificate (and any chain) this deployment presents. Absolute.
+
+```rust
+pub const fn key(&self) -> &std::path::PathBuf
+```
+
+The private key for that certificate. Absolute. A secret; loaded, never inlined.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 #### `enum InvalidOutbound`
 
 ```rust
@@ -4035,7 +4129,8 @@ Why a `security.outbound` declaration was not usable.
 ##### Variants
 
 - `NoAnchors` - `security.outbound` was written with no `transport_anchors`.
-- `RelativePath` - A `security.outbound.transport_anchors` path that is relative.
+- `RelativePath` - A `security.outbound.transport_anchors`/`client_certificate`/`client_key` path that is relative.
+- `IdentityMissingHalf` - A `client_certificate` was written without its `client_key`, or the reverse.
 
 ##### Implements
 

@@ -633,15 +633,16 @@ field was withdrawn.
    [federating across different data systems](0007-federating-across-different-data-systems.md) already
    points.** THE TRANSPORT IS NOT THIS RECORD'S TO COMMIT, and an earlier version of this section said
    "the committed transport is the native driver", which contradicted an accepted record. 0007 owns
-   transport and its argument is the stronger one: there is no Oracle driver this workspace can take,
-   because every Rust option wraps Oracle's own client library, nixpkgs cannot supply it freely, so there
-   is no analogue of the single path `nix/duckdb.nix` gives DuckDB and **`just validate` could not build
-   it** - which is the only thing that counts as verified here. 0007 therefore adopts Arrow Flight SQL
-   uniformly, with the proprietary client living in a gateway process outside our artifact.
+   transport, and its reasoning there is corrected now too: "every Rust option wraps Oracle's own
+   client library" is refuted by `oracledb`, a pure-Rust crate with no `build.rs` and no `*-sys`
+   dependency, so whether a native driver builds in our sandbox is open again rather than settled
+   either way - see 0007's own correction. 0007 still adopts Arrow Flight SQL uniformly for now, with
+   the proprietary client living in a gateway process outside our artifact.
 
-   **So this is a second, independent blocker on Oracle impersonation, and it is the harder one.** The
-   wrapper gap above is a missing safe binding somebody could contribute; this one says a native Oracle
-   driver does not build in our sandbox at all. Whether Oracle's REST service or Flight SQL is the route,
+   **So this was a second, independent blocker on Oracle impersonation, and it no longer holds as
+   stated.** The wrapper gap above is a missing safe binding somebody could contribute; this one is no
+   longer "a native Oracle driver does not build in our sandbox at all" - it is "nobody has tried
+   building `oracledb` here." Whether Oracle's REST service or Flight SQL is the route,
    both put the proprietary client outside the artifact, which is 0007's position rather than a
    deviation from it. Two things would decide it, and neither is known: whether the REST layer propagates the end
    user's identity into the database session so row-level policies apply as that person - if it pools as

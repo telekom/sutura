@@ -199,13 +199,14 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
     .map_err(|cause| unservable(&cause))
 }
 
-/// Reads `security.outbound.transport_anchors`, once, and loads it - `github.com/telekom/sutura#125`.
+/// Reads `security.outbound`, once, and loads it - `github.com/telekom/sutura#125`/`#911`.
 ///
 /// `None` is the ordinary deployment: every fixed-host outbound client (today, the `BigQuery` wire and
-/// the STS exchange) verifies against `ureq`'s own compiled-in roots, unchanged from every release
-/// before this. `Some` is loaded through `sutura_tls::load_anchors` here, ONCE, so every call site
-/// that builds a [`sutura_exec_bigquery::wire::WireAgent`] shares one read rather than re-reading a
-/// bundle or the host store per source.
+/// the STS exchange) verifies against `ureq`'s own compiled-in roots and presents no client
+/// certificate, unchanged from every release before this. `Some` is loaded through
+/// `sutura_tls::load_anchors`/`load_identity` here, ONCE, so every call site that builds a
+/// [`sutura_exec_bigquery::wire::WireAgent`] shares one read rather than re-reading a bundle, the
+/// host store or a client identity pair per source.
 ///
 /// Called unconditionally - on a build with no `bigquery` feature this simply has no reader, the same
 /// shape `security.credential_cache` is in on that build. See `docs/adr/0010`'s amendment for the
@@ -215,8 +216,8 @@ pub(crate) fn configured() -> Result<sutura_config::Settings, String> {
 /// # Errors
 ///
 /// The declared bundle or the host trust store cannot be read, is empty, or (a bundle) is not valid
-/// PEM.
-pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Result<Option<sutura_tls::Anchors>, String> {
+/// PEM; the declared client identity cannot be read or does not parse as a usable pair.
+pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Result<Option<sutura_tls::Declared>, String> {
     let Some(declared) = settings.security().outbound() else {
         return Ok(None);
     };
@@ -227,8 +228,17 @@ pub(crate) fn resolve_outbound_anchors(settings: &sutura_config::Settings) -> Re
     // Fail-fast here, and return the DECLARATION: the rotating handles each consumer builds re-load
     // it on `sutura_tls::POLL_INTERVAL`, so the value handed onward is the thing they can re-read.
     sutura_tls::load_anchors(&anchors)
-        .map(|_| Some(anchors))
-        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))
+        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
+    let identity = match settings.security().outbound_identity() {
+        None => None,
+        Some(identity) => {
+            let identity = sutura_tls::Identity::new(identity.certificate().clone(), identity.key().clone());
+            sutura_tls::load_identity(&identity)
+                .map_err(|cause| format!("`security.outbound.client_certificate`/`client_key` could not be loaded: {cause}"))?;
+            Some(identity)
+        }
+    };
+    Ok(Some(sutura_tls::Declared::new(anchors, identity)))
 }
 
 /// A settings failure, said in terms a person running a COMMAND can act on.
@@ -304,7 +314,7 @@ pub(crate) fn open_engine(
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
     data: Option<&Path>,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
     let sources = sutura_app::sources(pinned);
     let named = match sources.as_slice() {
@@ -354,7 +364,7 @@ fn from_the_registry(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
     let identity = configured
         .identity()

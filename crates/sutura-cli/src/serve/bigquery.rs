@@ -22,7 +22,7 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::OpenedSources, String> {
     let mut engines: Option<sutura_app::Warehouses<super::BigQuerySource>> = None;
     for source in declared {
@@ -56,7 +56,7 @@ pub(crate) fn open_bigquery(
     declared: &[&sutura_domain::model::SourceName],
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::Anchors>,
+    _outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::OpenedSources, String> {
     let named = declared
         .iter()
@@ -86,7 +86,7 @@ fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::BigQuerySource, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};

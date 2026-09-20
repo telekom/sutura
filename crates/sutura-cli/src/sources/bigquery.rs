@@ -68,7 +68,7 @@ pub(super) fn open(
     configured: &sutura_config::ConfiguredSource,
     registry: &sutura_config::SourceRegistry,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
     use sutura_exec_bigquery::transport::{DatasetId as WireDataset, ProjectId as WireProject};
     use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
@@ -202,7 +202,7 @@ pub(super) fn open(
     _configured: &sutura_config::ConfiguredSource,
     _registry: &sutura_config::SourceRegistry,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::Anchors>,
+    _outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
     Err(format!(
         "`sources.{source}` is `kind: bigquery`, and this binary was built without the `bigquery` \

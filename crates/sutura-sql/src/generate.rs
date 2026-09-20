@@ -26,13 +26,17 @@
 //! which no target accepts.
 //!
 //! **The time bucket is cast to a date.** `DATE_TRUNC` over a date returns a TIMESTAMP in two of the
-//! four targets, so without the cast the type of the `period` column is whatever each dialect chose
-//! and every adapter would need to know which.
+//! five targets, so without the cast the type of the `period` column is whatever each dialect chose
+//! and every adapter would need to know which. Oracle's `TRUNC` already returns a `DATE`, so the
+//! cast is redundant rather than corrective there - applied anyway, because one shared cast is what
+//! keeps the type uniform without a per-dialect branch to keep in step.
 //!
 //! **The time bucket's SPELLING is per dialect, and it is the one difference here the layer does not
 //! absorb.** Three targets take `DATE_TRUNC('month', <date>)`; `BigQuery` takes
 //! `DATE_TRUNC(<date>, MONTH)` - the arguments the other way round and the grain a bare keyword
-//! rather than a string. [`crate::dialect::DateTruncShape`] holds the declaration and the reason it
+//! rather than a string; Oracle takes `TRUNC(<date>, 'MM')` - a different FUNCTION, the date first
+//! like `BigQuery`, but the grain a quoted format model rather than a keyword.
+//! [`crate::dialect::DateTruncShape`] holds the declaration and the reason it
 //! has to be one: **within one target, the parse check cannot tell the two apart.** Both shapes
 //! rendered for `BigQuery` parse as `BigQuery`, so the corpus would be green on the wrong one.
 //! `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is that measurement.
@@ -140,28 +144,34 @@ pub(crate) const fn dialect_type(dialect: Dialect) -> DialectType {
         Dialect::Postgres => DialectType::PostgreSQL,
         Dialect::ClickHouse => DialectType::ClickHouse,
         Dialect::BigQuery => DialectType::BigQuery,
+        Dialect::Oracle => DialectType::Oracle,
     }
 }
 
 /// A placeholder, written the way this dialect writes one.
 ///
-/// `position` is zero-based because it indexes the parameter list; the numbered form is one-based
-/// because that is what Postgres counts from. Getting that off by one produces a statement that runs
-/// and reads the wrong parameter, which is why the two are converted in exactly one place.
+/// `position` is zero-based because it indexes the parameter list; a numbered form is one-based
+/// because that is what Postgres and Oracle both count from. Getting that off by one produces a
+/// statement that runs and reads the wrong parameter, which is why the two are converted in exactly
+/// one place.
 fn placeholder(dialect: Dialect, position: usize) -> Expr {
+    // Shared by `Numbered` and `Colon`: both are one-based positional parameters, differing only in
+    // which character the dialect layer writes before the digits.
+    let numbered = |style: ParameterStyle| {
+        let index = u32::try_from(position.saturating_add(1)).unwrap_or(u32::MAX);
+        Expr(Expression::Parameter(Box::new(Parameter {
+            name: None,
+            index: Some(index),
+            style,
+            quoted: false,
+            string_quoted: false,
+            expression: None,
+        })))
+    };
     match dialect.placeholder_style() {
         PlaceholderStyle::Question => Expr(Expression::Placeholder(Placeholder { index: None })),
-        PlaceholderStyle::Numbered => {
-            let index = u32::try_from(position.saturating_add(1)).unwrap_or(u32::MAX);
-            Expr(Expression::Parameter(Box::new(Parameter {
-                name: None,
-                index: Some(index),
-                style: ParameterStyle::Dollar,
-                quoted: false,
-                string_quoted: false,
-                expression: None,
-            })))
-        }
+        PlaceholderStyle::Numbered => numbered(ParameterStyle::Dollar),
+        PlaceholderStyle::Colon => numbered(ParameterStyle::Colon),
     }
 }
 
@@ -276,6 +286,32 @@ const fn grain_keyword(grain: Grain) -> &'static str {
         Grain::Month => "MONTH",
         Grain::Quarter => "QUARTER",
         Grain::Year => "YEAR",
+    }
+}
+
+/// The grain as a single-quoted Oracle format model, for `TRUNC`'s second argument.
+///
+/// A closed five-variant `const` match, for [`grain_keyword`]'s own reason: the string this can ever
+/// produce is one of five compile-time literals, none of which contains a quote.
+///
+/// **`Week` maps to `IW`, and this is the arm that would otherwise be a wrong number, for exactly
+/// the reason `grain_keyword`'s own `Week` arm names.** Oracle's SQL reference lists `WW` as "same
+/// day of the week as first day of year" - a year-anchored week that drifts off Monday - and `IW` as
+/// the ISO week, which is Monday-based and agrees with the pinned `DuckDB`. `DD`, `MM`, `Q` and
+/// `YYYY` are the plain day/month/quarter/year models and need no such care.
+///
+/// **The limit, stated plainly: this mapping is read off Oracle's documented format models and not
+/// measured against an instance.** PR 2 is where one exists to ask; until then this is a declaration
+/// like [`grain_keyword`]'s `ISOWEEK` arm was before `DuckDB` and the engine differential existed to
+/// check it against.
+const fn oracle_format(grain: Grain) -> &'static str {
+    match grain {
+        Grain::Day => "DD",
+        // See the header: `WW` here would drift off Monday and disagree with every other dialect.
+        Grain::Week => "IW",
+        Grain::Month => "MM",
+        Grain::Quarter => "Q",
+        Grain::Year => "YYYY",
     }
 }
 
@@ -395,20 +431,35 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
 /// one way and `BigQuery` spells it another, in both the argument order and the grain's form, so the
 /// match below is the only thing between a `BigQuery` deployment and a statement that truncates by
 /// the wrong argument. [`crate::dialect::DateTruncShape`] carries why nothing else can cover it.
+///
+/// **The fifth dialect's cost is a third shape rather than a third argument order.** Oracle's
+/// `TRUNC` is not `DATE_TRUNC` under another name - the match below picks the FUNCTION as well as
+/// the arguments for that arm, and `DateTruncShape::DateFirstAsQuotedFormat`'s own doc says why
+/// reusing either of the first two shapes would still be wrong.
 fn bucket_expression(bucket: &PlanBucket, dialect: Dialect) -> Expr {
-    let arguments = match dialect.date_trunc_shape() {
-        DateTruncShape::GrainFirstAsLiteral => {
-            vec![builder::lit(unit(bucket.grain())), column(bucket.column())]
-        }
+    let (function, arguments) = match dialect.date_trunc_shape() {
+        DateTruncShape::GrainFirstAsLiteral => (
+            "DATE_TRUNC",
+            vec![builder::lit(unit(bucket.grain())), column(bucket.column())],
+        ),
         // The grain as a bare keyword. `grain_keyword` carries why a `Raw` node here is not a hole.
-        DateTruncShape::DateFirstAsKeyword => vec![
-            column(bucket.column()),
-            Expr(Expression::Raw(Raw {
-                sql: String::from(grain_keyword(bucket.grain())),
-            })),
-        ],
+        DateTruncShape::DateFirstAsKeyword => (
+            "DATE_TRUNC",
+            vec![
+                column(bucket.column()),
+                Expr(Expression::Raw(Raw {
+                    sql: String::from(grain_keyword(bucket.grain())),
+                })),
+            ],
+        ),
+        // `TRUNC`, not `DATE_TRUNC` - see `DateTruncShape::DateFirstAsQuotedFormat`'s own doc for
+        // why this arm builds the call directly instead of reshaping the other two's function.
+        DateTruncShape::DateFirstAsQuotedFormat => (
+            "TRUNC",
+            vec![column(bucket.column()), builder::lit(oracle_format(bucket.grain()))],
+        ),
     };
-    builder::func("DATE_TRUNC", arguments).cast("DATE")
+    builder::func(function, arguments).cast("DATE")
 }
 
 /// Every join a plan declared, added to the statement.
@@ -462,7 +513,9 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
 ///
 /// **No explicit alias is emitted, and that is a declaration rather than an oversight.** A column is
 /// qualified by the table's BARE name - `PlanColumn` holds a `TableName` - and `FROM a.b.c` gives the
-/// reference an implicit alias of `c` in all four targets. An explicit `AS "c"` would say so in the
+/// reference an implicit alias of `c` in all five targets - Oracle's own documented behaviour rather
+/// than something this workspace has an instance to measure, the same limit every other declaration
+/// about it in this PR states. An explicit `AS "c"` would say so in the
 /// statement instead of relying on that, and it is not reachable through the builder: `left_join`
 /// takes a `&str` and `join_with_kind` is private, so aliasing the joined table would mean
 /// hand-building the AST - which this module's header rules out for a reason. So the implicit alias is
@@ -485,11 +538,12 @@ fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, Genera
 /// `expr`, nulls placed last, ascending unless `desc`.
 ///
 /// **Why explicit, and why `NULLS LAST`:** a bare `ORDER BY` leaves null placement to the target,
-/// and the four dialects disagree about it - the engine orders nulls last, `BigQuery` orders them
+/// and the dialects disagree about it - the engine orders nulls last, `BigQuery` orders them
 /// first, and no golden caught that until two data systems actually EXECUTED the same bare
 /// `ORDER BY` and disagreed. Naming `NULLS LAST` makes every target converge on the engine's own
 /// order: the layer renders the keyword for the target whose default is the other way and omits it
-/// where it already is one (`DuckDB`, Postgres, `ClickHouse`) - behaviour, not text, converging.
+/// where it already is one (`DuckDB`, Postgres, `ClickHouse`, Oracle for an ascending sort - the
+/// layer's own default-elision table groups Oracle with Postgres) - behaviour, not text, converging.
 /// Nulls last regardless of `desc`, because a null means there was nothing to rank and that sorts
 /// after every value either way. Rendered through the layer's own [`Ordered`] node, which
 /// `engine::ordered` unwraps rather than re-wrapping.
@@ -625,7 +679,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// that renders a leg: the one leg-executing adapter a published binary contains is the engine,
 /// which builds a logical plan instead. So what pins this is the golden family under
 /// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-/// dialect it was generated for - and none of those four is what a release executes.
+/// dialect it was generated for - and none of those five is what a release executes.
 /// Case 1's own pushdown, carried out of [`generate_leg`]'s rendering match because ranking it
 /// needs the bucket expression and the term list that arm alone builds.
 struct PushedTop {

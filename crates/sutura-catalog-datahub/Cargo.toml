@@ -15,7 +15,7 @@ description = "A SemanticCatalog adapter over DataHub's entity aspects: a DECLAR
 # `.agents/skills/sutura/crate-map/SKILL.md`'s "Why a networked adapter hides behind a default-off
 # feature". `dep:ureq` rather than a plain feature name, so the optional dependency below has no
 # feature of its own a caller could enable without meaning to.
-http = ["dep:ureq", "dep:sutura-tls"]
+http = ["dep:ureq", "dep:sutura-tls", "dep:base64"]
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -38,6 +38,12 @@ ureq = { workspace = true, optional = true }
 # stated in that crate's module header. This crate makes the same fold `sutura-exec-bigquery`'s
 # `wire/tls.rs` makes, over the same `LoadedAnchors`.
 sutura-tls = { workspace = true, optional = true }
+# `tls_roots.rs`'s PEM armoring of a declared client identity (`github.com/telekom/sutura#911`) -
+# `ureq`'s own `PrivateKey::from_der` needs a `ureq::tls::KeyKind` it never re-exports, so this
+# crate re-encodes the already-loaded DER as PEM instead and hands it to `from_pem`. Already
+# resolved in `Cargo.lock` at this version (`sutura-exec-bigquery`'s own `wire/tls.rs` does the
+# identical fold), so this is a new edge and not a new package.
+base64 = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The compiler: the multi-player example test (`tests/multi_player.rs`) proves the recorded

@@ -55,6 +55,9 @@ thiserror = { workspace = true }
 [dev-dependencies]
 sutura-conformance = { workspace = true }
 sutura-dev = { workspace = true }
+# The benchmark harness for `benches/row_materialisation.rs` - `github.com/telekom/sutura#915`.
+# Dev-only and reaches no consumer, for the same reason every other entry in this table does not.
+divan = { workspace = true }
 # A generated self-signed pair, for the in-crate tests that exercise the TLS construction refusals
 # against real anchor/identity material. The same crate `sutura-http` rests its own TLS tests on, so
 # no new crate enters the dev graph.
@@ -79,6 +82,13 @@ fixtures = ["sutura-domain/fixtures"]
 [[test]]
 name = "conformance"
 required-features = ["fixtures"]
+
+# `harness = false`: divan runs its own `main`, not libtest's `#[bench]` runner. Not a gate -
+# `github.com/telekom/sutura#915` - so it is reached by `just bench`, never by `just validate`,
+# `just test` or `ci`.
+[[bench]]
+name = "row_materialisation"
+harness = false
 
 [lints]
 workspace = true

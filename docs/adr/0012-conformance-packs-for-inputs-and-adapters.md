@@ -22,13 +22,13 @@ named individually rather than counted because an earlier version of this senten
 it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check, both decided as a
 plan further down rather than built; the three named corpus cases (a filter on a remote dimension
 with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys), none of
-which is in the corpus yet; the corpus itself, which is code today rather than the files this
-record specifies; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is not yet
-bound to the packs.
+which is in the corpus yet; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
+not yet bound to the packs. The corpus itself stays code **by decision**, not by omission - *The
+corpus is code by decision* below is the reasoning, not a gap.
 
 **The limit, next to the claim, because the shape is further along than the coverage.** A case is a
-value in `crates/sutura-conformance/src/corpus.rs` rather than a file, so adding one is still a code
-change - *The corpus data is a file; cases are code* below is where that stands. **None of the three
+value in `crates/sutura-conformance/src/corpus.rs` rather than a file, by decision, so adding one is
+still a code change - *The corpus is code by decision* below is where that stands. **None of the three
 cases under *Cases the corpus must contain by name* is written**, and that module's own header says
 so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
 bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
@@ -307,11 +307,21 @@ under a partial implementation:
 Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
 what stops the corpus from being complete-looking and blind in exactly the places the design is hard.
 
-## The corpus data is a file; cases are code
+## The corpus is code by decision
 
-The shared input rows live in `crates/sutura-conformance/corpus/conformance_events.csv`. Plans and
-expected rows are currently constructors in `crates/sutura-conformance/src/corpus.rs`; there is no
-file-backed question loader or expected-output format in this pack.
+The shared input rows already are a file: `crates/sutura-conformance/corpus/conformance_events.csv`,
+read once by `include_str!` into a `const fn`. Cases stay Rust, and not because nobody got to a
+loader.
+
+`Case` is built as Rust struct literals in `crates/sutura-conformance/src/corpus.rs`, and every
+accessor on it is `pub const fn`. That buys two things a file format cannot: a malformed case - a
+plan whose bucket does not match its measure, a row set typed against the wrong column - is a
+compile error today, because the compiler type-checks a struct literal; a file-backed loader would
+parse the same mistake at runtime instead, and a `const fn` reading `include_str!` cannot validate a
+parsed shape at compile time either way. And `plan()` returns a typed `QueryPlan`, the same compiled
+type `sutura-app` executes, so representing a case as data would mean choosing a wire format for a
+plan this repository does not otherwise need one for. A file-backed loader would buy a case
+reviewable without Rust and cost both.
 
 Adding a case therefore changes code today. Adding an adapter remains one macro invocation and a
 capability declaration without touching a pack body.

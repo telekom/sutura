@@ -154,85 +154,102 @@ markdown_extensions:
 # and exited 0 - `--strict` escalates warnings, not info, so the dead link would have published
 # behind a green docs job. Cite one of these pages as a backticked path, which is what the seven
 # ADRs that used to link them now do.
+#
+# The ADRs joined this list 2026-09-19 (owner-decided on #325): they argue why a decision went the
+# way it did, for whoever is changing that decision, and that is not what a first-time reader of
+# this site came for either. They stay under `docs/adr/` rather than moving, for the same reason
+# the implementation plans do - every citation in the repository keeps naming the file it names
+# today. Cite one as a backticked path; every published page that linked into `docs/adr/` now
+# does.
 exclude_docs: |
   implementation-plan.md
   implementation-plan-bigquery.md
   implementation-plan-identity-and-services.md
+  adr/0001-first-party-semantic-models.md
+  adr/0002-a-closed-vocabulary-for-measures.md
+  adr/0003-datafusion-for-local-execution.md
+  adr/0004-a-named-escape-hatch-for-authored-sql.md
+  adr/0005-a-refusal-carries-a-status.md
+  adr/0006-several-databases-behind-one-data-system.md
+  adr/0007-federating-across-different-data-systems.md
+  adr/0008-a-credential-per-leg-for-the-calling-subject.md
+  adr/0009-the-plan-from-one-source-to-many.md
+  adr/0010-transport-security-for-a-source.md
+  adr/0011-pluggable-by-declaration.md
+  adr/0012-conformance-packs-for-inputs-and-adapters.md
+  adr/0013-a-raw-sql-tool-off-by-default.md
+  adr/0014-how-a-caller-proves-who-it-is.md
+  adr/0015-an-authenticated-metrics-endpoint.md
+  adr/0016-what-datahub-can-carry.md
+  adr/0017-what-a-bigquery-test-runs-against.md
+  adr/0018-what-the-bigquery-wire-is-built-from.md
+  adr/0019-a-table-outside-the-connections-dataset.md
+  adr/0020-a-credential-the-compiler-refuses-to-print.md
+  adr/0021-how-a-published-artefact-proves-where-it-came-from.md
+  adr/0022-untrusted-content-marking.md
+  adr/0023-how-the-agent-surface-learns-who-is-asking.md
+  adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
+  adr/0025-what-a-scorecard-zero-says-about-this-repository.md
+  adr/0026-no-third-party-binary-cache.md
+  adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
+  adr/0028-who-may-see-a-metric.md
+  adr/0029-where-a-deadline-lives.md
+  adr/0030-where-a-budget-lives.md
+  adr/0031-caching-an-exchanged-credential.md
+  adr/0032-the-iamcredentials-impersonation-hop.md
+  adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
+  adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
+  adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
+  adr/0036-a-knowledge-only-source-speaks-through-a-metric.md
+  crap.md
+  what-a-bpmn-file-actually-carries.md
 
 # Explicit, not derived from filenames. A nav that falls out of directory order silently
 # reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
 # the files on disk in both directions.
 #
-# FIVE SECTIONS AND AN ARC, AND THE ORDER IS THE POINT: what this is, then how to ask it a
-# question, then how to serve one, then what to look up, then how to work on it. Development is
-# LAST because it is addressed to somebody else - it used to sit between a reader's guide and the
-# reference, so the third thing a reader met was our environment setup.
+# THREE SECTIONS, BY AUDIENCE, AND THE ORDER IS THE POINT: ask sutura a question, then run a
+# deployment of it, then work on sutura itself. `Reference` dissolved (owner-decided on #325) -
+# it mixed all three audiences under one label, which is why a first-time reader could not tell
+# which half of it was addressed to them. Architecture and the API move into *Building it*
+# because both describe the internals a contributor reads, not a question a caller asks or a
+# setting an operator sets; the ADRs leave the built site entirely, per `exclude_docs` above.
 #
 # No section index pages. Material would render one for each section heading, and `index.md`
-# already routes to every page here; five more landing pages would restate that table five
+# already routes to every page here; three more landing pages would restate that table three
 # times. `navigation.indexes` stays on because a section index is worth having as soon as a
 # section has enough pages to need one.
 nav:
-  - Introduction: index.md
-  - Start here:
+  - Using it:
+      - Introduction: index.md
       - Concepts: concepts.md
       - Getting started: getting-started.md
       - Questions and answers: qa.md
       - The agent prompt: agent-prompt.md
-  - Serve it:
+  - Operating it:
       - Serving over HTTP: serving.md
       - Verifying a release: verifying-a-release.md
       - The local chat demo: demo.md
-  - Reference:
-      - Architecture: architecture.md
+      - Integrations: integrations.md
       - Where each identity claim is proven: where-identity-is-proven.md
       - The wave-one E2E showcase: showcase-datahub-bigquery.md
       - An RDBMS dictionary as a metadata source: rdbms-catalog-guidance.md
       - What an agent identity can carry: what-agent-identity-can-carry.md
       - What an OKF-style catalog can carry: what-okf-can-carry.md
       - What an OpenMetadata catalog can carry: what-openmetadata-can-carry.md
-      - Decisions:
-          - First-party semantic models: adr/0001-first-party-semantic-models.md
-          - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
-          - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
-          - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
-          - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
-          - Several databases behind one data system, declined: adr/0006-several-databases-behind-one-data-system.md
-          - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
-          - A credential per leg, for the calling subject: adr/0008-a-credential-per-leg-for-the-calling-subject.md
-          - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
-          - Transport security for a source: adr/0010-transport-security-for-a-source.md
-          - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
-          - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
-          - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
-          - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
-          - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
-          - What DataHub can carry: adr/0016-what-datahub-can-carry.md
-          - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
-          - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
-          - A table outside the connection's own dataset: adr/0019-a-table-outside-the-connections-dataset.md
-          - A credential the compiler refuses to print: adr/0020-a-credential-the-compiler-refuses-to-print.md
-          - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
-          - Untrusted content, and what marks it: adr/0022-untrusted-content-marking.md
-          - How the agent surface learns who is asking: adr/0023-how-the-agent-surface-learns-who-is-asking.md
-          - Three OSS-readiness scans, and what each discloses: adr/0024-three-oss-readiness-scans-and-what-each-discloses.md
-          - What a Scorecard zero says about this repository: adr/0025-what-a-scorecard-zero-says-about-this-repository.md
-          - No third-party binary cache: adr/0026-no-third-party-binary-cache.md
-          - An OSS binary cache for this repository's own paths: adr/0027-an-oss-binary-cache-for-this-repositorys-own-paths.md
-          - Who may see a metric: adr/0028-who-may-see-a-metric.md
-          - Where a deadline lives: adr/0029-where-a-deadline-lives.md
-          - Where a budget lives: adr/0030-where-a-budget-lives.md
-          - Caching an exchanged credential: adr/0031-caching-an-exchanged-credential.md
-          - The iamcredentials impersonation hop: adr/0032-the-iamcredentials-impersonation-hop.md
-          - A closed enum over the shipped warehouse kinds: adr/0033-a-closed-enum-over-the-shipped-warehouse-kinds.md
-          - The twin-root link between leg 1 and the pool: adr/0034-the-twin-root-link-between-leg-1-and-the-pool.md
-          - WIF stays the load-bearing mechanism for BigQuery; agent identity is an optional addition: adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
+      - Changelog: changelog.md
+  - Building it:
+      - Architecture: architecture.md
+      - Contributing: contributing.md
+      - Building without direct egress: enterprise-mirrors.md
+      - Publishing the docs: publishing.md
       - API:
           - api/index.md
           - sutura-domain: api/sutura-domain.md
           - sutura-catalog-local: api/sutura-catalog-local.md
           - sutura-catalog-datahub: api/sutura-catalog-datahub.md
           - sutura-catalog-okf: api/sutura-catalog-okf.md
+          - sutura-catalog-openmetadata: api/sutura-catalog-openmetadata.md
           - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
           - sutura-semantic: api/sutura-semantic.md
           - sutura-sql: api/sutura-sql.md
@@ -254,12 +271,6 @@ nav:
           # predicate would exempt all of them and check nothing.
           - sutura-conformance: api/sutura-conformance.md
           - sutura-dev: api/sutura-dev.md
-  - Development:
-      - Contributing: contributing.md
-      - The CRAP gate: crap.md
-      - Building without direct egress: enterprise-mirrors.md
-      - Publishing the docs: publishing.md
-  - Changelog: changelog.md
 
 extra:
   version:

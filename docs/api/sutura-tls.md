@@ -182,9 +182,86 @@ pub fn into_parts(self) -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>
 The chain and the key, consumed together - `PrivateKeyDer` implements no `Clone`, so there is
 no `&self` accessor for it that would not lie about ownership.
 
+```rust
+pub fn key_kind(&self) -> KeyKind
+```
+
+The private key's DER encoding kind - see `KeyKind`.
+
+**Why this exists rather than a caller matching `PrivateKeyDer` itself.** Matching
+`rustls_pki_types::PrivateKeyDer`'s variant directly would make `rustls-pki-types` a
+dependency of every caller merely to ask which kind a key is - `sutura_exec_bigquery`'s own
+`wire::tls::client_cert` needs exactly this, to choose the PEM label a re-armored key is
+written under (`ureq`'s own key type recovers its kind from that label, not from a value a
+caller passes it). This crate already depends on `rustls-pki-types` for the read; this
+method is the answer in this crate's own vocabulary.
+
 ### Implements
 
 `Debug`
+
+## `enum KeyKind`
+
+```rust
+pub enum KeyKind
+```
+
+The three private-key DER encodings `load_identity` can present - `LoadedIdentity::key_kind`.
+
+### Variants
+
+- `Pkcs1` - PKCS#1 (RSA).
+- `Sec1` - SEC1 (EC).
+- `Pkcs8` - PKCS#8.
+
+### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+## `struct Declared`
+
+```rust
+pub struct Declared
+```
+
+A resolved `security.outbound` declaration: the anchors always present once the block is
+written, and the optional client identity beside them - `github.com/telekom/sutura#911`.
+
+**Why one type and not two independently-optional parameters.** A composition root threads
+this from boot to every fixed-host consumer (the `BigQuery` wire, the `datahub` reader); an
+identity can never be declared without anchors (`security.outbound` always requires
+`transport_anchors` once the block itself exists), so pairing them is a type that cannot
+disagree with that invariant rather than two values a call site could thread inconsistently.
+
+### Methods
+
+```rust
+pub const fn anchors(&self) -> &Anchors
+```
+
+The declared anchors.
+
+```rust
+pub const fn identity(&self) -> Option<&Identity>
+```
+
+The declared client identity, if any.
+
+```rust
+pub fn into_parts(self) -> (Anchors, Option<Identity>)
+```
+
+Consumes into its parts - what `Rotator::new` takes separately.
+
+```rust
+pub const fn new(anchors: Anchors, identity: Option<Identity>) -> Self
+```
+
+Pairs a resolved anchor declaration with its optional client identity.
+
+### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ## `fn load_anchors`
 
