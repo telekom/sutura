@@ -178,9 +178,10 @@ as a missed one.
 
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
-the asker - is proven for BigQuery only: a hosted run whose job held both principals' keys by
-construction resolved each to its own account, so the exchange mechanics resolve per subject and no
-served binary has executed as a caller yet. See
+the asker - is **built and unproven**: BigQuery executes a question as the account its declared
+per-source map names, and the hosted venue that would show it is `wired` with nobody having
+dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC adoption
+deleted. See
 [where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for
 which claim.
 

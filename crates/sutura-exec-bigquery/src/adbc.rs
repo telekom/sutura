@@ -37,10 +37,11 @@ mod identity;
 pub use identity::{Impersonation, ImpersonationScopes, TargetAccount, UnusableIdentityOption};
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
-// to resolve those types' methods and are never named directly.
+// to resolve those types' methods and are never named directly - except `Statement`, which
+// `prepared` names as a BOUND so a fake implementor can stand in for the driver's own.
 use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
-use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
+use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 
@@ -87,6 +88,34 @@ pub enum AdbcError {
         #[source]
         cause: UnusableIdentityOption,
     },
+}
+
+/// Puts the statement and its values on one prepared statement.
+///
+/// **Generic in `S: Statement` so a FAKE can hold it, and that is the whole reason it is not inline
+/// in [`AdbcBigQuery::connect`].** It was, and review measured what that cost: replacing the `bind`
+/// call with `drop(bound)` left the clippy leg clean and the suite green, because reaching that line
+/// at all needs a real driver. `adbc_core::Statement` is a trait, so a recording implementor is
+/// cheaper than the hosted leg and asserts the one thing that matters - that the batch this
+/// transport built is the batch the statement was bound with.
+///
+/// **The values travel in a bound batch and never in the text**, which is the no-injection
+/// invariant at the one boundary this adapter could break it at. `bigquery.query.parameter_mode` is
+/// left at the driver's own default of `positional`, which is what the rendered `?` placeholders and
+/// `JobRequest::PARAMETER_MODE` both say: a value's identity in a plan is its position, so there is
+/// no name to send.
+///
+/// `None` binds nothing at all rather than an empty batch - [`bind`]'s own header has the driver's
+/// two code paths.
+fn prepared<S>(stmt: &mut S, request: &JobRequest<'_>, bound: Option<arrow_array::RecordBatch>) -> Result<(), AdbcError>
+where
+    S: Statement,
+{
+    stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
+    if let Some(batch) = bound {
+        stmt.bind(batch).map_err(AdbcError::Adbc)?;
+    }
+    Ok(())
 }
 
 /// A driver handle and a prepared statement, the shape one job needs.
@@ -195,15 +224,7 @@ impl AdbcBigQuery {
             .map_err(AdbcError::Adbc)?;
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
-        stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
-        // **The values travel in a bound batch and never in the text**, which is the no-injection
-        // invariant at the one boundary this adapter could break it at. `bigquery.query.parameter_mode`
-        // is left at the driver's own default of `positional`, which is what the rendered `?`
-        // placeholders and `JobRequest::PARAMETER_MODE` both say: a value's identity in a plan is its
-        // position, so there is no name to send.
-        if let Some(batch) = bound {
-            stmt.bind(batch).map_err(AdbcError::Adbc)?;
-        }
+        prepared(&mut stmt, request, bound)?;
         Ok((driver, stmt))
     }
 }
@@ -259,10 +280,17 @@ impl JobTransport for AdbcBigQuery {
     /// `bigquery.tables.list`. Nothing here was refused by anything: the transport did not ask.
     ///
     /// So `true` would send an operator to grant a permission that is not missing, and the honest
-    /// `false` costs the boot check for this source - which [`Self::list_tables`] states above. Both
-    /// directions are pinned by `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
-    /// rather than left to the default, because flipping the default was measured to leave the whole
-    /// suite green.
+    /// `false` costs the boot check for this source - which [`Self::list_tables`] states above.
+    ///
+    /// **What is pinned, and it is NOT "both directions".** An earlier version of this sentence
+    /// claimed both; review answered that a constant `false` has no second direction to pin, and
+    /// that is right. Two cells hold two different things instead:
+    /// `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal` reads the value here
+    /// and dies if it flips - which is what the trait default left unheld, measured as a green
+    /// suite - and `a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal` in
+    /// `crate::tests` reads the OUTCOME one layer up, where `sutura_app::preflight` turns this
+    /// answer into the verdict `serve::boot` acts on. The second is the direction that matters to a
+    /// deployment: it is the one that would change if this constant were ever right to be `true`.
     fn listing_was_refused(&self, _error: &Self::Error) -> bool {
         false
     }

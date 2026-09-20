@@ -443,12 +443,14 @@ against this adapter is no longer refused by the posture cross-check alone - `de
 accepts it. The broker is built too: `crates/sutura-exec-bigquery/src/sts.rs`'s
 `WorkloadIdentityBroker` performs the exchange, and `sutura-serve`'s `bigquery` composition
 attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
-**superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each principal's
-own assertion against a real STS and resolved it to that principal, so leg 2 is proven for BigQuery
-through the declared per-source map. AGENTS.md's sentence now reads: *"Leg 1 (knowing who is
-asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery through a declared
-per-source map, by a hosted run whose job holds both principals' keys by construction - so the
-exchange mechanics resolve per subject; no served binary has executed as a caller yet."*
+**superseded 2026-09-16, and superseded AGAIN 2026-09-20:** a hosted run of
+`bigquery-exchanged-identity` exchanged each principal's own assertion against a real STS and
+resolved it to that principal, and for four days AGENTS.md read leg 2 as proven on the strength of
+it. **That run is of code this tree no longer contains** - the workflow, the exchange and the
+workload-identity pool went with the HTTP transport (`docs/adr/0018`, fifth amendment). The
+sentence quoted here is not reproduced, because `check-guidance`'s leg-2 rule refuses it and
+quoting a false claim in order to date it is what an amendment heading already does.
+AGENTS.md now records leg 2 as built and unproven, with the hosted venue `wired`
 (`docs/where-identity-is-proven.md`).
 
 ## Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered

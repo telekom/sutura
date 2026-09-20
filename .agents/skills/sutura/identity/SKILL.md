@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Proven live for one source, hosted** | On BigQuery through its declared per-source map, a hosted `workflow_dispatch` run resolved each principal to its own account (run in `docs/where-identity-is-proven.md`). The port, the exchanging broker and the serve composition are built; every other source still executes as one identity, and no served binary answers under an asker |
+| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a question executes as the account the source's declared per-source map names for the asking subject, through the driver's own impersonation option. The port, the broker and the serve composition are built; the hosted venue that would show it is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -200,10 +200,12 @@ the missing third thing is built:** `wire::StsOverHttp` posts the RFC 8693 reque
 FEDERATED credential a workload-identity pool resolves to a pool subject with; `wire::IamCredentialsOverHttp`
 now makes the second call (`iamcredentials.generateAccessToken`) to the account
 `WorkloadIdentity::target_for` declares (telekom/sutura#774), so a source's exchange resolves to a
-service account rather than stopping at the pool subject. The limit beside the claim: leg 2 is
-proven here for BigQuery only, on the hosted `bq-test` venue, through the per-source map - and the
-run is citable only beside the mint step, which holds both principals' own keys by construction, so
-it proves the mechanics resolve per subject and nothing about an unprivileged caller.
+service account rather than stopping at the pool subject. **All three of those types were deleted
+with the HTTP transport** (`docs/adr/0018`, fifth amendment), so the run that paragraph cited is a
+run of code this tree does not contain; what ships instead sets the driver's own
+`bigquery.impersonate.target_principal` per job, and the caller's own credential is not in that
+chain at all. The limit beside the claim: **leg 2 is not proven.** The venue that would prove it is
+`wired` in `docs/where-identity-is-proven.md` and nobody has dispatched it.
 
 **And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
 identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject

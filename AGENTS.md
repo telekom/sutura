@@ -56,9 +56,12 @@ Those three plus secure-by-design are the definition of *correct* in review here
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
-  who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery through a
-  declared per-source map, by a hosted run whose job holds both principals' keys by construction -
-  so the exchange mechanics resolve per subject; no served binary has executed as a caller yet.
+  who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: BigQuery
+  executes a question as the account its declared per-source map names, and the hosted venue that
+  would show it is `wired` - nobody has dispatched it. **The run this sentence used to cite was of
+  code no longer in the tree**, an HTTP exchange against a workload-identity pool that the ADBC
+  adoption deleted. `docs/where-identity-is-proven.md` decides which venue may be cited, and
+  `check-guidance` now refuses this claim while that page records no run.
 - **Never commit or force-push unless asked.** Prefer stacked, individually reviewable PRs via stax.
 - **This shell's cargo env leaks into other checkouts** - `CARGO_*CODEGEN_BACKEND=cranelift` and
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before

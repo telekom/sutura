@@ -348,11 +348,21 @@ pub enum InvalidSourceRegistry {
     },
     /// An `impersonation-at-source` source declared no token-exchange setup.
     ///
-    /// A source that executes as the asking subject has to say WHICH provider exchanges the subject's
-    /// token - there is nothing this build could guess, and a per-caller credential has to come out of
-    /// a declaration rather than a default that pretends one exists.
+    /// A source that executes as the asking subject has to say WHICH account each subject becomes -
+    /// there is nothing this build could guess, and a per-caller identity has to come out of a
+    /// declaration rather than a default that pretends one exists.
+    ///
+    /// **`audience` is required and reaches no shipped transport, and this message says so rather
+    /// than leaving an operator to find out.** The block's three keys are read unevenly:
+    /// `impersonate` is the subject-to-account map the `BigQuery` adapter's broker resolves, `scope`
+    /// becomes the driver's own `bigquery.impersonate.scopes`, and `audience` names a
+    /// workload-identity POOL that nothing in this build exchanges against - the transport that did
+    /// was deleted (`docs/adr/0018`, fifth amendment). It stays required rather than optional
+    /// because making it optional is a settings-tree change with its own migration, and a
+    /// well-formed wrong value is accepted here and read by nobody. That is the honest state; the
+    /// message is where an operator meets it.
     #[error(
-        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the audience and scope the asker's credential is exchanged against"
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `impersonate` map naming the account each subject executes as, and the `scope` its credential is minted for. `audience` is required by this schema and is read by no transport in this build"
     )]
     MissingWorkloadIdentity { alias: SourceName },
     /// A workload-identity block was declared on a source that is not impersonating.

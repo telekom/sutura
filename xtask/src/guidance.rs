@@ -64,6 +64,11 @@ mod citations;
 // boundary is the one seam here: `stale` and `references` judge a LINE, while `claims` and
 // `counts` judge a claim across lines and need a flattened view to do it.
 mod claims;
+
+// One claim whose refutation is a STATE another gate parses rather than a file this one can read:
+// *leg 2 is proven*. Its own header carries the measurement - four surfaces said so over deleted
+// code while this gate printed `ok`.
+mod leg_two;
 // The citation half of `github.com/telekom/sutura#243`. A module rather than lines here for the
 // reason above: this file has to have room for the tables, and a scan over Rust source shares
 // nothing with them but the span walk and the task-name parse below.
@@ -410,6 +415,10 @@ type TreeVerdict = (Vec<String>, PageCounts, Reading, Scan);
 fn tree_problems(root: &Path, files: &[String], text_files: &[String]) -> TreeVerdict {
     let mut problems = stale_phrases(root, text_files);
     problems.extend(contradicted_claims(root, text_files));
+    // `text_files`, and the CONDITION comes from another gate's parser rather than from a needle in
+    // a page: `crate::venues::leg_two_citable` reads the claims matrix. Its own module header
+    // carries why this is not a `CONTRADICTED` row and what the pair does not reach.
+    problems.extend(leg_two::problems(root, text_files));
     problems.extend(count_mismatches(root, files, text_files));
     problems.extend(bad_task_references(root, text_files));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and

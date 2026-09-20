@@ -66,9 +66,10 @@ The per-adapter constant in the source is the authority, and this page is a read
 The two legs, stated separately because they are proven to different depths:
 
 - **Leg 1 - knowing who is asking.** Built.
-- **Leg 2 - a source executing *as* them.** Proven for BigQuery through a declared per-source map,
-  by a hosted run whose job holds both principals' keys by construction, so the exchange mechanics
-  resolve per subject. **No served binary has executed as a caller yet.**
+- **Leg 2 - a source executing *as* them.** Built for BigQuery through a declared per-source map,
+  and **unproven**: the hosted venue that would show two subjects resolving to two accounts is
+  `wired` and nobody has dispatched it. The run this bullet used to cite was of an HTTP exchange the
+  ADBC adoption deleted. **No served binary has executed as a caller yet.**
 
 [Where each identity claim is proven](where-identity-is-proven.md) is the venue-by-venue table, and
 it is the only place that decides which venue may be cited for which claim.

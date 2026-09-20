@@ -986,24 +986,49 @@ the ARROW type: a date sent as `STRING` compares against a `DATE` column through
 `GoogleSQL` does not perform, and against a text column compares lexically. The domain's `Date`
 already holds days since the epoch, so nothing is formatted on that path.
 
-### The driver is not linked in, and `unsafe_code = "forbid"` is why
+### The driver is not linked in: a four-way owner decision, priced
 
 The owner asked for the driver to be INCLUDED in the release artefacts and verified in CI, for
-normal CI and for the musl artefact. The mechanism that would resolve all three at once is known and
-is not taken: `-buildmode=c-archive` instead of `c-shared`, linking the archive into the binary, and
+normal CI and for the musl artefact. The mechanism that would resolve all three at once is known:
+`-buildmode=c-archive` instead of `c-shared`, linking the archive into the binary, and
 `adbc_driver_manager::ManagedDriver::load_static` instead of `load_dynamic_from_filename`. Then the
 driver ships because it IS the binary, static musl works because no `dlopen` is reached, and the
 `SUTURA_BIGQUERY_ADBC_DRIVER` startup requirement disappears.
 
-**It needs first-party `unsafe` and this workspace forbids it.** `load_static` takes an
-`&adbc_ffi::FFI_AdbcDriverInitFunc`, which is
-`unsafe extern "C" fn(c_int, *mut c_void, *mut FFI_AdbcError) -> AdbcStatusCode`, and the only way to
-obtain one for a linked archive is an `unsafe extern` block declaring the archive's `AdbcDriverInit`
-symbol. `Cargo.toml`'s workspace lints set `unsafe_code = "forbid"` and say why in the same place:
-*a crate cannot re-allow it locally … needing `unsafe` here is an architecture decision, and lifting
-a `forbid` is exactly the size of diff that decision deserves.* So the archive route is an owner
-decision rather than an implementation detail, and it is recorded here rather than worked around: an
-`#[allow]` beside it would be the whole of the control this line is about.
+**What stands in the way is first-party `unsafe`, and it is a CHOICE rather than a wall.** An
+earlier draft of this amendment called `unsafe_code = "forbid"` the blocker; review refuted it with
+this repository's own precedent, so the correction is here rather than deleted. `load_static` takes
+an `&adbc_ffi::FFI_AdbcDriverInitFunc`, which is
+`unsafe extern "C" fn(c_int, *mut c_void, *mut FFI_AdbcError) -> AdbcStatusCode`, and the only way
+to obtain one for a linked archive is an `unsafe extern` block declaring the archive's
+`AdbcDriverInit` symbol. Four routes reach that, and the owner picks one:
+
+1. **Lift the workspace `forbid`.** `Cargo.toml`'s lint table sets `unsafe_code = "forbid"` and says
+   in the same place that needing it *"is an architecture decision, and lifting a `forbid` is
+   exactly the size of diff that decision deserves."* Cost: every crate in the workspace becomes a
+   place `unsafe` may appear, and the property that no first-party `unsafe` exists stops being a
+   fact about the tree. Cheapest to write, most expensive to give up.
+2. **A vendored crate outside the workspace, owning the one `unsafe` block.**
+   `Cargo.toml`'s `exclude = ["vendor/mimalloc_rust"]` is the established precedent - that path
+   holds eleven `unsafe` items today, outside this forbid's reach, and `VENDOR.md` is where such a
+   thing is recorded. Cost: a second build unit and a `VENDOR.md` row, and the `unsafe` is real
+   wherever it lives - what the exclusion buys is that it is CONTAINED and named rather than
+   permitted everywhere.
+3. **An upstream `adbc_driver_manager` API that takes a symbol NAME rather than a function
+   pointer.** The manager already resolves symbols by name for the dynamic path; a `load_static`
+   sibling accepting `&str` would keep the `unsafe` on their side of the ABI, where it already is.
+   Cost: an upstream round trip on somebody else's release schedule, which is the slowest route and
+   the only one that leaves this workspace unchanged. `AGENTS.md`'s *propose upstream* is this.
+4. **Stay dynamic, and decide what musl means.** Keep `load_dynamic_from_filename`, ship the `.so`
+   as a release asset beside each gnu artefact, and either drop the two musl triples or declare ADBC
+   gnu-only. Cost: no `unsafe` at all and no upstream work, in exchange for `bigquery` being
+   unavailable on the static artefacts - which is the status quo made explicit rather than a
+   regression.
+
+**Two routes review closed, recorded as closed rather than left open.** `sutura-domain`'s
+`ALLOWED_IN_DOMAIN` does not extend to this: it is a dependency allowlist and says nothing about a
+lint. And a workspace MEMBER cannot escape the lint by omitting `[lints] workspace = true`, because
+`xtask/src/api_docs/lints.rs` requires every member to inherit it - measured at 22 of 22.
 
 **What was built instead, because a link check would have been worse than nothing.** `sutura doctor`
 loads the `.so` through the driver manager and reports the outcome, which runs the driver's Go

@@ -40,7 +40,7 @@ mod tests {
         // Read once from the same directory the child consumes. Keep the Result until the child
         // guard has cleaned up, so an unexpected successful load cannot leave the directory behind.
         let expected = Settings::load(&Sources::defaults(environment).with_directory(directory.clone()));
-        let told = refused_to_start(environment, directory);
+        let told = refused_to_start(environment, directory, &[]);
         let refused = expected.expect_err("this case's fixture is a deployment the settings type refuses");
         assert!(
             !told.iter().any(|line| line.contains(r#""msg":"listening""#)),

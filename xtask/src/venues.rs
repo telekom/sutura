@@ -103,6 +103,14 @@ mod problems;
 
 use problems::page_problems;
 
+// Leg 2's own row, and the one thing this gate exports: `check-guidance` owns the prose walk and
+// this owns the table, so the CONDITION of its leg-2 rule is parsed here. It carries its own
+// `#[test]`s, which is what keeps it off the causality gate's revert list - the reason every other
+// split here left its assertions behind.
+mod leg_two_row;
+
+pub(crate) use leg_two_row::leg_two_citable;
+
 /// The map. One page: a second copy of a venue table is the drift this gate is about.
 const PAGE: &str = "docs/where-identity-is-proven.md";
 
