@@ -25,7 +25,7 @@ ureq = { workspace = true }
 # The bundle-or-system-store read and the client-identity read, shared with the Postgres source
 # channel and the BigQuery wire so the refusals for an unreadable, empty or malformed
 # bundle/identity are not re-derived a third time. This crate's own `tls` module folds the result
-# into the `ureq::tls::TlsConfig` [`transport::secured`] connects with; `sutura-tls` builds neither.
+# into the `ureq::tls::TlsConfig` [`transport::Http::connect_secured`] connects with; `sutura-tls` builds neither.
 sutura-tls = { workspace = true }
 # No composition root links this crate, and none names a `kind: clickhouse` source - so no served
 # binary links it, and there is no artefact for a default-off feature to keep an outbound TLS

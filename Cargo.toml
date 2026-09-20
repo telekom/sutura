@@ -61,17 +61,17 @@ members = [
   # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
   # is accepted by a real Postgres, reached through the compose tier.
   "crates/sutura-exec-postgres",
-  # A network data system over the fourth rendering, `Dialect::ClickHouse`. Not shipped, like
+  # A network data system over the third rendering, `Dialect::ClickHouse`. Not shipped, like
   # `sutura-exec-duckdb`: it proves the ClickHouse statement we render is accepted by a real
   # ClickHouse, reached over the columnar source's HTTP interface (`compose.services.yaml`'s
   # `clickhouse` service). No composition root links it yet - `github.com/telekom/sutura#920`.
   "crates/sutura-exec-clickhouse",
-  # The one place either outbound TLS adapter reads a declared bundle or the host store: no
+  # The one place any outbound TLS adapter reads a declared bundle or the host store: no
   # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
   # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
-  # (`github.com/telekom/sutura#125`'s second PR) is the second - neither may depend on the other
-  # (`xtask/src/boundaries/adapters.rs`'s "data systems" class), so the read that both need moved
-  # here rather than into either.
+  # (`github.com/telekom/sutura#125`'s second PR) is the second; `sutura-exec-clickhouse` is the
+  # third - none may depend on any other (`xtask/src/boundaries/adapters.rs`'s "data systems"
+  # class), so the read that all three need moved here rather than into any one of them.
   "crates/sutura-tls",
   "crates/sutura-cli",
   # The service runtime. Three crates rather than a fourth for the composition root:

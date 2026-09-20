@@ -220,5 +220,15 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
+- **The ClickHouse adapter is a whole adapter that no composition root links.** Everything above
+  the wire is decided and tested against a fake; the wire exists (`ureq` over HTTP, no feature gate
+  - the crate is not published, so there is no artifact to keep a TLS stack out of); and a real
+  ClickHouse has accepted the rendered statement in a manually-run measurement
+  (`github.com/telekom/sutura#920`/`#919`). **What has not happened: no composition root names a
+  `kind: clickhouse` source, no published artifact links the crate, and no nix-native execution
+  venue exists** - `compose.services.yaml`'s `clickhouse` service is a docker-compose tier a person
+  brings up by hand, and no `clickhouse-tier.nix` provisions one the way `nix/postgres-tier.nix` does,
+  so the nix sandbox `just validate` runs in cannot reach one. The DIALECT golden axis has a
+  `stated_limit` arm for this rather than an execution entry, for the same reason.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

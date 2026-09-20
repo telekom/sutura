@@ -69,7 +69,7 @@
 //! this stays at the port's own default (`Ok(PreFlight::NotAsked)`) - the same honest absence
 //! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
 
-pub mod deadline;
+mod deadline;
 pub mod tls;
 pub mod transport;
 

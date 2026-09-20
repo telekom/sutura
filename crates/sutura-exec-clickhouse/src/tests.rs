@@ -136,6 +136,8 @@ fn a_spent_deadline_is_refused_before_any_round_trip() {
 /// render call sites in `lib.rs`. The two dialects render the corpus plan's filters with
 /// different placeholder syntax (`?` vs `$1`), so the captured statement changes and this cell
 /// fails.
+/// What this discriminates is `PlaceholderStyle`, not the dialect: `DuckDb` and `BigQuery` also
+/// render `?` (`PlaceholderStyle::Question`), so swapping to either leaves this cell green.
 #[test]
 fn execute_renders_the_plan_through_the_clickhouse_dialect() {
     let case = sutura_conformance::corpus::cases()

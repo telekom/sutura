@@ -189,8 +189,11 @@ ci.yml:e2e-datahub-bigquery
 ci.yml:demo-container
 
 # The called workflow's own job - the one that reports the context above. Advisory for the same
-# two reasons as `cross-link.yml:link`'s own entry: it cannot resolve as required (a caller-
-# prefixed context), and it is not required by decision even where it could be.
+# reason as `ci.yml:demo-container` above: `cargo xtask check-workflows` derives a plain job's
+# context and cannot spell a caller-prefixed one, so this record cannot name it as a `[required]`
+# entry. Whether GitHub itself can hold a caller-prefixed context as a required check is a
+# platform claim nobody here has reproduced. Advisory also by decision, not only by that
+# mechanical limit.
 demo-container.yml:smoke-test
 
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;

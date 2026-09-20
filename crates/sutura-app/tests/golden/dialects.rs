@@ -386,7 +386,11 @@ fn some_question_asks_for_every_grain_a_metric_declares() {
 /// A file count over `tests/snapshots/`, keyed by [`Dialect::as_str`] - the same string
 /// `pins_the_statement_and_its_parameters` snapshots the render family under - rather than a count
 /// read off any registry, so a `.snap` this suite stopped producing (a deleted case, a renamed
-/// adapter) is caught the same way an added one is.
+/// adapter) is caught when it leaves a dialect with no execution goldens and no [`stated_limit`],
+/// and not otherwise: a deletion that keeps the count above zero passes, and a dialect with a
+/// stated limit stays green even at zero. An added golden is caught the same way - only if it
+/// crosses the same threshold in the other direction - so the count is a liveness floor, not a
+/// registry the walk pins.
 fn execution_golden_count(dialect: Dialect) -> usize {
     let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let entries = std::fs::read_dir(&directory).unwrap_or_else(|cause| panic!("{} did not read: {cause}", directory.display()));
