@@ -837,6 +837,27 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         only: &[],
         except: &[],
     },
+    Contradicted {
+        // `github.com/telekom/sutura#892` shipped the push from the agent surface, which falsified
+        // deviation 7's own wording in three files at once. The wording registered here is the one
+        // that was WRITTEN (`docs/adr/0015-...md:330`) rather than a paraphrase, because a rule
+        // against a sentence nobody wrote is what
+        // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses.
+        name: "the spend headroom gauge is pushed from one transport only",
+        wordings: &["pushed from one transport only", "pushed from a single transport"],
+        evidence: &[Evidence {
+            path: "crates/sutura-cli/src/serve/agent.rs",
+            holds: "push_headroom",
+        }],
+        instead: "the composition root hands this state's own gauge into the `Serving` wrapper, \
+                  which pushes after both `Surface::answer` and `Surface::run_sql`, so the agent \
+                  transport and `POST /v1/query` drive one series - with the asymmetry the record \
+                  states, that `POST /v1/run_sql` pushes nothing",
+        only: &[],
+        // The Second amendment's deviation 7 is quoted in order to be corrected in place, so this
+        // record holds the one copy of the wording no scan may refuse.
+        except: &["docs/adr/0015-an-authenticated-metrics-endpoint.md"],
+    },
 ];
 
 /// `CONTRADICTED` rows a later commit deleted rather than re-anchored, kept only for their
