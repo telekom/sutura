@@ -23,12 +23,12 @@ it: a per-pack timing aggregate and `cargo-insta`'s unreferenced-snapshot check,
 plan further down rather than built; the three named corpus cases (a filter on a remote dimension
 with an orphan key, a zero-denominator ratio, a `CountDistinct` spanning two join keys), none of
 which is in the corpus yet; and a fourth data adapter, `sutura-exec-bigquery`, which IS built and is
-not yet bound to the packs. The corpus itself stays code **by decision**, not by omission - *The
-corpus is code by decision* below is the reasoning, not a gap.
+not yet bound to the packs. The corpus is files, not code - *The corpus is files, not code* below
+is how that is built.
 
 **The limit, next to the claim, because the shape is further along than the coverage.** A case is a
-value in `crates/sutura-conformance/src/corpus.rs` rather than a file, by decision, so adding one is
-still a code change - *The corpus is code by decision* below is where that stands. **None of the three
+tracked data file under `crates/sutura-conformance/corpus/cases/` parsed by a typed loader, so
+adding one is a data edit. **None of the three
 cases under *Cases the corpus must contain by name* is written**, and that module's own header says
 so. The packs call `execute` and `dry_run` and no other `Warehouse` method, so *held to the same test
 bodies* is a statement about two methods. And **no pack exercises impersonation in any form** -
@@ -307,24 +307,30 @@ under a partial implementation:
 Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
 what stops the corpus from being complete-looking and blind in exactly the places the design is hard.
 
-## The corpus is code by decision
+## The corpus is files, not code
 
-The shared input rows already are a file: `crates/sutura-conformance/corpus/conformance_events.csv`,
-read once by `include_str!` into a `const fn`. Cases stay Rust, and not because nobody got to a
-loader.
+The shared input rows were already a file: `crates/sutura-conformance/corpus/conformance_events.csv`,
+read once by `include_str!` into a `const fn`. The cases are now the same shape: each is a `.case`
+file under `crates/sutura-conformance/corpus/cases/`, embedded at compile time and parsed by a
+typed loader in `crates/sutura-conformance/src/corpus/case_files.rs`. Adding a case is a data edit - a
+new `.case` file plus one `include_str!` line - and no Rust function in `corpus.rs` changes.
 
-`Case` is built as Rust struct literals in `crates/sutura-conformance/src/corpus.rs`, and every
-accessor on it is `pub const fn`. That buys two things a file format cannot: a malformed case - a
-plan whose bucket does not match its measure, a row set typed against the wrong column - is a
-compile error today, because the compiler type-checks a struct literal; a file-backed loader would
-parse the same mistake at runtime instead, and a `const fn` reading `include_str!` cannot validate a
-parsed shape at compile time either way. And `plan()` returns a typed `QueryPlan`, the same compiled
-type `sutura-app` executes, so representing a case as data would mean choosing a wire format for a
-plan this repository does not otherwise need one for. A file-backed loader would buy a case
-reviewable without Rust and cost both.
+The format is a line-oriented text file, not a serialisation format, because the domain types the
+loader constructs (`QueryPlan`, `Value`, `RowSet`) carry `Serialize` but deliberately not
+`Deserialize`. A format an already-present dependency could read would need `Deserialize` impls
+the domain does not provide, and adding a parser dependency would break the portability contract
+`xtask/src/boundaries/harness.rs` holds. The loader parses text and constructs each domain type
+through its own `parse` constructor.
 
-Adding a case therefore changes code today. Adding an adapter remains one macro invocation and a
-capability declaration without touching a pack body.
+A malformed case file is a typed `CaseError` surfaced through `expect`, not a silently skipped
+case - a skipped case is strictly worse than the code it replaced, because the pack would report
+green over a case nobody ran. The case count cannot shrink silently: `include_str!` makes a file
+removed from disk a compile error, and a test counts `.case` files against the loader's entry list
+so a file removed from the list but left on disk is caught. The `order` field is explicit in every
+case - a missing field is a parse error, not a default to the permissive value.
+
+Adding an adapter remains one macro invocation and a capability declaration without touching a
+pack body.
 
 ## Two mechanics to get right, because both are how a suite rots
 
