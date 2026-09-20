@@ -118,12 +118,12 @@ fn carried_terms(measure: &Measure) -> Vec<LegTerm> {
         .into_iter()
         .enumerate()
         .map(|(index, carried)| {
-            let term = match *carried {
-                Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
+            let term = match carried {
+                Carried::Aggregated { pushed, column, .. } => PlanTerm::Aggregate {
                     aggregate: pushed.push(),
                     column: column_of(column),
                 },
-                Carried::CountIf { ref column } => PlanTerm::CountIf {
+                Carried::CountIf { column, .. } => PlanTerm::CountIf {
                     column: column_of(column),
                 },
                 // A pulled-up column is not a term at all: it travels in `keys`. A fixture that
@@ -254,7 +254,7 @@ fn a_leg_cannot_be_constructed_that_divides_a_ratio() {
 /// Separate from [`carried_terms`] because that one refuses a pulled-up column - it belongs in
 /// `keys` - and this test wants only the half that does descend.
 fn term_of(carried: Option<&Carried>) -> LegTerm {
-    let Some(&Carried::Aggregated { pushed, ref column }) = carried else {
+    let Some(Carried::Aggregated { pushed, column, .. }) = carried else {
         panic!("the numerator of this ratio descends as one aggregate");
     };
     LegTerm::new(

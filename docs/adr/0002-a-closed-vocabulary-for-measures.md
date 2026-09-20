@@ -10,10 +10,12 @@ Status: accepted. It widens the measure vocabulary of
 argument. That record is still right that no free-text SQL may reach a statement. This one is a
 correction about which sentence in it was load-bearing.
 
-Amended once, and the amendment is recorded rather than rewritten away: the first version of this
-decision made a conditional count a *sibling* of a ratio, which left the seventh of the seven
-metrics below unsayable. [Two levels, not three siblings](#two-levels-not-three-siblings) is the
-correction and the rest of the record stands.
+Amended twice, and each amendment is recorded rather than rewritten away: the first made a
+conditional count a *sibling* of a ratio, which left the seventh of seven metrics below unsayable.
+[Two levels, not three siblings](#two-levels-not-three-siblings) is the correction. The second
+widened a ratio's terms to carry their own model, so a ratio whose sides live on two fact models
+is expressible - [A term carries its model](#a-term-carries-its-model) is the record. The rest
+stands.
 
 ## Context
 
@@ -95,6 +97,31 @@ the "two paths for one value" this record rejects everywhere else. Avoiding the 
 giving the file format its own copy of the aggregate set with one extra word buys the other half of
 the problem: a set that has to be kept in step with the domain's, whose failure mode is an aggregate
 no document can express and nothing anywhere failing to say so.
+
+### Second amendment - a term carries its model
+
+A ratio whose sides live on two fact models - returns as a share of sales, tickets per active
+subscription - was not expressible. The agent worked around it by asking two certified questions
+and dividing, which is a provenance defect rather than an arithmetic one: the quotient was reported
+under two provenances neither of which was its own, so nothing certified it and nothing could be
+held to it. A certified number no record stands behind is the exact failure the closed vocabulary
+exists to prevent.
+
+The amendment gives each term an optional `model` field - `None` meaning the metric's own model,
+as every existing document already writes it, so a one-model metric's on-disk shape is
+byte-identical to what it was before the field existed. A ratio with two terms naming two models
+is two fact legs on two sources, combined above by the federation combiner ADR 0007 established:
+aggregate each leg on its own, join on the shared keys, divide and apply `zero_denominator`. The
+chasm trap is impossible by construction because the two facts never share a `FROM`.
+
+A shared dimension is declared on both models with a `via` from each. A dimension one fact cannot
+reach is a load-time `InconsistentDefinitions` - never a NULL-padded row. The refusal is at
+declaration time, which is where this repo puts them.
+
+The digest covers the models the terms carry: a digest that did not move when a term's model
+changed would let the certified definition change silently. The field reaches the serialized form
+when the author wrote it and stays out when they did not, so a one-model metric's digest does not
+move the day the field ships.
 
 ### The property being defended was never "one aggregate"
 

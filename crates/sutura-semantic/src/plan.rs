@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{MetricName, SourceName, TableName};
+use sutura_domain::model::{MetricName, ModelName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
@@ -136,11 +136,15 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             metric: resolution.metric.name().clone(),
         });
     };
-    // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
+    // Every source besides the metric's own that a join reaches - a remote dimension, or a term
+    // whose `model` names a fact on another data system (`#780`). A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
-    // drop a source here.
+    // drop a source here. A term model on a remote source is a two-fact ratio; its source is counted
+    // here so the dispatch reaches the federated path rather than the mono path reading the wrong
+    // table.
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
         .filter_map(|dim| dim.join.as_ref().map(|join| join.model.source()))
+        .chain(remote_term_sources(resolution, measure))
         .collect();
 
     match remote.len() {
@@ -199,6 +203,11 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
             ));
         }
     }
+    // Term-model joins: a `#780` term naming a same-source model needs the same one-hop join a
+    // dimension's `via` needs, added here so `StatementTables` covers both.
+    for term_model in closed.models().into_iter().flatten() {
+        add_term_model_join(resolution, term_model, own_table, &mut joins)?;
+    }
     joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
@@ -212,7 +221,10 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
         .map(|key| PlanKey::new(ResultLabel::dimension(key.dimension.name()), column_of(key, own_table)))
         .collect();
 
-    let measure = plan_measure(closed, |column| PlanColumn::new(own_table.clone(), column.clone()));
+    let measure = plan_measure(closed, |column, model| {
+        let table = term_table_name(resolution, model, own_table).unwrap_or_else(|_| own_table.clone());
+        PlanColumn::new(table, column.clone())
+    });
 
     // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
     // paths end in the same name render under one implicit alias, so a column qualified by it names
@@ -252,6 +264,75 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
+/// Builds the fact leg's terms and its same-source joins in one pass.
+///
+/// A leaf whose term carried no `model` reads the metric's own table. One whose term named a model
+/// reads that model's table, and the one-hop relationship to it is added to `joins` alongside the
+/// dimension hops, so `StatementTables` covers both. A `Keys` leaf is unreachable - the caller
+/// refused it before reaching here.
+/// The fact leg's terms and same-source joins, built in one pass.
+type FactLegParts = (Vec<LegTerm>, Vec<PlanJoin>);
+
+fn fact_leg_terms_and_joins(
+    resolution: &Resolution<'_>,
+    federation: &Federation,
+    leaf_labels: &[InternalLabel],
+    own_table: &TableName,
+    own_source: &SourceName,
+) -> Result<FactLegParts, PlanError> {
+    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
+    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
+        let plan_term = match leaf {
+            Carried::Aggregated { pushed, column, model } => {
+                let table = term_table_name(resolution, model.as_ref(), own_table)?;
+                PlanTerm::Aggregate {
+                    aggregate: pushed.push(),
+                    column: PlanColumn::new(table, column.clone()),
+                }
+            }
+            Carried::CountIf { column, model } => {
+                let table = term_table_name(resolution, model.as_ref(), own_table)?;
+                PlanTerm::CountIf {
+                    column: PlanColumn::new(table, column.clone()),
+                }
+            }
+            Carried::Keys { .. } => {
+                return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
+                    metric: resolution.metric.name().clone(),
+                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
+                }));
+            }
+        };
+        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
+    }
+
+    let mut joins: Vec<PlanJoin> = Vec::new();
+    for resolved in every_dimension(resolution) {
+        if let Some(ref join) = resolved.join {
+            if join.model.source() != own_source {
+                continue;
+            }
+            let name = join.relationship.name().clone();
+            if joins.iter().any(|existing| *existing.relationship() == name) {
+                continue;
+            }
+            joins.push(PlanJoin::new(
+                name,
+                join.model.table().clone(),
+                join.relationship.join_type(),
+                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
+                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
+            ));
+        }
+    }
+    for leaf in federation.carried() {
+        let Some(term_model) = leaf.model() else { continue };
+        add_term_model_join(resolution, term_model, own_table, &mut joins)?;
+    }
+    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
+    Ok((terms, joins))
+}
+
 fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<FederatedPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
@@ -350,54 +431,8 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     let fact_bindings = predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
     let lookup_bindings = requested_for(&remote_filters, remote_table)?;
 
-    // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
-    // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
-    // name too, and over a 63-character metric name it also crossed the identifier limit a data
-    // system truncates silently.
     let leaf_labels = labels(&federation);
-    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
-    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
-        let plan_term = match **leaf {
-            Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
-                aggregate: pushed.push(),
-                column: PlanColumn::new(own_table.clone(), column.clone()),
-            },
-            Carried::CountIf { ref column } => PlanTerm::CountIf {
-                column: PlanColumn::new(own_table.clone(), column.clone()),
-            },
-            // Unreachable: the refusal above returned for any Keys leaf.
-            Carried::Keys { .. } => {
-                return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
-                    metric: metric.name().clone(),
-                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
-                }));
-            }
-        };
-        terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
-    }
-
-    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
-    let mut joins: Vec<PlanJoin> = Vec::new();
-    for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            if join.model.source() != model.source() {
-                continue;
-            }
-            let name = join.relationship.name().clone();
-            if joins.iter().any(|existing| *existing.relationship() == name) {
-                continue;
-            }
-            joins.push(PlanJoin::new(
-                name,
-                // The joined model's own path, for the reason `mono_plan`'s loop gives.
-                join.model.table().clone(),
-                join.relationship.join_type(),
-                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
-            ));
-        }
-    }
-    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
+    let (terms, joins) = fact_leg_terms_and_joins(resolution, &federation, &leaf_labels, own_table, model.source())?;
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
@@ -620,4 +655,95 @@ fn column_of(resolved: &ResolvedDimension<'_>, own_table: &TableName) -> PlanCol
         .as_ref()
         .map_or_else(|| own_table.clone(), |join| join.model.table_name().clone());
     PlanColumn::new(table, resolved.dimension.column().clone())
+}
+
+/// The data systems a measure's term models sit on, other than the metric's own.
+///
+/// A term whose `model` is `None` reads the metric's own source and yields nothing. One whose
+/// `model` names a model on a different source yields that source - the `#780` two-fact ratio,
+/// which dispatches to the federated path. The consistency check proved every named model is
+/// declared, so this reads the definitions without re-asking.
+fn remote_term_sources<'a>(resolution: &'a Resolution<'a>, measure: &Measure) -> impl Iterator<Item = &'a SourceName> {
+    let own = resolution.model.source();
+    measure.models().into_iter().filter_map(move |model| {
+        let name = model?;
+        let target = resolution.definitions.model(name)?;
+        (target.source() != own).then_some(target.source())
+    })
+}
+
+/// Resolves a term's `model` to the table name its column is read from.
+///
+/// `None` means the metric's own model - the existing default. `Some(name)` is a `#780` ratio side
+/// on another fact model: the consistency check already proved the model is declared and reachable
+/// in one non-duplicating hop, so this reads the maps rather than re-asking. A term model on a
+/// different data system is a two-fact ratio, which needs a second fact leg and is refused here
+/// until that plan shape exists.
+fn term_table_name<'a>(
+    resolution: &'a Resolution<'a>,
+    term_model: Option<&ModelName>,
+    own_table: &TableName,
+) -> Result<TableName, PlanError> {
+    let Some(name) = term_model else {
+        return Ok(own_table.clone());
+    };
+    let target = resolution.definitions.model(name).ok_or_else(|| {
+        PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
+            metric: resolution.metric.name().clone(),
+            aggregate: sutura_domain::model::Aggregate::Sum,
+        })
+    })?;
+    if target.source() != resolution.model.source() {
+        return Err(PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
+            metric: resolution.metric.name().clone(),
+            aggregate: sutura_domain::model::Aggregate::Sum,
+        }));
+    }
+    Ok(target.table_name().clone())
+}
+
+/// Finds the one-hop relationship joining the metric's model to a term's model and adds it to
+/// `joins`, deduplicated by relationship name. The consistency check proved exactly one such
+/// non-duplicating relationship exists; this reads it the same way `term_table_name` reads the
+/// model. Called only for same-source term models - a cross-source term model is refused in
+/// `term_table_name` before this is reached.
+fn add_term_model_join(
+    resolution: &Resolution<'_>,
+    term_model: &ModelName,
+    own_table: &TableName,
+    joins: &mut Vec<PlanJoin>,
+) -> Result<(), PlanError> {
+    let relationship = resolution
+        .definitions
+        .relationships()
+        .values()
+        .find(|relationship| {
+            *relationship.origin_model() == *resolution.metric.model()
+                && *relationship.target_model() == *term_model
+                && !relationship.join_type().may_duplicate_rows()
+        })
+        .ok_or_else(|| {
+            PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
+                metric: resolution.metric.name().clone(),
+                aggregate: sutura_domain::model::Aggregate::Sum,
+            })
+        })?;
+    let name = relationship.name().clone();
+    if joins.iter().any(|existing| *existing.relationship() == name) {
+        return Ok(());
+    }
+    let target = resolution.definitions.model(term_model).ok_or_else(|| {
+        PlanError::Refused(RefusalReason::MeasureDoesNotFederate {
+            metric: resolution.metric.name().clone(),
+            aggregate: sutura_domain::model::Aggregate::Sum,
+        })
+    })?;
+    joins.push(PlanJoin::new(
+        name,
+        target.table().clone(),
+        relationship.join_type(),
+        PlanColumn::new(own_table.clone(), relationship.origin_column().clone()),
+        PlanColumn::new(target.table_name().clone(), relationship.target_column().clone()),
+    ));
+    Ok(())
 }

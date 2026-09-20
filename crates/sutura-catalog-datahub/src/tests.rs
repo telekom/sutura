@@ -226,6 +226,7 @@ fn a_ratio_and_a_count_if_are_carried_as_closed_measures() {
             String::from("orders"),
             Measure::Simple(Term::CountIf {
                 column: ColumnName::parse("order_id").expect("a test column is a column"),
+                model: None,
             }),
             String::from("order_date"),
             vec![Grain::Month],

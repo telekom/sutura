@@ -11,7 +11,7 @@ use super::{
     Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES,
     MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
 };
-use crate::measure::{AggregatedColumn, Measure, Term};
+use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, Qualification, QualifiedTable,
     RelationshipName, SourceName, TableName,
@@ -200,6 +200,110 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
             column: column("not_a_column"),
         }
     );
+}
+
+/// The `telekom/sutura#780` shape: `sum(amount_cents)` on `orders` divided by `count(id)` read off
+/// `customers`. Every test below it varies one wrong thing about the term's model.
+fn cross_fact_metric(term_model: Option<&str>, denominator_column: &str) -> Metric {
+    let denominator = Term::Aggregate(term_model.map_or_else(
+        || AggregatedColumn::new(Aggregate::Count, column(denominator_column)),
+        |name| AggregatedColumn::on_model(Aggregate::Count, column(denominator_column), model_name(name)),
+    ));
+    Metric::new(
+        metric_name("revenue_per_customer"),
+        model_name("orders"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator,
+            zero_denominator: ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate")
+}
+
+#[test]
+fn a_term_column_is_checked_against_the_model_the_term_names() {
+    // The customers model has no `amount_cents`. The metric names it for the denominator only, so
+    // the numerator passes and the failure names the model the offending column was checked against.
+    let broken = cross_fact_metric(Some("customers"), "amount_cents");
+    assert_eq!(
+        assemble_one(broken).unwrap_err(),
+        InconsistentDefinitions::UnknownMeasureColumn {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("customers"),
+            column: column("amount_cents"),
+        }
+    );
+}
+
+#[test]
+fn a_term_naming_an_undeclared_model_is_refused() {
+    // The dangling reference one field further than `UnknownModel`: the metric's own model is
+    // checked by name, a term's model is checked the same way.
+    let broken = cross_fact_metric(Some("suppliers"), "id");
+    assert_eq!(
+        assemble_one(broken).unwrap_err(),
+        InconsistentDefinitions::UnknownTermModel {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("suppliers"),
+        }
+    );
+}
+
+#[test]
+fn a_term_model_the_metric_cannot_reach_in_one_hop_is_refused() {
+    // No relationship between the two models: the plan vocabulary joins a term's model exactly as
+    // a dimension's `via` is joined, and a two-hop path is a join that vocabulary does not have.
+    // `customers` is declared and its `id` column is real, but `assemble_without_relationship`
+    // omits the `orders_customer` join, so the hop is the refusal.
+    let (models, _relationships) = two_models();
+    let broken = cross_fact_metric(Some("customers"), "id");
+    assert_eq!(
+        Definitions::assemble(models, vec![], vec![broken]).unwrap_err(),
+        InconsistentDefinitions::TermModelNotOneHop {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("customers"),
+        }
+    );
+}
+
+#[test]
+fn a_term_model_reachable_two_ways_is_refused_as_ambiguous() {
+    // Two non-duplicating relationships from `orders` to `customers`. Either plans a different
+    // number, so the metric is ambiguous rather than wrong - the fix is to declare one, not to
+    // guess.
+    let (models, mut relationships) = two_models();
+    relationships.push(Relationship::new(
+        relationship_name("orders_customer_by_name"),
+        model_name("orders"),
+        column("customer_id"),
+        model_name("customers"),
+        column("id"),
+        JoinType::OneToOne,
+    ));
+    let broken = cross_fact_metric(Some("customers"), "id");
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![broken]).unwrap_err(),
+        InconsistentDefinitions::TermModelAmbiguousJoin {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("customers"),
+        }
+    );
+}
+
+#[test]
+fn a_term_model_reached_by_one_many_to_one_join_assembles() {
+    // The passing half: the same metric with the ordinary `two_models` join assembles, because the
+    // check found exactly one many-to-one hop and the denominator's column is real on `customers`.
+    let good = cross_fact_metric(Some("customers"), "id");
+    assemble_one(good).expect("a one-hop many-to-one term model is certifiable");
 }
 
 #[test]

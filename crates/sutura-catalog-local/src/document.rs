@@ -661,10 +661,10 @@ colums: [amount_cents]
             metric.measure(),
             Some(&Measure::Simple(Term::CountIf {
                 column: column("churned_in_month"),
+                model: None,
             }))
         );
     }
-
     #[test]
     fn a_ratio_measure_keeps_its_two_terms_apart() {
         // The number this prevents: a ratio collapsed into `avg`. `sum(mrr) / count(distinct
@@ -711,6 +711,7 @@ colums: [amount_cents]
             Some(&Measure::Ratio {
                 numerator: Term::CountIf {
                     column: column("churned_in_month"),
+                    model: None,
                 },
                 denominator: aggregated(Aggregate::CountDistinct, "subscription_key"),
                 zero_denominator: ZeroDenominator::Null,

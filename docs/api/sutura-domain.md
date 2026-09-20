@@ -2383,6 +2383,15 @@ Does this leg carry rows at the fact grain rather than one row per group?
 The price of the pull-up, and the quantity worth logging: it is the difference between a leg
 returning one row per group and one row per distinct key.
 
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this leg's column is read from, `None` for the metric's own model.
+
+`None` is resolved by whoever has the metric in hand; a carried leaf alone has no metric
+beside it, the same reason `Term::model` does not default either.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -3849,6 +3858,11 @@ generated count count the thing the model says it counts.
 Carries no `serde` derive. A term's on-disk shape belongs to `TermRepr` and to nothing else, so
 there is exactly one place where the format of `{ aggregate: sum, column: x }` is decided.
 
+The third field is the model the column is read from, `None` meaning the metric's own model. It
+is the vocabulary of `telekom/sutura#780`: a ratio whose two sides live on two fact models reads
+each side off its own table. Like `Term::CountIf`'s own column, it is carried here and not on
+`Term`'s on-disk shape alone, so one type holds it everywhere a term's column is named.
+
 #### Methods
 
 ```rust
@@ -3860,8 +3874,20 @@ pub const fn column(&self) -> &ColumnName
 ```
 
 ```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+```rust
 pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
 ```
+
+```rust
+pub const fn on_model(aggregate: Aggregate, column: ColumnName, model: ModelName) -> Self
+```
+
+A term that names the model its column is read from, beside the column.
 
 #### Implements
 
@@ -3927,6 +3953,16 @@ pub const fn kind(&self) -> &'static str
 
 The name of this term, for a refusal or a description.
 
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+`None` is resolved against the metric's own model by whoever has the metric in hand - the
+consistency check at load, the splitter at plan time - and never defaulted here, because a
+term alone has no metric beside it to resolve against.
+
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
@@ -3946,9 +3982,10 @@ line against a grammar.
 #### Variants
 
 - `Empty` - Nothing was written. The mapping parsed and named no term at all.
-- `TwoTerms` - Both terms at once. Refused rather than resolved by precedence: a document that writes both means one of them, and picking one would certify a number the author did not ask for.
+- `TwoTerms` - Both terms at once. Refused rather than resolved by precedence: a document that writes both means one of them, and picking one would certify a number the author did not ask for. The `model` word beside them is the same mistake one field further - it qualifies a column neither term word names.
 - `NoColumn`
 - `NoAggregate`
+- `ModelWithoutTerm` - A model named beside no term at all. The field exists to move a term's column to another model, so without one of the two term words beside it there is no column for it to qualify - the same shape as `Self::NoColumn`, reached through the fourth field.
 
 #### Implements
 
@@ -4035,6 +4072,18 @@ Every column this measure reads.
 
 One place, so `crate::catalog::Definitions` can check them all against the model without
 knowing the shapes, and so a shape added here cannot be forgotten there.
+
+```rust
+pub fn models(&self) -> Vec<Option<&ModelName>>
+```
+
+The model each term's column is read from, in term order, `None` for the metric's own model.
+
+Beside `Self::columns` for the same reason that accessor exists: the consistency check
+walks the pairs, so a column checked against one model while its term reads another is a
+metric that refuses questions it is certified for - or, worse, certifies a column the model
+it does not name does not declare. Positionally paired with `Self::columns`, so a shape
+added here cannot make the two lists disagree about what a term is.
 
 ```rust
 pub const fn shape(&self) -> &'static str
@@ -6365,14 +6414,16 @@ string first.
 ### `fn plan_measure`
 
 ```rust
-pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::model::ColumnName) -> PlanColumn) -> PlanMeasure
+pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::model::ColumnName, Option<&crate::model::ModelName>) -> PlanColumn) -> PlanMeasure
 ```
 
 Restated over plan columns, so an adapter does not need the catalog to know which table a
 measure's column comes from.
 
 Resolves one term at a time rather than one shape at a time, which is why a term added to the
-vocabulary is one arm here instead of one arm per shape.
+vocabulary is one arm here instead of one arm per shape. The resolver receives the term's
+`model` beside its column, so a `#780` term that names another fact model resolves its column
+to that model's table rather than the metric's own.
 
 ### `fn plan_required_filter`
 
