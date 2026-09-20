@@ -71,13 +71,14 @@ pub struct ServiceState {
     /// that record is why the scrape handler's own state carries no [`crate::surface::Surface`] to
     /// poll.
     ///
-    /// **Not pushed from a served agent surface.** `sutura-mcp` answers through the same
-    /// `Surface::answer` and charges the same ledger, but it carries no dependency on this crate -
-    /// and must not, since a transport does not link another transport - so nothing on that path
-    /// can reach this field. `docs/adr/0015`'s amendment records the consequence: on a deployment
-    /// serving both surfaces with a ceiling configured, this gauge holds its boot-time reading (the
-    /// full ceiling) while the agent surface alone drains the ledger, until the next HTTP query
-    /// pushes a fresh one. Not fixed here.
+    /// **Pushed from the served agent surface via the mount the composition root attaches.**
+    /// `sutura-mcp` answers through the same `Surface::answer` and charges the same ledger, but it
+    /// carries no dependency on this crate - and must not, since a transport does not link another
+    /// transport - so nothing on that path can reach this field directly. `docs/adr/0015`'s
+    /// amendment records that constraint as the reason the push had to be done this way: the
+    /// composition root (`sutura-cli/src/serve::agent_mount`) hands a handle to this gauge across
+    /// that boundary into the `Serving` wrapper it builds around the agent transport, so both
+    /// surfaces drive one `sutura_spend_headroom_bytes` series rather than two that disagree.
     spend_headroom: Option<Gauge>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
@@ -309,6 +310,19 @@ impl ServiceState {
     #[must_use]
     pub const fn admission(&self) -> &Admission {
         &self.admission
+    }
+
+    /// The shared handle to this replica's spend-headroom gauge, so a second transport can push
+    /// the same `sutura_spend_headroom_bytes` series a query route pushes.
+    ///
+    /// `sutura-http`'s own `/v1/query` route calls [`Self::record_spend_headroom`] instead; this is
+    /// for the composition root, which holds the served surface and needs to hand the MCP
+    /// transport a handle to the SAME gauge the HTTP route writes. `None` exactly when the
+    /// deployment has no spend ceiling (see the `spend_headroom` field doc for the absent-rather-
+    /// than-zero discipline). Cloned because [`Gauge`] shares its storage by `Arc`, so the caller
+    /// and this state observe one series.
+    pub fn spend_headroom_gauge(&self) -> Option<Gauge> {
+        self.spend_headroom.clone()
     }
 
     /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a
