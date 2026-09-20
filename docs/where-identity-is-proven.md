@@ -188,7 +188,7 @@ everything *around* it, and shrinks to the one job only it can do.
 | An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - | - |
 | Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - | - |
 | **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - | - |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | no - the tier mints an audience for its OWN client, never a browser-delegated third party's | no | **only here** | no | - |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | no | **only here** | no | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | **yes** | - | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | **yes** - the hosted run of 2026-09-16 exchanged and STS plus `iamcredentials` accepted it (run https://github.com/telekom/sutura/actions/runs/35076526218); re-confirmed 2026-09-18 (run https://github.com/telekom/sutura/actions/runs/35324133081). Both ran against a project whose `sts.googleapis.com`/`iamcredentials.googleapis.com` were enabled OUT OF BAND, so neither run exercised this repository's own enablement. `test-infra/pulumi/google/__main__.py` now enables the two APIs in the bootstrap itself, so a fresh `up` reproduces that grant instead of assuming it - a mechanism, not a run | - |
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no - one key is one identity | no | **yes** - in the hosted run each principal's exchange resolved to its own account (run https://github.com/telekom/sutura/actions/runs/35076526218) | - |
@@ -400,8 +400,8 @@ about the vocabulary rather than to this row.
 
 `nix/keycloak-tier.nix` stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at `start` and written nowhere else - and
-`just keycloak-served-test` starts it, runs the one cell that needs it, and stops it whatever the
-cell does. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job) verifies the
+`just keycloak-served-test` starts it, runs the two cells that need it, and stops it whatever the
+cells do. `just e2e-datahub-bigquery --datahub tier` (the wave-one hosted job) verifies the
 SAME realm over HTTP on its own composed deployment - a second, wider `Reached by` for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.
 
@@ -430,6 +430,14 @@ masked-comparison cell; the narrowed wording below was held by PR #755's own hos
 unmasked cell, `keycloak-served-test` `success` (run
 https://github.com/telekom/sutura/actions/runs/34928050323/job/104251967900).
 
+**The second cell answers a different row.** `a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys`
+asks the same tier for a token with `scope=openid` and asserts the ID token's `aud` carries the value
+`nix/keycloak-tier.nix`'s `id-token-audience` mapper declares - read off the realm file the tier wrote,
+not a literal the cell restated. That is row 191's `yes` half: a real IdP does mint an ID token with
+a third party's audience. The limit beside that `yes`, stated in the row and in item 1 of "What it
+cannot answer" below: it is a password grant against a hardcoded audience mapper, not a
+browser-delegated flow, and the audience is an RFC-2606 placeholder.
+
 **What "a different subject" means, exactly.** The audit record masks every `sub` to its first
 character plus `***`, and Keycloak subjects are UUIDs, so two different `sub`s' masked forms
 collide whenever their UUIDs share a first hex character (1 in 16). The old masked-comparison cell
@@ -447,13 +455,18 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 
 ### What it cannot answer - read this before citing a green run, and this is the row that matters
 
-1. **Issue #105's own question.** #105 asks whether an enterprise IdP will mint an ID token whose
-   `aud` is accepted by a THIRD PARTY (Google STS, via a delegation flow at a human's own sign-in) -
-   this tier provisions one client and a password grant, nothing that resembles a browser-based
-   delegation flow or a second registered resource-server client. The audience this cell's
-   deployment declares is whatever Keycloak's own client scopes minted for `sutura-dev-cli`,
-   **read off the token rather than asserted** - that is a real provider's own audience for its own
-   client, not a third party's, and #105's row above stays `no` here.
+1. **Issue #105's own question, and the half this venue now answers.** #105 asks whether an
+   enterprise IdP will mint an ID token whose `aud` is a THIRD PARTY's. The
+   `a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys` cell (also `#[ignore]`d, run via
+   `just keycloak-served-test`) asks the tier for a token with `scope=openid` and asserts the ID
+   token's `aud` carries the value `nix/keycloak-tier.nix`'s `id-token-audience` mapper declares -
+   **read off the realm file the tier wrote**, not a literal. That row above is now **yes** for
+   that half: a real IdP does mint an ID token with a third party's audience. What it does NOT
+   prove, and the row says so beside the `yes`: this is a **password grant** against a **hardcoded
+   audience mapper**, not a browser-delegated flow where a human consents at a third-party client,
+   and the audience is an **RFC-2606 placeholder** (`https://workforce-pool.example.com`), not a
+   real host. A real enterprise provider (Azure AD) remains the only venue for the
+   browser-delegated half, and is not built.
 2. **Two subjects reading two row sets.** Same exclusion as the Postgres venue above: this
    deployment reads its fixture files under one shared identity whoever asks.
 3. **Anything about leg 2.** No data system's own grant is involved; the claim is entirely about

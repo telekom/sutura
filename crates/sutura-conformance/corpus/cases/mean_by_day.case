@@ -1,0 +1,9 @@
+name: mean-by-day
+metric: amount_mean
+aggregate: avg
+column: amount_cents
+keys:
+order: asserted
+rows:
+text:2026-01-01	real:200.0
+text:2026-01-02	real:483.3333333333333

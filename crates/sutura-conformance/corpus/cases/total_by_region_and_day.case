@@ -1,0 +1,12 @@
+name: total-by-region-and-day
+metric: amount_total
+aggregate: sum
+column: amount_cents
+keys: region
+order: asserted
+rows:
+text:east	text:2026-01-01	int:350
+text:east	text:2026-01-02	int:150
+text:north	text:2026-01-01	int:400
+text:north	text:2026-01-02	int:1300
+null	text:2026-01-01	int:50

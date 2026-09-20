@@ -67,7 +67,7 @@ where
         let projected = case.plan().result_labels();
         if answered.columns() != projected {
             return Err(Fault::Labels {
-                case: case.name(),
+                case: case.name().to_owned(),
                 projected,
                 answered: answered.columns().to_vec(),
             });
@@ -87,7 +87,7 @@ where
     for case in corpus::cases() {
         let answered = answer(warehouse, &case)?;
         agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
-            case: case.name(),
+            case: case.name().to_owned(),
             disagreement: Box::new(disagreement),
         })?;
     }
@@ -113,7 +113,7 @@ where
             continue;
         }
         agree_on_order(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Order {
-            case: case.name(),
+            case: case.name().to_owned(),
             disagreement: Box::new(disagreement),
         })?;
     }
@@ -135,11 +135,11 @@ where
         let first = answer(warehouse, &case)?;
         let again = answer(warehouse, &case)?;
         agree_on_content(&first, &again, TOLERANCE).map_err(|disagreement| Fault::Content {
-            case: case.name(),
+            case: case.name().to_owned(),
             disagreement: Box::new(disagreement),
         })?;
         agree_on_order(&first, &again, TOLERANCE).map_err(|disagreement| Fault::Order {
-            case: case.name(),
+            case: case.name().to_owned(),
             disagreement: Box::new(disagreement),
         })?;
     }
@@ -176,7 +176,7 @@ where
         let checked = warehouse
             .dry_run(executable, &corpus::presented(), corpus::deadline())
             .map_err(|cause| Fault::PreFlightRefused {
-                case: case.name(),
+                case: case.name().to_owned(),
                 cause,
             })?;
         match checked {
@@ -184,7 +184,7 @@ where
             PreFlight::Accepted { estimated_bytes } => {
                 if estimated_bytes.is_some() != W::PRICES_DRY_RUN {
                     return Err(Fault::EstimateDisagreesWithCapability {
-                        case: case.name(),
+                        case: case.name().to_owned(),
                         prices_dry_run: W::PRICES_DRY_RUN,
                         estimated_bytes,
                     });
@@ -193,7 +193,7 @@ where
                 warehouse
                     .execute(executable, &corpus::presented(), corpus::deadline())
                     .map_err(|cause| Fault::AcceptedThenDidNotAnswer {
-                        case: case.name(),
+                        case: case.name().to_owned(),
                         cause,
                     })?;
             }
@@ -221,11 +221,11 @@ where
     let answered = warehouse
         .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
         .map_err(|cause| Fault::NotAnswered {
-            case: case.name(),
+            case: case.name().to_owned(),
             cause,
         })?;
     agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
-        case: case.name(),
+        case: case.name().to_owned(),
         disagreement: Box::new(disagreement),
     })?;
     Ok(Outcome::Held)
@@ -275,7 +275,7 @@ where
     let leg = corpus::leg_case();
     if let Ok(answered) = warehouse.execute(Executable::Leg(leg.leg()), &corpus::presented(), corpus::deadline()) {
         return Err(Fault::ALegWasAnswered {
-            case: leg.name(),
+            case: leg.name().to_owned(),
             rows: answered.rows().len(),
         });
     }
@@ -290,7 +290,7 @@ where
     warehouse
         .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
         .map_err(|cause| Fault::NotAnswered {
-            case: case.name(),
+            case: case.name().to_owned(),
             cause,
         })
 }
