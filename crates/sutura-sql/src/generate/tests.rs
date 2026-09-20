@@ -56,12 +56,29 @@ fn bigquery_gets_the_date_first_and_the_grain_as_a_bare_keyword() {
 #[test]
 fn the_other_three_keep_the_grain_first_as_a_string_literal() {
     // The shape 63 existing goldens already carry. Pinned here too, because the fourth dialect's
-    // arm is one edit away from changing all four.
+    // arm is one edit away from changing all three. Oracle is not in this loop: its own
+    // `DateFirstAsQuotedFormat` arm is a fourth shape and neither of the two the fixture below
+    // still asserts, and it has its own cell in `oracle_gets_the_date_first_and_a_quoted_format`.
     for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse] {
         let sql = rendered_bucket(dialect);
         assert!(sql.contains("'month'"), "{dialect}: {sql}");
         assert!(!sql.contains("MONTH"), "{dialect}: {sql}");
     }
+}
+
+#[test]
+fn oracle_gets_the_date_first_and_a_quoted_format() {
+    // The third shape, asserted on the rendering the same way `bigquery_gets_the_date_first_and_
+    // the_grain_as_a_bare_keyword` is: the enum is `dialect.rs`'s claim, this is the claim that the
+    // match arm in `bucket_expression` actually builds what the enum promises.
+    let sql = rendered_bucket(Dialect::Oracle);
+    assert!(sql.contains(r#"TRUNC("orders"."order_date", 'MM')"#), "{sql}");
+    // Not `DATE_TRUNC` - the whole reason this shape exists rather than reusing one of the other
+    // two, see `DateTruncShape::DateFirstAsQuotedFormat`.
+    assert!(!sql.contains("DATE_TRUNC"), "{sql}");
+    // And the format model is a STRING, not a bare keyword like BigQuery's - the half that would
+    // otherwise be a syntax error at Oracle rather than merely a wrong bucket.
+    assert!(!sql.contains(", MM)"), "{sql}");
 }
 
 #[test]
@@ -128,8 +145,10 @@ fn every_order_by_states_nulls_last() {
     // session default. Measured directly against the version before that bump and the one after:
     // `DuckDB` used to omit it like Postgres and `ClickHouse`, and now does not - same SQL
     // semantics (`DuckDB`'s actual default is still `NULLS LAST`), more explicit text. Saying
-    // "all four render it" would still be false about the two that keep omitting, and this test
-    // is what keeps the honest claim.
+    // "all five render it" would still be false about the three that keep omitting, and this test
+    // is what keeps the honest claim. Oracle joins the omitting group for an ASCENDING sort - its
+    // default is `NULLS LAST` for ASC, same as Postgres - and the layer's own comment names it
+    // alongside Postgres and Redshift as the dialects where nulls sort large.
     let column = super::column(&PlanColumn::new(
         TableName::parse("orders").expect("a test table is a table"),
         ColumnName::parse("customer_key").expect("a test column is a column"),
@@ -146,10 +165,11 @@ fn every_order_by_states_nulls_last() {
             // BigQuery's default puts nulls first; DuckDB's null ordering is no longer treated
             // as fixed by the layer. Both need the keyword to agree with the AST.
             Dialect::BigQuery | Dialect::DuckDb => assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}"),
-            // `NULLS LAST` is still these two's own fixed default, so the layer collapses it
-            // away. The placement is still stated in the AST (`ordered_nulls_last`) and this arm
-            // confirms the collapse is the layer's doing rather than our omission.
-            Dialect::Postgres | Dialect::ClickHouse => {
+            // `NULLS LAST` is still these dialects' own fixed default for an ascending sort, so
+            // the layer collapses it away. The placement is still stated in the AST
+            // (`ordered_nulls_last`) and this arm confirms the collapse is the layer's doing
+            // rather than our omission.
+            Dialect::Postgres | Dialect::ClickHouse | Dialect::Oracle => {
                 assert!(
                     !sql.contains("NULLS"),
                     "{dialect} unexpectedly spelled a null placement: {sql}"

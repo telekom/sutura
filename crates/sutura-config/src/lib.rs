@@ -141,7 +141,7 @@ pub use crate::runtime::{
 };
 pub use crate::security::{
     AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, OutboundAnchors,
-    SecuritySettings, TlsTermination, UnknownDeploymentIdentity, UnknownTlsTermination,
+    OutboundIdentity, SecuritySettings, TlsTermination, UnknownDeploymentIdentity, UnknownTlsTermination,
 };
 pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,

@@ -13,7 +13,7 @@
 //! engine, and it builds a logical plan and renders no SQL - so there is no statement for a golden
 //! to pin and there cannot be one. That path's evidence is `sutura-exec-datafusion`'s conformance
 //! binding, which holds a leg to the number the whole-plan case lands on, and the two-engine pass in
-//! `tests/differential/federated.rs`. These four dialects are evidence about the renderer.
+//! `tests/differential/federated.rs`. These five dialects are evidence about the renderer.
 //!
 //! **And the limit these fixtures carry about themselves:** nothing holds them against what
 //! `sutura_semantic::plan` actually emits. That is why every reserved label below is taken from
@@ -92,7 +92,7 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// disagree without any test noticing; they did, and the label the splitter chose was a legal
 /// dimension name, which is `telekom/sutura#325`'s F2. The rendered statements are therefore also
 /// the parse check for a reserved label: `parses_in_the_dialect_it_was_generated_for` asks each of
-/// the four targets' PARSERS whether an alias in this namespace is valid there.
+/// the five targets' PARSERS whether an alias in this namespace is valid there.
 ///
 /// **A parser is not the venue that decides, and the internal namespace is the one place in this
 /// repository where that gap is load-bearing.** Every internal label starts with the character

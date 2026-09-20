@@ -21,17 +21,19 @@
 //!
 //! # Order is half of it, and that half is a wrong number rather than an error
 //!
-//! Three of the four dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
-//! so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
-//! NUMBERED `$n` that names its value. The renderer emits predicates in filter order and a
-//! positional adapter binds the list in list order, so those two agree only while the indices run
-//! `0, 1, .. n-1` down the filters. Read off the shipped adapters rather than reasoned about:
-//! `sutura_exec_duckdb::bind` maps [`QueryPlan::params`](crate::plan::QueryPlan::params) in list
-//! order against `?`, `sutura_exec_bigquery` sends the same list as an ordered array under a
-//! positional parameter mode, and `sutura_sql`'s `?` placeholder ignores the position it is given.
-//! `ClickHouse` is the third `?` dialect and has no executor here yet. `sutura_exec_postgres::bind`
-//! maps the same list in the same order, but its `$n` is derived from the predicate's index, so it
-//! is the one shipped adapter the ordering cannot mislead.
+//! Three of the five dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
+//! so the Nth placeholder in the statement takes the Nth value in the list. Two write a NUMBERED
+//! placeholder that names its value, and they are not one case: Postgres writes `$n`, Oracle
+//! writes `:n`, and `$1` sent to Oracle is not a placeholder at all. The renderer emits predicates
+//! in filter order and a positional adapter binds the list in list order, so those two agree only
+//! while the indices run `0, 1, .. n-1` down the filters. Read off the shipped adapters rather
+//! than reasoned about: `sutura_exec_duckdb::bind` maps
+//! [`QueryPlan::params`](crate::plan::QueryPlan::params) in list order against `?`,
+//! `sutura_exec_bigquery` sends the same list as an ordered array under a positional parameter
+//! mode, and `sutura_sql`'s `?` placeholder ignores the position it is given. `ClickHouse` is the
+//! third `?` dialect and has no executor here yet, and neither has Oracle.
+//! `sutura_exec_postgres::bind` maps the same list in the same order, but its `$n` is derived from
+//! the predicate's index, so it is the one shipped adapter the ordering cannot mislead.
 //!
 //! So a plan whose filters name the same parameters in a different order renders correctly on the
 //! numbered dialect and binds the wrong values on a positional one - `order_date >= <end> AND

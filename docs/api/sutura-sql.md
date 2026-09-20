@@ -24,7 +24,7 @@ splitter - `sutura_semantic::federated_plan` produces a `LegPlan` and `sutura_ap
 It is that the one leg-executing adapter a release links is the engine, which builds a logical
 plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
 and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
-that state, and it is why this crate's leg goldens are evidence about four dialects and about
+that state, and it is why this crate's leg goldens are evidence about five dialects and about
 nothing a shipped binary executes.
 
 # Why this is its own crate and not the compiler's last stage
@@ -306,9 +306,9 @@ The dialect layer we build on knows more about dialects than we do: it renders `
 should be maintaining by hand. Two things it does not decide for us, both measured rather than
 assumed:
 
-**Placeholder syntax.** A placeholder renders as `?` for every dialect, including the one that
-needs `$1`. The crate carries a per-dialect `parameter_token` field and never reads it. So the
-style is chosen here, per dialect, and a target that needs numbering gets numbering.
+**Placeholder syntax.** A placeholder renders as `?` for every dialect, including the ones that
+need `$1` or `:1`. The crate carries a per-dialect `parameter_token` field and never reads it. So
+the style is chosen here, per dialect, and a target that needs numbering gets numbering.
 
 **Identifier quoting.** The generator quotes an identifier only when it was quoted in the source,
 is a reserved word, or the config says always. Our identifiers were never in any source, so
@@ -354,6 +354,7 @@ a feature flag, a match arm and a snapshot.
 - `Postgres`
 - `ClickHouse`
 - `BigQuery`
+- `Oracle`
 
 #### Methods
 
@@ -418,6 +419,16 @@ venue exists and nothing yet asks it about identifier folding. And *nothing in t
 executes either, which `AGENTS.md` already says* was false twice over: `Postgres` executes,
 and `AGENTS.md` has said nothing about `ClickHouse` since `#228`.
 
+**Oracle is `InsensitiveAscii`, and this is the declaration the type exists for as much as
+`BigQuery`'s is.** Oracle folds an UNQUOTED identifier to uppercase before resolving it, so
+`orders`, `Orders` and `ORDERS` name the same object there - two spellings differing only in
+ASCII case name one thing, which is exactly `InsensitiveAscii`'s definition. This renderer
+force-quotes every identifier it emits, so nothing here ever exercises the folding itself; the
+declaration is about what the CATALOG's own case comparison may assume once Oracle is a
+target, not about a statement this crate renders. From Oracle's documented behaviour, and not
+measured against a live instance for the same reason `ClickHouse`'s declaration is not - see
+this PR's own limits.
+
 ```rust
 pub const fn identifier_quote(self) -> IdentifierQuote
 ```
@@ -445,9 +456,9 @@ rather than against the rendering.** Its job API takes either positional paramet
 or named ones written `@name` with `parameterMode: NAMED`. A `crate::GeneratedQuery` carries
 an ordered `Vec` of values and no names at all - the plan has none to give, because a
 parameter's identity there IS its position - so positional is the shape that already matches
-end to end. Choosing named would mean inventing a name per parameter in the generator, a third
-`PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new things, none
-of which the domain has anything to put in them.
+end to end. Choosing named would mean inventing a name per parameter in the generator, a
+fourth `PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new
+things, none of which the domain has anything to put in them.
 
 ```rust
 pub const fn qualification(self) -> Qualification
@@ -492,6 +503,12 @@ either, so a refusal naming the path is the useful outcome and a rendered `a.b.c
 `Catalog with name a does not exist` is not. Widening this arm is a change to what those
 adapters ATTACH, not to what this renders.
 
+**Oracle is `Dataset` for its `schema.table`, alongside Postgres and `ClickHouse` and for the
+same reason Postgres stops there.** A three-part `db_link.schema.table` exists in Oracle only
+as a database-link syntax the dialect layer does not render as a plain qualified path, so
+rendering three parts here would not be a cross-database read - it would be a name the target
+resolves against whatever schema the session already has, silently.
+
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
@@ -511,6 +528,11 @@ How a bind parameter is written.
 
   The numbering is why this is not cosmetic: a statement with three `?` sent to Postgres is a
   syntax error, and one with `$1` repeated is a different query.
+- `Colon` - `:1`, `:2`, numbered from one like `Self::Numbered`, but colon-prefixed. Oracle.
+
+  Oracle's own positional bind form, distinct from `$n` and not interchangeable with it: `$1`
+  sent to Oracle is not a placeholder at all, and there is nothing in Oracle's grammar that
+  would coerce it into one.
 
 #### Implements
 
@@ -530,11 +552,11 @@ tested against.
 
 #### Variants
 
-- `Double` - `"name"`. `DuckDB`, Postgres and `ClickHouse`.
+- `Double` - `"name"`. `DuckDB`, Postgres, `ClickHouse` and Oracle.
 - `Backtick` - `` `name` ``. `BigQuery`.
 
   **The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
-  dialect.** For the other three a double quote is an identifier quote and a backtick is a
+  dialect.** For the other four a double quote is an identifier quote and a backtick is a
   syntax error, so a mistake is loud. In `GoogleSQL` a double quote delimits a STRING, so
   `SELECT "amount"` is not a column reference at all - it selects the constant text `amount`,
   and the target's own lexical reference leans on this when it writes
@@ -600,6 +622,21 @@ and one of them - `WEEK(<WEEKDAY>)` - is not expressible as a string at all.
 
   `BigQuery`. Both halves differ from the shape above, and neither half is optional: the
   argument order and the grain's form are separately load-bearing.
+- `DateFirstAsQuotedFormat` - `TRUNC(<date>, 'IW')` - the date first, the grain a single-quoted format model, and the FUNCTION ITSELF is not `DATE_TRUNC` at all.
+
+  Oracle. Naming a third shape rather than reusing one of the two above is not decoration:
+  upstream's own Oracle lowering for `DATE_TRUNC` (behind the `transpile` feature this crate
+  does not compile - see the workspace manifest) renames the function to `TRUNC` and leaves the
+  arguments as they arrived, which fixes neither the order nor the form. `bucket_expression`
+  therefore builds the whole call for this arm rather than reshaping a `DATE_TRUNC` node.
+
+  **`IW` and not `WW` or `IYYY`, and the reason is the same Monday convention every other
+  dialect here already agrees on** (the `week` unit's own header in `mod@crate::generate`
+  carries the measurement): Oracle's own SQL reference describes `IW` as the ISO week -
+  Monday-based - while `WW` counts from the calendar year's first day regardless of what
+  weekday that is. Verified against the documented format models rather than measured, for
+  the same limit `DateFirstAsKeyword` states: there is no Oracle instance in this workspace to
+  ask, and PR 2 is where one arrives.
 
 #### Implements
 
@@ -622,15 +659,15 @@ Why a dialect name was not recognised.
 Every dialect, for iterating a golden suite over all of them.
 
 A `const` rather than a derive, and **the compiler is what holds a new variant rather than the
-test below.** A fifth variant does not compile until seven production exhaustive matches over
+test below.** A sixth variant does not compile until seven production exhaustive matches over
 `Dialect` answer for it: `as_str`, `placeholder_style`, `identifier_quote`, `date_trunc_shape`,
 `qualification` and `identifier_case` in this file, and `dialect_type` in
 `mod@crate::generate`. So a data system cannot arrive without somebody deciding how it renders.
 
 **What is held by review and by nothing else is the edge from the enum to this list**, and this
-paragraph used to promise the opposite. `every_dialect_is_in_all` restates the four names by
-hand, so a fifth variant added to the enum and OMITTED here leaves it green while the golden
-suite iterates four of five and reads as covered; a variant added to both turns it red on the
+paragraph used to promise the opposite. `every_dialect_is_in_all` restates the five names by
+hand, so a sixth variant added to the enum and OMITTED here leaves it green while the golden
+suite iterates five of six and reads as covered; a variant added to both turns it red on the
 length assertion until the literal is bumped. `crates/sutura-app/tests/golden/dialects.rs` does
 not close the edge either - it compares this list against that suite's own registry, never the
 enum against this list, and says so itself. Closing it needs a derivation whose exhaustive
@@ -1043,13 +1080,17 @@ called `order` would be emitted bare. `always_quote_identifiers` covers identifi
 which no target accepts.
 
 **The time bucket is cast to a date.** `DATE_TRUNC` over a date returns a TIMESTAMP in two of the
-four targets, so without the cast the type of the `period` column is whatever each dialect chose
-and every adapter would need to know which.
+five targets, so without the cast the type of the `period` column is whatever each dialect chose
+and every adapter would need to know which. Oracle's `TRUNC` already returns a `DATE`, so the
+cast is redundant rather than corrective there - applied anyway, because one shared cast is what
+keeps the type uniform without a per-dialect branch to keep in step.
 
 **The time bucket's SPELLING is per dialect, and it is the one difference here the layer does not
 absorb.** Three targets take `DATE_TRUNC('month', <date>)`; `BigQuery` takes
 `DATE_TRUNC(<date>, MONTH)` - the arguments the other way round and the grain a bare keyword
-rather than a string. `crate::dialect::DateTruncShape` holds the declaration and the reason it
+rather than a string; Oracle takes `TRUNC(<date>, 'MM')` - a different FUNCTION, the date first
+like `BigQuery`, but the grain a quoted format model rather than a keyword.
+`crate::dialect::DateTruncShape` holds the declaration and the reason it
 has to be one: **within one target, the parse check cannot tell the two apart.** Both shapes
 rendered for `BigQuery` parse as `BigQuery`, so the corpus would be green on the wrong one.
 `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is that measurement.

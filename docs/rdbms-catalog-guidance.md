@@ -15,7 +15,7 @@ The crate implements the conversion half of issue #151 and
 reads a database's own dictionary - `information_schema` plus whatever table comments a human
 wrote - and declares **structure and prose** and nothing else. It is the narrowest declaration this
 repository makes, and it exists because a database with DDL and comments and no semantic layer is
-where every adoption starts. [A raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md) is the ramp
+where every adoption starts. `docs/adr/0013-a-raw-sql-tool-off-by-default.md` is the ramp
 that deployment's story continues; this page is the catalog half of it.
 
 This page describes the converter's contract and the intended boundary of a future production
@@ -60,7 +60,7 @@ from this quiet starting point:
 
 - Someone authors a **semantic layer** - a metric over a model the dictionary already reads. Combining
   that declaration with this adapter is outside the current implementation.
-- That is the normal channel [a raw SQL tool](adr/0013-a-raw-sql-tool-off-by-default.md) is designed
+- That is the normal channel `docs/adr/0013-a-raw-sql-tool-off-by-default.md` is designed
   to feed: the ungoverned answer that worked is a written demand signal, and defining the metric
   makes the next identical question certified.
 - The catalog parse validates the new declaration the same way it validates every other - a

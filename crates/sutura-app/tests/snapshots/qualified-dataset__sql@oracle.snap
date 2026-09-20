@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/qualified.rs
+expression: query.sql()
+---
+SELECT CAST(TRUNC("orders"."order_date", 'MM') AS DATE) AS "period", SUM("orders"."amount_cents") AS "revenue" FROM "sales"."orders" WHERE "orders"."order_date" >= :1 AND "orders"."order_date" < :2 GROUP BY CAST(TRUNC("orders"."order_date", 'MM') AS DATE) ORDER BY CAST(TRUNC("orders"."order_date", 'MM') AS DATE) LIMIT 10001

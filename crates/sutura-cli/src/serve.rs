@@ -79,6 +79,9 @@ mod kind;
 #[cfg(feature = "agent")]
 mod agent;
 
+/// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`.
+mod outbound;
+
 /// The alias the example deployment and this crate's tests use for their one source.
 ///
 /// **No longer a check, and that is the change worth reading.** It used to be the only source name
@@ -160,13 +163,13 @@ pub(crate) fn run() -> Result<(), String> {
     // key set is read in, for the same reason: an unreadable declaration stops the process rather
     // than becoming a deployment that answers every question while its startup log says it verifies
     // a trust set nobody can name.
-    let outbound = outbound_anchors(&settings)?;
+    let outbound = outbound::resolve(&settings)?;
 
     // 6. The adapters, then the service. Both ports are named exactly here.
     // The ONE boot-time `outbound` value flows to BOTH the catalog adapter and the source wire: a
     // deployment that declares `security.outbound.transport_anchors` verifies its `datahub` catalog
     // reader against the same CA set its `bigquery` wire is verified against - never a second read
-    // of the bundle (`outbound_anchors` resolved it once, above).
+    // of the bundle (`outbound::resolve` resolved it once, above).
     let catalogs = catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = catalog::load(&catalogs)?;
     // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
@@ -449,44 +452,6 @@ pub(crate) fn run() -> Result<(), String> {
     let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
     stop(runtime, &stopping);
     served
-}
-
-/// `security.outbound.transport_anchors`, resolved ONCE - `github.com/telekom/sutura#125`.
-///
-/// **`None` is not a gap.** A deployment with no `security.outbound` block is every deployment before
-/// this change: the `BigQuery` wire and the STS exchange verify against `ureq`'s own compiled-in
-/// roots, exactly as they always have - see `sutura_config::security::OutboundAnchors`'s own doc.
-/// `Some` is loaded here, through `sutura_tls::load_anchors`, before the listener opens - the same
-/// argument [`inbound_gate`] makes for leg 1's key set: an unreadable or empty declaration has to
-/// stop the process, not become a deployment that dials `bigquery.googleapis.com` under a trust set
-/// nobody can name.
-///
-/// Read and logged unconditionally, on every build - a `files`-only or `postgres`-only binary has no
-/// reader for the loaded value (see [`bigquery::open_bigquery`]'s refusal for the parallel case: a
-/// declared `kind: bigquery` with no linked adapter), which is a stated limit rather than a second
-/// refusal this settings crate cannot see the feature set to make.
-fn outbound_anchors(settings: &Settings) -> Result<Option<sutura_tls::Anchors>, String> {
-    let Some(declared) = settings.security().outbound() else {
-        return Ok(None);
-    };
-    let anchors = match declared {
-        sutura_config::OutboundAnchors::System => sutura_tls::Anchors::System,
-        sutura_config::OutboundAnchors::Bundle(path) => sutura_tls::Anchors::Bundle(path.clone()),
-    };
-    // Fail-fast: an unreadable or empty declaration stops the process. The DECLARATION (not the
-    // loaded value) is what flows onward - the rotating handles each consumer builds re-read it on
-    // [`sutura_tls::POLL_INTERVAL`], so what is handed to `open_catalog`/`open_engine`/
-    // `build_broker` is the thing they can re-load, which the pre-rotation loaded bytes were not.
-    sutura_tls::load_anchors(&anchors)
-        .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
-    tracing::info!(
-        anchors = match declared {
-            sutura_config::OutboundAnchors::System => "system",
-            sutura_config::OutboundAnchors::Bundle(_) => "bundle",
-        },
-        "security.outbound: declared trust anchors were read for the BigQuery wire, the STS exchange and the datahub reader"
-    );
-    Ok(Some(anchors))
 }
 
 /// Leg 1, for a deployment that declared one.
@@ -787,7 +752,7 @@ fn open_engine(
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
     request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Anchors>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<OpenedSources, String> {
     let declared = sutura_app::sources(pinned);
     if declared.is_empty() {

@@ -939,7 +939,7 @@ const fn value_bytes(value: &Value) -> u64 {
 /// **`ASC NULLS LAST`, which is the whole of the ordered-result contract and not this file's
 /// choice.** A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` -
 /// `sutura_sql::generate::ordered_nulls_last`, which `telekom/sutura#92` decided after a live run
-/// found the four dialects disagreeing about null placement, and which makes every target converge
+/// found the dialects disagreeing about null placement, and which makes every target converge
 /// on the engine's own order. This comparator ranked a null FIRST, so one certified metric came back
 /// in one order from one data system and in another order from two, with no golden able to see it -
 /// a golden pins statement text, and this path emits none. The placement is stated in both places

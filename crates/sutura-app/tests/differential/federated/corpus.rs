@@ -344,7 +344,7 @@ pub(crate) const A_DUPLICATED_KEY: (&str, &str) = ("dim_customer.csv", "2,C0002,
 /// `COUNT(*)` would count 42 over 40 and refuse a deployment for two rows that can join to nothing.
 /// A null key matches nothing on either side of any join, so it duplicates no fact row; that
 /// sentence is `sutura_domain::warehouse::cardinality`'s, and this is the corpus that measures it
-/// rather than leaving it to four dialects' semantics.
+/// rather than leaving it to five dialects' semantics.
 pub(crate) fn with_null_keys() -> &'static Derived {
     static ONCE: OnceLock<Derived> = OnceLock::new();
     ONCE.get_or_init(|| {

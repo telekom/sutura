@@ -184,7 +184,7 @@ pub enum InconsistentDefinitions {
     ///
     /// It is refused for **every** dialect rather than for the one that reported it, because a rule
     /// about which of two things a qualifier binds to is precisely the kind of difference nobody
-    /// should be maintaining per target - and the alternative outcomes across four dialects are a
+    /// should be maintaining per target - and the alternative outcomes across five dialects are a
     /// wrong number, a rejected statement and silence.
     ///
     /// **The comparison folds case, and it did not until a review reproduced the hole.** `GoogleSQL`'s

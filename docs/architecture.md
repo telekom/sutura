@@ -29,7 +29,7 @@ interface description, rate limiting and a bearer gate; `sutura-mcp` serves the 
 process's own standard input and output, and `just mcp-e2e` drives that one end to end. What is absent
 is a caller identity on the agent surface: a pipe has no header a token could arrive in, so it answers
 as the deployment and offers every capability, and a network-reachable agent surface needs the identity leg
-[how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md) designs.
+`docs/adr/0014-how-a-caller-proves-who-it-is.md` designs.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.
@@ -72,16 +72,16 @@ catalogue that has not certified a metric yet, and a source that holds a measure
 not execute. `sutura-catalog-local` declares every kind, a statement about the format rather than
 about the directory it read; a source that supplies part of the model declares the part, and its
 conformance test is that what it declared is exactly what it produced.
-[What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came from.
+`docs/adr/0016-what-datahub-can-carry.md` is the measurement this came from.
 
 **Lineage does not arrive through that port.** There is no
 lineage type anywhere in the workspace and none is planned: a plan reads at most two data systems, a
 measure reads columns a model declares, and where a column came from upstream changes neither. It is
-real metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
+real metadata that real catalogues carry - `docs/adr/0016-what-datahub-can-carry.md`
 reads three lineage aspects out of one of them - and this port has no shape to put it in.
 
 The catalogue may be outside this repository or in it, and
-[the first-party models decision](adr/0001-first-party-semantic-models.md) is why both are allowed.
+`docs/adr/0001-first-party-semantic-models.md` is why both are allowed.
 What the port guarantees is the same either way.
 
 Two properties of that trait carry the weight:
@@ -114,7 +114,7 @@ differs, because [the semantic compiler](#the-semantic-compiler) decides both.
 Taking a statement asserted that every data system speaks SQL. The engine does not: it executes a
 logical plan over Arrow and never sees a string. So the plan is the contract and rendering is the
 adapter's private business, which is what makes an adapter possible that cannot have a dialect bug,
-because it emits no dialect. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md)
+because it emits no dialect. `docs/adr/0003-datafusion-for-local-execution.md`
 is the record.
 
 ### Where the engine sits, and where it is going
@@ -211,10 +211,11 @@ differential test runs one plan both ways and compares the rows - but the binary
 an operator needs no `libduckdb` to run `sutura query`. That is also what keeps the musl artifacts
 building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 
-*Four dialects are four rendering targets, not four data systems.* `sutura compile` will render a
-statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens parse-check each one.
-Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
-`ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
+*Five dialects are five rendering targets, not five data systems.* `sutura compile` will render a
+statement for `DuckDB`, Postgres, `ClickHouse`, `BigQuery` or Oracle, and the goldens parse-check
+each one. Rendering `ClickHouse` or Oracle SQL is not a claim that either exists anywhere, and
+there is no `ClickHouse` or Oracle adapter: the port takes a plan, and rendering is one adapter's
+private business.
 
 **`kind: postgres` is openable behind its own default-off `postgres` feature, and the CHANNEL is the
 part that is new.** A Postgres source declares `plaintext`, `verified` or `mutual`; a TLS mode must
@@ -229,13 +230,13 @@ not evidence about a particular external Postgres installation or per-subject ex
 
 **`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating - and the
 edge moved once, without the distinction moving with it.** A `BigQuery` adapter *does* exist,
-`sutura-exec-bigquery`, and since [`adr/0018`](adr/0018-what-the-bigquery-wire-is-built-from.md) it
+`sutura-exec-bigquery`, and since `docs/adr/0018-what-the-bigquery-wire-is-built-from.md` it
 also has a transport that speaks to the endpoint: `jobs.query` over a blocking HTTP client, behind a
 default-off `wire` feature, with a second narrow port for the credential.
 
 **A statement generated here has now been accepted by a real dataset**, on 2026-08-30, under a
 service-account key -
-[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md)'s amendment records it and puts the repeat
+`docs/adr/0017-what-a-bigquery-test-runs-against.md`'s amendment records it and puts the repeat
 in CI. **Whether a build can REACH it is now a build's question rather than the repository's**, and
 that is the fact this paragraph used to state the other way round: `sutura-cli` registers the
 adapter behind a default-off `bigquery` feature, so a build that carries it opens `kind: bigquery`
@@ -253,14 +254,14 @@ it found is recorded. **The limit next to that: the three legs in it that reach 
 selection in the acceptance tier, on a push that touches this data source, so a green `just validate`
 says nothing about those three. The file's other eight tests do run in `checks.nextest`; it is 11
 `#[test]` of which 3 are `#[ignore]`d. This sentence said *it is not built* after that landed;
-[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md)'s third amendment is the record and says
+`docs/adr/0017-what-a-bigquery-test-runs-against.md`'s third amendment is the record and says
 which of its four bullets the run answered and which it did not.
 
 **One thing that leg now does prove, and it is the reason it grew:** the same table read by its
 **fully qualified** `project.dataset.table` name answers the same numbers as the unqualified read, and
 a qualified path naming a dataset that is not there is refused - which is the control that makes the
 first half a measurement rather than an inference. So *qualification resolves*, not merely renders.
-[`adr/0019`](adr/0019-a-table-outside-the-connections-dataset.md) is that record and says what the run
+`docs/adr/0019-a-table-outside-the-connections-dataset.md` is that record and says what the run
 does not cover: no second dataset and no second project, because the acceptance credential's IAM
 refuses `datasets.create`.
 
@@ -440,7 +441,7 @@ The stages above are the same either way. What differs is who wrote the statemen
 
 **A first-party model.** The catalog declares models, relationships and metrics, and the generator
 produces the whole statement from them. This is the path that is built, and
-[The first-party models decision](adr/0001-first-party-semantic-models.md) is the record: it exists
+`docs/adr/0001-first-party-semantic-models.md` is the record: it exists
 because the spliced path below has a precondition - something upstream must already have rendered
 dialect-correct SQL - and on a laptop, or over a single file, there is no upstream to have done it.
 
@@ -448,13 +449,13 @@ Its load-bearing constraint is that **a model may not contain a free-text SQL ex
 is one of two closed shapes over a `Term` of two terms - a term is one aggregate over a named column
 or a conditional count, and a measure is either a single term or a ratio of two of them, which is what
 lets a conditional count be half of a ratio rather than only a whole measure
-([decision 0002](adr/0002-a-closed-vocabulary-for-measures.md) records why that was factored one level
+(`docs/adr/0002-a-closed-vocabulary-for-measures.md` records why that was factored one level
 lower than it first was); a relationship is a pair of columns and a join type; a
 dimension is a column, optionally one declared relationship away. A metric may also carry required
 filters, predicates from a closed set of four operators that are **part of what the metric means
 rather than something a caller asks for**: they are applied to every question about it, and a caller
 cannot see, choose or remove one.
-[A closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) is the record of why
+`docs/adr/0002-a-closed-vocabulary-for-measures.md` is the record of why
 the vocabulary is a closed set of *shapes* rather than a single aggregate. The property being defended
 was always no free-text SQL, and one aggregate over one column was a narrow means to it that could
 express two of a real semantic layer's seven metrics.
@@ -466,7 +467,7 @@ The cost is unchanged for the closed vocabulary: an expression over two columns 
 widening of the one above.** `Computation` has two variants - `measure:` for the closed vocabulary and
 `authored_sql:` for a fragment somebody wrote - so which metrics are governed by a closed set and
 which are text is a word in the document rather than a reading of it.
-[A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is the
+`docs/adr/0004-a-named-escape-hatch-for-authored-sql.md` is the
 record: what the hatch is, what stays closed, which constructs are refused at load and why each one
 is on the list.
 
@@ -527,8 +528,8 @@ that includes one per refusal. Beside them, four checks that are assertions rath
   generator writes `x IS TRUE` without ever consulting its own flag for whether a dialect allows
   that - so a construct like that parses under all three targets whatever a real instance would say.
   Acceptance is vouched for by execution instead: by the anchors, and by one plan run both ways over
-  a real DuckDB and the real engine, rows compared. For Postgres and ClickHouse we render and
-  parse-check, and nothing more.
+  a real DuckDB and the real engine, rows compared. For Postgres, ClickHouse and Oracle we render
+  and parse-check, and nothing more.
 - **Every declared anchor re-executes and reproduces its number**, and a bundle whose anchors were not
   all checked cannot be served, because there is no constructor that produces one.
 
@@ -584,7 +585,7 @@ rules, and execution over Arrow. The plan is still our own type, and it now live
 DataFusion's. What earned DataFusion its place is the execution stage rather than this one, and not
 the SQL frontend either way: over a local file it executes a plan and emits no SQL, which is a whole
 class of dialect bug that cannot occur there.
-[DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) is the record.
+`docs/adr/0003-datafusion-for-local-execution.md` is the record.
 
 **Push-down already happens, and completely - federation is not what buys it.** Worth stating plainly,
 because "federation pushes the query down" invites the assumption that without it we pull rows up and
@@ -626,13 +627,13 @@ better exercised than anything we will write soon. The acceleration half we cann
 materialized copy is read under whoever refreshed it, so under row-level security it is a cross-user
 leak with a refresh schedule. Spice's front door is also SQL, where ours has no field for it.
 
-| Stage          | Decided there                                            | Ours or theirs                                                                                                                                                                                                                                                                                                                                           |
-| -------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Semantic layer | what a metric means                                      | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression                                                                                             |
-| Plan           | source, projection, grouping, bounds, parameters         | Ours, and the prediction this row used to make came true from the other side. The type is still ours and it moved into `sutura-domain`, because the execution port carries a plan rather than a statement; DataFusion arrived for execution rather than for representation. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) |
-| Federation     | which subplan its owner runs                             | Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole                                                                                                                                                                                                                 |
-| Dialect        | quoting, placeholders, date arithmetic                   | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours                                                                                                                                          |
-| Execution      | the connection, and which principal the data system sees | Build, and adopt for the local leg: one adapter per data system, DataFusion where the data is a file on the same machine, and the per-request credential is the part nothing above provides                                                                                                                                                              |
+| Stage          | Decided there                                            | Ours or theirs                                                                                                                                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Semantic layer | what a metric means                                      | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression                                                                  |
+| Plan           | source, projection, grouping, bounds, parameters         | Ours, and the prediction this row used to make came true from the other side. The type is still ours and it moved into `sutura-domain`, because the execution port carries a plan rather than a statement; DataFusion arrived for execution rather than for representation. `docs/adr/0003-datafusion-for-local-execution.md` |
+| Federation     | which subplan its owner runs                             | Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole                                                                                                                                                                                      |
+| Dialect        | quoting, placeholders, date arithmetic                   | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours                                                                                                               |
+| Execution      | the connection, and which principal the data system sees | Build, and adopt for the local leg: one adapter per data system, DataFusion where the data is a file on the same machine, and the per-request credential is the part nothing above provides                                                                                                                                   |
 
 That last row is why this is a repository rather than a configuration file for one of the others.
 

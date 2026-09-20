@@ -271,6 +271,22 @@ impl CatalogUnderTest for sutura_catalog_datahub::DataHubCatalog<sutura_catalog_
     }
 }
 
+/// The richest measured metadata source: `OpenMetadata`, opened over its recorded fixture corpus.
+///
+/// Its corpus is NOT the example markdown - a metadata service over HTTP has no directory of YAML to
+/// share - so this opens over the crate's own recorded documents, which is what a `sources.<alias>`-
+/// per-service deployment reads. It supplies the physical model, descriptions and declared
+/// non-duplicating joins and declares the metric/grain/cardinality as may-provide kinds; a metric
+/// whose measure is an expression string is reported-not-defined. The universal cells hold because
+/// the fixture bundle is measured against the adapter's declaration.
+impl CatalogUnderTest for sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader> {
+    const NAME: &'static str = "openmetadata";
+
+    fn open() -> Self {
+        sutura_catalog_openmetadata::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
 ///
 /// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
@@ -617,6 +633,19 @@ macro_rules! registered {
         // Its corpus is the descriptors under `examples/okf`, which a directory of Table Schema files
         // is what a deployment without a metadata service actually reads.
         $cell!(okf, declaring, sutura_catalog_okf::OkfCatalog);
+        // `sutura-catalog-openmetadata`, the richest of the three measured metadata sources and still
+        // a DECLARING connector: it needs a service, and it keeps two half-a-definition slots. It
+        // supplies the physical model, the descriptions and the declared non-duplicating joins, and
+        // declares the metric (typed `metricType` + granularity, where a column binding resolves), the
+        // grain and the cardinality as declared-and-empty may-provide kinds, reporting-not-defining
+        // the free-text expression strings and the SQL filters - `docs/what-openmetadata-can-carry.md`
+        // is the finding, `#152` the issue. It gets the universal cells and no golden-only cell and is
+        // measured against its own declaration.
+        $cell!(
+            openmetadata,
+            declaring,
+            sutura_catalog_openmetadata::OpenMetadataCatalog<sutura_catalog_openmetadata::fixture::FixtureReader>
+        );
     };
 
     (data_systems: $cell:ident) => {
@@ -654,6 +683,11 @@ macro_rules! registered {
             sutura_sql::Dialect::BigQuery,
             polyglot_sql::DialectType::BigQuery
         );
+        // Rendering only - PR 1 of `github.com/telekom/sutura#127`. No `sutura-exec-oracle`
+        // adapter and no execution golden yet, so the parse check this cell runs is the whole of
+        // what backs it: green means this crate's own renderer produced something Oracle's own
+        // grammar accepts, not that a real Oracle agrees with the number.
+        $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
     };
 }
 pub(crate) use registered;
