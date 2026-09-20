@@ -479,6 +479,5 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
-        top: None,
     }
 }

@@ -260,6 +260,43 @@ for.
 
 ## `use generate_leg`
 
+Renders one leg of a federated question as one statement, paired with its parameters.
+
+**Four differences from `generate`, and each of them is why a second entry point exists rather
+than a flag on the first.**
+
+1. **It projects a LIST of term columns**, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls `measure_expression`, and it could not -
+   there is no `PlanMeasure` in a `LegPlan` to hand it.
+2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.
+
+3. **It emits no `LIMIT`.** A leg is not an answer:
+   `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
+   `QueryPlan::row_limit` is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts. A federated `top` ranks
+   after the combine (`github.com/telekom/sutura#777`'s case 2), never inside a leg.
+4. **The `WHERE` clause is optional.** A `QueryPlan` always carries the two bounds of its range
+   so `GenerateError::NoPredicate` is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.
+
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
+
+**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those five is what a release executes.
+
 ## Module `dialect`
 
 Which data system a statement is rendered for, and the two things we do not delegate.
@@ -1113,13 +1150,6 @@ differently. A plan that will not render is a bug here or upstream.
   variant is what a caller matches on - and worded exactly as `sutura_exec_datafusion`'s
   `NoPredicate`, so the SQL path and the engine name one condition identically rather than
   describing it twice.
-- `RankingExceedsTerms` - A case-1 `FactTop::ranking` named a term position this leg does not carry.
-
-  Unreachable: `sutura_domain::federation::Federation::ranking` walks the same
-  `sutura_domain::federation::Above` tree `Federation::carried` collects its leaves from, in
-  the same order the splitter zips into this leg's own `LegTerm`
-  list - so a position this ranking names is always one of this leg's own terms. Its own
-  variant rather than a panic, for `NoPredicate`'s reason.
 
 #### Implements
 
@@ -1138,6 +1168,43 @@ Renders a plan as one statement, paired with its parameters.
 ```rust
 pub fn generate_leg(leg: &sutura_domain::plan::LegPlan, dialect: crate::dialect::Dialect) -> Result<crate::GeneratedQuery, GenerateError>
 ```
+
+Renders one leg of a federated question as one statement, paired with its parameters.
+
+**Four differences from `generate`, and each of them is why a second entry point exists rather
+than a flag on the first.**
+
+1. **It projects a LIST of term columns**, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls `measure_expression`, and it could not -
+   there is no `PlanMeasure` in a `LegPlan` to hand it.
+2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.
+
+3. **It emits no `LIMIT`.** A leg is not an answer:
+   `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
+   `QueryPlan::row_limit` is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts. A federated `top` ranks
+   after the combine (`github.com/telekom/sutura#777`'s case 2), never inside a leg.
+4. **The `WHERE` clause is optional.** A `QueryPlan` always carries the two bounds of its range
+   so `GenerateError::NoPredicate` is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.
+
+Everything else is shared with `generate` on purpose - `column`,
+`aliased`, `aggregate`, `term_expression`, `predicate`, `bucket_expression`,
+`joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
+term renders cannot apply to one path and not the other.
+
+**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
+to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
+`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
+that renders a leg: the one leg-executing adapter a published binary contains is the engine,
+which builds a logical plan instead. So what pins this is the golden family under
+`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
+dialect it was generated for - and none of those five is what a release executes.
 
 ### `fn generate_key_probe`
 

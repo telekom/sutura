@@ -73,7 +73,6 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
         terms,
         bindings: PlanBindings::none(),
         range: june(),
-        top: None,
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source,

@@ -272,19 +272,11 @@ pub(crate) const DERIVED_QUESTIONS: &[(&str, &str)] = &[
         "two-source-a-distinct-value-spanning-join-keys",
         "metric: products_in_use\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [region]\n",
     ),
-    // `github.com/telekom/sutura#777`'s case 2: `region` is on the SECOND data system, so the
-    // answer key reads the lookup leg and the rank cannot happen inside either leg - the combine
-    // ranks the joined rows instead, above the port, and this corpus is far too small to reach the
-    // row ceiling that would refuse it.
-    //
-    // **Case 1 has no entry here, and that is a limit rather than an omission.** It needs a
-    // federated plan whose answer keys are ALL fact-side with a LEFT join - but `plan()` only
-    // federates a question that REACHES a remote source at all, and the only two ways to reach one
-    // are a remote group-by key (which is lookup-side by construction) or a remote filter (which
-    // forces INNER). So no real question this splitter can build satisfies case 1's own
-    // precondition; `topk.rs`'s `case_1_pushdown_is_exact_for_a_hand_built_plan` exercises it
-    // against a plan built directly, which the TYPE allows even though the splitter never produces
-    // one.
+    // `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce: `region`
+    // is on the SECOND data system, so the answer key reads the lookup leg and the rank cannot
+    // happen inside either leg - the combine ranks the joined rows instead, above the port, and
+    // this corpus is far too small to reach the row ceiling that would refuse it. Case 1 (a
+    // fact-side pushdown) had no reachable cell and was cut with the pushdown.
     (
         "two-source-a-case-2-combine-then-rank-top",
         "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-07-01\n  end: 2026-08-01\ndimensions: [region]\ntop: { n: 3, by: metric, direction: desc }\n",
