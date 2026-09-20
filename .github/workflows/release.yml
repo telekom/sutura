@@ -18,9 +18,10 @@
 # at all - and the reason the allocator is replaced, since musl's own serialises every thread on
 # one lock (see `crates/sutura-cli/src/main.rs`).
 #
-# THREE JOBS: `gates` once, `build` as a matrix over the four targets, `publish` last. This was
-# a single job, on the argument that nothing then has to be handed between jobs. The handover
-# is real work - two more actions and four artifacts - and it buys two things.
+# FOUR JOBS: `gates` once, `demo` and `build` (a matrix over the four targets) in parallel off
+# `gates`, `publish` last. This was a single job, on the argument that nothing then has to be
+# handed between jobs. The handover is real work - two more actions and four artifacts - and it
+# buys two things.
 #
 # Wall clock, first, and it is NOT cheaper. Four runners at 4 vCPU each is MORE total compute
 # than one runner doing the same four builds in sequence, because on a cold cache every job
@@ -28,7 +29,7 @@
 # matrix buys latency and pays for it in CPU. For a release, where the thing waiting is a
 # person, that is the right trade - but it is a trade, not a free win.
 #
-# A token boundary, second, and that one is free. `gates` and `build` hold nothing beyond
+# A token boundary, second, and that one is free. `gates`, `demo` and `build` hold nothing beyond
 # `contents: read`. `publish` is the only job that can write a release or push to GHCR, and it
 # compiles nothing: it loads image tarballs, pushes bytes, and renders text. It never executes
 # anything the build jobs produced, and it is the one job with no build cache attached.
@@ -246,6 +247,17 @@ jobs:
   # runs on a host whose glibc is older than the builder's, and in an image that carries no
   # libc at all.
   #
+  # THE DEMO'S CONTAINER TIER, REQUIRED HERE. `ci.yml` calls the same file, `.github/workflows/
+  # demo-container.yml`, advisory - a red demo never blocks unrelated work there. It is `publish`'s
+  # own `needs:` below that makes this the release boundary: a tag whose assembled demo image
+  # cannot answer or refuse does not ship. See that file's header for what the job proves, what it
+  # does not (docker, not hermetic; no paid model), and the limit next to both claims.
+  demo:
+    needs: [gates]
+    # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
+    # omitting it leaves this workflow's own `contents: read`.
+    uses: ./.github/workflows/demo-container.yml
+
   # NO write permissions, which is the point of having this job separate at all. Everything
   # that compiles happens here, under a token that can read the repository and nothing else.
   build:
@@ -338,7 +350,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build, gates]
+    needs: [build, gates, demo]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp-32core
     timeout-minutes: 60

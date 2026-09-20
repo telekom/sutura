@@ -374,3 +374,107 @@ fn some_question_asks_for_every_grain_a_metric_declares() {
          question exercising it so the golden latches the grain"
     );
 }
+
+/// For each dialect this file renders for, the number of EXECUTION goldens - the four snapshot
+/// kinds `crate::adapters::runs_the_corpus_and_pins_the_rows`
+/// (`__rows`/`__refused`/`__error`) and `crate::adapters::reproduces_every_declared_anchor`
+/// (`anchor_report`) produce - never the `__sql`/`__params` pair this file's own
+/// `pins_the_statement_and_its_parameters` pins, which asserts only what THIS workspace's own
+/// generator emitted (`docs/adr/0012`'s `RenderedDoesNotParse` and its own limits already name what
+/// a parse check cannot see).
+///
+/// A file count over `tests/snapshots/`, keyed by [`Dialect::as_str`] - the same string
+/// `pins_the_statement_and_its_parameters` snapshots the render family under - rather than a count
+/// read off any registry, so a `.snap` this suite stopped producing (a deleted case, a renamed
+/// adapter) is caught when it leaves a dialect with no execution goldens and no [`stated_limit`],
+/// and not otherwise: a deletion that keeps the count above zero passes, and a dialect with a
+/// stated limit stays green even at zero. An added golden is caught the same way - only if it
+/// crosses the same threshold in the other direction - so the count is a liveness floor, not a
+/// registry the walk pins.
+fn execution_golden_count(dialect: Dialect) -> usize {
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    let entries = std::fs::read_dir(&directory).unwrap_or_else(|cause| panic!("{} did not read: {cause}", directory.display()));
+    let suffix = format!("@{}.snap", dialect.as_str());
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some(stem) = name.strip_suffix(&suffix) else {
+                return false;
+            };
+            stem == "anchor_report" || stem.ends_with("__rows") || stem.ends_with("__refused") || stem.ends_with("__error")
+        })
+        .count()
+}
+
+/// Why a dialect with zero [`execution_golden_count`] is not silence.
+///
+/// **Exhaustive over [`Dialect`], never a wildcard arm.** A fifth dialect - `docs/adr/0012`'s own
+/// `RenderedDoesNotParse` names `ClickHouse`'s weak parser as one reason a render-only cell still
+/// under-proves - does not compile here until this function answers for it too, which is what
+/// keeps a later addition from silently inheriting *no limit needed* the way a wildcard would. Each
+/// arm names WHERE the limit is stated at length, rather than restating the whole argument here -
+/// two statements of one fact is the thing this repository asks not to hold twice.
+fn stated_limit(dialect: Dialect) -> Option<&'static str> {
+    match dialect {
+        Dialect::DuckDb | Dialect::Postgres => None,
+        Dialect::BigQuery => Some(
+            "BigQuery's venue is a cloud account, not a local or CI-reachable one: `DataSystemUnderTest::available` \
+             answers `false` unconditionally for it (crates/sutura-app/tests/adapters/adapters.rs, the `impl \
+             DataSystemUnderTest for BigQueryWarehouse<NoLocalTier>` block), so this axis never asks it a question. \
+             Its render goldens pin what this workspace's own generator emits, and nothing about whether a real \
+             endpoint accepts it - `crates/sutura-exec-bigquery/tests/corpus.rs` is the separate, narrower claim \
+             that does, behind `wire`+`fixtures`, `#[ignore]`d.",
+        ),
+        Dialect::ClickHouse => Some(
+            "No shipped or CI-reachable venue executes ClickHouse: `compose.services.yaml`'s `clickhouse` service \
+             is a docker-compose tier a person brings up by hand, the nix sandbox `just validate` runs in has no \
+             docker socket, and no `clickhouse-tier.nix` exists to provision one the way `nix/postgres-tier.nix` \
+             does. `crates/sutura-exec-clickhouse`'s own `lib.rs` header states this at length, including a real, \
+             manually-run measurement against a local ClickHouse server (`github.com/telekom/sutura#920`/`#919`) \
+             that this axis does not repeat mechanically. Its render goldens pin what this workspace's own \
+             generator emits and nothing about whether a real ClickHouse accepts it or agrees on the number.",
+        ),
+        // Arrived with `github.com/telekom/sutura#127` PR 1, the RENDERING half, which is why this arm
+        // exists at all: the match is exhaustive over `Dialect` precisely so a dialect cannot land
+        // without answering here, and this one landed on `main` while this branch was in review.
+        Dialect::Oracle => Some(
+            "No adapter executes Oracle on this tree - `ls crates/` has no `sutura-exec-oracle`, because \
+             `github.com/telekom/sutura#127` split the rendering half (landed) from the adapter and its venue \
+             (a separate change). So Oracle has 29 `sql` and 28 `params` render goldens and ZERO \
+             `rows`/`refused`/`error`/`anchor_report` goldens. Its venue is decided but not provisioned - a \
+             community image, by tag, brought up by hand - and no `oracle-tier.nix` exists the way \
+             `nix/postgres-tier.nix` does, so the nix sandbox `just validate` runs in cannot reach one. The \
+             render goldens pin what this workspace's own generator emits; nothing here establishes that a real \
+             Oracle accepts the statement or agrees on the number. And the parse-back check cannot close that \
+             gap: `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is the standing proof that a \
+             construct which parses can still mean the wrong thing.",
+        ),
+    }
+}
+
+/// **What `#919` closes, mechanically.** For each dialect `sutura-sql` renders for, either a real
+/// execution venue produced `rows`/`refused`/`error`/`anchor_report` goldens, or [`stated_limit`]
+/// names - in this file, next to the claim - what its render-only goldens do not cover. Silence is
+/// the one outcome this test refuses: a dialect landing with neither is a defect here, not a
+/// missing sentence somewhere else.
+///
+/// Deliberately NOT a fix for the render-only ceiling itself - `pins_the_statement_and_its_parameters`
+/// still only proves the generator is stable, and `crates/sutura-sql/src/generate.rs`'s own
+/// `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` names what a parse check cannot see
+/// even where this test is green.
+#[test]
+fn every_dialect_either_executes_or_states_its_limit() {
+    for &dialect in dialect::ALL {
+        let executed = execution_golden_count(dialect);
+        let limit = stated_limit(dialect);
+        assert!(
+            executed > 0 || limit.is_some_and(|text| !text.trim().is_empty()),
+            "{} has {executed} execution goldens (rows/refused/error/anchor_report) and no declared stated \
+             limit - either produce execution goldens for it, or add an arm to `stated_limit` naming what its \
+             render-only goldens do not cover",
+            dialect.as_str()
+        );
+    }
+}

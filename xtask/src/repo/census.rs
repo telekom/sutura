@@ -217,7 +217,6 @@ impl Refusal {
 /// When the list is empty, `into_listing` and this enum go with it. `WarmStart` is the one entry
 /// that stays: `check-warm-start` keeps its own witness deliberately (see this module's header).
 pub(crate) enum Unmigrated {
-    BootOrder,
     Causality,
     FeatureRemedies,
     Guidance,
@@ -248,7 +247,7 @@ pub(crate) enum Unmigrated {
 /// Measured on the first run of this test, which reported 45 against 44 real call sites; the extra
 /// was a `check-newtype-leaks` fixture, and it is built from parts now, the way that gate's own
 /// fixtures already avoid reporting their own source.
-pub(crate) const UNMIGRATED_DOORS: usize = 30;
+pub(crate) const UNMIGRATED_DOORS: usize = 27;
 
 impl Census {
     /// Mint one. `pub(super)`, so `crate::repo` is the only caller there can be.

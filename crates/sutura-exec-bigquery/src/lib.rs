@@ -96,7 +96,7 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 #[cfg(feature = "fixtures")]
 use sutura_domain::model::TableName;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
@@ -108,6 +108,9 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 mod rowset;
 
 mod preflight;
+
+mod resolve;
+pub use resolve::UnresolvableConnection;
 
 pub mod transport;
 #[cfg(feature = "wire")]
@@ -162,6 +165,17 @@ where
     Render {
         #[source]
         cause: GenerateError,
+    },
+    /// A table path could not be resolved against this connection, or the resolved tables -
+    /// taken together - answer to one identifier the statement cannot tell apart.
+    ///
+    /// **Unreachable in practice**: see [`UnresolvableConnection`]'s own documentation for why. A
+    /// typed variant rather than a panic for the same reason every other "unreachable" case in
+    /// this workspace is one - the input reaching it is not bounded by the type system alone.
+    #[error("a table path could not be resolved for this connection")]
+    UnresolvableConnection {
+        #[source]
+        cause: sutura_domain::plan::ResolveTablesError<UnresolvableConnection>,
     },
     /// A federated leg arrived, and there is nothing above it to combine legs.
     ///
@@ -368,14 +382,33 @@ where
         }
     }
 
+    /// One query plan, resolved against this connection and rendered as one `GoogleSQL` statement.
+    ///
+    /// **The resolve step, and why it sits here rather than inside `generate`.** A path this plan
+    /// carries that names a dataset and no project is exactly the path `sutura_sql::generate`
+    /// would render as literal text, leaving `BigQuery`'s own request-level default to fill the
+    /// missing project in - silently, and not necessarily where the model actually lives.
+    /// [`crate::resolve::resolve`] closes that gap on the plan itself, before anything renders, so
+    /// the statement says which project rather than depending on a request field beside it.
+    ///
+    /// Shared with [`Self::verify_anchor`]'s own plan, so the boot-time reproduction and a live
+    /// question resolve identically rather than one of them keeping the old, unresolved behaviour.
+    fn render_query(&self, plan: &QueryPlan) -> Mapped<GeneratedQuery, T::Error> {
+        let resolved = plan
+            .clone()
+            .resolve_tables(|table| resolve::resolve(table, &self.billing_project))
+            .map_err(|cause| BigQueryError::UnresolvableConnection { cause })?;
+        generate(&resolved, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })
+    }
+
     /// The plan, rendered as one `GoogleSQL` statement.
     ///
     /// The dialect is not a parameter: a `BigQuery` adapter renders `BigQuery`. One exhaustive match,
     /// so a third plan shape cannot be answered by accident, and the leg arm refuses rather than
     /// renders.
-    fn render(executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
+    fn render(&self, executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
         match executable {
-            Executable::Query(plan) => generate(plan, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause }),
+            Executable::Query(plan) => self.render_query(plan),
             Executable::Leg(leg) => Err(BigQueryError::LegWithoutCombiner {
                 table: leg.table().to_string(),
             }),
@@ -550,6 +583,7 @@ where
             BigQueryError::Endpoint { ref cause } => transport_says(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
+            | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -608,7 +642,7 @@ where
     /// `crate::wire::BigQueryWire::submit`.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
-        let query = Self::render(executable)?;
+        let query = self.render(executable)?;
         let estimated_bytes = self
             .transport
             .validate(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
@@ -620,7 +654,7 @@ where
     /// `docs/adr/0029`.
     fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
         self.deliverable(presented)?;
-        let query = Self::render(executable)?;
+        let query = self.render(executable)?;
         let answered = self
             .transport
             .run(&self.request(&query, Self::subject_bearer(presented), JobDeadline::Port(deadline)))
@@ -642,7 +676,7 @@ where
     /// caller and no request timeout to read one from, so the job is bounded by this adapter's own
     /// configured job bounds instead - unchanged by this record.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        let query = generate(plan.plan(), Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause })?;
+        let query = self.render_query(plan.plan())?;
         let answered = self
             .transport
             .run(&self.request(&query, None, JobDeadline::Boot))
@@ -692,6 +726,7 @@ where
             BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
+            | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -746,6 +781,7 @@ where
             // invited to look for and will not find.
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::Render { .. }
+            | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
