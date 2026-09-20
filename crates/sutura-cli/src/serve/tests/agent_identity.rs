@@ -30,7 +30,8 @@ use sutura_domain::identity::{Expiry, Presented, Secret};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
 
 use super::super::agent::mount as mount_agent_surface;
@@ -381,7 +382,7 @@ async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_ve
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
     // The composition root's own mount: `sutura_mcp::http::service` (always `Asking::PerRequest`)
     // wrapped in the erased-surface `Serving` that `sutura serve` serves over.
-    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone()).expect("the agent mount builds");
+    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone(), None).expect("the agent mount builds");
     let gate = sutura_http::InboundGate::from_declaration(
         &settings
             .security()
@@ -463,7 +464,7 @@ async fn two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_t
     );
 
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone()).expect("the agent mount builds");
+    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone(), None).expect("the agent mount builds");
     let gate = sutura_http::InboundGate::from_declaration(
         &settings
             .security()
@@ -525,5 +526,230 @@ async fn two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_t
     assert_eq!(
         second.subject_token, grace,
         "grace's own token must be the one offered on her behalf"
+    );
+}
+
+// ----------------------------------------------------------------- spend headroom over /mcp ----
+
+/// What every dry run a [`PricedWarehouse`] answers is priced at - so a spend ceiling can be
+/// drained by real answered calls, the same fixture `sutura-http`'s own spend cell uses.
+const PRICE_BYTES: u64 = 500;
+
+/// A data system whose dry run reports a real byte price. The served surface never reaches a real
+/// priced adapter (`bigquery` needs a real project), so this fake lets
+/// `governance.per_replica_spend_ceiling` move the ledger through the REAL `/mcp` transport.
+struct PricedWarehouse {
+    source: sutura_domain::model::SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+}
+
+impl Warehouse for PricedWarehouse {
+    type Error = std::convert::Infallible;
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
+    const PRICES_DRY_RUN: bool = true;
+
+    fn source(&self) -> &sutura_domain::model::SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::Accepted {
+            estimated_bytes: Some(EstimatedBytes::parse(PRICE_BYTES)),
+        })
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+        Ok(self.result.clone())
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// `direct_overlay`'s twin that also configures a per-replica spend ceiling, so the served surface
+/// reports a real headroom and `ServiceState` registers the spend gauge. Also turns on
+/// `server.agent_surface.enabled`, so the composition root's own `agent_mount(&state)` builds the
+/// mount rather than the test hand-wiring one - the cell exercises the real seam.
+fn priced_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
+    format!(
+        "{}\nserver:\n  agent_surface:\n    enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\n",
+        direct_overlay(issuer, key_set_path)
+    )
+}
+
+// The gauge must move when a served AGENT surface answers - `telekom/sutura#892`. `/mcp` answers
+// through the same `Surface` and charges the same ledger as the HTTP query route, so an
+// agent-only deployment reading the full ceiling while the ledger drains is the stale-gauge lie
+// this closes. Mirrors `sutura_http::harness::metrics`'s HTTP-path cell, but reached from the
+// composition root's own `agent_mount(&state)` helper - NOT a hand-wired `agent::mount` call - so
+// the cell exercises the real seam: `agent_mount` reads `state.spend_headroom_gauge()` and hands
+// it into the `Serving` wrapper, which is what makes both surfaces drive one series.
+
+/// A priced, agent-enabled served surface over the REAL `/mcp` transport, built through the
+/// composition root's own `agent_mount(&state)` helper. Both spend-headroom cells share this
+/// setup: it builds the state, hands the state's own gauge into the agent mount, and returns the
+/// router, the gauge handle, and the issuer (for minting a caller's token).
+///
+/// `key_set_id` distinguishes each cell's `PublishedKeySet` so two cells writing to the same
+/// temporary directory do not collide.
+struct PricedAgentSurface {
+    app: axum::Router,
+    gauge: sutura_runtime::Gauge,
+    issuer: MockIssuer,
+}
+
+/// Builds the priced agent surface and returns the router, gauge, and issuer.
+fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, key_set_id).expect("the key set publishes");
+    let overlay = priced_overlay(&issuer, &published.path().to_string_lossy());
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
+        .expect("the priced agent-route overlay loads");
+    let budget = settings.spend_budget().expect("the priced overlay configured a ceiling");
+
+    let (exchange, _asked) = an_exchange();
+    let broker = WorkloadIdentityBroker::empty(exchange)
+        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+        .expect("a one-cell result is a result set");
+    let posture = SourcePosture::ImpersonationAtSource;
+    let warehouses = sutura_app::Warehouses::of(PricedWarehouse {
+        source: source(),
+        posture,
+        result,
+    });
+
+    let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
+        sutura_app::surface::LocalService::start(
+            &catalog_of(bundle()),
+            warehouses,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            1 << 30,
+        )
+        .expect("the priced test bundle validates")
+        .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
+            budget.ceiling_bytes(),
+            budget.window(),
+        )))),
+    );
+
+    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+    let gate = sutura_http::InboundGate::from_declaration(
+        &settings
+            .security()
+            .inbound()
+            .expect("this overlay declares an inbound identity")
+            .clone(),
+    )
+    .expect("a published key set builds a gate");
+    // The state owns the gauge; the composition root's own `agent_mount(&state)` hands a handle to
+    // the SAME gauge into the agent mount, so both surfaces drive one
+    // `sutura_spend_headroom_bytes` series. Going through `agent_mount` rather than hand-wiring
+    // `agent::mount` is the seam both cells below exist to exercise: a mutation that dropped
+    // `state.spend_headroom_gauge()` for `None` would still build a mount, but one whose `Serving`
+    // wrapper never pushes - and the cells would catch it.
+    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
+    let gauge = state
+        .spend_headroom_gauge()
+        .expect("the priced surface reports headroom at boot");
+    let mount = super::super::agent_mount(&state)
+        .expect("the agent mount builds")
+        .expect("the priced overlay enabled the agent surface");
+    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+    let app = sutura_http::router(&state).expect("the test router assembles");
+    PricedAgentSurface { app, gauge, issuer }
+}
+
+#[tokio::test]
+async fn a_served_agent_surface_pushes_spend_headroom_after_an_answer() {
+    let PricedAgentSurface { app, gauge, issuer } = priced_agent_surface("agent-spend");
+
+    let untouched = gauge.value();
+    assert_eq!(untouched, 1_000, "the boot reading is the full ceiling");
+
+    let token = issuer
+        .mint(&accepted_by("ada@example.com"))
+        .expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+    let answered = post(app, &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the ask_metric call must be answered, not refused: {answered}"
+    );
+
+    // One priced call drained 500 bytes of headroom; the gauge must read the post-call value, not
+    // the boot-time full ceiling. A `Serving` whose answer stopped pushing leaves it at 1000 and
+    // reddens this cell.
+    assert_eq!(
+        gauge.value(),
+        500,
+        "the /mcp answer pushed the post-call headroom onto the gauge"
+    );
+}
+
+/// One JSON-RPC `tools/call` for `run_sql`, carrying `token`, over the composed router.
+fn run_sql_call(statement: &str, id: i64) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": {
+            "name": "run_sql",
+            "arguments": { "statement": statement }
+        }
+    })
+}
+
+/// The `run_sql` push is its own arm of `Serving`: a separate push call after `Surface::run_sql`
+/// returns, and a mutation that wrapped it in `if false` left the whole suite green because no cell
+/// reached it. This cell does: it drains the ledger with an `ask_metric` call (which the `answer`
+/// push catches), tampers the gauge to a stale reading, then makes a `run_sql` call. The `run_sql`
+/// call does not charge the ledger, so headroom is unchanged - but the `run_sql` push must still
+/// write the CURRENT headroom onto the gauge, correcting the stale reading. A `Serving` whose
+/// `run_sql` stopped pushing leaves the tampered value and reddens this cell.
+#[tokio::test]
+async fn a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call() {
+    let PricedAgentSurface { app, gauge, issuer } = priced_agent_surface("agent-spend-run-sql");
+
+    let token = issuer
+        .mint(&accepted_by("ada@example.com"))
+        .expect("the issuer signs a token");
+    drop(post(app.clone(), &token, initialize(1)).await);
+    // One priced `ask_metric` call drains 500 bytes; the `answer` push sets the gauge to 500.
+    let answered = post(app.clone(), &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the ask_metric call must be answered, not refused: {answered}"
+    );
+    assert_eq!(gauge.value(), 500, "the answer push set the post-call headroom");
+
+    // Tamper the gauge to a stale reading, simulating a gauge that was never pushed after `run_sql`.
+    // `run_sql` does not charge the ledger, so the current headroom is still 500 - but the push
+    // must still write it. A `Serving` whose `run_sql` arm stopped pushing leaves this stale value.
+    gauge.set(999);
+
+    // The `run_sql` call fails - `PricedWarehouse` does not accept raw statements - but the push
+    // runs regardless of the outcome, the same way `Serving::answer` pushes whether the call
+    // answered, refused or failed.
+    // The call is an error (no accepting source), and that is fine: the push is what this cell
+    // asserts on, not the outcome.
+    let _: serde_json::Value = post(app, &token, run_sql_call("select 1", 2)).await;
+
+    assert_eq!(
+        gauge.value(),
+        500,
+        "the /mcp run_sql push corrected the stale gauge to the current headroom"
     );
 }
