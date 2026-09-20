@@ -65,6 +65,7 @@ pub(crate) mod agent;
 
 #[cfg(feature = "agent")]
 pub(crate) use agent::{AGENT_LOOPBACK, settings_with_agent_surface};
+pub(crate) use keycloak::audience_of as keycloak_audience_of;
 pub(crate) use keycloak::settings as keycloak_settings;
 pub(crate) use keycloak::subject_of as keycloak_subject_of;
 #[cfg(feature = "postgres")]
