@@ -451,10 +451,16 @@ async fn the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_ev
     .expect("the test bundle validates");
     let mut state = crate::testing::state_over(std::sync::Arc::new(service), settings);
     state = state.with_inbound_identity(std::sync::Arc::new(gate));
-    let mount = crate::state::AgentMount::new(tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
-        let _request = request;
-        async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
-    }));
+    // This deployment configures no `governance.per_replica_spend_ceiling`, so there is no
+    // `sutura_spend_headroom_bytes` series for the mount to push onto and it says so. A mount that
+    // claimed a gauge on this state would be refused by `agent_subtree`.
+    let mount = crate::state::AgentMount::new(
+        tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+            let _request = request;
+            async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+        }),
+        crate::state::SpendHeadroomPush::NoCeilingConfigured,
+    );
     state = state.with_agent_surface(mount);
     let router = crate::router(&state).expect("a leg-one deployment with an agent mount assembles");
 

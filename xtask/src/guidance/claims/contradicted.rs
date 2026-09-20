@@ -845,14 +845,26 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses.
         name: "the spend headroom gauge is pushed from one transport only",
         wordings: &["pushed from one transport only", "pushed from a single transport"],
-        evidence: &[Evidence {
-            path: "crates/sutura-cli/src/serve/agent.rs",
-            holds: "push_headroom",
-        }],
+        evidence: &[
+            Evidence {
+                path: "crates/sutura-cli/src/serve/agent.rs",
+                holds: "push_headroom",
+            },
+            // The handoff stopped being the composition root's habit: `AgentMount::new` cannot be
+            // called without a `SpendHeadroomPush`, whose gauge-carrying variant only
+            // `SpendHeadroomPush::of(&state)` can build.
+            Evidence {
+                path: "crates/sutura-http/src/state.rs",
+                holds: "pub enum SpendHeadroomPush",
+            },
+        ],
         instead: "the composition root hands this state's own gauge into the `Serving` wrapper, \
                   which pushes after both `Surface::answer` and `Surface::run_sql`, so the agent \
                   transport and `POST /v1/query` drive one series - with the asymmetry the record \
-                  states, that `POST /v1/run_sql` pushes nothing",
+                  states, that `POST /v1/run_sql` pushes nothing - and the handoff is held by a \
+                  type rather than by that root, since `AgentMount::new` requires a \
+                  `SpendHeadroomPush` whose gauge-carrying variant only \
+                  `SpendHeadroomPush::of(&state)` can build",
         only: &[],
         // The Second amendment's deviation 7 is quoted in order to be corrected in place, so this
         // record holds the one copy of the wording no scan may refuse.
