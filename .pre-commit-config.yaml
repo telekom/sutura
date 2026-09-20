@@ -230,6 +230,33 @@ repos:
         files: (\.(md|ya?ml|toml|py)|^(dprint\.json|nix/format-text\.sh|nix/dprint\.nix))$
         pass_filenames: false
 
+      # The Helm chart's own gate (#149): `helm lint`, the no-values refusal and its wording,
+      # every values file rendered against its committed golden, and `kubeconform` against the
+      # vendored Kubernetes schemas. Nothing else here reaches the chart - `format-text` runs over
+      # `charts/**/*.yaml` and dprint EXCLUDES `charts/*/templates/**` and
+      # `charts/*/testdata/golden/**` (`dprint.json`, pinned by `xtask/tests/dprint_config.rs`), so
+      # on the half of that tree that decides what renders it inspected nothing, and
+      # `templates/_helpers.tpl` is not YAML at all.
+      #
+      # Through `nix/run-gate.sh`, which builds the SAME `checks.helm-chart` derivation
+      # `.github/workflows/ci.yml`'s `Chart` step does - one invocation, so the local verdict and
+      # CI's cannot differ - and skips with a notice where nix is absent, like `shellcheck` and
+      # `zizmor`. `xtask/tests/chart_gate.rs` holds that agreement.
+      #
+      # COMMIT STAGE. `cargo xtask check-hook-tiers` reserves `pre-push` for the two whole-tree
+      # security scans, and a check too slow for a commit belongs in no local hook at all - this is
+      # neither: it compiles no Rust, waits on no dependency closure, and renders one chart.
+      #
+      # `files:` is the chart tree plus the two files that decide the verdict without being in it:
+      # the derivation, and `flake.nix`, which is where this check's `src` is chosen (`wholeTree`,
+      # not the filtered source) and where the source filter's `charts` arm lives.
+      - id: chart
+        name: Helm chart (lint, render, goldens, kubeconform)
+        entry: bash nix/run-gate.sh chart
+        language: system
+        files: ^(charts/.*|nix/(helm-chart\.nix|run-gate\.sh)|flake\.nix)$
+        pass_filenames: false
+
       # --- on push: SECURITY ONLY -------------------------------------------
       # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
       # finding in a file committed long ago reaches CI unseen - which is exactly what happened.
