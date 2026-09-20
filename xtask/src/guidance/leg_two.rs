@@ -71,7 +71,7 @@ pub(super) fn problems(root: &Path, files: &[String]) -> Vec<String> {
             "the leg-2 rows of `docs/where-identity-is-proven.md`'s claims matrix could not be \
              read, so *is leg 2 proven* has no answer to hold a page to. That is this rule's own \
              input rather than a page's mistake - fix the matrix, or the anchors in \
-             `xtask/src/venues.rs`",
+             `xtask/src/venues/leg_two_row.rs`",
         )];
     };
     if citable {
@@ -138,11 +138,17 @@ mod tests {
     }
 
     #[test]
-    fn every_wording_is_found_by_this_matcher() {
-        // **The cell that stops the table going quiet.** A wording added with a typo, a curly
-        // apostrophe or a line break inside it would be a row this gate can never match - green
-        // forever, and invisible, which is the dead-gate shape the whole module is about. Each row
-        // is checked against a page that is only that row.
+    fn every_wording_can_survive_the_view_this_matcher_reads() {
+        // **Two of the three ways a registered wording goes quiet, and the third named as unheld.**
+        // The previous version of this cell claimed all three and held one: it built the page FROM
+        // the wording, so a needle always matched itself unless `flatten` changed it. Review
+        // measured exactly that - a curly-apostrophe wording passed, a `\n` one failed - so the
+        // comment was wider than the check. Corrected rather than deleted, because an overstated
+        // self-check is worse than an honest narrow one.
+        //
+        // HELD, mode 1 - WHITESPACE the flattened view collapses. `flatten` reduces every run of
+        // whitespace to one space, so a needle carrying a newline, a tab or a double space can
+        // never appear in it. The round trip below is what catches that.
         for wording in WORDINGS {
             assert_eq!(
                 stated_in("docs/somewhere.md", &format!("Prose. {wording} More prose.\n")).len(),
@@ -150,6 +156,26 @@ mod tests {
                 "this rule cannot match its own registered wording: {wording}"
             );
         }
+        // HELD, mode 2 - a CHARACTER a page's prose does not carry. The corrected sentences and the
+        // false ones are both ASCII; a wording typed with a curly apostrophe or a non-breaking
+        // space is a row that can match nothing, and the round trip above cannot see it because the
+        // fixture page is built from the wording itself. This reads the wording alone.
+        for wording in WORDINGS {
+            assert!(
+                wording.is_ascii(),
+                "a registered wording carries a non-ASCII character, so no page written in ASCII \
+                 prose can match it: {wording:?}"
+            );
+            assert!(
+                !wording.contains("  ") && wording.trim() == *wording,
+                "a registered wording carries whitespace the flattened view cannot hold: {wording:?}"
+            );
+        }
+        // NOT HELD, mode 3 - a TYPO. A misspelled wording is a well-formed needle for a sentence
+        // nobody wrote, and nothing here has an independent copy of the true sentence to compare it
+        // against, so there is no oracle for it. What stands in its place is that a wording is
+        // added the moment it is FOUND in a file - the table is a record of matches that happened,
+        // not of sentences somebody expected.
     }
 
     #[test]

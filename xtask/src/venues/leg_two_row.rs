@@ -11,7 +11,7 @@
 //! `guidance/claims/anchors.rs` is the precedent - and `venues.rs` has no room left for three more.
 
 use super::PAGE;
-use super::page;
+use super::page::{self, CITABLE};
 
 /// The claim rows that ARE leg 2 - a source executing as the asker - found by a substring of each
 /// row's own claim text.
@@ -27,12 +27,6 @@ const LEG_TWO_ROWS: &[&str] = &[
     "resolve to two distinct",
     "executes as a verified human caller through the declared per-source map",
 ];
-
-/// The verdicts that count as answering a claim, which is the page's own set.
-///
-/// `unrun` and `wired` are deliberately absent: the page's header says neither counts towards a
-/// claim being answered, "which is not at all".
-const CITABLE: &[&str] = &["yes", "can", "only here"];
 
 /// Whether the venue table records leg 2 as proven, or `None` when the question cannot be answered
 /// from the page.
@@ -64,7 +58,7 @@ fn citable_in(text: &str) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::citable_in;
+    use super::{CITABLE, citable_in};
 
     /// A claims matrix with the two leg-2 rows, each verdict as the caller chose.
     fn page(first: &str, second: &str) -> String {
@@ -91,7 +85,25 @@ mod tests {
         // page says it does - the standing test lives in another venue - and `only here` too.
         assert_eq!(citable_in(&page("**yes**, on the spawned binary", "-")), Some(true));
         assert_eq!(citable_in(&page("-", "can - the standing cell is elsewhere")), Some(true));
-        assert_eq!(citable_in(&page("only here", "-")), Some(true));
+    }
+
+    #[test]
+    fn the_citable_set_is_the_page_s_own_and_not_a_second_list() {
+        // **RED WHEN WRITTEN, and the defect was mine.** This module spelled the citable set as its
+        // own slice and included `only here`, which `crate::venues::problems` does not treat as
+        // citable at all - so a leg-2 cell reading `only here` would have unlocked the claim in
+        // `check-guidance` while nothing in this gate policed it. Both readers take
+        // `page::CITABLE` now, and this is the cell that fails if a third list appears.
+        assert_eq!(CITABLE, ["yes", "can"]);
+        assert_eq!(citable_in(&page("only here", "-")), Some(false));
+        assert_eq!(citable_in(&page("redundant", "-")), Some(false));
+        for word in CITABLE {
+            assert_eq!(
+                citable_in(&page(word, "-")),
+                Some(true),
+                "the page's own citable set holds `{word}` and this rule does not read it"
+            );
+        }
     }
 
     #[test]

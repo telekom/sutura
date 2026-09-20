@@ -18,10 +18,12 @@
 //!   `mod verdicts`, beside the code, and its header carries why each exists and the limit each
 //!   does not reach: `unrun` expires when CI reaches a venue, `wired` is refused until it does,
 //!   and a citable verdict needs an invocation that CI runs AND that runs tests.
-//! * **A `yes` cell over an on-demand venue has to say a run was observed, in its own section, and
-//!   may not still say `unrun` or `wired` there.** `unrun` and `wired` tie their word to the
+//! * **A CITABLE cell over an on-demand venue has to say a run was observed, in its own section,
+//!   and may not still say `unrun` or `wired` there.** `yes` and `can` both, out of one
+//!   `page::CITABLE` - review measured `can` escaping this rule while `yes` was held to it, which
+//!   made the softer spelling an unlock. `unrun` and `wired` tie their word to the
 //!   section that carries them; `yes` had no equivalent tie, so a cell could move off either state
-//!   in one edit while the section stayed put. [`verdicts::yes_problems`] is the tie and its own
+//!   in one edit while the section stayed put. [`verdicts::citable_problems`] is the tie and its own
 //!   header carries the limit: this reads a WORD, never that a named run is real.
 //! * **A venue's `Where it runs` cell states a place from a closed vocabulary**, because it decides
 //!   whether the row may be cited at all and was free prose. [`page::RUN_SITES`] has the measurement.
@@ -480,6 +482,32 @@ Not built.
                 .iter()
                 .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
             "a `yes` cell over an on-demand venue with no run named in its section has to fail: {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_can_cell_over_an_on_demand_venue_is_held_to_the_same_observed_run_as_yes() {
+        // **The unlock review measured**: `yes` was held to naming an observed run and `can` was
+        // not, so the softer spelling bought a citation nothing had earned. `can` means *the
+        // standing test lives in another venue* - which on an ON-DEMAND venue still needs a job's
+        // own run to be true of anything, because that is the only thing that can make it true.
+        //
+        // Both edits together, so this cannot pass by the section being intact: the cell moves to
+        // `can` AND the observed sentence goes. No cell on the real page is in this state today, so
+        // this rule is held here and by nothing on the page - which is worth saying rather than
+        // leaving a reader to assume the page exercises it.
+        let softened = MAP
+            .replace(
+                ", and the leg's run was observed on 2026-01-01 against the fixture project",
+                "",
+            )
+            .replace("| **yes** |", "| can |");
+        let found = problems(&softened);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("A real dataset under a shared key") && p.contains("OBSERVED")),
+            "a `can` cell over an on-demand venue with no run named in its section has to fail: {found:?}"
         );
     }
 

@@ -1010,8 +1010,12 @@ to obtain one for a linked archive is an `unsafe extern` block declaring the arc
    fact about the tree. Cheapest to write, most expensive to give up.
 2. **A vendored crate outside the workspace, owning the one `unsafe` block.**
    `Cargo.toml`'s `exclude = ["vendor/mimalloc_rust"]` is the established precedent - that path
-   holds eleven `unsafe` items today, outside this forbid's reach, and `VENDOR.md` is where such a
-   thing is recorded. Cost: a second build unit and a `VENDOR.md` row, and the `unsafe` is real
+   holds **21 lines carrying `unsafe`** today, outside this forbid's reach, and `VENDOR.md` is where
+   such a thing is recorded. **The number is stated with its method because three different ones
+   were in circulation** - ten, eleven and twenty-one, for one thing:
+   `grep -rc unsafe vendor/mimalloc_rust --include='*.rs'` summed over its three files gives
+   11 + 10 + 0 = 21, and eleven was `src/lib.rs` alone. Counting `unsafe fn`/`impl`/`{`/`extern`
+   occurrences agrees at 21, because no line carries two. Cost: a second build unit and a `VENDOR.md` row, and the `unsafe` is real
    wherever it lives - what the exclusion buys is that it is CONTAINED and named rather than
    permitted everywhere.
 3. **An upstream `adbc_driver_manager` API that takes a symbol NAME rather than a function

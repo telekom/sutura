@@ -556,6 +556,45 @@ mod tests {
     }
 
     #[test]
+    fn the_leg_two_rule_is_wired_into_the_walk_and_not_merely_written() {
+        // **RED WHEN WRITTEN, and the defect was in the fix rather than in the tree.** Review
+        // measured that turning `problems.extend(leg_two::problems(..))` in `tree_problems` into
+        // `drop(..)` left 92 tests green, and that with the call gone the pre-round-3 `AGENTS.md`
+        // sentence passed `check-guidance` at exit 0. Every cell the rule had drove
+        // `leg_two::stated_in` or `venues::leg_two_row::citable_in` directly, so the REGISTRATION
+        // was held by nothing - the same defect class the rule itself exists to catch.
+        //
+        // `api_docs::tests`' unarmed-tree cell is the shape: drive the WALK against a fixture root,
+        // so the only way the problem can appear is through the call site under test.
+        let root = std::env::temp_dir().join(format!("sutura-guidance-leg-two-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(root.join("docs")).expect("fixture root");
+        // A venue page whose two leg-2 rows carry no citable verdict, which is the condition.
+        std::fs::write(
+            root.join("docs/where-identity-is-proven.md"),
+            "| Claim | Fake at the port |\n| --- | --- |\n\
+             | Whether two distinct subjects resolve to two distinct principals | **wired** |\n\
+             | A served binary executes as a verified human caller through the declared per-source map | - |\n",
+        )
+        .expect("fixture venue page");
+        // And a page stating the claim anyway.
+        std::fs::write(
+            root.join("AGENTS.md"),
+            "Leg 1 is built. Leg 2 (a source executing AS them) is proven for BigQuery.\n",
+        )
+        .expect("fixture claimant");
+
+        let subjects = vec![String::from("AGENTS.md")];
+        let (problems, ..) = super::tree_problems(&root, &subjects, &subjects);
+        drop(std::fs::remove_dir_all(&root));
+
+        assert!(
+            problems.iter().any(|problem| problem.contains("no leg-2 row")),
+            "the leg-2 rule is not reached by the walk this gate runs: {problems:?}"
+        );
+    }
+
+    #[test]
     fn the_task_list_is_the_dispatch_table() {
         let known = known_tasks();
         // If this fails, the table and the dispatcher have diverged, which is the whole

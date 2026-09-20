@@ -56,7 +56,7 @@
 use std::collections::BTreeSet;
 
 use super::PAGE;
-use super::page::{ON_DEMAND, Venue, section_body};
+use super::page::{CITABLE, ON_DEMAND, Venue, section_body};
 use super::sources::cited_invocations;
 
 /// Everything the two un-citable verdicts have to be consistent with, for the venues stating them.
@@ -186,11 +186,11 @@ pub(super) fn transition_problems(
 /// cell can no longer sit over a section with nothing beside it, over one still describing the
 /// state the cell left, or over one denying the run outright; that *the named run is real and
 /// answers this claim* stays review's, as it already did for every citable cell before this.
-pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -> Vec<String> {
+pub(super) fn citable_problems(text: &str, listed: &[Venue], answered: &BTreeSet<&str>) -> Vec<String> {
     let mut problems = Vec::new();
     for venue in listed
         .iter()
-        .filter(|venue| yes.contains(venue.name.as_str()) && venue.site() == Some(ON_DEMAND))
+        .filter(|venue| answered.contains(venue.name.as_str()) && venue.site() == Some(ON_DEMAND))
     {
         let body = section_body(text, &venue.name).unwrap_or_default();
         // An on-demand `yes` has to name a run somebody OBSERVED: the word, positive rather than
@@ -202,8 +202,9 @@ pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -
         let run_named = contains_run_link(&body) || contains_iso_date(&body);
         if !observed_positive || !run_named {
             problems.push(format!(
-                "{PAGE}: `{}` says `yes` and runs in `{}` - ON DEMAND, so nothing but a job's own \
-                 run makes that true - and its own section never names a run somebody OBSERVED \
+                "{PAGE}: `{}` states a verdict only a run can earn ({CITABLE:?}) and runs in `{}` \
+                 - ON DEMAND, so nothing but a job's own run makes that true - and its own section \
+                 never names a run somebody OBSERVED \
                  holding it: it must say `observed` in a sentence that is not a denial (not \
                  `No … observed`, `not observed` or `never observed`) and carry either a GitHub \
                  Actions run link (`actions/runs/` plus digits) or an ISO date (`2026-01-01`). \
@@ -214,8 +215,9 @@ pub(super) fn yes_problems(text: &str, listed: &[Venue], yes: &BTreeSet<&str>) -
         for word in ["unrun", "wired"] {
             if body.contains(word) {
                 problems.push(format!(
-                    "{PAGE}: `{}` says `yes` in the matrix and its own section still says `{word}` \
-                     - a `yes` cell has left that state, and a section still describing it is the \
+                    "{PAGE}: `{}` states a verdict only a run can earn and its own section still \
+                     says `{word}` - such a cell has left that state, and a section still \
+                     describing it is the \
                      drift this rule exists to catch: the cell moved and the prose beside it did \
                      not",
                     venue.name

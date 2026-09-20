@@ -12,10 +12,10 @@
 use std::collections::BTreeSet;
 
 use super::PAGE;
-use super::page::{NOT_BUILT, STRUCTURAL, VERDICTS, cited_tests, claims, key, venues, verdict};
+use super::page::{CITABLE, NOT_BUILT, STRUCTURAL, VERDICTS, cited_tests, claims, key, venues, verdict};
 use super::pairing;
 use super::rows::row_problems;
-use super::verdicts::{anchor_problems, transition_problems, yes_problems};
+use super::verdicts::{anchor_problems, citable_problems, transition_problems};
 
 /// Everything wrong with the page.
 pub(super) fn page_problems(
@@ -73,10 +73,11 @@ pub(super) fn page_problems(
     // because they are the two citable ones, `wired` because it asserts a job reaches this venue.
     // `unrun` is excluded by its own rule, which refuses a venue CI invokes at all.
     let mut citable: BTreeSet<&str> = BTreeSet::new();
-    // The subset of `citable` that states the word `yes` rather than `can` - `verdicts::yes_problems`
-    // ties this word specifically to its venue's own section; a `can` cell points at evidence that
-    // lives in ANOTHER venue's section, so nothing here is what that rule would read.
-    let mut yes: BTreeSet<&str> = BTreeSet::new();
+    // The subset of `citable` that states a verdict from `page::CITABLE` - so `wired`, which is in
+    // `citable` because it asserts a job reaches the venue, is excluded. `verdicts::citable_problems`
+    // ties those words to the venue's own section: on an ON-DEMAND venue nothing but a job's own run
+    // makes such a claim true, so the section has to name one.
+    let mut answered: BTreeSet<&str> = BTreeSet::new();
     let mut unrun: BTreeSet<&str> = BTreeSet::new();
     let mut wired: BTreeSet<&str> = BTreeSet::new();
     for row in &claims {
@@ -98,12 +99,14 @@ pub(super) fn page_problems(
                      is a limit nothing can read",
                     venue.name
                 )),
-                Some(word @ ("yes" | "can")) => {
+                Some(word) if CITABLE.contains(&word) => {
                     claimed.insert(venue.name.as_str());
                     citable.insert(venue.name.as_str());
-                    if word == "yes" {
-                        yes.insert(venue.name.as_str());
-                    }
+                    // Every CITABLE word and not `yes` alone, which is the hole review measured:
+                    // the observed-run rule is about an ON-DEMAND venue, where nothing but a job's
+                    // own run makes a claim true - and that is as true of `can` as of `yes`. A
+                    // `can` cell was escaping it, so the softer spelling was an unlock.
+                    answered.insert(venue.name.as_str());
                     if !venue.is_built() {
                         problems.push(format!(
                             "{PAGE}: `{}` is `{NOT_BUILT}` and claims `{word}` about `{claim}` - a \
@@ -196,7 +199,7 @@ pub(super) fn page_problems(
     problems.extend(row_problems(&listed));
     problems.extend(transition_problems(text, &listed, &unrun, &wired, invoked));
     problems.extend(anchor_problems(&listed, &citable, invoked, runs_tests));
-    problems.extend(yes_problems(text, &listed, &yes));
+    problems.extend(citable_problems(text, &listed, &answered));
 
     for name in cited_tests(text) {
         if !tests.contains(&name) {

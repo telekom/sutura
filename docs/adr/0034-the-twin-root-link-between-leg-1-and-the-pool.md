@@ -5,7 +5,10 @@ description: A source may declare the issuer and STS audience its identity pool 
 
 # The twin-root link between leg 1 and the pool
 
-Status: **accepted.** `github.com/telekom/sutura#817` is the issue. Leg 1 (`who is asking`) verifies a
+Status: **accepted, and INVERTED by this record's own first amendment - read that first.** The
+mechanism this record decided was built and then deleted with the BigQuery HTTP transport; the
+composition root now REFUSES the declaration it argues for. `github.com/telekom/sutura#817` is the
+issue. Leg 1 (`who is asking`) verifies a
 caller document against `security.inbound`'s issuer and audience; leg 2 (`a source executes AS the
 asker`) hands that same subject token to Google STS for a workload-identity pool. Unless the pool's
 trusted issuer and its STS audience are the very values leg 1 verifies, the two trust roots are
@@ -68,3 +71,32 @@ constructed `Settings` overlay - mechanism-backed cells (`sts::tests::a_source_w
 the config parse cells, and the CLI boot cell) that are red against base. This is exactly the venue
 ADR 0032 uses for the hop's mechanics: necessary and not sufficient for an identity claim, which is
 why `docs/where-identity-is-proven.md` is unchanged.
+
+## First amendment, 2026-09-20: the link is gone, and the declaration is now refused at boot
+
+**Everything below this line describes a mechanism that no longer exists.** The link it decided ran
+through an RFC 8693 exchange: `WorkloadIdentityBroker` handed the caller's own verified token to
+Google STS for a workload-identity pool, and `WorkloadIdentity::assertion_matches_expectations`
+checked the `iss`/`aud` claims against `expected_issuer`/`expected_audience` before that round trip.
+The ADBC adoption deleted both hops (`docs/adr/0018`, fifth amendment), so **no transport in this
+build exchanges a subject's token against a pool** and there is nothing left for the two declared
+values to be checked by.
+
+**The consequence is the opposite of what this record decided, and it is a REFUSAL rather than an
+omission.** `crates/sutura-cli/src/serve/broker.rs` refuses to boot a source that declares either
+expectation, naming both keys, because a declaration nothing reads is a control that reads as being
+in place - which is `sutura_config`'s own `VerificationIdentityOnASharedSource` argument applied to
+this block. So an operator who followed this record gets a startup failure telling them to remove
+the keys.
+
+**What is unchanged is the PROBLEM this record names.** Leg 1 verifying a document the source's
+identity provider would decline is still a real gap, and the shipping mechanism does not close it -
+it sidesteps it, by not presenting the caller's credential to the data system at all. The chain is
+now *leg 1 verifies the caller, this deployment maps the verified subject to a declared account, and
+this deployment's own identity is authorized to become it*, which has no second trust root to be
+linked to. `crates/sutura-exec-bigquery/src/lib.rs` states what that costs beside the claim.
+
+`expected_issuer` and `expected_audience` survive in `sutura_config` as parsed, refusable values.
+Whether they should be removed from the settings tree is an owner decision and is not taken here:
+keeping them means a deployment that once declared them fails loudly rather than silently, which is
+the better failure while the question is open.

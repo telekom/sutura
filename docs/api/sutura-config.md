@@ -3747,8 +3747,15 @@ The deployment-wide trust anchors a fixed-host outbound client verifies against,
 
 `None` means every such client verifies against its own compiled-in roots - see
 `OutboundAnchors`. A composition root reads this once at boot and hands the resolved
-material to `WireAgent::secured` (or its equivalent) rather than each call site reading
-settings for itself.
+material to each outbound client rather than letting every call site read settings for
+itself - today that is the `DataHub` catalog reader's own agent, and nothing else.
+
+**The `BigQuery` consumer this used to name is gone.** It said the material goes to
+`WireAgent::secured`; that type went with the HTTP transport (`docs/adr/0018`, fifth
+amendment), and the ADBC driver verifies its own TLS against roots nothing here reads. So a
+deployment declaring anchors gets them for `Postgres` and `DataHub` and **not** for
+`BigQuery` -
+a narrowing this type cannot refuse, stated here because this doc comment publishes.
 
 ```rust
 pub const fn outbound_identity(&self) -> Option<&OutboundIdentity>

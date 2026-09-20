@@ -361,3 +361,28 @@ label) and calls `Certificate::from_pem`/`PrivateKey::from_pem`, the pair `ureq`
 verifying it: no shipped source is configured to demand one, so the new cells prove presentation and
 nothing downstream. Second, this is not a leg-2 claim - it authenticates the DEPLOYMENT's transport,
 not the asking subject; `AGENTS.md`'s leg-2 sentence is unchanged.
+
+## Fourth amendment, 2026-09-20: three of the four rotating HTTP consumers are gone
+
+The second amendment above ends *"BigQuery wire, the STS exchange, `iamcredentials` and the DataHub
+reader all hold that shape, so all four rotate by the next request"*, and names the DataHub reader
+as *"the FOURTH consumer"*. **Three of those four were deleted** with the BigQuery HTTP transport
+(`docs/adr/0018`, fifth amendment): `wire/**` is seventeen files on `origin/main` and none at HEAD,
+so `WireAgent` and the `StsOverHttp`/`IamCredentialsOverHttp` pair no longer exist. The third
+amendment's citation of `sutura_exec_bigquery::wire::WireAgent::rotating_agent` as one of *"both
+outbound HTTP call sites"* is dead for the same reason: there is one now.
+
+**So there is no fourth consumer and no four to rotate.** What remains of that claim is the DataHub
+catalog reader's own `ureq` agent, which is per-request and does adopt `current()` on the next read,
+plus the Postgres per-source pair, which is left-until-closed exactly as this record already says.
+The ADBC driver verifies its own TLS against roots nothing in this repository reads, so
+`security.outbound` reaches no BigQuery code at all - `crates/sutura-config/src/security.rs`'s own
+accessor states that where it publishes.
+
+**And the rotation's own coverage narrowed with them, which is the half worth writing down.** The
+handshake cells that watched a real agent adopt a replaced bundle lived in
+`sutura-exec-bigquery`'s `wire/tests/rotation.rs` and went with it. Rotation is now held at
+`sutura-tls` alone - its replaced/malformed/unchanged/debug cells - and **no cell anywhere watches a
+real handshake adopt a rotated bundle.** `.agents/skills/sutura/invariants` carries the same
+sentence beside the row, and this record is what that row cites; before this amendment the skill was
+honest and this page said the opposite.

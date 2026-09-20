@@ -337,9 +337,14 @@ let credential = self
     .map_err(|cause| ExchangeUnusable::Provider { cause: Box::new(cause) })?;
 ```
 
-against the port at `crates/sutura-exec-bigquery/src/sts.rs:116`,
-`fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`,
-whose one non-test implementor is `StsOverHttp` at `sts.rs:114`.
+against the port `sutura_exec_bigquery::StsExchange`,
+`fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error>`.
+**Corrected 2026-09-20:** this named `sts.rs:116` and `sts.rs:114` and said the port's one non-test
+implementor is `StsOverHttp`. Both line numbers now point at an accessor - a citation by line is one
+edit from wrong - and `StsOverHttp` was deleted with the BigQuery HTTP transport (`docs/adr/0018`,
+fifth amendment). **The port has five implementors at HEAD and every one of them is a fake**, so
+nothing in a shipped build exchanges anything: the hop this section calls the one that is built is
+no longer built, and `crates/sutura-exec-bigquery/src/sts.rs`'s own header says so at the type.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -
