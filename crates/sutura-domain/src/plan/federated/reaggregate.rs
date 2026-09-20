@@ -330,6 +330,7 @@ mod tests {
         Carried::Aggregated {
             pushed,
             column: ColumnName::parse("mrr_cents").expect("a test column is a column"),
+            model: None,
         }
     }
 

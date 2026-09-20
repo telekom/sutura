@@ -23,7 +23,9 @@
 use crate::calendar::TimeRange;
 use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
+use crate::model::{
+    Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName, TableName,
+};
 use crate::pinned::PinnedDefinitions;
 use crate::query::Top;
 use crate::warehouse::ParamValue;
@@ -820,14 +822,18 @@ impl<'bundle> AnchorPlan<'bundle> {
 /// measure's column comes from.
 ///
 /// Resolves one term at a time rather than one shape at a time, which is why a term added to the
-/// vocabulary is one arm here instead of one arm per shape.
-pub fn plan_measure(measure: &Measure, resolve: impl Fn(&ColumnName) -> PlanColumn) -> PlanMeasure {
-    let resolve_term = |term: &Term| match *term {
-        Term::Aggregate(ref inner) => PlanTerm::Aggregate {
+/// vocabulary is one arm here instead of one arm per shape. The resolver receives the term's
+/// `model` beside its column, so a `#780` term that names another fact model resolves its column
+/// to that model's table rather than the metric's own.
+pub fn plan_measure(measure: &Measure, resolve: impl Fn(&ColumnName, Option<&ModelName>) -> PlanColumn) -> PlanMeasure {
+    let resolve_term = |term: &Term| match term {
+        Term::Aggregate(inner) => PlanTerm::Aggregate {
             aggregate: inner.aggregate(),
-            column: resolve(inner.column()),
+            column: resolve(inner.column(), inner.model()),
         },
-        Term::CountIf { ref column } => PlanTerm::CountIf { column: resolve(column) },
+        Term::CountIf { column, model } => PlanTerm::CountIf {
+            column: resolve(column, model.as_ref()),
+        },
     };
     match *measure {
         Measure::Simple(ref term) => PlanMeasure::Simple {

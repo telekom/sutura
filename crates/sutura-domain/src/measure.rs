@@ -29,7 +29,7 @@
 //! rendered upstream and taken as given.
 
 use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, ColumnName};
+use crate::model::{Aggregate, ColumnName, ModelName};
 
 /// One aggregate applied to one declared column.
 ///
@@ -39,16 +39,36 @@ use crate::model::{Aggregate, ColumnName};
 ///
 /// Carries no `serde` derive. A term's on-disk shape belongs to [`TermRepr`] and to nothing else, so
 /// there is exactly one place where the format of `{ aggregate: sum, column: x }` is decided.
+///
+/// The third field is the model the column is read from, `None` meaning the metric's own model. It
+/// is the vocabulary of `telekom/sutura#780`: a ratio whose two sides live on two fact models reads
+/// each side off its own table. Like [`Term::CountIf`]'s own column, it is carried here and not on
+/// [`Term`]'s on-disk shape alone, so one type holds it everywhere a term's column is named.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregatedColumn {
     aggregate: Aggregate,
     column: ColumnName,
+    model: Option<ModelName>,
 }
 
 impl AggregatedColumn {
     #[inline]
     pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self {
-        Self { aggregate, column }
+        Self {
+            aggregate,
+            column,
+            model: None,
+        }
+    }
+
+    /// A term that names the model its column is read from, beside the column.
+    #[inline]
+    pub const fn on_model(aggregate: Aggregate, column: ColumnName, model: ModelName) -> Self {
+        Self {
+            aggregate,
+            column,
+            model: Some(model),
+        }
     }
 
     #[inline]
@@ -59,6 +79,12 @@ impl AggregatedColumn {
     #[inline]
     pub const fn column(&self) -> &ColumnName {
         &self.column
+    }
+
+    /// The model this term's column is read from, `None` for the metric's own model.
+    #[inline]
+    pub const fn model(&self) -> Option<&ModelName> {
+        self.model.as_ref()
     }
 }
 
@@ -102,16 +128,35 @@ pub enum Term {
     /// mirror of `Aggregate` with one extra word avoids the two spellings and buys the other half
     /// of the problem: a set that has to be kept in step with the domain's, whose failure mode is
     /// an aggregate no document can write and nothing anywhere failing to say so.
-    CountIf { column: ColumnName },
+    CountIf {
+        column: ColumnName,
+        /// The model the column is read from, `None` for the metric's own model. The same field
+        /// [`AggregatedColumn`] carries, so a ratio can take one side off another model whichever
+        /// term shape that side is.
+        model: Option<ModelName>,
+    },
 }
 
 impl Term {
     /// The column this term reads.
     #[inline]
     pub const fn column(&self) -> &ColumnName {
-        match *self {
-            Self::Aggregate(ref inner) => inner.column(),
-            Self::CountIf { ref column } => column,
+        match self {
+            Self::Aggregate(inner) => inner.column(),
+            Self::CountIf { column, .. } => column,
+        }
+    }
+
+    /// The model this term's column is read from, `None` for the metric's own model.
+    ///
+    /// `None` is resolved against the metric's own model by whoever has the metric in hand - the
+    /// consistency check at load, the splitter at plan time - and never defaulted here, because a
+    /// term alone has no metric beside it to resolve against.
+    #[inline]
+    pub const fn model(&self) -> Option<&ModelName> {
+        match self {
+            Self::Aggregate(inner) => inner.model(),
+            Self::CountIf { model, .. } => model.as_ref(),
         }
     }
 
@@ -139,6 +184,13 @@ struct TermRepr {
     column: Option<ColumnName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     count_if: Option<ColumnName>,
+    /// The model the term's column is read from. Absent means the metric's own model: every
+    /// existing document leaves it out, so it serializes nothing and a one-model metric's on-disk
+    /// shape is byte-identical to what it was before the field existed. Like the other three
+    /// Option fields it is written only when the author wrote it, so the word `model` is a word the
+    /// document says rather than a shape inferred from an absence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<ModelName>,
 }
 
 /// Why a term was rejected.
@@ -152,26 +204,40 @@ pub enum InvalidTerm {
     #[error("a term must say what it measures: write `aggregate` and `column`, or `count_if`")]
     Empty,
     /// Both terms at once. Refused rather than resolved by precedence: a document that writes both
-    /// means one of them, and picking one would certify a number the author did not ask for.
+    /// means one of them, and picking one would certify a number the author did not ask for. The
+    /// `model` word beside them is the same mistake one field further - it qualifies a column
+    /// neither term word names.
     #[error("a term is one thing, and this one writes two: `count_if` cannot appear beside `aggregate` or `column`")]
     TwoTerms,
     #[error("an aggregate term needs a column: `aggregate: {aggregate}` has no `column` beside it")]
     NoColumn { aggregate: Aggregate },
     #[error("an aggregate term needs an aggregate: `column: {column}` has no `aggregate` beside it")]
     NoAggregate { column: ColumnName },
+    /// A model named beside no term at all. The field exists to move a term's column to another
+    /// model, so without one of the two term words beside it there is no column for it to qualify
+    /// - the same shape as [`Self::NoColumn`], reached through the fourth field.
+    #[error(
+        "a term names model {model} without saying what it measures beside it: write `aggregate` and `column`, or `count_if`, for the model to qualify"
+    )]
+    ModelWithoutTerm { model: ModelName },
 }
 
 impl TryFrom<TermRepr> for Term {
     type Error = InvalidTerm;
 
     fn try_from(repr: TermRepr) -> Result<Self, Self::Error> {
-        match (repr.aggregate, repr.column, repr.count_if) {
-            (Some(aggregate), Some(column), None) => Ok(Self::Aggregate(AggregatedColumn::new(aggregate, column))),
-            (None, None, Some(column)) => Ok(Self::CountIf { column }),
-            (Some(aggregate), None, None) => Err(InvalidTerm::NoColumn { aggregate }),
-            (None, Some(column), None) => Err(InvalidTerm::NoAggregate { column }),
-            (None, None, None) => Err(InvalidTerm::Empty),
-            (_, _, Some(_)) => Err(InvalidTerm::TwoTerms),
+        match (repr.aggregate, repr.column, repr.count_if, repr.model) {
+            (Some(aggregate), Some(column), None, model) => Ok(Self::Aggregate(AggregatedColumn {
+                aggregate,
+                column,
+                model,
+            })),
+            (None, None, Some(column), model) => Ok(Self::CountIf { column, model }),
+            (Some(aggregate), None, None, _) => Err(InvalidTerm::NoColumn { aggregate }),
+            (None, Some(column), None, _) => Err(InvalidTerm::NoAggregate { column }),
+            (None, None, None, Some(model)) => Err(InvalidTerm::ModelWithoutTerm { model }),
+            (None, None, None, None) => Err(InvalidTerm::Empty),
+            (_, _, Some(_), _) => Err(InvalidTerm::TwoTerms),
         }
     }
 }
@@ -184,15 +250,21 @@ impl TryFrom<TermRepr> for Term {
 impl From<Term> for TermRepr {
     fn from(term: Term) -> Self {
         match term {
-            Term::Aggregate(AggregatedColumn { aggregate, column }) => Self {
+            Term::Aggregate(AggregatedColumn {
+                aggregate,
+                column,
+                model,
+            }) => Self {
                 aggregate: Some(aggregate),
                 column: Some(column),
                 count_if: None,
+                model,
             },
-            Term::CountIf { column } => Self {
+            Term::CountIf { column, model } => Self {
                 aggregate: None,
                 column: None,
                 count_if: Some(column),
+                model,
             },
         }
     }
@@ -290,6 +362,17 @@ impl Measure {
     /// knowing the shapes, and so a shape added here cannot be forgotten there.
     pub fn columns(&self) -> Vec<&ColumnName> {
         self.terms().into_iter().map(Term::column).collect()
+    }
+
+    /// The model each term's column is read from, in term order, `None` for the metric's own model.
+    ///
+    /// Beside [`Self::columns`] for the same reason that accessor exists: the consistency check
+    /// walks the pairs, so a column checked against one model while its term reads another is a
+    /// metric that refuses questions it is certified for - or, worse, certifies a column the model
+    /// it does not name does not declare. Positionally paired with [`Self::columns`], so a shape
+    /// added here cannot make the two lists disagree about what a term is.
+    pub fn models(&self) -> Vec<Option<&ModelName>> {
+        self.terms().into_iter().map(Term::model).collect()
     }
 
     /// The name of this shape, for a refusal or a description.
@@ -401,9 +484,9 @@ impl core::fmt::Display for Measure {
 /// How one term reads to a person. Same caveat as [`Measure`]'s: vocabulary, not SQL.
 impl core::fmt::Display for Term {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            Self::Aggregate(ref inner) => write!(f, "{}({})", inner.aggregate(), inner.column()),
-            Self::CountIf { ref column } => write!(f, "count_if({column})"),
+        match self {
+            Self::Aggregate(inner) => write!(f, "{}({})", inner.aggregate(), inner.column()),
+            Self::CountIf { column, .. } => write!(f, "count_if({column})"),
         }
     }
 }
@@ -427,10 +510,14 @@ impl core::fmt::Display for RequiredFilter {
 mod tests {
     use super::{AggregatedColumn, InvalidTerm, Measure, RequiredFilter, Term, TermRepr, ZeroDenominator};
     use crate::catalog::DimensionValue;
-    use crate::model::{Aggregate, ColumnName};
+    use crate::model::{Aggregate, ColumnName, ModelName};
 
     fn column(raw: &str) -> ColumnName {
         ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn model(raw: &str) -> ModelName {
+        ModelName::parse(raw).expect("a test model is a model")
     }
 
     fn value(raw: &str) -> DimensionValue {
@@ -469,6 +556,7 @@ mod tests {
         // error, which is why this is a variant rather than a convention.
         let term = Term::CountIf {
             column: column("churned_in_month"),
+            model: None,
         };
         assert_eq!(term.column(), &column("churned_in_month"));
         assert_eq!(term.kind(), "count_if");
@@ -488,6 +576,7 @@ mod tests {
         let measure = Measure::Ratio {
             numerator: Term::CountIf {
                 column: column("churned_in_month"),
+                model: None,
             },
             denominator: aggregated(Aggregate::CountDistinct, "subscription_key"),
             zero_denominator: ZeroDenominator::Null,
@@ -522,42 +611,135 @@ mod tests {
         // The cost of a flat on-disk term, paid here rather than by the author. Each of these is a
         // real mistake with its own variant, because "invalid term" would send whoever wrote the
         // line back to compare it against a grammar.
-        let repr = |aggregate: Option<Aggregate>, col: Option<&str>, count_if: Option<&str>| TermRepr {
+        let repr = |aggregate: Option<Aggregate>, col: Option<&str>, count_if: Option<&str>, term_model: Option<&str>| TermRepr {
             aggregate,
             column: col.map(column),
             count_if: count_if.map(column),
+            model: term_model.map(model),
         };
         assert_eq!(
-            Term::try_from(repr(Some(Aggregate::Sum), None, None)),
+            Term::try_from(repr(Some(Aggregate::Sum), None, None, None)),
             Err(InvalidTerm::NoColumn {
                 aggregate: Aggregate::Sum
             })
         );
         assert_eq!(
-            Term::try_from(repr(None, Some("amount"), None)),
+            Term::try_from(repr(None, Some("amount"), None, None)),
             Err(InvalidTerm::NoAggregate {
                 column: column("amount")
             })
         );
-        assert_eq!(Term::try_from(repr(None, None, None)), Err(InvalidTerm::Empty));
+        assert_eq!(Term::try_from(repr(None, None, None, None)), Err(InvalidTerm::Empty));
         // Both terms at once is refused rather than resolved by precedence: the document means one
         // of them, and choosing would certify a number nobody asked for.
         assert_eq!(
-            Term::try_from(repr(Some(Aggregate::Sum), Some("amount"), Some("churned"))),
+            Term::try_from(repr(Some(Aggregate::Sum), Some("amount"), Some("churned"), None)),
             Err(InvalidTerm::TwoTerms)
         );
         assert_eq!(
-            Term::try_from(repr(None, Some("amount"), Some("churned"))),
+            Term::try_from(repr(None, Some("amount"), Some("churned"), None)),
             Err(InvalidTerm::TwoTerms)
         );
         assert_eq!(
-            Term::try_from(repr(Some(Aggregate::Sum), Some("amount"), None)),
+            Term::try_from(repr(Some(Aggregate::Sum), Some("amount"), None, None)),
             Ok(aggregated(Aggregate::Sum, "amount"))
         );
         assert_eq!(
-            Term::try_from(repr(None, None, Some("churned"))),
+            Term::try_from(repr(None, None, Some("churned"), None)),
             Ok(Term::CountIf {
-                column: column("churned")
+                column: column("churned"),
+                model: None,
+            })
+        );
+    }
+
+    #[test]
+    fn a_term_that_names_no_model_at_all_parses_as_the_metric_s_own() {
+        // The default that keeps every existing document byte-identical: `model` left out is
+        // `None`, which is the metric's own model wherever the metric is in hand. A term on its
+        // own does not default it - there is no metric beside it to read - which is what
+        // [`Term::model`]'s doc states.
+        let repr = TermRepr {
+            aggregate: Some(Aggregate::Sum),
+            column: Some(column("amount")),
+            count_if: None,
+            model: None,
+        };
+        let term = Term::try_from(repr).expect("a plain term parses");
+        assert_eq!(term, aggregated(Aggregate::Sum, "amount"));
+        assert_eq!(term.model(), None);
+        // And the round trip writes nothing back: the field is `skip_serializing_if`, so the
+        // one-model metric's canonical bytes do not move.
+        let written = serde_json::to_string(&term).expect("a term serializes");
+        assert!(!written.contains("model"), "an absent model must not serialize: {written}");
+    }
+
+    #[test]
+    fn a_term_that_names_its_own_model_round_trips_it() {
+        // The vocabulary this field buys: a ratio whose denominator counts customers reads that
+        // count off the customers model, beside the one the metric sits on. The word reaches the
+        // digest, because the digest is over the serialized form.
+        let term = Term::Aggregate(AggregatedColumn::on_model(
+            Aggregate::Count,
+            column("customer_key"),
+            model("customers"),
+        ));
+        assert_eq!(term.model(), Some(&model("customers")));
+        let written = serde_json::to_string(&term).expect("a term serializes");
+        let reread: Term = serde_json::from_str(&written).expect("what a term serializes it parses back");
+        assert_eq!(reread, term, "a term with a model survives the shape it writes itself as");
+        assert!(
+            written.contains("model"),
+            "a named model has to reach the serialized form: {written}"
+        );
+    }
+
+    #[test]
+    fn a_measure_reports_one_model_per_term() {
+        // The pair the consistency check walks. Positionally paired with `columns`, so a term whose
+        // column and model disagreed about the order they report in would be visible here rather
+        // than as a metric certified against the wrong table.
+        let measure = Measure::Ratio {
+            numerator: aggregated(Aggregate::Sum, "mrr_cents"),
+            denominator: Term::Aggregate(AggregatedColumn::on_model(
+                Aggregate::Count,
+                column("customer_key"),
+                model("customers"),
+            )),
+            zero_denominator: ZeroDenominator::Null,
+        };
+        assert_eq!(measure.columns(), vec![&column("mrr_cents"), &column("customer_key")]);
+        assert_eq!(measure.models(), vec![None, Some(&model("customers"))]);
+    }
+
+    #[test]
+    fn a_model_beside_a_count_if_term_round_trips() {
+        // The same field on the other term shape, because a ratio's conditional side can name a
+        // model too - and because a term whose shape is inferred from which word is present must
+        // not depend on that inference for a field the author wrote.
+        let term = Term::CountIf {
+            column: column("customer_key"),
+            model: Some(model("customers")),
+        };
+        let written = serde_json::to_string(&term).expect("a term serializes");
+        let reread: Term = serde_json::from_str(&written).expect("what a term serializes it parses back");
+        assert_eq!(reread, term);
+        assert_eq!(reread.model(), Some(&model("customers")));
+    }
+
+    #[test]
+    fn a_model_beside_no_term_at_all_is_refused() {
+        // The model word qualifies a column, so without one of the two term words there is nothing
+        // for it to qualify - a fourth field, a fourth mistake, and a variant naming it.
+        assert_eq!(
+            Term::try_from(TermRepr {
+                aggregate: None,
+                column: None,
+                count_if: None,
+                model: Some(model("customers")),
+            }),
+            Err(InvalidTerm::ModelWithoutTerm {
+                model: model("customers")
             })
         );
     }

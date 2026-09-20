@@ -408,7 +408,10 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
 ///
 /// A table rather than a generator, because the type has seven inhabitants: one per [`Aggregate`],
 /// plus `CountIf`. `crate::measure` states what adding an aggregate costs - a generator arm and a
-/// golden - so a seventh arriving without a row here does not arrive quietly.
+/// golden - so a seventh arriving without a row here does not arrive quietly. The `model` field a
+/// term can now carry is an eighth DIMENSION, not an eighth inhabitant: it changes what a term
+/// reads, not what a term is, so it gets no row in the table above - it gets the two tests below it,
+/// which hold the digest property over the field instead.
 #[test]
 fn a_term_survives_the_on_disk_shape_it_serializes_into() {
     let column = ColumnName::parse("amount_cents").expect("a test column is a column");
@@ -423,7 +426,10 @@ fn a_term_survives_the_on_disk_shape_it_serializes_into() {
     let terms: Vec<Term> = aggregates
         .into_iter()
         .map(|aggregate| Term::Aggregate(AggregatedColumn::new(aggregate, column.clone())))
-        .chain([Term::CountIf { column: column.clone() }])
+        .chain([Term::CountIf {
+            column: column.clone(),
+            model: None,
+        }])
         .collect();
     assert_eq!(terms.len(), 7, "every term this type can hold is in the table");
 
@@ -437,5 +443,42 @@ fn a_term_survives_the_on_disk_shape_it_serializes_into() {
             written,
             "the same term serializes to different bytes on the second pass, which moves the digest"
         );
+    }
+}
+
+/// A term that names its own model moves the digest; one that does not leaves it where it was.
+///
+/// Two invariants, not one. The digest is taken over the serialized form, so a field that reaches
+/// that form has to reach it or the digest does not know the term changed - and a field the author
+/// did not write has to stay OUT of it, or every one-model metric's digest would move the day the
+/// field shipped, and every snapshot a reviewer holds would go stale at once.
+#[test]
+fn a_term_s_model_reaches_the_digest_it_moves_and_is_absent_it_stays_out() {
+    let column = ColumnName::parse("customer_key").expect("a test column is a column");
+    let model = ModelName::parse("customers").expect("a test model is a model");
+
+    let without = Term::Aggregate(AggregatedColumn::new(Aggregate::Count, column.clone()));
+    let with = Term::Aggregate(AggregatedColumn::on_model(Aggregate::Count, column, model));
+    let unwritten = serde_json::to_string(&without).expect("a term serializes");
+    let written = serde_json::to_string(&with).expect("a term serializes");
+    assert_ne!(
+        written, unwritten,
+        "naming a model is a different term and the digest is over that form - a digest that stayed put would certify one number for two terms"
+    );
+    assert!(
+        !unwritten.contains("model"),
+        "an absent model must not serialize: {unwritten}"
+    );
+    assert!(
+        written.contains("model"),
+        "a named model must reach the serialized form: {written}"
+    );
+
+    // And both halves survive the shape they write, because the digest property is over the field
+    // too, not only over the inhabitants above it.
+    for term in [without, with] {
+        let text = serde_json::to_string(&term).expect("a term serializes");
+        let reread: Term = serde_json::from_str(&text).expect("a term parses back what it wrote");
+        assert_eq!(reread, term, "a term has to survive the shape it writes itself as");
     }
 }

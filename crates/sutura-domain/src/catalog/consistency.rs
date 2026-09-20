@@ -69,6 +69,29 @@ pub enum InconsistentDefinitions {
         model: ModelName,
         column: ColumnName,
     },
+    /// A term naming a model that is not declared at all. The same dangling reference
+    /// [`Self::UnknownModel`] is for the metric's own model, one field further.
+    #[error("metric {metric} measures model {model}, which is not declared")]
+    UnknownTermModel { metric: MetricName, model: ModelName },
+    /// A term naming a model the metric's model cannot reach in one hop.
+    ///
+    /// The splitter joins a term's model to the metric's model exactly as a dimension's `via` is
+    /// joined, and it assumes what this check proves: a many-to-one (or one-to-one) relationship
+    /// FROM the metric's model TO the term's model, so the join adds no rows and the numerator is
+    /// not doubled. A two-hop path is a join the plan vocabulary does not have; a one-to-many
+    /// relationship would duplicate fact rows and change the measure - the same reason
+    /// [`Self::JoinWouldDuplicateRows`] refuses a dimension's `via`.
+    #[error(
+        "metric {metric} measures model {model}, but no relationship joins it to the metric's model in one hop without duplicating rows"
+    )]
+    TermModelNotOneHop { metric: MetricName, model: ModelName },
+    /// Two such relationships. Either would compute a different number, so the metric is ambiguous
+    /// rather than wrong by one of them - the author has to name the join, which today means one
+    /// relationship per term model.
+    #[error(
+        "metric {metric} measures model {model}, but two relationships join the metric's model to it in one hop without duplicating rows, and the plan cannot know which to use"
+    )]
+    TermModelAmbiguousJoin { metric: MetricName, model: ModelName },
     #[error("metric {metric} has a required filter on column {column}, which model {model} does not declare")]
     UnknownRequiredFilterColumn {
         metric: MetricName,
@@ -317,16 +340,23 @@ impl Definitions {
                 metric: metric.name.clone(),
                 model: metric.model.clone(),
             })?;
-        // Every column the measure reads, whichever shape it is. `Measure::columns` is the single
-        // place that knows, so a shape added there cannot be forgotten here - which is the failure
-        // this loop replaces, from when a measure was one column and the check read it directly.
+        // Every term the measure reads, checked against the model THAT TERM reads from. A term
+        // without a `model` of its own reads the metric's model, as every existing document does;
+        // one with it is a `telekom/sutura#780` ratio side that lives on another fact model. The
+        // pair is walked in one loop rather than two zips, so a column and its model cannot desync
+        // about which term they belong to - which is the failure this loop replaces, from when a
+        // term had no model and the check read the measure's columns flat.
         if let Some(measure) = metric.computation.measure() {
-            for column in measure.columns() {
-                if !model.has_column(column) {
+            for (column, term_model) in measure.columns().into_iter().zip(measure.models()) {
+                let owning = match term_model {
+                    None => model,
+                    Some(name) => Self::term_model(models, relationships, metric, name)?,
+                };
+                if !owning.has_column(column) {
                     return Err(InconsistentDefinitions::UnknownMeasureColumn {
                         metric: metric.name.clone(),
-                        model: model.name.clone(),
-                        column: column.clone(),
+                        model: owning.name.clone(),
+                        column: (*column).clone(),
                     });
                 }
             }
@@ -466,6 +496,46 @@ impl Definitions {
         // checked against every label it can project.
         Self::check_labels_against_table(metric, owning.table_name())?;
         Ok(())
+    }
+
+    /// Resolves the model one term's `model` names to the model object its column is checked
+    /// against, and proves the metric's model can reach it in one hop.
+    ///
+    /// One scan, three refusals - the same shape as [`Self::check_dimension`]'s `via` arm, for the
+    /// same reason: a term's model is joined exactly as a dimension's `via` is, so it is proved the
+    /// same way rather than assumed by the query path. Unreachable and ambiguous are distinct
+    /// because the two leave different fixes - declare the relationship, or drop one of the two.
+    ///
+    /// `check_relationship` already proved both ends of every relationship are declared models and
+    /// that their join columns exist, so this reads the maps rather than re-asking those questions.
+    fn term_model<'a>(
+        models: &'a BTreeMap<ModelName, Model>,
+        relationships: &BTreeMap<RelationshipName, Relationship>,
+        metric: &Metric,
+        term_model: &ModelName,
+    ) -> Result<&'a Model, InconsistentDefinitions> {
+        let target = models
+            .get(term_model)
+            .ok_or_else(|| InconsistentDefinitions::UnknownTermModel {
+                metric: metric.name.clone(),
+                model: term_model.clone(),
+            })?;
+        let mut candidates = relationships.values().filter(|relationship| {
+            relationship.origin_model == metric.model
+                && relationship.target_model == *term_model
+                && !relationship.join_type.may_duplicate_rows()
+        });
+        match (candidates.next(), candidates.next()) {
+            (None, _) => Err(InconsistentDefinitions::TermModelNotOneHop {
+                metric: metric.name.clone(),
+                model: term_model.clone(),
+            }),
+            (Some(_), None) => Ok(target),
+            (Some(_), Some(_)) => Err(InconsistentDefinitions::TermModelAmbiguousJoin {
+                metric: metric.name.clone(),
+                model: term_model.clone(),
+            }),
+        }
     }
 
     /// Every label this metric projects, against one table name its statement reads.

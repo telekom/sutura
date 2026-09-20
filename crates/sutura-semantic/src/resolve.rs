@@ -17,7 +17,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Definitions, Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
@@ -51,7 +51,12 @@ pub(crate) struct ResolvedFilter<'a> {
 }
 
 /// A question whose every name resolved.
+///
+/// Carries the [`Definitions`] the metric was looked up from, because the plan stage needs to
+/// resolve a term's `model` to its [`Model`] and [`Relationship`] - the same lookup the
+/// consistency check made at load, read here at plan time rather than re-asked.
 pub(crate) struct Resolution<'a> {
+    pub(crate) definitions: &'a Definitions,
     pub(crate) metric: &'a Metric,
     pub(crate) model: &'a Model,
     pub(crate) grain: Grain,
@@ -214,6 +219,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     }
 
     Ok(Resolution {
+        definitions,
         metric,
         model,
         grain: query.grain(),
