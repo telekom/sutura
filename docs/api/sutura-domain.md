@@ -6562,7 +6562,7 @@ What is established, and by what:
 
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
-| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
@@ -7099,17 +7099,19 @@ None of the three things downstream then refuses it, which is what makes the pai
 
 # Order is half of it, and that half is a wrong number rather than an error
 
-Three of the four dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
-so the Nth placeholder in the statement takes the Nth value in the list; only Postgres writes a
-NUMBERED `$n` that names its value. The renderer emits predicates in filter order and a
-positional adapter binds the list in list order, so those two agree only while the indices run
-`0, 1, .. n-1` down the filters. Read off the shipped adapters rather than reasoned about:
-`sutura_exec_duckdb::bind` maps `QueryPlan::params` in list
-order against `?`, `sutura_exec_bigquery` sends the same list as an ordered array under a
-positional parameter mode, and `sutura_sql`'s `?` placeholder ignores the position it is given.
-`ClickHouse` is the third `?` dialect and has no executor here yet. `sutura_exec_postgres::bind`
-maps the same list in the same order, but its `$n` is derived from the predicate's index, so it
-is the one shipped adapter the ordering cannot mislead.
+Three of the five dialects `sutura_sql` renders for write a POSITIONAL placeholder, a bare `?`,
+so the Nth placeholder in the statement takes the Nth value in the list. Two write a NUMBERED
+placeholder that names its value, and they are not one case: Postgres writes `$n`, Oracle
+writes `:n`, and `$1` sent to Oracle is not a placeholder at all. The renderer emits predicates
+in filter order and a positional adapter binds the list in list order, so those two agree only
+while the indices run `0, 1, .. n-1` down the filters. Read off the shipped adapters rather
+than reasoned about: `sutura_exec_duckdb::bind` maps
+`QueryPlan::params` in list order against `?`,
+`sutura_exec_bigquery` sends the same list as an ordered array under a positional parameter
+mode, and `sutura_sql`'s `?` placeholder ignores the position it is given. `ClickHouse` is the
+third `?` dialect and has no executor here yet, and neither has Oracle.
+`sutura_exec_postgres::bind` maps the same list in the same order, but its `$n` is derived from
+the predicate's index, so it is the one shipped adapter the ordering cannot mislead.
 
 So a plan whose filters name the same parameters in a different order renders correctly on the
 numbered dialect and binds the wrong values on a positional one - `order_date >= <end> AND
@@ -7579,7 +7581,7 @@ What is established, and by what:
 
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
-| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 
@@ -7702,7 +7704,7 @@ What is established, and by what:
 
 | Claim | Venue | Mechanism |
 | --- | --- | --- |
-| the four dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
 | `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05, and held from now on by `an_internal_label_survives_as_an_alias_at_the_service` in `crates/sutura-exec-bigquery/tests/acceptance.rs`, which the `bigquery-acceptance` job runs |
 | the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
 

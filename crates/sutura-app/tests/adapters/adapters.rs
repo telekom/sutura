@@ -683,6 +683,11 @@ macro_rules! registered {
             sutura_sql::Dialect::BigQuery,
             polyglot_sql::DialectType::BigQuery
         );
+        // Rendering only - PR 1 of `github.com/telekom/sutura#127`. No `sutura-exec-oracle`
+        // adapter and no execution golden yet, so the parse check this cell runs is the whole of
+        // what backs it: green means this crate's own renderer produced something Oracle's own
+        // grammar accepts, not that a real Oracle agrees with the number.
+        $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
     };
 }
 pub(crate) use registered;

@@ -1270,9 +1270,14 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   hands the loaded certificates here, which replaces `RootCerts::WebPki` with `RootCerts::Specific`
   built from exactly that bundle or host store - never both. `crate::wire::tls` is the one place
   either constructor turns `sutura_tls`'s `CertificateDer` output into `ureq`'s own certificate
-  type, so the conversion is written once rather than at every call site. **No client identity
-  travels this way**: `security.outbound` is anchors only - Google's endpoints take a bearer
-  token, not mTLS, so there is no `ClientCert` this module ever builds.
+  type, so the conversion is written once rather than at every call site. **A client identity is
+  optional and deployment-wide too** (`security.outbound.client_certificate`/`client_key`,
+  `github.com/telekom/sutura#911`): `WireAgent::rotating_agent` resolves it the same way and
+  folds it into `ureq`'s `ClientCert` over the same `crate::wire::tls` seam. **Presenting a
+  certificate is not a peer verifying it** - `HOST` still takes a bearer token, not a client
+  certificate, and no shipped source is configured to demand one, so this proves the deployment
+  PRESENTS what it declared, never that anything downstream checked it. Absent means nothing is
+  presented, unchanged from every release before this.
 - **Failure is derived from the RESULT SHAPE and never from `errors` being non-empty.** The
   endpoint documents that array as *"the first errors or warnings encountered"* and says entries
   *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
@@ -1303,99 +1308,6 @@ said it linked none, which `docs/adr/0017`'s second amendment had already spent.
   no field for it and this crate has no logging dependency, so adding one for a line nobody has
   ever seen is a dependency decision this change does not take. Stated because a dropped warning
   is exactly the kind of absence that reads as "there were none".
-
-### `struct WireAgent`
-
-```rust
-pub struct WireAgent
-```
-
-The client every request in this crate goes through, with the four settings that matter PINNED BY
-THE TYPE rather than by a call site.
-
-**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
-The settings below used to live in a free function returning a bare `ureq::Agent`, and both
-`BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
-composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
-and no timeout, while every test passed because the tests all called the right function. A private
-field with one constructor is what *a newtype parses rather than validates* asks for: if an
-instance of this exists, the pins hold.
-
-It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
-that goes into the request body are **the same value**. Two arguments could have disagreed.
-
-#### Methods
-
-```rust
-pub const fn bounds(&self) -> JobBounds
-```
-
-What every job through this client is bounded by.
-
-```rust
-pub fn pinned(bounds: JobBounds) -> Self
-```
-
-The compiled-in-roots constructor: `Self::secured` with no declared anchors.
-
-This is every deployment's behaviour before `github.com/telekom/sutura#125` and stays the
-default for one with no `security.outbound.transport_anchors` block - see `Self::secured`
-for the one setting that differs when a deployment declares one.
-
-```rust
-pub const fn rotating(bounds: JobBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
-```
-
-The rotation-lane constructor over a handle built by `Self::rotating_agent`.
-
-```rust
-pub fn rotating_agent(bounds: JobBounds, anchors: Option<sutura_tls::Anchors>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
-```
-
-Builds the wire's rotating agent handle for a declared `security.outbound.transport_anchors`
-set (and, when one is declared, the poll handle the composition root drives on
-`sutura_tls::POLL_INTERVAL`). `None` returns a fixed handle over `ureq`'s compiled-in roots
-(the pre-`#125` behaviour, nothing to re-read); `Some` rebuilds `RootCerts::Specific` from each
-freshly loaded bundle, adopted by the next request.
-
-# Errors
-
-The declared bundle cannot be loaded at boot.
-
-```rust
-pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
-```
-
-The one place every non-default setting is decided, and every one of them is a decision:
-
-- `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
-  discards the body - and the body is where the endpoint says *which* refusal this is. Status is
-  read explicitly instead, in `refusal`.
-- `https_only(true)`, so a bearer token cannot leave over plaintext even if a URL somewhere
-  loses its scheme. `HOST` is already `https`; this is the second lock.
-- `max_redirects(0)`, so the credential has no second host to reach. `ureq-proto` also strips
-  `authorization` on a redirect, which was verified rather than assumed - so this is belt and
-  braces, and the belt is ours.
-- `timeout_global`, at the job's deadline plus `CONNECT_MARGIN`, so the socket cannot outlive
-  the job it is waiting for by more than connection setup.
-- `max_response_header_size`, because headers are read before the body's own limit applies.
-- `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
-  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
-  `HOST`, so what the environment chooses is the route and not the destination. The module
-  header states that distinction, because a previous version of it claimed the stronger thing.
-- `tls_config`, over `crate::wire::tls::config` - `RootCerts::WebPki` (`ureq`'s own default)
-  for `anchors: None`, which is every call `Self::pinned` makes and every deployment before
-  `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
-  `security.outbound.transport_anchors` resolves to. No client identity: `security.outbound`
-  is anchors only, so there is no `ClientCert` in either arm.
-
-The agent is wrapped in a never-rotating `sutura_tls::Rotating` - this constructor has no
-declaration to re-read. The rotation lane is `Self::rotating`, fed by
-`Self::rotating_agent`.
-
-#### Implements
-
-`Clone`, `Debug`
 
 ### `struct EndpointMessage`
 
@@ -1657,6 +1569,22 @@ the credential source refreshes through - one connection pool, one set of pins, 
 
 `Debug`, `JobTransport`
 
+### `use WireAgent`
+
+The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.
+
+**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
+The settings below used to live in a free function returning a bare `ureq::Agent`, and both
+`super::BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
+composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what *a newtype parses rather than validates* asks for: if an
+instance of this exists, the pins hold.
+
+It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are **the same value**. Two arguments could have disagreed.
+
 ### `use BytesBilledCeiling`
 
 The most a single job may be billed for scanning.
@@ -1738,6 +1666,111 @@ An `ImpersonateAsAccount` that talks to Google's `iamcredentials` API over HTTP.
 ### `use StsOverHttp`
 
 An `StsExchange` that talks to Google STS over HTTP.
+
+### Module `agent`
+
+`WireAgent` - the one `ureq::Agent` every request in this crate goes through.
+
+Its six pins are fixed by the type, and its `security.outbound` declaration (anchors, and
+since `github.com/telekom/sutura#911` an optional client identity) is folded into it.
+
+Split out of `wire.rs` for the file-length gate the way `bounds.rs`/`credential.rs`/`document.rs`
+already are: `wire.rs` sat at (and then over) `cargo xtask max-lines`'s 1000-line cap, and this
+type - one struct, one impl block - is a separable concept rather than a slice of prose.
+
+#### `struct WireAgent`
+
+```rust
+pub struct WireAgent
+```
+
+The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.
+
+**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
+The settings below used to live in a free function returning a bare `ureq::Agent`, and both
+`super::BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
+composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what *a newtype parses rather than validates* asks for: if an
+instance of this exists, the pins hold.
+
+It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are **the same value**. Two arguments could have disagreed.
+
+##### Methods
+
+```rust
+pub const fn bounds(&self) -> JobBounds
+```
+
+What every job through this client is bounded by.
+
+```rust
+pub fn pinned(bounds: JobBounds) -> Self
+```
+
+The compiled-in-roots constructor: `Self::secured` with no declared anchors.
+
+This is every deployment's behaviour before `github.com/telekom/sutura#125` and stays the
+default for one with no `security.outbound.transport_anchors` block - see `Self::secured`
+for the one setting that differs when a deployment declares one.
+
+```rust
+pub const fn rotating(bounds: JobBounds, agent: sutura_tls::Rotating<ureq::Agent>) -> Self
+```
+
+The rotation-lane constructor over a handle built by `Self::rotating_agent`.
+
+```rust
+pub fn rotating_agent(bounds: JobBounds, declared: Option<sutura_tls::Declared>) -> Result<(sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>), sutura_tls::LoadError>
+```
+
+Builds the wire's rotating agent handle for a declared `security.outbound` set (and, when one
+is declared, the poll handle the composition root drives on `sutura_tls::POLL_INTERVAL`).
+`None` returns a fixed handle over `ureq`'s compiled-in roots and no presented identity (the
+pre-`#125` behaviour, nothing to re-read); `Some` rebuilds `RootCerts::Specific` from each
+freshly loaded bundle and, when `sutura_tls::Declared::identity` is declared, presents the
+freshly loaded `sutura_tls::LoadedIdentity` too - both adopted by the next request.
+
+# Errors
+
+The declared bundle or client identity cannot be loaded at boot.
+
+```rust
+pub fn secured(bounds: JobBounds, anchors: Option<sutura_tls::LoadedAnchors>) -> Self
+```
+
+The one place every non-default setting is decided, and every one of them is a decision:
+
+- `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
+  discards the body - and the body is where the endpoint says *which* refusal this is. Status is
+  read explicitly instead, in `refusal`.
+- `https_only(true)`, so a bearer token cannot leave over plaintext even if a URL somewhere
+  loses its scheme. `HOST` is already `https`; this is the second lock.
+- `max_redirects(0)`, so the credential has no second host to reach. `ureq-proto` also strips
+  `authorization` on a redirect, which was verified rather than assumed - so this is belt and
+  braces, and the belt is ours.
+- `timeout_global`, at the job's deadline plus `CONNECT_MARGIN`, so the socket cannot outlive
+  the job it is waiting for by more than connection setup.
+- `max_response_header_size`, because headers are read before the body's own limit applies.
+- `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
+  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
+  `HOST`, so what the environment chooses is the route and not the destination. The module
+  header states that distinction, because a previous version of it claimed the stronger thing.
+- `tls_config`, over `crate::wire::tls::config` - `RootCerts::WebPki` (`ureq`'s own default)
+  for `anchors: None`, which is every call `Self::pinned` makes and every deployment before
+  `#125`; `RootCerts::Specific` built from `anchors` for `Some`, which is what
+  `security.outbound.transport_anchors` resolves to. This constructor never presents a client
+  identity - `Self::rotating_agent` is the one that does, over the same declaration.
+
+The agent is wrapped in a never-rotating `sutura_tls::Rotating` - this constructor has no
+declaration to re-read. The rotation lane is `Self::rotating`, fed by
+`Self::rotating_agent`.
+
+##### Implements
+
+`Clone`, `Debug`
 
 ### Module `bounds`
 

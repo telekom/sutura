@@ -15,7 +15,7 @@
 //! It is that the one leg-executing adapter a release links is the engine, which builds a logical
 //! plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
 //! and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
-//! that state, and it is why this crate's leg goldens are evidence about four dialects and about
+//! that state, and it is why this crate's leg goldens are evidence about five dialects and about
 //! nothing a shipped binary executes.
 //!
 //! # Why this is its own crate and not the compiler's last stage

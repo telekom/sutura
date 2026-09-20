@@ -211,10 +211,11 @@ differential test runs one plan both ways and compares the rows - but the binary
 an operator needs no `libduckdb` to run `sutura query`. That is also what keeps the musl artifacts
 building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 
-*Four dialects are four rendering targets, not four data systems.* `sutura compile` will render a
-statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens parse-check each one.
-Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
-`ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
+*Five dialects are five rendering targets, not five data systems.* `sutura compile` will render a
+statement for `DuckDB`, Postgres, `ClickHouse`, `BigQuery` or Oracle, and the goldens parse-check
+each one. Rendering `ClickHouse` or Oracle SQL is not a claim that either exists anywhere, and
+there is no `ClickHouse` or Oracle adapter: the port takes a plan, and rendering is one adapter's
+private business.
 
 **`kind: postgres` is openable behind its own default-off `postgres` feature, and the CHANNEL is the
 part that is new.** A Postgres source declares `plaintext`, `verified` or `mutual`; a TLS mode must
@@ -527,8 +528,8 @@ that includes one per refusal. Beside them, four checks that are assertions rath
   generator writes `x IS TRUE` without ever consulting its own flag for whether a dialect allows
   that - so a construct like that parses under all three targets whatever a real instance would say.
   Acceptance is vouched for by execution instead: by the anchors, and by one plan run both ways over
-  a real DuckDB and the real engine, rows compared. For Postgres and ClickHouse we render and
-  parse-check, and nothing more.
+  a real DuckDB and the real engine, rows compared. For Postgres, ClickHouse and Oracle we render
+  and parse-check, and nothing more.
 - **Every declared anchor re-executes and reproduces its number**, and a bundle whose anchors were not
   all checked cannot be served, because there is no constructor that produces one.
 

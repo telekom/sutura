@@ -890,7 +890,7 @@ fn the_join_kind_decides_a_null_fact_key_the_way_it_decides_an_unmatched_one() {
 fn the_answer_orders_ascending_with_nulls_last_like_the_mono_path() {
     // **The ordered-result contract is one contract, and federation was on the other side of it.**
     // A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` - `sutura_sql::generate`'s
-    // `ordered_nulls_last`, which #92 decided and which makes all four dialects converge on the
+    // `ordered_nulls_last`, which #92 decided and which makes all five dialects converge on the
     // engine's own placement. This comparator ranked a null FIRST, so one certified metric came back
     // in one order from one data system and in another from two.
     //

@@ -62,7 +62,7 @@
 //!
 //! **It is FIXED, in the generator rather than here, and this leg no longer tolerates it.** The plan's
 //! `ORDER BY` now states the placement - `sutura_sql::generate`'s `ordered_nulls_last`, emitted by
-//! both `generate` and `generate_leg` - so all four dialects converge on the engine's own order and
+//! both `generate` and `generate_leg` - so all five dialects converge on the engine's own order and
 //! `agreement_between` compares CONTENT and ORDER through the shared policy. The measurement that
 //! used to be asserted here (*at least one question diverges on null placement*) is gone rather than
 //! relaxed: a divergence in either now fails.

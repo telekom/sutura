@@ -13,9 +13,12 @@
 //! `RootCerts::WebPki`, untouched when nothing was declared. That default is what an absent
 //! `security.outbound` resolves to, byte-identical to every deployment before `#125`.
 //!
-//! **No client identity travels through here.** `security.outbound` is anchors only - `DataHub` takes
-//! a bearer token, not mTLS - so `ureq::tls::TlsConfigBuilder::client_certificate` is never called,
-//! and there is no `sutura_tls::LoadedIdentity` parameter to accept one from.
+//! **A client identity is optional and deployment-wide too** -
+//! `security.outbound.client_certificate`/`client_key`, `github.com/telekom/sutura#911`. `DataHub`
+//! still takes a bearer token, not mTLS, so this presents nothing to the endpoint itself; what it
+//! is for is a peer in front of it a deployment configures to demand one. [`super::http::
+//! HttpAspectReader::rotating_agent`] resolves the declaration and [`config`] folds it into
+//! `ureq::tls::TlsConfigBuilder::client_cert`, over [`client_cert`].
 //!
 //! **Why the conversion lives in this crate and not in `sutura-tls`.** `sutura-tls` depends on
 //! `rustls-pki-types` only, never on a network client - `sutura_exec_postgres::tls` folds the same
@@ -24,12 +27,20 @@
 //! named"; which library reads them is each adapter's own decision, stated in `sutura-tls`'s own
 //! module header.
 //!
-//! > **The fold is nearly verbatim the same as `sutura_exec_bigquery::wire::tls::root_certs`.**
-//! > `jscpd` does not flag it - both folds sit below its 30-line / 250-token floor
-//! > (`xtask/src/jscpd.rs`), not above an unflagged threshold. The only honest dedupe would be a
-//! > shared leaf that hosts the ureq-specific `Certificate::from_der(..).to_owned()` map itself,
-//! > which cannot live in `sutura-tls` without the `ureq -> rustls -> ring` edge
-//! > `check-boundaries` forbids - declined here for 13 duplicated lines.
+//! **Why the fold goes through PEM rather than `ureq::tls::PrivateKey::from_der`.** That
+//! constructor's own first argument is `ureq::tls::KeyKind` - and `ureq-3.4.2` never re-exports
+//! that type from `ureq::tls` (measured against its own `pub use cert::{...}` list, not assumed),
+//! so no crate outside `ureq` can name a value of it at all. [`pem`] re-armors the already-loaded
+//! DER this crate holds and hands it to `Certificate::from_pem`/`PrivateKey::from_pem` instead -
+//! the one pair of constructors `ureq` actually exposes, which recover the kind from the PEM label
+//! themselves. [`sutura_tls::LoadedIdentity::key_kind`] is what chooses that label.
+//!
+//! > **The fold is nearly verbatim the same as `sutura_exec_bigquery::wire::tls::{root_certs,
+//! > client_cert, pem}`.** `jscpd` does not flag it - both folds sit below its 30-line / 250-token
+//! > floor (`xtask/src/jscpd.rs`), not above an unflagged threshold. The only honest dedupe would
+//! > be a shared leaf that hosts the ureq-specific mapping itself, which cannot live in
+//! > `sutura-tls` without the `ureq -> rustls -> ring` edge `check-boundaries` forbids - declined
+//! > here, the same argument that already declined it for the anchors half.
 
 use sutura_tls::LoadedAnchors;
 
@@ -38,13 +49,72 @@ use sutura_tls::LoadedAnchors;
 /// `None` leaves `ureq`'s own default (`RootCerts::WebPki`) in place - the compiled-in root set
 /// every deployment verified against before `#125`. `Some` replaces it with `RootCerts::Specific`,
 /// built from exactly the certificates the composition root loaded - never a union of the two, and
-/// never a second read of the bundle.
-pub(super) fn config(anchors: Option<LoadedAnchors>) -> ureq::tls::TlsConfig {
+/// never a second read of the bundle. `identity` is folded the same way, over [`client_cert`].
+pub(super) fn config(anchors: Option<LoadedAnchors>, identity: Option<sutura_tls::LoadedIdentity>) -> ureq::tls::TlsConfig {
     let builder = ureq::tls::TlsConfig::builder();
-    match anchors {
-        None => builder.build(),
-        Some(loaded) => builder.root_certs(root_certs(loaded)).build(),
+    let builder = match anchors {
+        None => builder,
+        Some(loaded) => builder.root_certs(root_certs(loaded)),
+    };
+    let builder = match identity {
+        None => builder,
+        Some(identity) => builder.client_cert(Some(client_cert(identity))),
+    };
+    builder.build()
+}
+
+/// The one conversion: a loaded client identity's chain and key, each armored as PEM and handed to
+/// `ureq`'s own PEM parser, collected into a [`ureq::tls::ClientCert`] - verbatim
+/// `sutura_exec_bigquery::wire::tls::client_cert`, see this module's own header for why PEM and
+/// why the duplication is declined rather than shared.
+#[expect(
+    clippy::unreachable,
+    reason = "sutura_tls already parsed this identity once; re-armoring its own DER as PEM and \
+              handing it back to ureq's own parser cannot fail on a value that already parsed"
+)]
+fn client_cert(identity: sutura_tls::LoadedIdentity) -> ureq::tls::ClientCert {
+    let label = match identity.key_kind() {
+        sutura_tls::KeyKind::Pkcs1 => "RSA PRIVATE KEY",
+        sutura_tls::KeyKind::Sec1 => "EC PRIVATE KEY",
+        sutura_tls::KeyKind::Pkcs8 => "PRIVATE KEY",
+    };
+    let (chain, key) = identity.into_parts();
+    let private_key = match ureq::tls::PrivateKey::from_pem(pem(label, key.secret_der()).as_bytes()) {
+        Ok(key) => key,
+        // `sutura_tls` already parsed this key once; re-armoring its own DER and handing it back
+        // to `ureq`'s own PEM parser cannot fail on a value that already parsed.
+        Err(cause) => unreachable!("a re-armored, already-loaded private key failed to re-parse: {cause}"),
+    };
+    let certificates: Vec<ureq::tls::Certificate<'static>> = chain
+        .iter()
+        .map(
+            |der| match ureq::tls::Certificate::from_pem(pem("CERTIFICATE", der.as_ref()).as_bytes()) {
+                Ok(certificate) => certificate,
+                Err(cause) => unreachable!("a re-armored, already-loaded certificate failed to re-parse: {cause}"),
+            },
+        )
+        .collect();
+    ureq::tls::ClientCert::new_with_certs(&certificates, private_key)
+}
+
+/// Armors raw DER as PEM under `label`, wrapped at 64 base64 columns - verbatim
+/// `sutura_exec_bigquery::wire::tls::pem`.
+fn pem(label: &str, der: &[u8]) -> String {
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(der);
+    let mut armored = format!("-----BEGIN {label}-----\n");
+    let mut rest = encoded.as_str();
+    while !rest.is_empty() {
+        // Base64's alphabet is pure ASCII, so every byte offset here is a char boundary.
+        let (line, remainder) = rest.split_at(rest.len().min(64));
+        armored.push_str(line);
+        armored.push('\n');
+        rest = remainder;
     }
+    armored.push_str("-----END ");
+    armored.push_str(label);
+    armored.push_str("-----\n");
+    armored
 }
 
 /// The one conversion: `sutura_tls::LoadedAnchors`'s `CertificateDer` bytes, each turned into an

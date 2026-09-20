@@ -123,6 +123,9 @@ of silently rendering nothing.
 
 ## Running it by hand
 
+CI publishes the docs automatically on merge to `main` and on a `v*` tag, so running it by hand is
+not normally needed.
+
 Render the site to `site/`:
 
 ```bash
@@ -133,29 +136,4 @@ Serve it with live reload on <http://127.0.0.1:8000>:
 
 ```bash
 just docs-serve
-```
-
-Both run `mkdocs` with `--strict`, which turns a dead link, an orphan page and a bad anchor into a
-failure. It is not optional in CI and should not be optional locally.
-
-Deploy one version by hand, which CI normally does. mike needs the branch to be present and a git
-identity:
-
-```bash
-git fetch origin gh-pages:gh-pages || true
-just docs-deploy 0.2.0
-just docs-list
-```
-
-`just docs-deploy` passes `--alias-type=redirect`, which is not mike's default. By default an alias
-is a git **symlink**, and GitHub Pages does not resolve one: `latest/` would serve the text
-`0.2.0` rather than the documentation. `redirect` writes a real HTML redirect for every page, so
-`latest/publishing/` lands on `0.2.0/publishing/` and not merely on the version root.
-
-`--push` is deliberately absent from the task, so a local deploy only writes the local `gh-pages`
-branch. That is the safe way to see what a deployment would contain. Anything else mike can do -
-moving an alias, `set-default` - goes through the escape hatch, which appends its arguments:
-
-```bash
-pixi run --frozen -e docs mike set-default latest
 ```

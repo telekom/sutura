@@ -27,8 +27,9 @@ fn rotating(
     root: &rcgen::Certificate,
 ) -> (WireAgent, sutura_tls::Rotator<ureq::Agent>) {
     let bundle = scratch.bundle(name, root);
-    let (agent, rotator) = WireAgent::rotating_agent(bounds, Some(sutura_tls::Anchors::Bundle(bundle)))
-        .expect("the freshly written bundle builds a rotating handle");
+    let declared = sutura_tls::Declared::new(sutura_tls::Anchors::Bundle(bundle), None);
+    let (agent, rotator) =
+        WireAgent::rotating_agent(bounds, Some(declared)).expect("the freshly written bundle builds a rotating handle");
     (
         WireAgent::rotating(bounds, agent),
         rotator.expect("a declared bundle returns a poll handle"),

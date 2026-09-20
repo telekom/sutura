@@ -66,6 +66,16 @@ impl Scratch {
     pub(super) fn path(&self, name: &str) -> PathBuf {
         self.0.join(format!("{name}.pem"))
     }
+
+    /// Writes `issued`'s certificate and private key as a declared client identity pair and
+    /// returns both paths - what `sutura_tls::Identity::new` reads.
+    pub(super) fn identity(&self, prefix: &str, issued: &Issued) -> (PathBuf, PathBuf) {
+        let certificate = self.0.join(format!("{prefix}.crt"));
+        let key = self.0.join(format!("{prefix}.key"));
+        std::fs::write(&certificate, issued.certificate.pem()).expect("a certificate writes");
+        std::fs::write(&key, issued.key.serialize_pem()).expect("a key writes");
+        (certificate, key)
+    }
 }
 
 impl Drop for Scratch {
@@ -100,6 +110,37 @@ pub(super) fn server_config(issued: &Issued) -> Arc<rustls::ServerConfig> {
             .with_safe_default_protocol_versions()
             .expect("the default protocol versions are safe")
             .with_no_client_auth()
+            .with_single_cert(chain, key)
+            .expect("a freshly generated chain and its own key are a usable pair"),
+    )
+}
+
+/// A `rustls::ServerConfig` presenting `server`'s certificate and REQUIRING a client certificate
+/// signed by `client_root` - the mutual-TLS peer `identity.rs`'s cells dial, to prove a declared
+/// `security.outbound` client identity is actually PRESENTED rather than merely built.
+///
+/// `client_root` is a self-signed certificate added directly to the verifier's root store, the
+/// same "trust it directly" shape [`server_config`]'s own caller uses for the server side: a
+/// self-signed certificate is its own issuer, so it is a usable root with no separate CA needed.
+pub(super) fn server_config_requiring_client_auth(
+    server: &Issued,
+    client_root: &rcgen::Certificate,
+) -> Arc<rustls::ServerConfig> {
+    let chain: Vec<CertificateDer<'static>> = vec![server.certificate.der().clone()];
+    let key = PrivateKeyDer::try_from(server.key.serialize_der()).expect("a generated key is a usable private key");
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(client_root.der().clone())
+        .expect("the client's self-signed certificate is a usable root");
+    let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+        .build()
+        .expect("a non-empty root store builds a client verifier");
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    Arc::new(
+        rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .expect("the default protocol versions are safe")
+            .with_client_cert_verifier(verifier)
             .with_single_cert(chain, key)
             .expect("a freshly generated chain and its own key are a usable pair"),
     )

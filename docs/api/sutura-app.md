@@ -2225,3 +2225,25 @@ pub fn no_budget() -> Self
 
 No ceiling configured. Every question is admitted and nothing is counted - `docs/adr/0030`'s
 "absent means no budget, which is today's behaviour" read back as a constructor.
+
+```rust
+pub fn spent_bytes_total(&self) -> Option<u64>
+```
+
+Every byte this replica has admitted since it started, or `None` where no ceiling is
+configured - the same "absent rather than zero" `Self::headroom_bytes` already applies.
+
+**Monotonic, and that is the whole reason this exists beside a gauge that already reports
+headroom.** `sutura_spend_headroom_bytes` (`#884`) cannot be summed across replicas: it
+resets to the full ceiling on every restart, and `sum()` over N replicas is `N * ceiling -
+total_spend`, a number that moves whenever N does. This total only grows, so
+`sum(rate(sutura_spend_bytes_total[5m]))` is correct across a restart (a monitoring
+system's counter-reset handling) and across a changing replica count - `docs/adr/0030`'s
+owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
+enforcement, which stays per-replica either way.
+
+**Not yet exported as a metric.** No `Surface`/`ServiceState` accessor reaches this method
+today - `sutura_spend_bytes_total`'s registration and push are sequenced behind
+`github.com/telekom/sutura#921`, which is already touching the same `ServiceState` fields
+this counter's gauge sibling lives beside. This method is the mechanism the wiring will
+call; it is proven directly, against the ledger, until that lands.
