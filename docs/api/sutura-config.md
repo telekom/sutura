@@ -4747,15 +4747,14 @@ convenience, and nothing needs to clone a startup refusal.
   there is nothing this build could guess, and a per-caller identity has to come out of a
   declaration rather than a default that pretends one exists.
 
-  **`audience` is required and reaches no shipped transport, and this message says so rather
-  than leaving an operator to find out.** The block's three keys are read unevenly:
-  `impersonate` is the subject-to-account map the `BigQuery` adapter's broker resolves, `scope`
-  becomes the driver's own `bigquery.impersonate.scopes`, and `audience` names a
-  workload-identity POOL that nothing in this build exchanges against - the transport that did
-  was deleted (`docs/adr/0018`, fifth amendment). It stays required rather than optional
-  because making it optional is a settings-tree change with its own migration, and a
-  well-formed wrong value is accepted here and read by nobody. That is the honest state; the
-  message is where an operator meets it.
+  **Corrected: `audience` is load-bearing again.** A round of this record said it "is read by
+  no transport in this build", which was true while the shipped mechanism was a principal
+  switch on the deployment's own credentials - and stopped being true when workload-identity
+  federation replaced it. The pool's own exchange needs the audience, and Google's library
+  refuses an empty one outright, so all three keys are read now: `audience` and `scope` become
+  the credential document the driver federates with, and `impersonate`'s KEYS decide which
+  callers may be served at all. Its VALUES are the one thing still unread - see
+  `sutura_exec_bigquery::DeclaredPrincipals::names`.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a

@@ -21,7 +21,14 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # build should not link.** Off is not hidden - every gate here passes
 # `--all-features`, so the module is compiled, linted and unit-tested even when a
 # served artifact does not request it.
-adbc = ["dep:adbc_core", "dep:adbc_driver_manager", "dep:arrow-array", "dep:arrow-schema", "dep:arrow-cast"]
+adbc = [
+  "dep:adbc_core",
+  "dep:adbc_driver_manager",
+  "dep:arrow-array",
+  "dep:arrow-schema",
+  "dep:arrow-cast",
+  "dep:getrandom",
+]
 
 # The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
 # `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
@@ -70,6 +77,17 @@ adbc_driver_manager = { version = "0.24", optional = true }
 # `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
 # and runs a statement, returning Arrow record batches. The driver owns its own
 # transport to BigQuery, so this transport brings no TLS stack of this crate's own.
+
+# TWO UNGUESSABLE VALUES PER REQUEST, from the operating system's own source
+# (`src/adbc/subject.rs`): the path nonce and the header secret that together
+# authorise the driver's fetch of a subject's assertion over loopback. A
+# CSPRNG and not a clock or an address - both are guessable, and a guessable
+# value here hands a local process somebody else's assertion.
+#
+# It adds no package to `Cargo.lock`: `getrandom` is already in the closure
+# three times over through the TLS and UUID stacks. Behind the `adbc` feature,
+# because only that transport serves a subject token.
+getrandom = { version = "0.3", optional = true }
 
 arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }

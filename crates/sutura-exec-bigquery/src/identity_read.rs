@@ -73,7 +73,7 @@ where
         &[],
         &warehouse.billing_project,
         &warehouse.default_dataset,
-        BigQueryWarehouse::<T>::job_identity(presented),
+        BigQueryWarehouse::<T>::job_identity(presented, &warehouse.source)?,
         JobDeadline::Boot,
     );
     let answered = warehouse

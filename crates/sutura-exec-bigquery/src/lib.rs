@@ -40,50 +40,51 @@
 //!
 //! # Identity
 //!
-//! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, and the mechanism that makes it
-//! true is a **principal switch** rather than a forwarded credential. A
-//! [`Presented::SubjectPrincipal`] names the service account this subject's query is to execute as;
-//! [`adbc`] sets it as the job's impersonation target through the driver's own
-//! `bigquery.impersonate.*` options, so the data system evaluates the statement as that account and
-//! [`SessionUser`] reads its address back. [`DeclaredPrincipalBroker`] is what resolves a verified
-//! subject to the account a source declared for it, and a subject the declaration does not name is
-//! refused rather than answered as the deployment.
+//! [`BigQueryWarehouse::IMPERSONATION`] is `PerSubjectCredential`, and it is now true by
+//! construction rather than by this paragraph: the asking subject's **own verified assertion** is
+//! what the data system authenticates. [`adbc`] hands the driver a workload-identity credential
+//! document naming a loopback source for that assertion, so Google's token service verifies it
+//! against the pool the source declares and the question executes as whatever principal that pool
+//! resolves the subject to. `adbc`'s own `subject` module carries the mechanism and its exposure.
 //!
-//! **What that does NOT do, stated beside the claim.** The asking subject's own credential never
-//! reaches the data system. The connection is the one this deployment authenticated; the subject's
-//! verified identity only SELECTS which declared principal the job runs as. Two consequences, both
-//! real: the deployment holds `roles/iam.serviceAccountTokenCreator` on every principal it declares,
-//! and leg 1 - this deployment's own verification of the caller - is therefore the only thing
-//! between a caller and any of those principals. The withdrawn HTTP transport had a longer chain,
-//! because Google's own token service verified the caller's assertion against a workload-identity
-//! pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
-//! fifth amendment is the record, with the two alternatives that were priced against this one.
+//! **Two modes, and they are XOR rather than a ladder.** A source declares one posture and gets one
+//! mechanism:
 //!
-//! **And because leg 1 is the only barrier, two of ITS limits are now limits on impersonation.**
-//! They were already recorded as leg-1 caveats; what changed is that nothing stands behind them any
-//! more. `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing
-//! to a request and stores nothing it has seen (`within_the_lifetime_ceiling`'s own doc says so), so
-//! inside that window a captured assertion is replayable - and now replayable *as a declared
-//! principal at the data system*. And the signing-key age bound `KeySetCache::stale_for` measures
-//! excludes a failing refresh: while the key source is unavailable the previously established keys
-//! keep verifying for no bounded time, so a key removed during an outage keeps authorizing the
-//! principal switch. Neither is new and neither is this crate's to fix; both are cited here because
-//! *the limit belongs beside the claim* and the claim moved.
+//! | declared posture | mechanism | identity at the source |
+//! | --- | --- | --- |
+//! | `shared-service-user` | the deployment's own application default credentials, **mandatory** for this posture, impersonating nothing | the deployment |
+//! | `impersonation-at-source` | the subject's own assertion, federated against the declared pool | the asking subject |
 //!
-//! **The other subject shape is refused rather than degraded.** A [`Presented::SubjectToken`] is
-//! credential material for a transport to present as this job's bearer. The pinned ADBC driver has
-//! no option that accepts one - its auth types take a credential FILE, a credential JSON document or
-//! an OAuth refresh token, and its impersonation options start from the process's own application
-//! default credentials - so [`adbc`] refuses that arm rather than dropping the material and running
-//! under the driver's own identity, which would report an answer as impersonated that ran as the
-//! process. Both shapes are one POSTURE to [`Presented::agrees_with`], so only a transport can tell
-//! them apart, and [`transport::JobIdentity`] is where it does.
+//! **What does not exist is a path from the second to the first**, and that is the whole point: an
+//! impersonating source whose subject cannot be federated is REFUSED
+//! (`adbc::identity::authenticate`'s third arm), never answered as the deployment. The reverse is
+//! refused one layer up, by [`Presented::agrees_with`]: a shared source handed a subject's
+//! credential is a posture disagreement before any transport sees it.
 //!
-//! **What no version of this is, yet:** a served deployment that has been OBSERVED answering under
-//! its asker. The composition is built - `sutura serve` attaches [`DeclaredPrincipalBroker`] to a
-//! declared `impersonation-at-source` `bigquery` source - and no hosted run has yet resolved two
-//! subjects to two accounts through this transport. `docs/where-identity-is-proven.md` carries what
-//! may be cited and what may not.
+//! **The mechanism this replaced is deleted rather than kept beside it.** For two rounds this
+//! adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
+//! credentials - so the connection was the deployment's, the subject's credential was nowhere in
+//! the chain, and leg 1 was the only barrier. `docs/adr/0018`'s fifth amendment records it, and
+//! `JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
+//! runtime.
+//!
+//! **So a [`Presented::SubjectPrincipal`] is refused.** It is the same POSTURE as an assertion to
+//! the domain, so [`Presented::agrees_with`] passes it and only this adapter can say it has no
+//! mechanism - [`BigQueryError::NoPrincipalSwitch`]. `GoogleSQL` has no proxy-user or `SET ROLE`
+//! equivalent either, so there is nothing to build it out of.
+//!
+//! **And because leg 1 still gates who may be federated at all, two of ITS limits bound this.**
+//! `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
+//! request (`within_the_lifetime_ceiling`'s own doc), so inside that window a captured assertion is
+//! replayable - and Google would accept it, because it is the caller's real document. And the
+//! signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
+//! this crate's to fix; both are cited here because *the limit belongs beside the claim*.
+//!
+//! **What is still unproven, and no green run here changes it:** nothing reachable from this
+//! repository shows Google ACCEPTING the assertion. The document is built and the loopback source
+//! is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
+//! `docs/where-identity-is-proven.md` records that venue as `wired` and undispatched, so **leg 2 is
+//! not proven.**
 //!
 //! # Two things this adapter deliberately does not offer
 //!
@@ -183,6 +184,19 @@ where
     /// which is a wrong number under a certified name.
     #[error("a leg of a federated plan over {table} arrived, and there is no combiner above it")]
     LegWithoutCombiner { table: String },
+    /// The leg presents a principal for the data system to switch to, and no transport here has a
+    /// spelling for one.
+    ///
+    /// **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
+    /// this adapter delivered exactly that shape, through the driver's `target_principal` option and
+    /// the deployment's own application default credentials - so the connection was the
+    /// deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
+    /// so [`crate::transport::JobIdentity`] carries one subject arm now and this refusal is what a
+    /// broker presenting the other one gets. Accepting it would submit the job under the
+    /// credential the transport already holds while provenance, read off this source's posture,
+    /// reported the answer as impersonated.
+    #[error("{presented} was minted for {at}, and this adapter federates a subject's own assertion instead")]
+    NoPrincipalSwitch { at: String, presented: &'static str },
     /// The leg's credential and this source's declared posture do not agree.
     #[error("the credential presented for this source does not agree with the posture it was opened under")]
     PresentedDisagreesWithPosture {
@@ -379,11 +393,19 @@ where
     /// separately. Every arm now has a spelling, so the question *can this be executed* belongs to
     /// the transport that would execute it, and the match stays exhaustive rather than wildcarded so
     /// a fourth presented shape is a compile error at this line.
-    const fn job_identity(presented: &Presented) -> JobIdentity<'_> {
+    fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
-            Presented::SubjectToken { material } => JobIdentity::AsBearer(material),
-            Presented::SubjectPrincipal { name } => JobIdentity::AsPrincipal(name),
-            Presented::SharedServiceUser { .. } => JobIdentity::Transport,
+            Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject(material)),
+            // **The weaker subject shape, refused because no transport here has a spelling for
+            // it.** A principal switch runs the question on a connection the DEPLOYMENT
+            // authenticated - this deployment vouching for a subject - and the owner rejected that
+            // mechanism, so `JobIdentity` no longer carries it. `agrees_with` passes this shape
+            // (both are one POSTURE), so only the adapter can say it cannot be delivered.
+            Presented::SubjectPrincipal { .. } => Err(BigQueryError::NoPrincipalSwitch {
+                at: String::from(source.as_str()),
+                presented: presented.as_str(),
+            }),
+            Presented::SharedServiceUser { .. } => Ok(JobIdentity::Transport),
         }
     }
 
@@ -542,6 +564,7 @@ where
         match *error {
             BigQueryError::Endpoint { ref cause } => transport_says(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -648,7 +671,11 @@ where
         let query = Self::render(executable)?;
         let estimated_bytes = self
             .transport
-            .validate(&self.request(&query, Self::job_identity(presented), JobDeadline::Port(deadline)))
+            .validate(&self.request(
+                &query,
+                Self::job_identity(presented, &self.source)?,
+                JobDeadline::Port(deadline),
+            ))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Ok(PreFlight::Accepted { estimated_bytes })
     }
@@ -660,7 +687,11 @@ where
         let query = Self::render(executable)?;
         let answered = self
             .transport
-            .run(&self.request(&query, Self::job_identity(presented), JobDeadline::Port(deadline)))
+            .run(&self.request(
+                &query,
+                Self::job_identity(presented, &self.source)?,
+                JobDeadline::Port(deadline),
+            ))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
         Self::rows(&answered)
     }
@@ -726,6 +757,7 @@ where
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
@@ -779,6 +811,7 @@ where
             // to be - an arm whose body is identical to the group's is a distinction a reader is
             // invited to look for and will not find.
             BigQueryError::NoIdentityInTheAnswer { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }

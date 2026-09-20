@@ -30,8 +30,20 @@ fn declared_shared() -> SharedIdentityDeclared {
     )
 }
 
-/// A caller whose verified `sub` is `raw`.
+/// A caller whose verified `sub` is `raw`, carrying the assertion leg 1 verified for it.
+///
+/// **With an assertion, because a federating broker requires one**: what it presents IS the
+/// caller's own document, so a context without one is a caller that cannot be served. `no_assertion`
+/// below is the cell on that direction.
 fn caller(raw: &str) -> RequestContext {
+    RequestContext::with_assertion(
+        PrincipalChain::of(Subject::verified(raw).expect("a test subject is a subject")),
+        sutura_domain::identity::Secret::new(format!("assertion.for.{raw}")),
+    )
+}
+
+/// The same caller with nothing for a pool to verify.
+fn no_assertion(raw: &str) -> RequestContext {
     RequestContext::of(PrincipalChain::of(
         Subject::verified(raw).expect("a test subject is a subject"),
     ))
@@ -82,17 +94,22 @@ fn granted(minted: Minted, raw: &str, sources: &SourceSet) -> sutura_domain::ide
 
 /// The principal a mint presented for one source, or a panic naming how it did not.
 fn presented_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName) -> String {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a cell asserting WHOSE assertion reached the leg needs its text; production \
+                  never reads it as a string"
+    )]
     match granted(minted, raw, sources)
         .presented_for(at)
         .expect("the source was asked for")
     {
-        Presented::SubjectPrincipal { name } => String::from(name.as_str()),
-        other => panic!("expected a principal for {at}, got {other:?}"),
+        Presented::SubjectToken { material } => String::from(material.expose_secret()),
+        other => panic!("expected the asker's own assertion for {at}, got {other:?}"),
     }
 }
 
 #[test]
-fn two_distinct_subjects_resolve_to_two_distinct_principals() {
+fn two_distinct_subjects_are_served_their_own_assertions_and_never_each_others() {
     // **The leg-2 bar, at the one seam this repository can assert without a cloud account.** Two
     // verified callers, one source, one broker - and two different accounts out. Everything past
     // here is the driver's: `adbc::identity` turns the name into the driver's impersonation target,
@@ -109,9 +126,12 @@ fn two_distinct_subjects_resolve_to_two_distinct_principals() {
         .expect("a declared subject is mintable");
     let first = presented_at(first, "analyst-a@example.com", &asked, &at);
     let second = presented_at(second, "analyst-b@example.com", &asked, &at);
-    assert_eq!(first, "bq-a@sutura.example.com");
-    assert_eq!(second, "bq-b@sutura.example.com");
-    assert_ne!(first, second);
+    assert_eq!(first, "assertion.for.analyst-a@example.com");
+    assert_eq!(second, "assertion.for.analyst-b@example.com");
+    assert_ne!(
+        first, second,
+        "both subjects were served one document, so the pool would resolve them to one principal"
+    );
 }
 
 #[test]
@@ -130,6 +150,18 @@ fn a_verified_caller_this_source_does_not_name_is_refused_and_never_widened() {
         !format!("{refused:?}").contains("someone-else@example.com"),
         "a refusal that reaches a log may not carry the caller: {refused:?}"
     );
+}
+
+#[test]
+fn a_verified_caller_with_no_assertion_cannot_be_served_by_an_impersonating_source() {
+    // **The other half of *no fallback*.** A federating broker presents the caller's OWN document,
+    // so a request that carries none has nothing for Google's token service to verify - and the
+    // only alternative to refusing is answering as the deployment. Leg 1 is what fills this field
+    // in; a deployment serving an impersonating source without an inbound gate reaches here.
+    let refused = warehouse()
+        .mint(&no_assertion("analyst-a@example.com"), &SourceSet::of(source("warehouse")))
+        .expect("a caller with no assertion is a refusal, not an error");
+    assert!(matches!(refused, Minted::Refused { .. }), "{refused:?}");
 }
 
 #[test]
@@ -166,11 +198,8 @@ fn a_plan_reading_one_shared_source_and_one_impersonating_source_gets_one_of_eac
         .expect("both halves are declared");
     let bound = granted(minted, "analyst-a@example.com", &asked);
     assert!(
-        matches!(
-            bound.presented_for(&source("warehouse")),
-            Ok(Presented::SubjectPrincipal { .. })
-        ),
-        "an impersonating source is presented the subject's declared principal"
+        matches!(bound.presented_for(&source("warehouse")), Ok(Presented::SubjectToken { .. })),
+        "an impersonating source is presented the asking subject's own assertion"
     );
     assert!(
         matches!(

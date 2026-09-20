@@ -85,20 +85,19 @@ pub enum JobIdentity<'job> {
     /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
     /// "no caller" means to a request.
     Transport,
-    /// A principal the transport directs the data system to execute this job as.
+    /// The asking subject's own verified assertion, for the data system to authenticate itself.
     ///
-    /// **The asking subject's identity, and NOT the asking subject's credential.** The connection is
-    /// still the one the deployment authenticated; what changes per job is the principal the data
-    /// system evaluates the statement as. [`crate::adbc`] serves this arm, and its module
-    /// documentation states exactly what that buys and what it does not.
-    AsPrincipal(&'job sutura_domain::identity::PrincipalName),
-    /// The asking subject's own credential, for a transport that can present one as this job's
-    /// bearer.
+    /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
+    /// [`crate::adbc`] puts this behind a workload-identity credential document, so Google's own
+    /// token service verifies it and the source executes as whatever principal the pool resolves
+    /// the subject to. Nothing on that path runs the question under the deployment's identity.
     ///
-    /// No transport in this crate serves this arm today - [`crate::adbc`] refuses it rather than
-    /// dropping the material and running under its own identity, which would report an answer as
-    /// impersonated that ran as the process.
-    AsBearer(&'job Secret),
+    /// **One subject arm and not two, which is the deletion that makes the claim true.** There used
+    /// to be a second - a PRINCIPAL the deployment asked the data system to become on the subject's
+    /// behalf, on a connection the deployment authenticated - and a transport could serve that one
+    /// while provenance reported the answer as impersonated. It has no spelling here any more, so
+    /// the weaker mechanism is unrepresentable rather than refused.
+    AsSubject(&'job Secret),
 }
 
 /// One query job, as this adapter asks for it.

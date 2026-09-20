@@ -4111,6 +4111,7 @@ dependencies = [
  "arrow-cast 59.2.0",
  "arrow-schema 59.2.0",
  "base64 0.23.1",
+ "getrandom 0.3.4",
  "parking_lot",
  "serde_json",
  "sutura-conformance",

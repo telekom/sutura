@@ -134,8 +134,8 @@ pub(super) fn open(
         driver_path,
         // `Disabled`, and the match above is what makes that the whole truth here rather than a
         // default: this command refuses `impersonation-at-source` by name, so the only posture that
-        // reaches this line is the shared one. A transport that could impersonate would be one this
-        // root attaches no broker to name a principal with.
+        // reaches this line is the shared one - the deployment's own application default
+        // credentials, which is mandatory for that posture and impersonates nothing.
         sutura_exec_bigquery::adbc::Impersonation::Disabled,
     );
     Ok(Opened::BigQuery(OpenedWith {

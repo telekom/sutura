@@ -52,13 +52,13 @@ pub(super) struct Asked {
     pub(super) params: Vec<String>,
     pub(super) project: String,
     pub(super) dataset: String,
-    /// The BEARER a job carried, where the leg named one. `None` for a shared leg and for a leg
-    /// that named a principal instead - the two subject shapes are recorded in separate fields
-    /// because a fake collapsing them could not tell "ran as the asker's credential" from "ran as
-    /// the account declared for the asker", which are different mechanisms with different limits.
+    /// The ASSERTION a job carried, where the leg named a subject. `None` for a shared leg, which
+    /// runs as the identity the transport already holds.
+    ///
+    /// **One field again, because there is one subject shape again.** It was two for two rounds -
+    /// a bearer and a principal - while the adapter could deliver either; the principal switch was
+    /// deleted, so a second field would record a mechanism nothing can produce.
     pub(super) subject: Option<String>,
-    /// The PRINCIPAL a job named, where the leg named one.
-    pub(super) principal: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
@@ -164,12 +164,8 @@ impl Recording {
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
-                JobIdentity::AsBearer(material) => Some(String::from(material.expose_secret())),
-                JobIdentity::AsPrincipal(..) | JobIdentity::Transport => None,
-            },
-            principal: match request.identity() {
-                JobIdentity::AsPrincipal(name) => Some(String::from(name.as_str())),
-                JobIdentity::AsBearer(..) | JobIdentity::Transport => None,
+                JobIdentity::AsSubject(assertion) => Some(String::from(assertion.expose_secret())),
+                JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
         });

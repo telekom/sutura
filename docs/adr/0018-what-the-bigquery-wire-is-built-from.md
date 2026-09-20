@@ -1079,3 +1079,67 @@ unconditional `ADBC driver` step as well.
   mistyped `table:` is not caught at boot; it fails the first question against that model, which a
   `files` deployment does not do. `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
   pins both directions, because review measured that flipping the predicate left the suite green.
+
+## Sixth amendment, 2026-09-20: the principal switch is deleted, and WIF replaces it
+
+**The fifth amendment above decided a mechanism the owner rejected, and it is not kept beside this
+one.** That amendment priced a PRINCIPAL SWITCH - `bigquery.impersonate.target_principal`, an
+impersonated credential minted from the deployment's own application default credentials - and was
+honest about its cost: the asking subject's credential was nowhere in the chain, leg 1 was the only
+barrier, and the deployment held `roles/iam.serviceAccountTokenCreator` on every declared account.
+The owner's instruction was *"indeed no fallback! we must work with impersonation!!"*, so the switch
+is **deleted rather than demoted**: `crate::transport::JobIdentity` carries one subject arm, there
+is no option list that names an impersonation target, and a `Presented::SubjectPrincipal` is refused
+by the adapter.
+
+**What ships is Workload Identity Federation, and the route the fifth amendment refused is the one
+taken.** It said `external_account` was unavailable because its `credential_source` is
+file/url/executable/aws only, so a caller's assertion would have to reach the driver on disk. That
+enumeration was right and the conclusion was wrong - it did not read `url_provider.go`, whose source
+kind is a plain `GET` with **arbitrary headers from the credential document**. So:
+
+```text
+bigquery.auth_type = json_credential_string
+bigquery.auth.credentials_type = external_account
+bigquery.auth.credentials = an `external_account` document naming a loopback URL
+  -> go/connection.go: option.WithAuthCredentialsJSON(credType, bytes)
+  -> credentials/filetypes.go: handleExternalAccount, which passes `credential_source` THROUGH
+  -> externalaccount.NewTokenProvider: GET our loopback source, exchange at Google's STS
+```
+
+Three facts from the pinned `cloud.google.com/go/auth v0.23.2` make it work, each measured rather
+than assumed: `filetypes.go` hands `f.CredentialSource` through whole; `Options::validate` performs
+**no** scheme or host check, so a loopback address is accepted; and a non-empty
+`service_account_impersonation_url` is what turns the second hop on, which is why omitting it leaves
+the credential as the pool principal the subject resolved to - two subjects, two principals, with no
+declared map in the middle.
+
+**The four source kinds, priced, because the choice is the security decision.** `url` was taken:
+nothing is written and nothing appears in `argv`, and the per-request document can carry a nonce in
+the path and a secret in a header. `executable` needs `GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1`
+on every deployment and its command is one whitespace-split string with no shell, so a per-request
+assertion would travel in `argv` (world-readable) or through the same loopback machinery plus a fork.
+`file` puts the assertion at rest and is the fallback this is preferred over. `certificate` is mTLS
+workload identity with nowhere for a caller's assertion, and `environment_id` accepts only `aws1`.
+
+**What the loopback port costs, stated where the claim is.** It is on `127.0.0.1` with a
+kernel-assigned port, so any local process can connect. Two independent 128-bit values are required
+together and both exist only inside the credential document this process built for one request, so
+the bound is *a local process that can read that document already has the assertion*. That bound
+rests on the document never reaching disk or a log - it is a `Secret` up to one named exposure at the
+driver boundary, and `the_credential_document_is_redacted_under_debug` is the cell on it.
+
+**And `IMPERSONATION` is now true by construction rather than by a doc amendment.** The subject's own
+assertion is what Google verifies; the two postures are XOR
+(`Impersonation::Disabled` for `shared-service-user`, which runs on the deployment's own application
+default credentials and is mandatory there, against `Impersonation::ThroughPool` for
+`impersonation-at-source`); and the pair *a subject at a source with no pool* is a REFUSAL rather
+than a degradation. There is no arm that answers a subject's question as the deployment.
+
+**Two things this amendment does not claim.** Nothing reachable from this repository shows Google
+ACCEPTING the assertion - the document is built and the loopback source is asserted against a real
+socket, and the exchange needs a pool, a project and a hosted run, so
+`docs/where-identity-is-proven.md` keeps its venue at `wired` and **leg 2 is not proven.** And the
+multi-hop case the owner named (Keycloak or Entra, then an RFC 8693 exchange, then the pool) is not
+built: `WorkloadIdentityBroker` is the home for that hop and still has no HTTP implementor, so what
+ships is the single-hop case where the caller's own verified document is what the pool trusts.

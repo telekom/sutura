@@ -138,7 +138,7 @@ column only points a reader of the venues table at it.
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` | - |
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
 | **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built | - |
-| **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a project with one service account per declared subject and the deployment's own identity granted `roles/iam.serviceAccountTokenCreator` on each, plus somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the account the source names for it" |
+| **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a workload-identity pool whose provider trusts the issuer that mints each subject's assertion, one principal per subject with its own dataset grants, and somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the principal the pool resolves that subject to" |
 | **A served binary under a verified human caller** | nowhere yet | everything the row above needs, plus an IdP issuing the subjects the declared map names and a served deployment to ask through | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
@@ -484,19 +484,22 @@ reported here this venue may not be cited, and the ADBC adoption's own merge pre
 somebody dispatches it.
 
 **What only this venue can answer.** Whether two distinct verified subjects resolve to two distinct
-`BigQuery` principals at the data system. The oracle is `SELECT SESSION_USER()`, read through
-`BigQueryWarehouse::session_user`: it returns the impersonated account's own address rather than a
-`principal://` string, so a wrong answer is visible rather than plausible. The control leg is what
-makes the pair mean anything - a deployment that answered both questions as itself would satisfy the
-first cell alone whenever its own identity happened to be one of the two accounts.
+`BigQuery` principals at the data system - **and whether Google accepts the assertion at all**,
+which is the half nothing reachable from this repository can show. Each subject's own assertion is
+federated against the declared pool, so a green run is Google's own token service saying the
+document verifies. The oracle is `SELECT SESSION_USER()`, read through
+`BigQueryWarehouse::session_user`. The control leg is what makes the pair mean anything - a
+deployment that answered both questions as itself would satisfy the first cell alone whenever its own
+identity happened to be one of the two principals.
 
 ### What it cannot answer - read this before citing a green run
 
-1. **Anything about a caller's own credential.** It is not in the chain: leg 1 verifies the caller
-   here and nobody verifies it again, so this venue can show the RESOLUTION is per subject and
-   nothing about what would stop a forged subject. `crates/sutura-exec-bigquery/src/lib.rs` states
-   the consequence beside the claim and `docs/adr/0018`'s fifth amendment prices the alternative
-   that would have kept Google in that chain.
+1. **That leg 1 is sufficient.** The caller's own credential IS in the chain now - Google's token
+   service verifies each assertion against the pool - so this venue can show the resolution is per
+   subject AND that the document was accepted. What it cannot show is that a REPLAYED assertion
+   would be stopped: inside the inbound gate's own lifetime window a captured assertion is a valid
+   document and Google would accept it, because it is the caller's real one.
+   `crates/sutura-exec-bigquery/src/lib.rs` carries that limit beside the claim.
 2. **Anything about a SERVED binary.** It opens the adapter directly. `SESSION_USER()` is
    unreachable over `/v1/sql/run` - `BigQueryWarehouse` keeps `ACCEPTS_RAW_STATEMENTS = false` - so
    the served surface's only observable is the granted answer's `executed_as` and its rows, which is
@@ -531,25 +534,21 @@ verified subjects resolve to two distinct BigQuery principals, observed at the d
 changed is only the mechanism under it, so most of the provisioning still applies and one part of it
 does not.
 
-**Still applies.** One service account per declared subject, in one project, with the dataset grants
-that make the two accounts read different rows. The oracle is unchanged and it is
-`SELECT SESSION_USER()`, which `sutura_exec_bigquery::SessionUser` already reads back: it resolves to
-the impersonated account's own address rather than a `principal://` string, which is what
-`telekom/sutura#376`'s `iamcredentials.generateAccessToken` hop bought and what this transport's
-`bigquery.impersonate.target_principal` also goes through. The settings shape is unchanged too - the
-declared `workload_identity.impersonate` map, keyed on each subject's full verified `sub`.
+**All of it applies again, and that is a correction.** A round of this page said the Workload
+Identity Federation pool, its OIDC provider and the `roles/iam.workloadIdentityUser` bindings **no
+longer applied** - true while the shipped mechanism was a principal switch on the deployment's own
+credentials, and false since `docs/adr/0018`'s sixth amendment. The transport federates each
+subject's own assertion against the pool, so `test-infra/pulumi/google/__main__.py`'s pool, its
+`issuer_uri` and the per-principal `roles/iam.workloadIdentityUser` bindings are exactly what the
+run needs. `roles/iam.serviceAccountTokenCreator` on the deployment's own identity is what stopped
+applying: nothing impersonates a declared account from the deployment's credentials any more.
 
-**No longer applies.** The Workload Identity Federation pool and OIDC provider
-(`test-infra/pulumi/google/__main__.py`, its `issuer_uri` configuration, and the
-`roles/iam.workloadIdentityUser` binding from the pool subject to each account). Nothing in this
-build exchanges a subject's token against a pool: `sutura serve` attaches
-`DeclaredPrincipalBroker`, which reads the verified subject and answers with a NAME, and the driver
-impersonates that account from the deployment's own application default credentials. The grant that
-replaces the pool binding is **`roles/iam.serviceAccountTokenCreator`, held by the deployment's own
-identity on each declared account.** That is a smaller and a *broader* grant at once - smaller
-because no federation is provisioned, broader because the deployment can become any declared account
-without a caller present, which is the limit `crates/sutura-exec-bigquery/src/lib.rs` states beside
-the claim and `docs/adr/0018`'s fifth amendment prices.
+The oracle is unchanged - `SELECT SESSION_USER()`, read through
+`sutura_exec_bigquery::SessionUser`. What it returns depends on the pool: the credential document this
+transport builds names no service-account impersonation URL, so the credential IS the pool principal
+and two subjects read as two distinct principals. The settings
+shape is the declared `workload_identity` block - `audience` (the pool), `scope`, and the
+`impersonate` map whose KEYS decide which subjects may be served.
 
 **The run, and the first half of it is now built rather than described.**
 `.github/workflows/bigquery-declared-principal.yml` is the job: it places one credential - the

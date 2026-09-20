@@ -13,12 +13,17 @@
 //!
 //! # Who a job runs as
 //!
-//! One of the driver's own options, and [`identity`] is where the whole decision lives and is
-//! asserted: a [`JobIdentity::AsPrincipal`](crate::transport::JobIdentity::AsPrincipal) becomes
-//! `bigquery.impersonate.target_principal`, so the data system evaluates the statement as the
-//! account a source declared for that subject. A shared leg sends no impersonation option and runs
-//! as the process. A bearer is REFUSED - the pinned driver has nowhere to put one - rather than
-//! dropped, which would run somebody else's question under this deployment's identity.
+//! Two declared postures, XOR, decided at composition and never per request: a `shared-service-user`
+//! source runs on the deployment's own application default credentials and impersonates nothing, and
+//! an `impersonation-at-source` source federates the asking subject's own assertion against the pool
+//! it declares. `identity` is where that decision lives and is asserted, and `subject` is where the
+//! federation's mechanism and its exposure are written down.
+//!
+//! **A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
+//! one thing this transport must never do, and the reason there is no third state. The mechanism
+//! this replaced - an impersonation target minted from the deployment's own credentials - has no
+//! spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
+//! refused.
 //!
 //! # The values
 //!
@@ -34,7 +39,9 @@
 mod bind;
 pub mod decode;
 mod identity;
-pub use identity::{Impersonation, ImpersonationScopes, TargetAccount, UnusableIdentityOption};
+mod subject;
+pub use identity::Impersonation;
+pub use subject::{UnusablePool, WorkloadPool};
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
 // to resolve those types' methods and are never named directly - except `Statement`, which
@@ -76,17 +83,28 @@ pub enum AdbcError {
         #[source]
         cause: arrow_schema::ArrowError,
     },
-    /// A leg named a principal that is not an account this transport can ask the driver to become.
+    /// The loopback source a subject's assertion is served over could not be opened.
     ///
-    /// **Its own variant rather than an [`Self::Uncovered`] string**, because the two say different
-    /// things to whoever reads them: `Uncovered` is *this transport does not do that*, which is a
-    /// fact about the driver, and this is *the declaration named something unsendable*, which is a
-    /// fact about a settings file. The cause carries a position and never the value - see
-    /// [`identity::UnusableIdentityOption`].
-    #[error("a leg named a principal this transport cannot ask the driver to become")]
-    UnusableTarget {
+    /// Its own variant rather than an [`Self::Adbc`], because nothing has been sent and the failure
+    /// is this process's own: a host with no usable loopback interface cannot serve an impersonated
+    /// question, and saying that is better than a driver failing to fetch a token for reasons of
+    /// its own.
+    #[error("the loopback source for the asking subject's assertion could not be opened")]
+    SubjectSource {
         #[source]
-        cause: UnusableIdentityOption,
+        cause: std::io::Error,
+    },
+    /// The operating system would not supply the randomness this request's two secrets need.
+    ///
+    /// **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
+    /// constant available here would be written into the same document the driver reads, so the
+    /// fetch would authenticate against a value any local process could guess.
+    #[error("this host would not supply the randomness a subject's loopback source needs: {cause}")]
+    NoRandomness {
+        /// Carried by value rather than as a `#[source]`: `getrandom::Error` is an opaque code with
+        /// a `Display` and no `Error` impl, so there is no chain to walk - and inventing a wrapper
+        /// for it would add a name that tells a reader nothing the message does not.
+        cause: getrandom::Error,
     },
 }
 
@@ -118,8 +136,13 @@ where
     Ok(())
 }
 
-/// A driver handle and a prepared statement, the shape one job needs.
-type Connected = (ManagedDriver, ManagedStatement);
+/// A driver handle, a prepared statement, and the loopback source they may still fetch from.
+///
+/// **The third element is the lifetime fix rather than a convenience.** `externalaccount`'s token
+/// provider is CACHED, so the driver fetches the subject token lazily - after `connect` returns -
+/// and may fetch again if the credential expires mid-query. Returning the source makes `run` its
+/// owner, so the endpoint closes when the job ends and not before.
+type Connected = (ManagedDriver, ManagedStatement, Option<subject::SubjectSource>);
 
 /// The project id [`AdbcBigQuery::probe`] hands the driver, which reaches no request.
 ///
@@ -201,7 +224,7 @@ impl AdbcBigQuery {
         // WHO first. `identity_options` is empty for a shared leg and refuses a bearer; a refused
         // identity must not reach `load_dynamic_from_filename`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
-        let identity = identity::identity_options(request.identity(), &self.impersonation)?;
+        let authentication = identity::authenticate(request.identity(), &self.impersonation)?;
         // The values, as the one batch this driver binds from - assembled before the `.so` is
         // loaded for the identity's reason: a request this transport cannot assemble must not open a
         // connection. `None` where a call carries no values, which is every boot-path call and a
@@ -220,12 +243,12 @@ impl AdbcBigQuery {
             ),
         ];
         let db = driver
-            .new_database_with_opts(opts.into_iter().chain(identity))
+            .new_database_with_opts(opts.into_iter().chain(authentication.options))
             .map_err(AdbcError::Adbc)?;
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
         prepared(&mut stmt, request, bound)?;
-        Ok((driver, stmt))
+        Ok((driver, stmt, authentication.source))
     }
 }
 
@@ -233,7 +256,10 @@ impl JobTransport for AdbcBigQuery {
     type Error = AdbcError;
 
     fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
-        let (_driver, mut stmt) = self.connect(request)?;
+        // `_source` is BOUND rather than discarded, and the underscore is the only thing about it
+        // that is cosmetic: dropping it here would close the subject-token endpoint before the
+        // driver's own lazy fetch reached it. It lives to the end of this function.
+        let (_driver, mut stmt, _source) = self.connect(request)?;
         let reader = stmt.execute().map_err(AdbcError::Adbc)?;
         let schema = reader.schema();
         let mut batches = Vec::new();

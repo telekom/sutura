@@ -1,52 +1,58 @@
-//! Who one job runs as, as driver options - and the two values that are parsed before they become
-//! one.
+//! Which authentication options one job's identity becomes, and the refusal for the pair that has
+//! none.
 //!
-//! **The whole of this transport's identity decision, in a function that touches no driver**, which
-//! is what makes it assertable: `connect` cannot reach a network or a `.so` without first calling
-//! [`identity_options`], and [`identity_options`] is a pure map from one
-//! [`JobIdentity`] to the options that job is opened with.
+//! **The whole of this transport's identity decision, in a function that touches no driver**: it is
+//! what `connect` calls before the `.so` is loaded, so a request this transport cannot authenticate
+//! never opens a connection it could answer as somebody else.
 //!
-//! # The mechanism, and exactly what it buys
+//! # The mechanism
 //!
-//! `bigquery.impersonate.target_principal` names a service account, and the driver mints a
-//! credential for it by impersonation - `google.golang.org/api/impersonate`, from the process's own
-//! application default credentials, checked in the pinned `go/v1.13.0` source. So the data system
-//! evaluates the statement as that account: a per-subject grant, a per-subject row filter and
-//! `SESSION_USER()` all resolve to the account rather than to this deployment.
+//! An impersonating source hands the driver a WORKLOAD-IDENTITY CREDENTIAL DOCUMENT naming a
+//! loopback source for the asking subject's own assertion - [`super::subject`] builds both and
+//! carries the whole argument, including why a loopback URL rather than a file or an executable, and
+//! what the open port's exposure actually is.
 //!
-//! **What it does not buy:** the asking subject's own credential is not in that chain at all. The
-//! subject's verified identity picked the account; the deployment's own identity is what authorized
-//! becoming it. `crate`'s own header states the consequence beside the claim, and
-//! `docs/adr/0018`'s fifth amendment prices the two alternatives that were considered instead.
+//! **What this file no longer does, and the deletion is the point.** It used to set
+//! `bigquery.impersonate.target_principal`, which impersonated a declared service account from the
+//! deployment's own application default credentials - the subject's own credential was nowhere in
+//! that chain. The owner rejected it, so the option, the per-subject account newtype and the scope
+//! newtype that fed it are gone rather than kept beside the federating path: a fallback a
+//! misconfiguration could select is the defect, not a convenience.
 //!
-//! # Why both values are parsed HERE, when configuration already parsed them
+//! # Why the pool's values are parsed HERE, when configuration already parsed them
 //!
 //! For the reason [`crate::transport::ProjectId`] is parsed a second time: this is the crate that
-//! puts the value into a request, and a check belongs where the risk is. The risk is specific and
-//! it is the driver's own: `bigquery.impersonate.scopes` and `bigquery.impersonate.delegates` are
-//! **split on commas** by the driver, so a scope carrying a comma would silently become two scopes -
-//! one of them attacker-chosen if a declaration ever came from somewhere less trusted than an
-//! operator's own settings file. [`ImpersonationScopes::parse`] refuses the comma rather than
-//! documenting it.
+//! puts the value into a request, and a check belongs where the risk is. See
+//! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
 
 use crate::transport::JobIdentity;
 
 use super::AdbcError;
+use super::subject::{SubjectSource, WorkloadPool};
 
-/// The driver option naming the account a job is to be executed as.
+/// The driver option naming which authentication shape the database uses.
 ///
-/// Pinned `go/v1.13.0`'s `OptionImpersonateTargetPrincipal`. Written once, here, so the spelling the
-/// transport sends and the spelling its tests assert cannot drift.
-const TARGET_PRINCIPAL: &str = "bigquery.impersonate.target_principal";
+/// Pinned `go/v1.13.0`'s `OptionAuthType`. `json_credential_string` is the arm whose value is a
+/// credential DOCUMENT rather than a path, which is what lets a per-request document exist at all.
+const AUTH_TYPE: &str = "bigquery.auth_type";
 
-/// The driver option naming the scopes an impersonated credential is minted for.
+/// The value of [`AUTH_TYPE`] that takes a credential document inline.
+const AUTH_TYPE_JSON_STRING: &str = "json_credential_string";
+
+/// The driver option naming which KIND of credential document the value is.
 ///
-/// Pinned `go/v1.13.0`'s `OptionImpersonateScopes`. **Required, not optional** - the driver's
-/// impersonation path returns `impersonate: scopes must be provided` for an empty list, so a job
-/// opened with a target and no scopes fails at the driver rather than running.
-const SCOPES: &str = "bigquery.impersonate.scopes";
+/// Pinned `go/v1.13.0`'s `OptionAuthCredentialsType`; its `SetOption` accepts
+/// `option.ExternalAccount` by name, and `go/connection.go` passes both straight to
+/// `option.WithAuthCredentialsJSON`.
+const AUTH_CREDENTIALS_TYPE: &str = "bigquery.auth.credentials_type";
+
+/// The value of [`AUTH_CREDENTIALS_TYPE`] that means a workload-identity document.
+const EXTERNAL_ACCOUNT: &str = "external_account";
+
+/// The driver option carrying the credential document itself.
+const AUTH_CREDENTIALS: &str = "bigquery.auth.credentials";
 
 /// The options one job's identity becomes, as the driver's database option pairs.
 ///
@@ -54,392 +60,199 @@ const SCOPES: &str = "bigquery.impersonate.scopes";
 /// `type_complexity` threshold - the same reason `crate::Mapped` exists.
 type DatabaseOptions = Vec<(OptionDatabase, OptionValue)>;
 
-/// Why a value this transport was about to send is not one it can send.
+/// Whether this source impersonates at all, and against which pool when it does.
 ///
-/// **Positions, never the value**, for the reason `sutura_config`'s own refusal about the same text
-/// carries one: these are operator-written strings on their way into a request, and neither a log
-/// nor an error body is a place for them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum UnusableIdentityOption {
-    /// There was nothing there.
-    #[error("the {what} this transport was to send is empty")]
-    Empty {
-        /// Which of the two values.
-        what: &'static str,
-    },
-    /// Longer than the value's own bound.
-    #[error("the {what} this transport was to send is {found} characters and at most {most} are usable")]
-    TooLong {
-        /// Which of the two values.
-        what: &'static str,
-        /// How long it was.
-        found: usize,
-        /// The bound.
-        most: usize,
-    },
-    /// A character outside the accepted set, at a position.
-    #[error("the {what} this transport was to send carries an unusable character at {at}")]
-    Character {
-        /// Which of the two values.
-        what: &'static str,
-        /// Where, so an operator can find it without the refusal quoting it.
-        at: usize,
-    },
-}
-
-/// The account one job is executed as.
-///
-/// A newtype rather than a `&str` for the reason every identifier in this crate is one: it reaches a
-/// request, so *an instance exists* has to mean *this is sendable*.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TargetAccount(String);
-
-impl TargetAccount {
-    /// A service-account mailbox, bounded by RFC 5321.
-    const MOST: usize = 254;
-
-    /// What a refusal calls this value.
-    const WHAT: &'static str = "impersonation target";
-
-    /// Parses an account this transport may name as a job's principal.
-    ///
-    /// The accepted set is the printable ASCII a service-account address is built from - letters,
-    /// digits and `. - _ @`, exactly one `@`. The comma is outside it, which is what keeps a target
-    /// out of the driver's comma-split option parsing, and so is every character that could close a
-    /// value in the driver's own option map.
-    ///
-    /// # Errors
-    ///
-    /// [`UnusableIdentityOption`], which carries a position and never the text.
-    pub fn parse(raw: &str) -> Result<Self, UnusableIdentityOption> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Err(UnusableIdentityOption::Empty { what: Self::WHAT });
-        }
-        if trimmed.chars().count() > Self::MOST {
-            return Err(UnusableIdentityOption::TooLong {
-                what: Self::WHAT,
-                found: trimmed.chars().count(),
-                most: Self::MOST,
-            });
-        }
-        if trimmed.matches('@').count() != 1 {
-            return Err(UnusableIdentityOption::Character {
-                what: Self::WHAT,
-                at: trimmed.chars().count(),
-            });
-        }
-        if let Some(at) = trimmed
-            .char_indices()
-            .find_map(|(at, c)| (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@')).then_some(at))
-        {
-            return Err(UnusableIdentityOption::Character { what: Self::WHAT, at });
-        }
-        Ok(Self(String::from(trimmed)))
-    }
-
-    /// The account, for the option value.
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// The scopes an impersonated credential is minted for, as the driver takes them.
-///
-/// **One declared scope and not a list**, because that is what a source declares
-/// (`sources.<alias>.workload_identity.scope`) and because the driver's own parsing of this option
-/// is a comma split - so a type that accepted several would have to render the separator the parse
-/// below refuses. A deployment needing two scopes is a change to the settings tree first.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImpersonationScopes(String);
-
-impl ImpersonationScopes {
-    /// A scope is a URL, so the bound is a URL's rather than an identifier's.
-    const MOST: usize = 1024;
-
-    /// What a refusal calls this value.
-    const WHAT: &'static str = "impersonation scope";
-
-    /// Parses the scope this transport mints impersonated credentials for.
-    ///
-    /// **Parsed at COMPOSITION and not per request**, which is the point of it being a field on the
-    /// transport: a deployment whose declared scope is unusable fails to start rather than failing
-    /// every impersonated question. The accepted set is a URL's, minus the comma - see this module's
-    /// header for why the comma is the character that matters here.
-    ///
-    /// # Errors
-    ///
-    /// [`UnusableIdentityOption`], which carries a position and never the text.
-    pub fn parse(raw: &str) -> Result<Self, UnusableIdentityOption> {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            return Err(UnusableIdentityOption::Empty { what: Self::WHAT });
-        }
-        if trimmed.chars().count() > Self::MOST {
-            return Err(UnusableIdentityOption::TooLong {
-                what: Self::WHAT,
-                found: trimmed.chars().count(),
-                most: Self::MOST,
-            });
-        }
-        if let Some(at) = trimmed.char_indices().find_map(|(at, c)| {
-            (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '%')).then_some(at)
-        }) {
-            return Err(UnusableIdentityOption::Character { what: Self::WHAT, at });
-        }
-        Ok(Self(String::from(trimmed)))
-    }
-
-    /// The scope, for the option value.
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Whether this source impersonates at all, and at what scope when it does.
-///
-/// **A two-variant type rather than an `Option<ImpersonationScopes>`, because the absence is a
+/// **A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
 /// DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
 /// `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
 /// which of these a transport holds is decided once, at composition, from a value an operator wrote.
-/// `None` would have needed a reader to decide what a missing scope permits, and the honest answer
-/// (*invent the client library's default and hope*) is what this type exists not to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Impersonation {
     /// This source does not impersonate: every job runs as the identity the driver authenticates as.
     Disabled,
-    /// This source impersonates, and an impersonated credential is minted for this scope.
-    AtScope(ImpersonationScopes),
+    /// This source impersonates, by federating the asking subject's assertion against this pool.
+    ThroughPool(WorkloadPool),
 }
 
-/// The database options one job's identity becomes.
+/// Everything a job's identity puts on the database, and the loopback source it has to outlive.
 ///
-/// **Empty for [`JobIdentity::Transport`]**, which is the shared posture and the boot path: no
-/// impersonation option at all, so the driver authenticates as the process. A non-empty answer is
-/// derived from THIS call's `identity` and from nothing else - there is no memo, no cache and no
-/// previous request to fall back to, which is what keeps one subject's principal off another
-/// subject's job.
+/// **The source is returned rather than dropped here, and that is the lifetime bug this shape
+/// prevents.** `externalaccount`'s token provider is wrapped in a CACHED provider, so the driver
+/// fetches the subject token lazily - after `connect` has returned - and may fetch again if the
+/// credential expires mid-query. A function that bound the listener and let it fall out of scope
+/// would compile, pass every boot-shaped test, and fail on the first real question.
+pub(super) struct JobAuthentication {
+    /// What the database is opened with.
+    pub(super) options: DatabaseOptions,
+    /// Held for exactly as long as the job runs. `None` for every leg that authenticates as the
+    /// process: the shared posture and the boot path.
+    pub(super) source: Option<SubjectSource>,
+}
+
+/// The database options and loopback source one job's identity becomes.
+///
+/// **Empty options and no source for [`JobIdentity::Transport`]**, which is the shared posture and
+/// the boot path: the driver authenticates as the process. An impersonating source reaching that arm
+/// is correct rather than a miss - `verify_anchor` and a fixture load carry no caller, and
+/// `crate`'s `verify_anchor` documentation already says an executed anchor here reproduces for the
+/// identity this deployment holds.
 ///
 /// # Errors
 ///
-/// [`AdbcError::Uncovered`] for [`JobIdentity::AsBearer`]: the pinned driver has no option that
-/// accepts a caller's own access token, and the wrong answer here is not a compromise but a
-/// regression - dropping the material and opening the connection anyway would run another
-/// principal's question under this deployment's identity while provenance reported it as
-/// impersonated. [`AdbcError::UnusableTarget`] where a declared principal is not an account this
-/// transport can name.
-pub(super) fn identity_options(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Result<DatabaseOptions, AdbcError> {
+/// [`AdbcError::Uncovered`] for a subject at a source that declares no pool: there is nothing to
+/// federate the assertion against, and opening the connection anyway would run the question as the
+/// deployment. [`AdbcError::SubjectSource`] or [`AdbcError::NoRandomness`] where the loopback source
+/// cannot be opened safely - both refusals, never a weaker source.
+pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
     match (identity, impersonation) {
-        // No impersonation option at all, so the driver authenticates as the process. Both the
-        // shared posture and the BOOT path land here - `verify_anchor` and a fixture load carry no
-        // caller - which is why an impersonating source reaching this arm is correct rather than a
-        // miss: its anchors reproduce for the identity this deployment holds, and `crate`'s
-        // `verify_anchor` documentation already says that is narrower than a caller's.
-        (JobIdentity::Transport, _) => Ok(Vec::new()),
-        (JobIdentity::AsPrincipal(name), Impersonation::AtScope(scopes)) => {
-            let target = TargetAccount::parse(name.as_str()).map_err(|cause| AdbcError::UnusableTarget { cause })?;
-            Ok(vec![
-                (
-                    OptionDatabase::Other(TARGET_PRINCIPAL.into()),
-                    OptionValue::String(String::from(target.as_str())),
-                ),
-                (
-                    OptionDatabase::Other(SCOPES.into()),
-                    OptionValue::String(String::from(scopes.as_str())),
-                ),
-            ])
+        (JobIdentity::Transport, _) => Ok(JobAuthentication {
+            options: Vec::new(),
+            source: None,
+        }),
+        (JobIdentity::AsSubject(assertion), Impersonation::ThroughPool(pool)) => {
+            let source = SubjectSource::bind(assertion)?;
+            Ok(JobAuthentication {
+                options: credential_options(&source, pool),
+                source: Some(source),
+            })
         }
-        // **A principal at a source that does not impersonate.** Unreachable through the domain port
-        // - `Presented::agrees_with` refuses a subject shape at a source declared shared, one layer
-        // up, before this is called - but reachable through `JobTransport` itself, which is public.
-        // So it is a refusal and not an `unreachable!`: opening the connection would run the
-        // question as the deployment while the name said otherwise, and there is no scope declared
-        // to mint a credential for the named account with anyway.
-        (JobIdentity::AsPrincipal(..), Impersonation::Disabled) => {
-            Err(AdbcError::Uncovered("execute as a principal at a source opened shared"))
+        // **A subject at a source that declares no pool.** Unreachable through the domain port -
+        // `Presented::agrees_with` refuses a subject shape at a source declared shared, one layer
+        // up - but reachable through `JobTransport` itself, which is public. So it is a refusal and
+        // not an `unreachable!`: there is no pool to exchange the assertion against, and a
+        // connection opened here would answer the question as this deployment.
+        (JobIdentity::AsSubject(..), Impersonation::Disabled) => {
+            Err(AdbcError::Uncovered("federate a subject at a source that declares no pool"))
         }
-        (JobIdentity::AsBearer(..), _) => Err(AdbcError::Uncovered("present the asking subject's own bearer credential")),
     }
+}
+
+/// The three options that hand the driver one request's workload-identity document.
+///
+/// Split out so the pair *which options* and *what the document says* are readable apart, and so
+/// the document's own construction stays in [`SubjectSource::document`] where the secret lives.
+///
+/// **The one place the document is exposed as text**, because a driver option IS text: `OptionValue`
+/// is the C ABI's shape and there is no secret-carrying variant of it. What that costs is stated at
+/// the exposure rather than here.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a driver option is a plain string across the C ABI, so the credential document has to               be exposed exactly once - here, at the boundary, into a value that is built and               consumed inside `connect` and never logged. `SubjectSource::document` keeps it a               `Secret` up to this line so no other reader can print it, and               `the_credential_document_is_redacted_under_debug` is the cell on that"
+)]
+fn credential_options(source: &SubjectSource, pool: &WorkloadPool) -> DatabaseOptions {
+    vec![
+        (
+            OptionDatabase::Other(AUTH_TYPE.into()),
+            OptionValue::String(String::from(AUTH_TYPE_JSON_STRING)),
+        ),
+        (
+            OptionDatabase::Other(AUTH_CREDENTIALS_TYPE.into()),
+            OptionValue::String(String::from(EXTERNAL_ACCOUNT)),
+        ),
+        (
+            OptionDatabase::Other(AUTH_CREDENTIALS.into()),
+            OptionValue::String(String::from(source.document(pool).expose_secret())),
+        ),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use sutura_domain::identity::{PrincipalName, Secret};
 
-    use super::{Impersonation, ImpersonationScopes, TargetAccount, UnusableIdentityOption, identity_options};
+    use super::{AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, Impersonation, authenticate};
     use crate::adbc::AdbcError;
+    use crate::adbc::subject::WorkloadPool;
     use crate::transport::JobIdentity;
 
-    fn scopes() -> Impersonation {
-        Impersonation::AtScope(
-            ImpersonationScopes::parse("https://www.googleapis.com/auth/cloud-platform").expect("a URL scope is usable"),
+    fn impersonating() -> Impersonation {
+        Impersonation::ThroughPool(
+            WorkloadPool::parse(
+                "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso",
+                "https://www.googleapis.com/auth/cloud-platform",
+            )
+            .expect("a provider resource and a scope are usable"),
         )
     }
 
-    /// The option keys, read back as text, so a test can assert what the driver would be told.
-    fn keys_and_values(identity: JobIdentity<'_>) -> Vec<(String, String)> {
-        identity_options(identity, &scopes())
-            .expect("this identity is one this transport sends")
+    /// The option keys one identity puts on the database, as text.
+    fn keys(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Vec<String> {
+        authenticate(identity, impersonation)
+            .expect("this pair is one this transport authenticates")
+            .options
             .into_iter()
-            .map(|(key, value)| {
-                let adbc_core::options::OptionValue::String(text) = value else {
-                    panic!("every identity option this transport sends is a string")
-                };
-                (format!("{key:?}"), text)
-            })
+            .map(|(key, _)| format!("{key:?}"))
             .collect()
     }
 
     #[test]
-    fn a_shared_leg_is_opened_with_no_impersonation_option_at_all() {
-        // The control, and it is the one that makes every other cell here mean something: an
-        // absent option is what makes the driver authenticate as the process, so a transport that
-        // sent a target for a shared leg would run the deployment's own question as somebody.
-        assert_eq!(keys_and_values(JobIdentity::Transport), Vec::new());
+    fn a_shared_leg_puts_no_authentication_option_on_the_database_at_all() {
+        // **ADC, and it is MANDATORY for this posture rather than a leftover.** A `shared-service-user`
+        // source runs as the identity the deployment holds, which is what an absent auth option
+        // means to the driver. Both arms of the XOR reach here, because the boot path carries no
+        // caller whatever the source declared - `crate`'s `verify_anchor` says an executed anchor
+        // reproduces for the identity this deployment holds.
+        assert_eq!(keys(JobIdentity::Transport, &Impersonation::Disabled), Vec::<String>::new());
+        assert_eq!(keys(JobIdentity::Transport, &impersonating()), Vec::<String>::new());
     }
 
     #[test]
-    fn a_declared_principal_becomes_the_drivers_own_impersonation_target_and_its_scope() {
-        let name = PrincipalName::parse("analyst-a@sutura.example.com").expect("an address is a name");
-        let sent = keys_and_values(JobIdentity::AsPrincipal(&name));
-        // The exact key spellings the pinned driver reads, asserted rather than assumed: a
-        // misspelled `OptionDatabase::Other` key is refused by the driver at connect time, which is
-        // a per-question failure in a deployment that booted clean.
-        let rendered: Vec<String> = sent.iter().map(|(key, _)| key.clone()).collect();
-        assert!(
-            rendered
-                .iter()
-                .any(|key| key.contains("bigquery.impersonate.target_principal")),
-            "{rendered:?}"
-        );
-        assert!(
-            rendered.iter().any(|key| key.contains("bigquery.impersonate.scopes")),
-            "{rendered:?}"
-        );
-        assert_eq!(
-            sent.iter().map(|(_, value)| value.as_str()).collect::<Vec<&str>>(),
-            vec![
-                "analyst-a@sutura.example.com",
-                "https://www.googleapis.com/auth/cloud-platform"
-            ]
-        );
-    }
-
-    #[test]
-    fn one_subjects_principal_never_appears_in_the_next_subjects_options() {
-        // **The cross-subject property, as a cell rather than as a paragraph.** Nothing about this
-        // transport is shared between two jobs - no connection, no database handle, no memoised
-        // option list - and this is the assertion that dies if any of that is introduced: a memo
-        // keyed on anything but the identity would answer the first subject's target for the
-        // second. Two principals, in sequence, through the one function that decides.
-        let first = PrincipalName::parse("analyst-a@sutura.example.com").expect("an address is a name");
-        let second = PrincipalName::parse("analyst-b@sutura.example.com").expect("an address is a name");
-        let values = |name: &PrincipalName| {
-            keys_and_values(JobIdentity::AsPrincipal(name))
-                .into_iter()
-                .map(|(_, value)| value)
-                .collect::<Vec<String>>()
-        };
-        let before = values(&first);
-        let after = values(&second);
-        assert!(after.iter().any(|value| value == "analyst-b@sutura.example.com"), "{after:?}");
-        assert!(
-            !after.iter().any(|value| value == "analyst-a@sutura.example.com"),
-            "the second subject's job was opened carrying the first subject's principal: {after:?}"
-        );
-        // And the other direction, so a swap that answered the LAST target for everybody is caught
-        // too rather than only a memo of the first.
-        assert!(
-            before.iter().any(|value| value == "analyst-a@sutura.example.com"),
-            "{before:?}"
-        );
-    }
-
-    #[test]
-    fn a_subjects_own_bearer_credential_is_refused_rather_than_dropped() {
-        // The refusal the removed HTTP transport made unnecessary and this one has to make: the
-        // pinned driver has no option that accepts a caller's access token. Opening the connection
-        // anyway would submit this question under the deployment's identity while the answer's
-        // provenance said the asker - every row as the process, recorded as somebody else.
-        let material = Secret::new("an-exchanged-access-token");
-        let refused = identity_options(JobIdentity::AsBearer(&material), &scopes())
-            .expect_err("a bearer is not an identity this transport can send");
-        assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
-        // And the refusal names the capability without quoting the credential.
-        let said = refused.to_string();
-        assert!(!said.contains("an-exchanged-access-token"), "{said}");
-    }
-
-    #[test]
-    fn a_principal_that_is_not_an_account_this_transport_can_name_is_refused_before_any_connect() {
-        // `PrincipalName` is the DOMAIN's parse - a role name passes it, because a data system with
-        // `SET ROLE` takes one. This transport sends the value to an impersonation endpoint that
-        // takes a service-account address, so it parses again, here, where the risk is.
-        let role = PrincipalName::parse("analyst_role").expect("a role is a domain principal name");
-        let refused = identity_options(JobIdentity::AsPrincipal(&role), &scopes()).expect_err("a bare role is not an account");
-        assert!(matches!(refused, AdbcError::UnusableTarget { .. }), "{refused:?}");
-    }
-
-    #[test]
-    fn a_scope_carrying_the_drivers_own_separator_is_refused_at_composition() {
-        // The comma is the character that matters, and it matters because of the DRIVER: it splits
-        // this option on commas, so a value carrying one is two scopes rather than an unusable one.
-        // Refused at parse, which is composition time, so it cannot become a per-question failure.
-        let refused = ImpersonationScopes::parse("https://example.com/auth/a,https://example.com/auth/b")
-            .expect_err("a comma is the driver's own separator");
-        assert!(matches!(refused, UnusableIdentityOption::Character { .. }), "{refused:?}");
-        for empty in ["", "   "] {
-            assert!(
-                matches!(ImpersonationScopes::parse(empty), Err(UnusableIdentityOption::Empty { .. })),
-                "an empty scope is the driver's own `scopes must be provided` failure, moved to boot"
-            );
+    fn a_subject_at_an_impersonating_source_is_authenticated_by_its_own_assertion() {
+        // The other arm of the XOR: three options that hand the driver a workload-identity
+        // document, so Google's own token service verifies the caller's assertion. What the
+        // document SAYS is `subject`'s own suite; what this holds is that these three keys and no
+        // others are what an impersonating leg puts on the database.
+        let assertion = Secret::new("a.caller.assertion");
+        let sent = keys(JobIdentity::AsSubject(&assertion), &impersonating());
+        for key in [AUTH_TYPE, AUTH_CREDENTIALS_TYPE, AUTH_CREDENTIALS] {
+            assert!(sent.iter().any(|sent| sent.contains(key)), "{key} is not sent: {sent:?}");
         }
-    }
-
-    #[test]
-    fn a_principal_at_a_source_opened_shared_is_refused_rather_than_run_as_the_deployment() {
-        // The pair the domain port cannot produce and `JobTransport` can: a name to become, at a
-        // source whose declaration named no scope to become it at. Refused, because a connection
-        // opened here would answer as the deployment under somebody else's name.
-        let name = PrincipalName::parse("analyst-a@sutura.example.com").expect("an address is a name");
-        let refused = identity_options(JobIdentity::AsPrincipal(&name), &Impersonation::Disabled)
-            .expect_err("a source opened shared has no scope to impersonate at");
-        assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
-    }
-
-    #[test]
-    fn a_boot_path_job_at_an_impersonating_source_still_runs_as_the_deployment() {
-        // `verify_anchor` and a fixture load carry no caller, so they reach `Transport` even where
-        // the source impersonates - and that is the documented narrowness of an executed anchor
-        // here, not a missed option. Asserted so a later change that started impersonating the
-        // LAST caller on the boot path would fail rather than read as a fix.
-        assert_eq!(keys_and_values(JobIdentity::Transport), Vec::new());
-    }
-
-    #[test]
-    fn a_target_account_is_bounded_and_takes_exactly_one_at_sign() {
-        assert!(matches!(
-            TargetAccount::parse("not-an-address"),
-            Err(UnusableIdentityOption::Character { .. })
-        ));
-        assert!(matches!(
-            TargetAccount::parse("a@b@sutura.example.com"),
-            Err(UnusableIdentityOption::Character { .. })
-        ));
-        let long = format!("{}@sutura.example.com", "a".repeat(250));
-        assert!(matches!(
-            TargetAccount::parse(&long),
-            Err(UnusableIdentityOption::TooLong { most: 254, .. })
-        ));
-        assert_eq!(
-            TargetAccount::parse("  analyst-a@sutura.example.com  ")
-                .expect("a padded address is an address")
-                .as_str(),
-            "analyst-a@sutura.example.com"
+        assert_eq!(sent.len(), 3, "{sent:?}");
+        // And no impersonation option, which is the deleted mechanism: `target_principal` would run
+        // the question as a declared account on the deployment's own connection.
+        assert!(
+            !sent.iter().any(|sent| sent.contains("impersonate")),
+            "the deployment-vouches-for-a-subject path came back: {sent:?}"
         );
+    }
+
+    #[test]
+    fn a_subject_at_a_source_that_declares_no_pool_is_refused_rather_than_run_as_the_deployment() {
+        // **THE XOR's own refusal, and the direction that matters.** There is no pool to federate
+        // the assertion against, so the only two things this could do are refuse or open a
+        // connection the deployment authenticated - and the second is the fallback the owner
+        // rejected. Unreachable through the domain port (`agrees_with` refuses a subject shape at a
+        // shared source one layer up) and reachable through `JobTransport`, which is public, so it
+        // is a refusal and not an `unreachable!`.
+        let assertion = Secret::new("a.caller.assertion");
+        let refused = authenticate(JobIdentity::AsSubject(&assertion), &Impersonation::Disabled)
+            .map(|_| ())
+            .expect_err("a source that declares no pool cannot federate a subject");
+        assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
+        assert!(!refused.to_string().contains("a.caller.assertion"), "{refused}");
+    }
+
+    #[test]
+    fn the_two_modes_are_the_only_two_and_neither_degrades_into_the_other() {
+        // **The XOR as a cell rather than as a sentence.** `Impersonation` has two variants and
+        // `JobIdentity` has two arms that can reach this function, so the pairs are four and every
+        // one is decided above: shared runs as the deployment, a subject federates, a subject with
+        // no pool refuses, and the boot path runs as the deployment whatever the source declared.
+        // What no pair produces is *a subject's question answered as the deployment* - there is no
+        // option list that is both non-empty and free of the credential document, and no arm that
+        // returns an empty list for a subject.
+        let assertion = Secret::new("a.caller.assertion");
+        let federated = keys(JobIdentity::AsSubject(&assertion), &impersonating());
+        assert!(!federated.is_empty(), "a subject's leg authenticated as nobody");
+        assert!(
+            authenticate(JobIdentity::AsSubject(&assertion), &Impersonation::Disabled).is_err(),
+            "a subject's leg fell back to the deployment's identity"
+        );
+        // And a principal switch has no spelling at all any more - `PrincipalName` cannot be put
+        // into a `JobIdentity`, which is what makes the weaker mechanism unrepresentable rather
+        // than refused. This line is the compile-time half of that, kept as a value nothing can
+        // hand to `authenticate`.
+        let role = PrincipalName::parse("analyst_role").expect("a role is a domain principal name");
+        assert_eq!(role.as_str(), "analyst_role");
     }
 }

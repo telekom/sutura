@@ -207,36 +207,6 @@ fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
 }
 
 #[test]
-fn the_identity_read_under_a_declared_principal_goes_out_as_that_principal() {
-    // **THE ARM THAT SHIPS, and it had no cell** - review mutated this read's identity to
-    // `Transport` and the whole suite stayed green, which means the instrument leg 2's re-proof
-    // depends on was itself unpinned.
-    //
-    // `SESSION_USER()` under a principal switch is the WHOLE oracle: the driver becomes the declared
-    // account, the dataset answers with that account's address, and a read submitted under the
-    // transport's own identity would answer the deployment every time and PASS. The bearer arm two
-    // cells up and the shared arm below cover the two arms no served `bigquery` deployment uses.
-    let warehouse = open(
-        Recording::answering(answered_as("bq-a@sutura.example.com")),
-        impersonating_posture(),
-    );
-    let presented = Presented::SubjectPrincipal {
-        name: sutura_domain::identity::PrincipalName::parse("bq-a@sutura.example.com").expect("a test name is a name"),
-    };
-    let who = warehouse.session_user(&presented).expect("the fake answers one identity");
-    assert_eq!(who.as_str(), "bq-a@sutura.example.com");
-    let seen = warehouse.transport.seen.borrow();
-    let asked = seen.first().expect("the transport was asked once");
-    assert_eq!(asked.principal.as_deref(), Some("bq-a@sutura.example.com"));
-    // And NOT as the transport's own identity, which is the mutation this cell exists to kill: a
-    // read that lost the principal on the way to the request would answer the deployment and this
-    // fake would still hand back a row.
-    assert_eq!(asked.subject, None);
-    assert!(asked.statement.contains("SESSION_USER()"), "{}", asked.statement);
-    assert!(asked.params.is_empty(), "{:?}", asked.params);
-}
-
-#[test]
 fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_nothing() {
     // Three shapes that are not an identity, and one property that matters more than any of them:
     // **the refusal carries the SHAPE and never the value.** The venue that runs this read writes
@@ -319,70 +289,38 @@ fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpo
 }
 
 #[test]
-fn a_declared_principal_reaches_the_transport_as_the_identity_the_job_runs_as() {
-    // **The shape this adapter used to declare it could carry and then refused, and the reason the
-    // refusal is gone.** A `SubjectPrincipal` is the SAME POSTURE as a subject token to the domain,
-    // so `agrees_with` passes it; what changed is that there is now a transport option for it - the
-    // ADBC driver's own impersonation target - so the adapter no longer has to answer for whether a
-    // transport can deliver it. The adapter's job is to carry the shape through unchanged, and this
-    // is the cell that holds it: the principal the broker declared is what reaches the request, and
-    // nothing turns it into a bearer or drops it.
+fn a_principal_to_switch_to_is_refused_rather_than_run_on_this_deployments_own_connection() {
+    // **The mechanism reversal, as a cell.** For two rounds this adapter DELIVERED this shape: the
+    // driver's `target_principal` option impersonated a declared account from the deployment's own
+    // application default credentials, so the connection was the deployment's and the subject's
+    // credential was nowhere in the chain. The owner rejected it - *"indeed no fallback! we must
+    // work with impersonation!!"* - so `JobIdentity` carries one subject arm now and there is no
+    // spelling for a principal switch at all.
     //
-    // **What this does NOT show**: that the data system agrees. `adbc::identity` maps this name onto
-    // the driver's option, and only a hosted run against a real dataset can show the account
-    // answering - `docs/where-identity-is-proven.md` is where that stays unclaimed.
+    // `agrees_with` passes this shape, because a principal and an assertion are one POSTURE to the
+    // domain, so only the adapter can say it cannot be delivered. Both credential-taking methods
+    // are asked, because `deliverable`'s successor is shared and the pre-flight is where a missing
+    // check would be noticed least.
     let warehouse = open(Recording::empty(), impersonating_posture());
     let plan = plan();
     let presented = Presented::SubjectPrincipal {
         name: sutura_domain::identity::PrincipalName::parse("bq-a@sutura.example.com").expect("a test name is a name"),
     };
-    drop(
-        warehouse
-            .execute(Executable::Query(&plan), &presented, test_deadline())
-            .expect("an impersonating source accepts the principal its declaration named"),
-    );
+    let refused = warehouse
+        .execute(Executable::Query(&plan), &presented, test_deadline())
+        .expect_err("a principal switch is not a mechanism this adapter has");
+    assert!(matches!(refused, BigQueryError::NoPrincipalSwitch { .. }), "{refused:?}");
     let pre_flight = warehouse
         .dry_run(Executable::Query(&plan), &presented, test_deadline())
-        .expect("the pre-flight accepts the same shape");
-    // The pre-flight is asked too, because `deliverable` is shared by every credential-taking
-    // method and this is the call where forgetting it would be least visible.
+        .expect_err("the pre-flight refuses the same shape");
     assert!(
-        matches!(pre_flight, sutura_domain::warehouse::PreFlight::Accepted { .. }),
+        matches!(pre_flight, BigQueryError::NoPrincipalSwitch { .. }),
         "{pre_flight:?}"
     );
-    let seen = warehouse.transport.seen.borrow();
-    assert_eq!(seen.len(), 2);
-    for asked in seen.iter() {
-        assert_eq!(asked.principal.as_deref(), Some("bq-a@sutura.example.com"));
-        // And NOT as a bearer. A transport handed the principal in the bearer slot would present a
-        // service-account address as a credential, which the data system would refuse - loudly, but
-        // for the wrong reason, and after the statement had already been sent.
-        assert_eq!(asked.subject, None);
-    }
-}
-
-#[test]
-fn two_subjects_named_two_principals_run_as_two_principals_and_never_each_others() {
-    // **The leg-2 property at the adapter seam**: the asker decides which principal the job names,
-    // and the adapter holds neither asker's identity - the `Presented` value carries it, per call.
-    // At a dataset with row-level security that is what makes the two subjects read different rows.
-    let warehouse = open(Recording::empty(), impersonating_posture());
-    let plan = plan();
-    for account in ["bq-a@sutura.example.com", "bq-b@sutura.example.com"] {
-        let presented = Presented::SubjectPrincipal {
-            name: sutura_domain::identity::PrincipalName::parse(account).expect("a test name is a name"),
-        };
-        drop(
-            warehouse
-                .execute(Executable::Query(&plan), &presented, test_deadline())
-                .expect("an impersonating source accepts a declared principal"),
-        );
-    }
-    let seen = warehouse.transport.seen.borrow();
-    assert_eq!(seen.len(), 2);
-    assert_eq!(seen[0].principal.as_deref(), Some("bq-a@sutura.example.com"));
-    assert_eq!(seen[1].principal.as_deref(), Some("bq-b@sutura.example.com"));
-    assert_ne!(seen[0].principal, seen[1].principal);
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "a leg this adapter cannot deliver may not reach the endpoint under any identity"
+    );
 }
 
 #[test]

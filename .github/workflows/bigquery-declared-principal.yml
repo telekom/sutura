@@ -12,15 +12,18 @@
 # venue's anchor, whatever the trigger type. That is what takes the venue off `unrun`; `wired` is
 # the honest state of the commit that adds this file, because the run happens after the push.
 #
-# **WHAT THIS NEEDS THAT THE OLD LEG DID NOT, AND WHAT IT NO LONGER NEEDS.** The old one minted a
-# Google-issued ID token per principal from that principal's own key and exchanged each against a
-# workload-identity pool - three secrets, one pool, one `roles/iam.workloadIdentityUser` binding per
-# account. The ADBC transport performs no exchange: the driver impersonates the declared account from
-# the process's own application default credentials. So this job holds ONE credential and no
-# assertion at all, and the pool is not in the picture. That is a shorter setup and a SHORTER TRUST
-# CHAIN - the caller's own credential is not checked by Google on this path - which
-# `docs/adr/0018`'s fifth amendment prices and `crates/sutura-exec-bigquery/src/lib.rs` states
-# beside the claim.
+# **WHAT THIS NEEDS, corrected once the mechanism was reversed.** A round of this file said the ADBC
+# transport performs no exchange and that the pool was "not in the picture" - true of the principal
+# switch this branch used to ship, and false now. The transport federates the asking subject's own
+# assertion against the pool the source declares (`docs/adr/0018`, sixth amendment), so this job
+# needs what the withdrawn exchange leg needed: the pool's audience, and one assertion per principal
+# minted from that principal's own key. The deployment's own credential is still placed, because the
+# CONTROL leg reads it - a shared leg runs on application default credentials, which is mandatory
+# for that posture and impersonates nothing.
+#
+# The TRUST CHAIN is the long one again: Google's own token service verifies each caller's assertion
+# against the pool before anything is minted. That is the property the owner required and the reason
+# the shorter chain was withdrawn.
 #
 # No input here comes from a GitHub event body (an issue, a PR title, a commit message, a comment):
 # every `${{ }}` expression below reads `secrets.*`, `vars.*` or `runner.temp`, none of which a
@@ -128,20 +131,68 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
           SUTURA_BQ_SCOPE: https://www.googleapis.com/auth/cloud-platform
-          SUTURA_BQ_ACCOUNT_A: ${{ secrets.SUTURA_BQ_PRINCIPAL_A_EMAIL }}
-          SUTURA_BQ_ACCOUNT_B: ${{ secrets.SUTURA_BQ_PRINCIPAL_B_EMAIL }}
+          SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+          SUTURA_BQ_PRINCIPAL_A: ${{ secrets.SUTURA_BQ_PRINCIPAL_A_EMAIL }}
+          SUTURA_BQ_PRINCIPAL_B: ${{ secrets.SUTURA_BQ_PRINCIPAL_B_EMAIL }}
+          SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
+          SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
         run: |
           set -eu
           if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
-            echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the accounts live in" >&2
+            echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the principals live in" >&2
             exit 1
           fi
-          if [ -z "${SUTURA_BQ_ACCOUNT_A:-}" ] || [ -z "${SUTURA_BQ_ACCOUNT_B:-}" ]; then
-            echo "the bq-test environment defines fewer than two declared account addresses - one account cannot show two principals" >&2
+          if [ -z "${SUTURA_BQ_AUDIENCE:-}" ]; then
+            echo "the bq-test environment holds no workload audience - it is the pool each assertion is exchanged against" >&2
             exit 1
           fi
-          nix run .#bigquery-declared-principal -- --no-capture
+          if [ -z "${SUTURA_BQ_PRINCIPAL_A:-}" ] || [ -z "${SUTURA_BQ_PRINCIPAL_B:-}" ]; then
+            echo "the bq-test environment defines fewer than two expected principals - one cannot show two" >&2
+            exit 1
+          fi
+          # The assertions reach the leg as VALUES rather than paths, because the credential source
+          # this transport builds is a loopback URL and the assertion never touches a file on the
+          # far side either. Read here, in one step, from files this job placed and removes.
+          SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
+          SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
+            nix run .#bigquery-declared-principal -- --no-capture
+
+      # THE TWO ASSERTIONS, one per principal, minted from that principal's OWN key -
+      # `telekom/sutura#376`'s "no new long-lived secret" design, needed again now that the
+      # transport federates the asker's own assertion rather than switching to a declared account.
+      # `nix/bigquery-mint-assertion.sh` carries the two steps and what it does not keep; the
+      # `target_audience` is the pool's own exported audience, the self-referential convention that
+      # plan recommends.
+      #
+      # Every value here is a `secrets.*`/`vars.*`/`runner.temp` reference, so nothing a forker or
+      # commenter controls reaches a shell body - and both keys and both assertions travel as FILE
+      # PATHS, never through `${{ }}` into a command line.
+      - name: Mint the two subject assertions
+        env:
+          SUTURA_BQ_PRINCIPAL_A_KEY: ${{ secrets.SVC_SUTURUA_BQ_PRINCIPAL_A }}
+          SUTURA_BQ_PRINCIPAL_B_KEY: ${{ secrets.SVC_SUTURUA_BQ_PRINCIPAL_B }}
+          SUTURA_BQ_WORKLOAD_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+        run: |
+          set -eu
+          umask 077
+          if [ -z "${SUTURA_BQ_PRINCIPAL_A_KEY:-}" ] || [ -z "${SUTURA_BQ_PRINCIPAL_B_KEY:-}" ]; then
+            echo "the bq-test environment holds fewer than two principal keys - one key cannot mint two subjects" >&2
+            exit 1
+          fi
+          if [ -z "${SUTURA_BQ_WORKLOAD_AUDIENCE:-}" ]; then
+            echo "the bq-test environment holds no workload audience - it is what each assertion targets" >&2
+            exit 1
+          fi
+          printenv SUTURA_BQ_PRINCIPAL_A_KEY > "$RUNNER_TEMP/principal-a-key.json"
+          printenv SUTURA_BQ_PRINCIPAL_B_KEY > "$RUNNER_TEMP/principal-b-key.json"
+          bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
+          bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
+          # The raw keys are spent once minted; removed promptly rather than held for the rest of
+          # the job, narrowing the window either sits in cleartext on this runner.
+          rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
 
       - name: Remove the credentials
         if: always()
-        run: rm -f "$RUNNER_TEMP/bq-ci-key.json"
+        run: |
+          rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
+          rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt"

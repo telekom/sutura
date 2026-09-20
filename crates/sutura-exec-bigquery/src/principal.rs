@@ -87,14 +87,22 @@ impl DeclaredPrincipals {
         Ok(Self(declared))
     }
 
-    /// The principal this subject executes as here, if the declaration names one.
+    /// Does this source's declaration name this subject at all?
     ///
-    /// `None` is not a fallback - it is the answer for every caller a deployment did not name, and
+    /// `false` is not a fallback - it is the answer for every caller a deployment did not name, and
     /// [`DeclaredPrincipalBroker::mint`] turns it into a refusal.
+    ///
+    /// **The KEY is what is read, and the declared account beside it is NOT SENT ANYWHERE TODAY.**
+    /// With workload-identity federation the pool resolves a subject to its own principal, so there
+    /// is no per-subject account for this adapter to name - the value would become a
+    /// `service_account_impersonation_url` on the credential document, which is a follow-up rather
+    /// than something built here. Recorded as a dead declared value rather than left for a reader
+    /// to discover: `sources.<alias>.workload_identity.impersonate`'s keys decide authorization and
+    /// its values decide nothing.
     #[inline]
     #[must_use]
-    pub fn principal_for(&self, subject: &SubjectKey) -> Option<&PrincipalName> {
-        self.0.get(subject)
+    pub fn names(&self, subject: &SubjectKey) -> bool {
+        self.0.contains_key(subject)
     }
 
     /// How many subjects this source declares. Never zero.
@@ -184,6 +192,10 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // then has nobody to be, and the refusal below is what it gets.
         let asked_by = context.chain().subject();
         let key = asked_by.key();
+        // The document leg 1 verified. A broker that federates REQUIRES one - a subject with no
+        // assertion has nothing for Google's token service to verify, and answering as the process
+        // is the fallback this whole path exists to remove.
+        let assertion = context.assertion();
         let mut presented = BTreeMap::new();
         for source in sources.iter() {
             if let Some(declared) = self.shared.get(source) {
@@ -204,10 +216,23 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // verified subject, and a verified caller this source does not name, are told the same
             // thing: this source cannot be asked as you. Neither is widened, and the refusal names
             // the SOURCE and never the subject - `Minted::Refused` carries one field for that reason.
-            let Some(name) = key.and_then(|key| principals.principal_for(key)) else {
+            if !key.is_some_and(|key| principals.names(key)) {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
+            // **The asking subject's OWN assertion, and that is the whole of leg 2.** The transport
+            // puts it behind a workload-identity credential document, so Google's token service
+            // verifies it and the source executes as whatever principal the pool resolves the
+            // subject to. What this broker decides is only WHETHER this caller may be served here;
+            // WHO they become is the pool's, which is why nothing per-subject is minted.
+            let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
-            drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name: name.clone() }));
+            drop(presented.insert(
+                source.clone(),
+                Presented::SubjectToken {
+                    material: assertion.clone(),
+                },
+            ));
         }
         // **Nothing here expires, and that is a statement rather than a default.** What this broker
         // presents is a NAME, which has no lifetime; the credential the driver mints to become that

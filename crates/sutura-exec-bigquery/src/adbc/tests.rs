@@ -8,12 +8,12 @@
 //! the refusal arrived INSTEAD of that failure.
 
 use sutura_domain::calendar::Date;
-use sutura_domain::identity::{PrincipalName, Secret};
+use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
 
 use adbc_core::Statement;
 
-use super::{AdbcBigQuery, AdbcError, Impersonation, ImpersonationScopes};
+use super::{AdbcBigQuery, AdbcError, Impersonation};
 use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport as _, ProjectId};
 
 /// A path that names no driver, so a load reached here always fails.
@@ -27,8 +27,12 @@ fn endpoint(impersonation: Impersonation) -> AdbcBigQuery {
 }
 
 fn impersonating() -> Impersonation {
-    Impersonation::AtScope(
-        ImpersonationScopes::parse("https://www.googleapis.com/auth/cloud-platform").expect("a URL scope is usable"),
+    Impersonation::ThroughPool(
+        super::subject::WorkloadPool::parse(
+            "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/a/providers/sso",
+            "https://www.googleapis.com/auth/cloud-platform",
+        )
+        .expect("a provider resource and a scope are usable"),
     )
 }
 
@@ -45,12 +49,13 @@ fn dataset() -> DatasetId {
 }
 
 #[test]
-fn a_bearer_is_refused_before_the_driver_is_even_loaded() {
-    // The refusal that has to stay, and the ordering that makes it worth having: a loaded driver
-    // with no impersonation option is a connection as this deployment, so a request this transport
-    // cannot honour must not reach `load_dynamic_from_filename`. `Uncovered` over a path naming no
-    // `.so` is how that ordering is observable without a driver.
-    let material = Secret::new("an-exchanged-access-token");
+fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
+    // **THE XOR's refusal, at the transport rather than at the option builder.** A source opened
+    // shared declares no pool, so there is nothing to federate a subject's assertion against - and
+    // the only alternative to refusing is opening a connection the DEPLOYMENT authenticated, which
+    // is the fallback the owner rejected. `Uncovered` over a path naming no `.so` is how the
+    // ordering is observable without a driver: the identity is decided first.
+    let assertion = Secret::new("a.caller.assertion");
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -58,14 +63,39 @@ fn a_bearer_is_refused_before_the_driver_is_even_loaded() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsBearer(&material),
+        JobIdentity::AsSubject(&assertion),
         JobDeadline::Boot,
     );
-    let refused = endpoint(impersonating())
+    let refused = endpoint(Impersonation::Disabled)
         .run(&request)
-        .expect_err("a bearer is not an identity this transport can send");
+        .expect_err("a shared source cannot federate a subject");
     assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
-    assert!(!refused.to_string().contains("an-exchanged-access-token"), "{refused}");
+    assert!(!refused.to_string().contains("a.caller.assertion"), "{refused}");
+}
+
+#[test]
+fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
+    // The other arm: the assertion is authenticated through a workload-identity document, so the
+    // only thing left to fail is the LOAD. Without this cell the refusal above passes over a
+    // transport that refused every subject for any reason.
+    let assertion = Secret::new("a.caller.assertion");
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new(
+        "SELECT 1",
+        &[],
+        &project,
+        &dataset,
+        JobIdentity::AsSubject(&assertion),
+        JobDeadline::Boot,
+    );
+    let failed = endpoint(impersonating())
+        .run(&request)
+        .expect_err("no driver lives at this path");
+    assert!(
+        matches!(failed, AdbcError::Load(_)),
+        "an impersonating leg must reach the driver rather than be refused: {failed:?}"
+    );
 }
 
 #[test]
@@ -96,28 +126,6 @@ fn a_question_carrying_values_is_no_longer_refused_and_gets_as_far_as_the_driver
         matches!(failed, AdbcError::Load(_)),
         "a question with values must reach the driver rather than be refused: {failed:?}"
     );
-}
-
-#[test]
-fn a_declared_principal_this_transport_cannot_name_is_refused_before_the_driver_is_even_loaded() {
-    // A domain `PrincipalName` accepts a role, because a data system with `SET ROLE` takes one. This
-    // one goes to an impersonation endpoint that takes an address, so the parse that refuses it is
-    // this transport's - and it runs before the load too.
-    let role = PrincipalName::parse("analyst_role").expect("a role is a domain principal name");
-    let project = project();
-    let dataset = dataset();
-    let request = JobRequest::new(
-        "SELECT 1",
-        &[],
-        &project,
-        &dataset,
-        JobIdentity::AsPrincipal(&role),
-        JobDeadline::Boot,
-    );
-    let refused = endpoint(impersonating())
-        .run(&request)
-        .expect_err("a bare role is not an account this transport can name");
-    assert!(matches!(refused, AdbcError::UnusableTarget { .. }), "{refused:?}");
 }
 
 #[test]

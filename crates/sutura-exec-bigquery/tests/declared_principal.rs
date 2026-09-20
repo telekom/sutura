@@ -39,7 +39,7 @@ mod declared_principal {
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
-    use sutura_exec_bigquery::adbc::{Impersonation, ImpersonationScopes};
+    use sutura_exec_bigquery::adbc::{Impersonation, WorkloadPool};
     use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 
     /// One required environment value, or a panic naming it.
@@ -65,14 +65,15 @@ mod declared_principal {
         let driver = required("SUTURA_BIGQUERY_ADBC_DRIVER");
         let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
         let dataset = DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
-        let scopes = ImpersonationScopes::parse(&required("SUTURA_BQ_SCOPE")).expect("the declared scope is a scope");
+        let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE"), &required("SUTURA_BQ_SCOPE"))
+            .expect("the declared pool audience and scope are usable");
         BigQueryWarehouse::over_adbc(
             source(),
             SourcePosture::ImpersonationAtSource,
             project,
             dataset,
             driver,
-            Impersonation::AtScope(scopes),
+            Impersonation::ThroughPool(pool),
         )
     }
 
@@ -99,11 +100,17 @@ mod declared_principal {
         // `telekom/sutura#376`'s `iamcredentials` hop bought and what the driver's
         // `bigquery.impersonate.target_principal` goes through as well - so a `principal://` string
         // here would mean the hop did not happen.
-        let first = required("SUTURA_BQ_ACCOUNT_A");
-        let second = required("SUTURA_BQ_ACCOUNT_B");
-        assert_ne!(first, second, "two accounts that are one account prove nothing");
-        let ran_as_first = executed_as(&first);
-        let ran_as_second = executed_as(&second);
+        let first_assertion = required("SUTURA_BQ_ASSERTION_A");
+        let second_assertion = required("SUTURA_BQ_ASSERTION_B");
+        assert_ne!(
+            first_assertion, second_assertion,
+            "one assertion presented twice is one subject, and proves nothing about two"
+        );
+        let first = required("SUTURA_BQ_PRINCIPAL_A");
+        let second = required("SUTURA_BQ_PRINCIPAL_B");
+        assert_ne!(first, second, "two principals that are one principal prove nothing");
+        let ran_as_first = executed_as(&first_assertion);
+        let ran_as_second = executed_as(&second_assertion);
         assert_eq!(ran_as_first, first, "the first subject's question ran as somebody else");
         assert_eq!(ran_as_second, second, "the second subject's question ran as somebody else");
         assert_ne!(
@@ -140,7 +147,7 @@ mod declared_principal {
                 .expect("the dataset answered the identity read")
                 .as_str(),
         );
-        for declared_account in ["SUTURA_BQ_ACCOUNT_A", "SUTURA_BQ_ACCOUNT_B"] {
+        for declared_account in ["SUTURA_BQ_PRINCIPAL_A", "SUTURA_BQ_PRINCIPAL_B"] {
             assert_ne!(
                 ours,
                 required(declared_account),

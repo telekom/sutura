@@ -152,17 +152,26 @@ fn build_bigquery(
         .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
     let dataset = sutura_exec_bigquery::transport::DatasetId::parse(dataset.as_str())
         .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
-    // **Whether this source impersonates, decided here and never per request.** `sutura_config`
+    // **Which of the two modes this source is, decided here and never per request.** They are XOR
+    // rather than a ladder: a `shared-service-user` source runs on the deployment's own application
+    // default credentials and impersonates nothing, and an `impersonation-at-source` source
+    // federates the asking subject's own assertion against the pool it declares. `sutura_config`
     // refuses a `workload_identity` block on a shared entry and refuses its absence on an
-    // impersonating one, so the presence of the block IS the posture - and the scope it declares is
-    // what an impersonated credential is minted for. A scope the driver would refuse fails here,
-    // before a listener is bound, rather than on the first impersonated question.
+    // impersonating one, so the presence of the block IS the posture and there is no third state.
+    //
+    // **`audience` is load-bearing again.** It was read by nothing for three rounds, while the
+    // shipped mechanism was a principal switch on the deployment's own credential; the pool's
+    // exchange needs it, and `externalaccount::Options::validate` refuses an empty one - so an
+    // unusable declaration fails here, before a listener is bound, rather than on the first
+    // impersonated question.
     let impersonation = match configured.workload_identity() {
         None => sutura_exec_bigquery::adbc::Impersonation::Disabled,
-        Some(workload) => sutura_exec_bigquery::adbc::Impersonation::AtScope(
-            sutura_exec_bigquery::adbc::ImpersonationScopes::parse(workload.scope().as_str()).map_err(|cause| {
-                format!("`sources.{source}.workload_identity.scope` is not one this transport can send: {cause}")
-            })?,
+        Some(workload) => sutura_exec_bigquery::adbc::Impersonation::ThroughPool(
+            sutura_exec_bigquery::adbc::WorkloadPool::parse(workload.audience().as_str(), workload.scope().as_str()).map_err(
+                |cause| {
+                    format!("`sources.{source}.workload_identity` names a pool this transport cannot exchange against: {cause}")
+                },
+            )?,
         ),
     };
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(

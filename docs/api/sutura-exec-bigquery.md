@@ -49,50 +49,51 @@ links none of this.
 
 # Identity
 
-`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, and the mechanism that makes it
-true is a **principal switch** rather than a forwarded credential. A
-`Presented::SubjectPrincipal` names the service account this subject's query is to execute as;
-`adbc` sets it as the job's impersonation target through the driver's own
-`bigquery.impersonate.*` options, so the data system evaluates the statement as that account and
-`SessionUser` reads its address back. `DeclaredPrincipalBroker` is what resolves a verified
-subject to the account a source declared for it, and a subject the declaration does not name is
-refused rather than answered as the deployment.
+`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, and it is now true by
+construction rather than by this paragraph: the asking subject's **own verified assertion** is
+what the data system authenticates. `adbc` hands the driver a workload-identity credential
+document naming a loopback source for that assertion, so Google's token service verifies it
+against the pool the source declares and the question executes as whatever principal that pool
+resolves the subject to. `adbc`'s own `subject` module carries the mechanism and its exposure.
 
-**What that does NOT do, stated beside the claim.** The asking subject's own credential never
-reaches the data system. The connection is the one this deployment authenticated; the subject's
-verified identity only SELECTS which declared principal the job runs as. Two consequences, both
-real: the deployment holds `roles/iam.serviceAccountTokenCreator` on every principal it declares,
-and leg 1 - this deployment's own verification of the caller - is therefore the only thing
-between a caller and any of those principals. The withdrawn HTTP transport had a longer chain,
-because Google's own token service verified the caller's assertion against a workload-identity
-pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
-fifth amendment is the record, with the two alternatives that were priced against this one.
+**Two modes, and they are XOR rather than a ladder.** A source declares one posture and gets one
+mechanism:
 
-**And because leg 1 is the only barrier, two of ITS limits are now limits on impersonation.**
-They were already recorded as leg-1 caveats; what changed is that nothing stands behind them any
-more. `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing
-to a request and stores nothing it has seen (`within_the_lifetime_ceiling`'s own doc says so), so
-inside that window a captured assertion is replayable - and now replayable *as a declared
-principal at the data system*. And the signing-key age bound `KeySetCache::stale_for` measures
-excludes a failing refresh: while the key source is unavailable the previously established keys
-keep verifying for no bounded time, so a key removed during an outage keeps authorizing the
-principal switch. Neither is new and neither is this crate's to fix; both are cited here because
-*the limit belongs beside the claim* and the claim moved.
+| declared posture | mechanism | identity at the source |
+| --- | --- | --- |
+| `shared-service-user` | the deployment's own application default credentials, **mandatory** for this posture, impersonating nothing | the deployment |
+| `impersonation-at-source` | the subject's own assertion, federated against the declared pool | the asking subject |
 
-**The other subject shape is refused rather than degraded.** A `Presented::SubjectToken` is
-credential material for a transport to present as this job's bearer. The pinned ADBC driver has
-no option that accepts one - its auth types take a credential FILE, a credential JSON document or
-an OAuth refresh token, and its impersonation options start from the process's own application
-default credentials - so `adbc` refuses that arm rather than dropping the material and running
-under the driver's own identity, which would report an answer as impersonated that ran as the
-process. Both shapes are one POSTURE to `Presented::agrees_with`, so only a transport can tell
-them apart, and `transport::JobIdentity` is where it does.
+**What does not exist is a path from the second to the first**, and that is the whole point: an
+impersonating source whose subject cannot be federated is REFUSED
+(`adbc::identity::authenticate`'s third arm), never answered as the deployment. The reverse is
+refused one layer up, by `Presented::agrees_with`: a shared source handed a subject's
+credential is a posture disagreement before any transport sees it.
 
-**What no version of this is, yet:** a served deployment that has been OBSERVED answering under
-its asker. The composition is built - `sutura serve` attaches `DeclaredPrincipalBroker` to a
-declared `impersonation-at-source` `bigquery` source - and no hosted run has yet resolved two
-subjects to two accounts through this transport. `docs/where-identity-is-proven.md` carries what
-may be cited and what may not.
+**The mechanism this replaced is deleted rather than kept beside it.** For two rounds this
+adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
+credentials - so the connection was the deployment's, the subject's credential was nowhere in
+the chain, and leg 1 was the only barrier. `docs/adr/0018`'s fifth amendment records it, and
+`JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
+runtime.
+
+**So a `Presented::SubjectPrincipal` is refused.** It is the same POSTURE as an assertion to
+the domain, so `Presented::agrees_with` passes it and only this adapter can say it has no
+mechanism - `BigQueryError::NoPrincipalSwitch`. `GoogleSQL` has no proxy-user or `SET ROLE`
+equivalent either, so there is nothing to build it out of.
+
+**And because leg 1 still gates who may be federated at all, two of ITS limits bound this.**
+`sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
+request (`within_the_lifetime_ceiling`'s own doc), so inside that window a captured assertion is
+replayable - and Google would accept it, because it is the caller's real document. And the
+signing-key age bound `KeySetCache::stale_for` measures excludes a failing refresh. Neither is
+this crate's to fix; both are cited here because *the limit belongs beside the claim*.
+
+**What is still unproven, and no green run here changes it:** nothing reachable from this
+repository shows Google ACCEPTING the assertion. The document is built and the loopback source
+is asserted against a real socket; the exchange needs a pool, a project and a hosted run.
+`docs/where-identity-is-proven.md` records that venue as `wired` and undispatched, so **leg 2 is
+not proven.**
 
 # Two things this adapter deliberately does not offer
 
@@ -128,6 +129,16 @@ an owned `#[source]`.
   **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
   leg run with nothing above it returns rows at a finer grouping than the question asked for,
   which is a wrong number under a certified name.
+- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and no transport here has a spelling for one.
+
+  **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
+  this adapter delivered exactly that shape, through the driver's `target_principal` option and
+  the deployment's own application default credentials - so the connection was the
+  deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
+  so `crate::transport::JobIdentity` carries one subject arm now and this refusal is what a
+  broker presenting the other one gets. Accepting it would submit the job under the
+  credential the transport already holds while provenance, read off this source's posture,
+  reported the answer as impersonated.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `UnmappedType` - A column came back as a type this adapter does not map.
 
@@ -500,12 +511,17 @@ link. Off is not hidden - every gate passes `--all-features`.
 
 # Who a job runs as
 
-One of the driver's own options, and `identity` is where the whole decision lives and is
-asserted: a `JobIdentity::AsPrincipal` becomes
-`bigquery.impersonate.target_principal`, so the data system evaluates the statement as the
-account a source declared for that subject. A shared leg sends no impersonation option and runs
-as the process. A bearer is REFUSED - the pinned driver has nowhere to put one - rather than
-dropped, which would run somebody else's question under this deployment's identity.
+Two declared postures, XOR, decided at composition and never per request: a `shared-service-user`
+source runs on the deployment's own application default credentials and impersonates nothing, and
+an `impersonation-at-source` source federates the asking subject's own assertion against the pool
+it declares. `identity` is where that decision lives and is asserted, and `subject` is where the
+federation's mechanism and its exposure are written down.
+
+**A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
+one thing this transport must never do, and the reason there is no third state. The mechanism
+this replaced - an impersonation target minted from the deployment's own credentials - has no
+spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
+refused.
 
 # The values
 
@@ -538,13 +554,17 @@ Why the ADBC transport could not answer.
   Its own variant rather than an `Self::Adbc`, because the failure is on THIS side of the C
   ABI: nothing has been sent, and what went wrong is an Arrow batch this transport built. The
   cause is Arrow's own, kept as a `#[source]` so the chain still walks.
-- `UnusableTarget` - A leg named a principal that is not an account this transport can ask the driver to become.
+- `SubjectSource` - The loopback source a subject's assertion is served over could not be opened.
 
-  **Its own variant rather than an `Self::Uncovered` string**, because the two say different
-  things to whoever reads them: `Uncovered` is *this transport does not do that*, which is a
-  fact about the driver, and this is *the declaration named something unsendable*, which is a
-  fact about a settings file. The cause carries a position and never the value - see
-  `identity::UnusableIdentityOption`.
+  Its own variant rather than an `Self::Adbc`, because nothing has been sent and the failure
+  is this process's own: a host with no usable loopback interface cannot serve an impersonated
+  question, and saying that is better than a driver failing to fetch a token for reasons of
+  its own.
+- `NoRandomness` - The operating system would not supply the randomness this request's two secrets need.
+
+  **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
+  constant available here would be written into the same document the driver reads, so the
+  fetch would authenticate against a value any local process could guess.
 
 #### Implements
 
@@ -608,38 +628,25 @@ which is what a static-musl binary answers, because it has no dynamic loader.
 
 ### `use Impersonation`
 
-Whether this source impersonates at all, and at what scope when it does.
+Whether this source impersonates at all, and against which pool when it does.
 
-**A two-variant type rather than an `Option<ImpersonationScopes>`, because the absence is a
+**A two-variant type rather than an `Option<WorkloadPool>`, because the absence is a
 DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
 `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
 which of these a transport holds is decided once, at composition, from a value an operator wrote.
-`None` would have needed a reader to decide what a missing scope permits, and the honest answer
-(*invent the client library's default and hope*) is what this type exists not to do.
 
-### `use ImpersonationScopes`
+### `use UnusablePool`
 
-The scopes an impersonated credential is minted for, as the driver takes them.
+Why a declared pool is not one this transport can exchange against.
 
-**One declared scope and not a list**, because that is what a source declares
-(`sources.<alias>.workload_identity.scope`) and because the driver's own parsing of this option
-is a comma split - so a type that accepted several would have to render the separator the parse
-below refuses. A deployment needing two scopes is a change to the settings tree first.
+### `use WorkloadPool`
 
-### `use TargetAccount`
+Everything about a source that does not change per request: the pool it exchanges against.
 
-The account one job is executed as.
-
-A newtype rather than a `&str` for the reason every identifier in this crate is one: it reaches a
-request, so *an instance exists* has to mean *this is sendable*.
-
-### `use UnusableIdentityOption`
-
-Why a value this transport was about to send is not one it can send.
-
-**Positions, never the value**, for the reason `sutura_config`'s own refusal about the same text
-carries one: these are operator-written strings on their way into a request, and neither a log
-nor an error body is a place for them.
+**Parsed at composition, so an unusable declaration fails to start.** The audience is the pool
+provider resource the subject token is exchanged for - `externalaccount::Options::validate`
+refuses an empty one outright, so a deployment that declared nothing would fail on its first
+question instead of at boot.
 
 ### `use Reported`
 
@@ -824,17 +831,18 @@ weaker of those is its own shape and not a field on the stronger one.
 
   The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
   "no caller" means to a request.
-- `AsPrincipal` - A principal the transport directs the data system to execute this job as.
+- `AsSubject` - The asking subject's own verified assertion, for the data system to authenticate itself.
 
-  **The asking subject's identity, and NOT the asking subject's credential.** The connection is
-  still the one the deployment authenticated; what changes per job is the principal the data
-  system evaluates the statement as. `crate::adbc` serves this arm, and its module
-  documentation states exactly what that buys and what it does not.
-- `AsBearer` - The asking subject's own credential, for a transport that can present one as this job's bearer.
+  **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
+  `crate::adbc` puts this behind a workload-identity credential document, so Google's own
+  token service verifies it and the source executes as whatever principal the pool resolves
+  the subject to. Nothing on that path runs the question under the deployment's identity.
 
-  No transport in this crate serves this arm today - `crate::adbc` refuses it rather than
-  dropping the material and running under its own identity, which would report an answer as
-  impersonated that ran as the process.
+  **One subject arm and not two, which is the deletion that makes the claim true.** There used
+  to be a second - a PRINCIPAL the deployment asked the data system to become on the subject's
+  behalf, on a connection the deployment authenticated - and a transport could serve that one
+  while provenance reported the answer as impersonated. It has no spelling here any more, so
+  the weaker mechanism is unrepresentable rather than refused.
 
 #### Implements
 
