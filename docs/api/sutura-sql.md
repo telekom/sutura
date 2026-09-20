@@ -295,7 +295,7 @@ to read *there is no splitter*: there is one - `sutura_semantic::federated_plan`
 that renders a leg: the one leg-executing adapter a published binary contains is the engine,
 which builds a logical plan instead. So what pins this is the golden family under
 `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-dialect it was generated for - and none of those four is what a release executes.
+dialect it was generated for - and none of those five is what a release executes.
 
 ## Module `dialect`
 
@@ -1204,7 +1204,7 @@ to read *there is no splitter*: there is one - `sutura_semantic::federated_plan`
 that renders a leg: the one leg-executing adapter a published binary contains is the engine,
 which builds a logical plan instead. So what pins this is the golden family under
 `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-dialect it was generated for - and none of those four is what a release executes.
+dialect it was generated for - and none of those five is what a release executes.
 
 ### `fn generate_key_probe`
 
