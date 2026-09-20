@@ -1,6 +1,6 @@
 ---
 title: An RDF source declines rather than maps the part that fits
-description: Issue #155. Decides, against a field-by-field measurement of three named RDF vocabularies at named versions, that this repository builds no RDF metadata adapter - because every definition kind here is anchored to a column of a table a SourceName names, and an RDF vocabulary names properties and resources. Records the declined surface explicitly: a measure with no aggregation function, a cardinality this domain cannot hold, a code list of IRIs rather than stored values, a label that may not reach a MetricName, and the abbreviated cube form that is only well-formed after a derivation. Reasoning is out of scope and SHACL belongs at load, never per response. Takes 0037; the number this issue reserved (0033) was consumed by unrelated work.
+description: Issue #155. Decides, against a field-by-field measurement of three named RDF vocabularies at named versions, that this repository builds no RDF metadata adapter - because every definition kind here is anchored to a column of a table a SourceName names, and an RDF vocabulary names properties and resources. Records the declined surface explicitly: a measure with no aggregation function, a cardinality this domain cannot hold, a code list of IRIs rather than stored values, a label that may not reach a MetricName, and the abbreviated cube form that is only well-formed after a derivation. Reasoning is out of scope and SHACL belongs at load, never per response. Takes 0038; the number this issue reserved (0033) was consumed by unrelated work, and 0037 was taken by a concurrent branch after this record had checked it free.
 ---
 
 # An RDF source declines rather than maps the part that fits
@@ -136,5 +136,13 @@ than mapping the part that fits; widening the vocabulary to absorb what a graph 
 decision; reasoning stays out of scope, which includes refusing the abbreviated cube form rather than
 normalizing it; and SHACL, if it ever arrives, validates at load and never before a response. The
 number this issue reserved (0033) was consumed by unrelated work, as was the number #154 reserved;
-this is 0037, checked free against `origin/main` and against every open pull request at the time of
-writing.
+this is 0038.
+
+**And the number is the third instance of one failure, so it is recorded rather than quietly
+corrected.** This record was written as 0037, checked free against `origin/main` and against every
+open pull request that touched `docs/adr/` - and 0037 was minted the same hour by a concurrent branch
+that had not yet pushed. That is the same collision this issue's own comments already recorded twice:
+the number it reserved (0033) went to unrelated work, and #154's reserved 0032 went to unrelated work
+too. **A number check cannot see an unpushed branch**, so a reserved number is not a mechanism and
+neither is a careful check - the ordinal is resolved at merge, by whoever renames second, and a record
+whose number is cited by another page is the one that should keep it.

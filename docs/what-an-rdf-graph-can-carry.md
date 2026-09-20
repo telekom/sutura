@@ -1,6 +1,6 @@
 ---
 title: What an RDF graph can carry, and the one thing all three vocabularies withhold
-description: Issue #155 step 2, read in ADR 0016's method against three named RDF vocabularies at named versions - the W3C RDF Data Cube (QB), the W3C CSVW metadata vocabulary, and QB4OLAP 1.3. QB declares measures with no aggregation function and says so itself; QB4OLAP supplies five of this domain's six aggregates and four cardinalities for three JoinType variants; CSVW supplies a table and columns and reproduces a mapping sutura-catalog-okf already ships. All three yield zero of the nine definition kinds, for one structural reason - every kind here is anchored to a column of a named physical table, and an RDF vocabulary names properties and resources. So no catalog-rdf crate is built, and ADR 0037 records the declined surface.
+description: Issue #155 step 2, read in ADR 0016's method against three named RDF vocabularies at named versions - the W3C RDF Data Cube (QB), the W3C CSVW metadata vocabulary, and QB4OLAP 1.3. QB declares measures with no aggregation function and says so itself; QB4OLAP supplies five of this domain's six aggregates and four cardinalities for three JoinType variants; CSVW supplies a table and columns and reproduces a mapping sutura-catalog-okf already ships. All three yield zero of the nine definition kinds, for one structural reason - every kind here is anchored to a column of a named physical table, and an RDF vocabulary names properties and resources. So no catalog-rdf crate is built, and ADR 0038 records the declined surface.
 ---
 
 # What an RDF graph can carry, and the one thing all three vocabularies withhold
@@ -191,7 +191,7 @@ none of the three vocabularies above gives it one.
 ## Conclusion
 
 **No `catalog-rdf` crate and no RDF dependency**, decided in
-`docs/adr/0037-an-rdf-source-declines-rather-than-maps-a-part.md`. Three vocabularies, each the strongest
+`docs/adr/0038-an-rdf-source-declines-rather-than-maps-a-part.md`. Three vocabularies, each the strongest
 case in its class, yield **zero of the nine definition kinds**, and for one reason rather than three:
 every kind in this domain is anchored to a column of a table a `SourceName` names, and an RDF
 vocabulary names properties and resources. QB says outright that it does not carry an aggregation
@@ -201,8 +201,8 @@ this outcome and pre-authorised it - *"no adapter unless a real graph yields eno
 otherwise the finding is the more valuable half"* - and it is the same terminus the BPMN spike reached
 by a different route.
 
-**The decision lives in ADR 0037**
-(`docs/adr/0037-an-rdf-source-declines-rather-than-maps-a-part.md`), which records the declined
+**The decision lives in ADR 0038**
+(`docs/adr/0038-an-rdf-source-declines-rather-than-maps-a-part.md`), which records the declined
 surface term by term with what would break if each were mapped anyway. This page is the measurement
 it decides on; the record is where the decision and its alternatives are, including the one that
 costs something - CSVW would work, and is declined on duplication rather than on capability.
