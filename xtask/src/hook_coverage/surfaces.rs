@@ -122,6 +122,25 @@ pub(crate) const SURFACES: &[Surface] = &[
         reached_by: "fuzz-smoke",
     },
     Surface {
+        // The chart tree, whose own gate is `checks.helm-chart` - four legs nothing else here has:
+        // `helm lint`, the no-values refusal's wording, every values file against its committed
+        // golden, and `kubeconform`. A row of its own rather than an extension of "text and
+        // manifests" below, for two reasons a `*.yaml` claim cannot reach: `templates/_helpers.tpl`
+        // and `templates/NOTES.txt` are not YAML at all, and dprint EXCLUDES
+        // `charts/*/templates/**` and `charts/*/testdata/golden/**` (`dprint.json`, pinned by
+        // `xtask/tests/dprint_config.rs`) - so over the half of this tree that decides what renders,
+        // `format-text` runs and inspects nothing. The overlap on `charts/**/*.yaml` is the one this
+        // table permits, safe by its all-must-run rule.
+        //
+        // `flake.nix` is a glob here because it is where this check's `src` is chosen - `wholeTree`
+        // rather than the filtered source - and where the filter's `charts` arm lives, without
+        // which the directory is present in git and EMPTY to every filtered-src derivation.
+        label: "Helm chart",
+        paths: &["charts/**", "nix/helm-chart.nix", "nix/run-gate.sh", "flake.nix"],
+        hooks: &["chart"],
+        reached_by: "chart",
+    },
+    Surface {
         // The text this repository ships that is neither Rust nor shell: prose, the manifests, the
         // compose files and the maintenance scripts. `*.yml` and `*.yaml` OVERLAP the workflow row
         // above on purpose - `zizmor` reads a workflow for a template injection and `format-text`
@@ -158,6 +177,35 @@ mod tests {
         for surface in SURFACES {
             assert!(!surface.paths.is_empty(), "`{}` matches nothing", surface.label);
             assert!(!surface.reached_by.is_empty(), "`{}` names no task", surface.label);
+        }
+    }
+
+    #[test]
+    fn every_chart_file_that_decides_a_render_lands_on_a_hooked_row() {
+        // The globs are asserted to MATCH, because a row whose paths reach nothing is a claim over
+        // nothing - and the files below are the ones no other row could reach. `*.yaml`, `*.md` and
+        // `*.toml` are the whole of "text and manifests", so before the `Helm chart` row a diff of
+        // `templates/_helpers.tpl` alone - the file every `fail()` refusal lives in - matched no
+        // surface at all: `--surface-tasks` printed nothing and the coverage report named no gap.
+        //
+        // NON-EMPTY hooks is the assertion rather than the row's label, because that is the whole
+        // difference between a surface a commit hook reaches and one only CI does. Which hook IDs
+        // are real is held next door by `unknown_hook_ids`, over the config rather than here.
+        for path in [
+            "charts/sutura/Chart.yaml",
+            "charts/sutura/values.yaml",
+            "charts/sutura/templates/_helpers.tpl",
+            "charts/sutura/templates/NOTES.txt",
+            "charts/sutura/templates/deployment.yaml",
+            "charts/sutura/.helmignore",
+            "charts/sutura/testdata/values/minimal.yaml",
+            "charts/sutura/testdata/golden/minimal.yaml",
+            "nix/helm-chart.nix",
+        ] {
+            let reached = SURFACES
+                .iter()
+                .any(|surface| !surface.hooks.is_empty() && crate::repo::matches_any(surface.paths, path));
+            assert!(reached, "`{path}` is reached by no surface that names a hook");
         }
     }
 }
