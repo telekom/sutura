@@ -2792,7 +2792,7 @@ to be counted: <em>the composition root arms leg 1 over the governed routes, or 
 <td>no</td>
 <td><strong>no - and a mock answers <em>yes</em> by construction, which is worse than no test</strong></td>
 <td>no</td>
-<td>no - the tier mints an audience for its OWN client, never a browser-delegated third party's</td>
+<td><strong>yes - a password grant with <code>scope=openid</code> mints an ID token whose <code>aud</code> carries a third-party audience (<code>nix/keycloak-tier.nix</code>'s <code>id-token-audience</code> mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated</strong></td>
 <td>no</td>
 <td><strong>only here</strong></td>
 <td>no</td>
@@ -3091,8 +3091,8 @@ about the vocabulary rather than to this row.</p>
 <h2 id="a-provisioned-keycloak-realm">A provisioned Keycloak realm<a class="headerlink" href="#a-provisioned-keycloak-realm" title="Permanent link">&para;</a></h2>
 <p><code>nix/keycloak-tier.nix</code> stands up a real Keycloak - a realm, one confidential client and two
 subjects, every credential generated at <code>start</code> and written nowhere else - and
-<code>just keycloak-served-test</code> starts it, runs the one cell that needs it, and stops it whatever the
-cell does. <code>just e2e-datahub-bigquery --datahub tier</code> (the wave-one hosted job) verifies the
+<code>just keycloak-served-test</code> starts it, runs the two cells that need it, and stops it whatever the
+cells do. <code>just e2e-datahub-bigquery --datahub tier</code> (the wave-one hosted job) verifies the
 SAME realm over HTTP on its own composed deployment - a second, wider <code>Reached by</code> for the same
 venue, not a second row: its three asks all ride Keycloak-minted tokens.</p>
 <p>Its own job in <code>.github/workflows/ci.yml</code>, gated on the <code>identity</code> category
@@ -3118,6 +3118,13 @@ https://github.com/telekom/sutura/actions/runs/34905742355/job/104186453042) on 
 masked-comparison cell; the narrowed wording below was held by PR #755's own hosted run of the
 unmasked cell, <code>keycloak-served-test</code> <code>success</code> (run
 https://github.com/telekom/sutura/actions/runs/34928050323/job/104251967900).</p>
+<p><strong>The second cell answers a different row.</strong> <code>a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys</code>
+asks the same tier for a token with <code>scope=openid</code> and asserts the ID token's <code>aud</code> carries the value
+<code>nix/keycloak-tier.nix</code>'s <code>id-token-audience</code> mapper declares - read off the realm file the tier wrote,
+not a literal the cell restated. That is row 191's <code>yes</code> half: a real IdP does mint an ID token with
+a third party's audience. The limit beside that <code>yes</code>, stated in the row and in item 1 of "What it
+cannot answer" below: it is a password grant against a hardcoded audience mapper, not a
+browser-delegated flow, and the audience is an RFC-2606 placeholder.</p>
 <p><strong>What "a different subject" means, exactly.</strong> The audit record masks every <code>sub</code> to its first
 character plus <code>***</code>, and Keycloak subjects are UUIDs, so two different <code>sub</code>s' masked forms
 collide whenever their UUIDs share a first hex character (1 in 16). The old masked-comparison cell
@@ -3134,13 +3141,18 @@ token's <code>sub</code> via the same <code>SubjectId</code> mask the deployment
 that record, not uniqueness - the uniqueness this venue relies on is <code>sub_a != sub_b</code>.</p>
 <h3 id="what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters">What it cannot answer - read this before citing a green run, and this is the row that matters<a class="headerlink" href="#what-it-cannot-answer-read-this-before-citing-a-green-run-and-this-is-the-row-that-matters" title="Permanent link">&para;</a></h3>
 <ol>
-<li><strong>Issue #105's own question.</strong> #105 asks whether an enterprise IdP will mint an ID token whose
-   <code>aud</code> is accepted by a THIRD PARTY (Google STS, via a delegation flow at a human's own sign-in) -
-   this tier provisions one client and a password grant, nothing that resembles a browser-based
-   delegation flow or a second registered resource-server client. The audience this cell's
-   deployment declares is whatever Keycloak's own client scopes minted for <code>sutura-dev-cli</code>,
-   <strong>read off the token rather than asserted</strong> - that is a real provider's own audience for its own
-   client, not a third party's, and #105's row above stays <code>no</code> here.</li>
+<li><strong>Issue #105's own question, and the half this venue now answers.</strong> #105 asks whether an
+   enterprise IdP will mint an ID token whose <code>aud</code> is a THIRD PARTY's. The
+   <code>a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys</code> cell (also <code>#[ignore]</code>d, run via
+   <code>just keycloak-served-test</code>) asks the tier for a token with <code>scope=openid</code> and asserts the ID
+   token's <code>aud</code> carries the value <code>nix/keycloak-tier.nix</code>'s <code>id-token-audience</code> mapper declares -
+   <strong>read off the realm file the tier wrote</strong>, not a literal. That row above is now <strong>yes</strong> for
+   that half: a real IdP does mint an ID token with a third party's audience. What it does NOT
+   prove, and the row says so beside the <code>yes</code>: this is a <strong>password grant</strong> against a <strong>hardcoded
+   audience mapper</strong>, not a browser-delegated flow where a human consents at a third-party client,
+   and the audience is an <strong>RFC-2606 placeholder</strong> (<code>https://workforce-pool.example.com</code>), not a
+   real host. A real enterprise provider (Azure AD) remains the only venue for the
+   browser-delegated half, and is not built.</li>
 <li><strong>Two subjects reading two row sets.</strong> Same exclusion as the Postgres venue above: this
    deployment reads its fixture files under one shared identity whoever asks.</li>
 <li><strong>Anything about leg 2.</strong> No data system's own grant is involved; the claim is entirely about
