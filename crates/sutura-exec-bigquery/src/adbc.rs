@@ -20,11 +20,18 @@
 //! as the process. A bearer is REFUSED - the pinned driver has nowhere to put one - rather than
 //! dropped, which would run somebody else's question under this deployment's identity.
 //!
+//! # The values
+//!
+//! Bound as one Arrow batch of one row, per [`bind`] - which is where the driver's own per-row
+//! execution loop is read off the pinned source and why one row is the only correct count. The
+//! statement carries positional `?` and nothing is ever interpolated into it.
+//!
 //! **Nothing is shared between two jobs.** The driver handle, the database and the connection are
 //! locals of [`AdbcBigQuery::connect`], built from one request's own options; the endpoint itself
 //! owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
+mod bind;
 pub mod decode;
 mod identity;
 pub use identity::{Impersonation, ImpersonationScopes, TargetAccount, UnusableIdentityOption};
@@ -58,6 +65,16 @@ pub enum AdbcError {
     /// ADBC does not yet cover a port method this transport was asked for.
     #[error("ADBC transport cannot yet {0}")]
     Uncovered(&'static str),
+    /// The plan's values could not be assembled as the batch this driver binds them from.
+    ///
+    /// Its own variant rather than an [`Self::Adbc`], because the failure is on THIS side of the C
+    /// ABI: nothing has been sent, and what went wrong is an Arrow batch this transport built. The
+    /// cause is Arrow's own, kept as a `#[source]` so the chain still walks.
+    #[error("the plan's values could not be assembled for binding")]
+    Parameters {
+        #[source]
+        cause: arrow_schema::ArrowError,
+    },
     /// A leg named a principal that is not an account this transport can ask the driver to become.
     ///
     /// **Its own variant rather than an [`Self::Uncovered`] string**, because the two say different
@@ -74,6 +91,13 @@ pub enum AdbcError {
 
 /// A driver handle and a prepared statement, the shape one job needs.
 type Connected = (ManagedDriver, ManagedStatement);
+
+/// The project id [`AdbcBigQuery::probe`] hands the driver, which reaches no request.
+///
+/// A named constant and an obviously unusable value, so that nothing reads it as a fallback: the
+/// probe opens no connection, so this is never sent anywhere. `.invalid` is RFC 2606's reserved
+/// never-resolvable name.
+const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 
 /// A `BigQuery` endpoint over ADBC.
 ///
@@ -104,6 +128,39 @@ impl AdbcBigQuery {
         }
     }
 
+    /// Does the driver at this path load and initialise at all?
+    ///
+    /// **The one thing a boot path or a diagnostic can find out about the `.so` without a project**,
+    /// and it is worth more than reading the environment variable: `dlopen` of this driver runs the
+    /// GO RUNTIME's own initialisation inside this process, beside tokio and beside the allocator a
+    /// release build links. That is the coexistence nobody could assert while the only caller was a
+    /// question - so a link-success check would have passed and been wrong, and this executes instead.
+    ///
+    /// It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
+    /// on the Go side and reaches no network; `new_connection` is where the driver builds its client
+    /// and looks for application default credentials, which on a host with none is a metadata-server
+    /// probe this has no business making. So what a success means is exactly *the `.so` is this ABI
+    /// and its runtime started*, and nothing about whether a question could be answered.
+    ///
+    /// # Errors
+    ///
+    /// [`AdbcError::Load`] where the `.so` is absent, is not this ABI, or cannot be loaded at all -
+    /// which is what a static-musl binary answers, because it has no dynamic loader.
+    /// [`AdbcError::Adbc`] where the driver loaded and refused the database.
+    pub fn probe(driver_path: &str) -> Result<(), AdbcError> {
+        let mut driver =
+            ManagedDriver::load_dynamic_from_filename(driver_path, None, AdbcVersion::default()).map_err(AdbcError::Load)?;
+        // A project id is set because the driver's own option map is what is being exercised; the
+        // value reaches no request, because no connection is opened. `PROBE_PROJECT` is a name
+        // rather than a literal so nobody reads it as a default for anything.
+        let opts = [(
+            OptionDatabase::Other("bigquery.project_id".into()),
+            OptionValue::String(String::from(PROBE_PROJECT)),
+        )];
+        drop(driver.new_database_with_opts(opts).map_err(AdbcError::Adbc)?);
+        Ok(())
+    }
+
     /// Decides who the job runs as, loads the driver, connects, and prepares the statement.
     ///
     /// **Every refusal this transport makes about a request is here, before the `.so` is loaded**,
@@ -116,12 +173,11 @@ impl AdbcBigQuery {
         // identity must not reach `load_dynamic_from_filename`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
         let identity = identity::identity_options(request.identity(), &self.impersonation)?;
-        // This transport cannot bind parameters, and the rendered statement carries positional `?`
-        // - so an unbound statement is a runtime error at the driver rather than a wrong answer.
-        // Refused here for the same reason the identity is: one guard, before anything is opened.
-        if !request.params().is_empty() {
-            return Err(AdbcError::Uncovered("bind statement parameters"));
-        }
+        // The values, as the one batch this driver binds from - assembled before the `.so` is
+        // loaded for the identity's reason: a request this transport cannot assemble must not open a
+        // connection. `None` where a call carries no values, which is every boot-path call and a
+        // different code path inside the driver - see [`bind`].
+        let bound = bind::parameter_batch(request.params())?;
         let mut driver = ManagedDriver::load_dynamic_from_filename(&self.driver_path, None, AdbcVersion::default())
             .map_err(AdbcError::Load)?;
         let opts = [
@@ -140,6 +196,14 @@ impl AdbcBigQuery {
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
         stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
+        // **The values travel in a bound batch and never in the text**, which is the no-injection
+        // invariant at the one boundary this adapter could break it at. `bigquery.query.parameter_mode`
+        // is left at the driver's own default of `positional`, which is what the rendered `?`
+        // placeholders and `JobRequest::PARAMETER_MODE` both say: a value's identity in a plan is its
+        // position, so there is no name to send.
+        if let Some(batch) = bound {
+            stmt.bind(batch).map_err(AdbcError::Adbc)?;
+        }
         Ok((driver, stmt))
     }
 }
@@ -168,13 +232,39 @@ impl JobTransport for AdbcBigQuery {
     }
 
     fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
-        // ADBC `GetObjects` is unverified for this driver; the port keeps
-        // "cannot list" distinct from "table absent". Note what that means for a
-        // composed warehouse: `Warehouse::preflight` calls this at boot, so a
-        // non-empty bundle under this transport FAILS preflight (an outage), not
-        // a silent empty grant. Do not select this transport at composition until
-        // `GetObjects` is bound - that binding is the provisioned follow-on.
+        // ADBC `GetObjects` is unverified for this driver; the port keeps "cannot list" distinct
+        // from "table absent", so this is an `Err` and never an empty set - an empty set would
+        // report every table in the bundle absent and refuse a correct deployment.
+        //
+        // **WHAT THAT MEANS AT BOOT, corrected: the deployment SERVES.** This comment used to say a
+        // non-empty bundle FAILS preflight under this transport, which was false and is the kind of
+        // false a startup claim must not be. `listing_was_refused` answers `false` here - see its
+        // own override below - so `sutura_app::preflight` produces `Notice::Unverified` and
+        // `sutura-cli`'s `serve::boot::refuse_absent_tables` takes the WARN arm and binds the
+        // listener.
+        //
+        // **The consequence, stated where the limit is:** on a `bigquery` source a mistyped
+        // `table:` is not caught at boot. It fails the first question asked against that model,
+        // which is exactly the asymmetry `telekom/sutura#120` is about and which a `files`
+        // deployment does not have. Binding `GetObjects` is what closes it.
         Err(AdbcError::Uncovered("list tables"))
+    }
+
+    /// `false`, always, and the two ways that could have been wrong are both worse.
+    ///
+    /// **This is an OVERRIDE that restates the trait default on purpose**, because the default is
+    /// the right answer for the wrong reason and a reader has to be able to see which. The question
+    /// this predicate asks is *did the data system REFUSE the listing* - an authorization failure
+    /// whose fix is one grant, and which `serve::boot` turns into a startup refusal naming
+    /// `bigquery.tables.list`. Nothing here was refused by anything: the transport did not ask.
+    ///
+    /// So `true` would send an operator to grant a permission that is not missing, and the honest
+    /// `false` costs the boot check for this source - which [`Self::list_tables`] states above. Both
+    /// directions are pinned by `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
+    /// rather than left to the default, because flipping the default was measured to leave the whole
+    /// suite green.
+    fn listing_was_refused(&self, _error: &Self::Error) -> bool {
+        false
     }
 
     #[cfg(feature = "fixtures")]

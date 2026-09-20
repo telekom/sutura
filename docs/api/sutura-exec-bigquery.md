@@ -68,6 +68,17 @@ because Google's own token service verified the caller's assertion against a wor
 pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
 fifth amendment is the record, with the two alternatives that were priced against this one.
 
+**And because leg 1 is the only barrier, two of ITS limits are now limits on impersonation.**
+They were already recorded as leg-1 caveats; what changed is that nothing stands behind them any
+more. `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing
+to a request and stores nothing it has seen (`within_the_lifetime_ceiling`'s own doc says so), so
+inside that window a captured assertion is replayable - and now replayable *as a declared
+principal at the data system*. And the signing-key age bound `KeySetCache::stale_for` measures
+excludes a failing refresh: while the key source is unavailable the previously established keys
+keep verifying for no bounded time, so a key removed during an outage keeps authorizing the
+principal switch. Neither is new and neither is this crate's to fix; both are cited here because
+*the limit belongs beside the claim* and the claim moved.
+
 **The other subject shape is refused rather than degraded.** A `Presented::SubjectToken` is
 credential material for a transport to present as this job's bearer. The pinned ADBC driver has
 no option that accepts one - its auth types take a credential FILE, a credential JSON document or
@@ -496,6 +507,12 @@ account a source declared for that subject. A shared leg sends no impersonation 
 as the process. A bearer is REFUSED - the pinned driver has nowhere to put one - rather than
 dropped, which would run somebody else's question under this deployment's identity.
 
+# The values
+
+Bound as one Arrow batch of one row, per `bind` - which is where the driver's own per-row
+execution loop is read off the pinned source and why one row is the only correct count. The
+statement carries positional `?` and nothing is ever interpolated into it.
+
 **Nothing is shared between two jobs.** The driver handle, the database and the connection are
 locals of `AdbcBigQuery::connect`, built from one request's own options; the endpoint itself
 owns only a path and a declaration. That, and not a check, is what keeps two concurrent subjects apart
@@ -516,6 +533,11 @@ Why the ADBC transport could not answer.
 - `Batch` - A result batch could not be read from the stream.
 - `Decode` - The result set could not be decoded into the adapter's own shape.
 - `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
+- `Parameters` - The plan's values could not be assembled as the batch this driver binds them from.
+
+  Its own variant rather than an `Self::Adbc`, because the failure is on THIS side of the C
+  ABI: nothing has been sent, and what went wrong is an Arrow batch this transport built. The
+  cause is Arrow's own, kept as a `#[source]` so the chain still walks.
 - `UnusableTarget` - A leg named a principal that is not an account this transport can ask the driver to become.
 
   **Its own variant rather than an `Self::Uncovered` string**, because the two say different
@@ -555,6 +577,30 @@ pub fn new(driver_path: impl Into<String>, impersonation: Impersonation) -> Self
 
 Names the driver `.so` a composition root resolves to load, and whether this source
 impersonates.
+
+```rust
+pub fn probe(driver_path: &str) -> Result<(), AdbcError>
+```
+
+Does the driver at this path load and initialise at all?
+
+**The one thing a boot path or a diagnostic can find out about the `.so` without a project**,
+and it is worth more than reading the environment variable: `dlopen` of this driver runs the
+GO RUNTIME's own initialisation inside this process, beside tokio and beside the allocator a
+release build links. That is the coexistence nobody could assert while the only caller was a
+question - so a link-success check would have passed and been wrong, and this executes instead.
+
+It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
+on the Go side and reaches no network; `new_connection` is where the driver builds its client
+and looks for application default credentials, which on a host with none is a metadata-server
+probe this has no business making. So what a success means is exactly *the `.so` is this ABI
+and its runtime started*, and nothing about whether a question could be answered.
+
+# Errors
+
+`AdbcError::Load` where the `.so` is absent, is not this ABI, or cannot be loaded at all -
+which is what a static-musl binary answers, because it has no dynamic loader.
+`AdbcError::Adbc` where the driver loaded and refused the database.
 
 #### Implements
 

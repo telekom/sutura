@@ -292,6 +292,35 @@ gates: hygiene
     cargo run -q -p xtask -- check-default-feature-tests
     bash nix/run-gate.sh crap
 
+# LEG 2 for BigQuery: two declared subjects, two accounts, `SESSION_USER()` as the oracle. Needs a
+# real project whose accounts this identity may impersonate - `docs/where-identity-is-proven.md`
+# carries what a green run may be cited for, and both cells panic naming the variable they lack
+# rather than skipping.
+# `#[ignore]`d, so `just test` never reaches them, and this is NOT a gate: `just validate`'s nix
+# checks have no network at all, so nothing here can run there.
+# CI runs the same leg through `nix run .#bigquery-declared-principal`, on the pinned toolchain,
+# from `.github/workflows/bigquery-declared-principal.yml`. Keep this filter aligned with that app;
+# neither derives the other - `keycloak-served-test`'s own pattern - and this recipe runs the
+# developer's own cargo directly rather than delegating, which is what makes it useful on a laptop
+# that already has the project configured.
+
+# Ask a real dataset who each declared subject's question ran as.
+bigquery-declared-principal *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the two hosted cells that read \`SESSION_USER()\` per declared subject."
+    echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
+      -E 'test(/declared_principal::/)' {{ args }}
+
+# `nix/bigquery-driver-check.sh` carries the whole argument: what it loads, what a green run does
+# NOT establish, and why the musl outcome is asserted in both directions. x86_64-linux only - it
+# refuses elsewhere rather than skipping.
+
+# Load the ADBC driver into both release binaries and read the outcome.
+bigquery-driver-check:
+    bash nix/bigquery-driver-check.sh
+
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
     devenv shell ship-check

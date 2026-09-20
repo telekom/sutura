@@ -7,11 +7,12 @@
 //! path naming no `.so` makes the driver load fail, so a cell asserting a refusal has to show that
 //! the refusal arrived INSTEAD of that failure.
 
+use sutura_domain::calendar::Date;
 use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::ParamValue;
 
 use super::{AdbcBigQuery, AdbcError, Impersonation, ImpersonationScopes};
-use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport as _, ProjectId};
+use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport as _, ProjectId};
 
 /// A path that names no driver, so a load reached here always fails.
 ///
@@ -27,6 +28,10 @@ fn impersonating() -> Impersonation {
     Impersonation::AtScope(
         ImpersonationScopes::parse("https://www.googleapis.com/auth/cloud-platform").expect("a URL scope is usable"),
     )
+}
+
+fn day(iso: &str) -> Date {
+    Date::parse(iso).expect("a test date is a date")
 }
 
 fn project() -> ProjectId {
@@ -62,26 +67,33 @@ fn a_bearer_is_refused_before_the_driver_is_even_loaded() {
 }
 
 #[test]
-fn an_unbound_parameter_is_refused_before_the_driver_is_even_loaded() {
-    // The statement carries positional `?` and this transport cannot bind one, so sending it would
-    // be a runtime error at the driver over a statement whose values were dropped. Refused in
-    // `connect` rather than in `run`, so a second port method cannot reach the driver without it -
-    // and, like the cell above, before the load.
-    let params = [ParamValue::Text(String::from("north"))];
+fn a_question_carrying_values_is_no_longer_refused_and_gets_as_far_as_the_driver() {
+    // **The defect this replaces was the whole surface, not a corner.** Every question carries a
+    // mandatory range, `Dialect::BigQuery` renders positional `?`, so every rendered statement has
+    // bound values - and this transport used to answer `Uncovered("bind statement parameters")` to
+    // all of them. A served deployment booted clean and answered nothing.
+    //
+    // The values are assembled BEFORE the load, like the identity, so what this cell shows is both
+    // that the refusal is gone and that assembling them did not become the new way to fail: the
+    // failure is the LOAD, over a path naming no `.so`.
+    let params = [ParamValue::Text(String::from("north")), ParamValue::Date(day("2026-06-01"))];
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
-        "SELECT ? AS region",
+        "SELECT ? AS region WHERE d >= ?",
         &params,
         &project,
         &dataset,
         JobIdentity::Transport,
         JobDeadline::Boot,
     );
-    let refused = endpoint(Impersonation::Disabled)
+    let failed = endpoint(Impersonation::Disabled)
         .run(&request)
-        .expect_err("an unbound parameter is not something this transport can send");
-    assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
+        .expect_err("no driver lives at this path");
+    assert!(
+        matches!(failed, AdbcError::Load(_)),
+        "a question with values must reach the driver rather than be refused: {failed:?}"
+    );
 }
 
 #[test]
@@ -119,4 +131,46 @@ fn a_request_this_transport_accepts_gets_as_far_as_the_driver_and_fails_there() 
         .run(&request)
         .expect_err("no driver lives at this path");
     assert!(matches!(failed, AdbcError::Load(_)), "{failed:?}");
+}
+
+#[test]
+fn a_path_that_names_no_driver_is_a_load_failure_and_not_a_silent_pass() {
+    // **`probe`'s whole job, and the reason it exists at boot.** Reading the environment variable
+    // says a path was written down; this says the `.so` at it is this ABI and its runtime started.
+    // A static-musl binary answers here too - it has no dynamic loader - which is what makes the
+    // musl limit assertable by running the artefact rather than by a sentence.
+    let failed = AdbcBigQuery::probe(NO_DRIVER).expect_err("no driver lives at this path");
+    assert!(matches!(failed, AdbcError::Load(_)), "{failed:?}");
+    // The path is an operator-written string on its way to a startup line; the refusal may carry it
+    // (it is not a secret) but has to name the driver at all, or an operator reading a startup
+    // failure cannot tell it apart from any other load problem.
+    assert!(
+        failed.to_string().contains("BigQuery ADBC driver"),
+        "a load failure must say what could not be loaded: {failed}"
+    );
+}
+
+#[test]
+fn the_listing_this_transport_cannot_do_is_not_an_authorization_refusal() {
+    // **BOTH directions, because the default answered this and no cell read it** - review measured
+    // that flipping `listing_was_refused` left the whole suite green.
+    //
+    // `list_tables` needs no driver: it refuses before anything is opened, which is what makes this
+    // the one port method assertable here at all. What the pair holds is the SPLIT: the listing
+    // could not be done, and it was not REFUSED - so `serve::boot` warns and serves rather than
+    // sending an operator to grant `bigquery.tables.list`, a permission that is not missing. Flip
+    // the override and this cell reads a refusal over a listing nothing refused.
+    let at = DatasetAddress::of(project(), project(), dataset());
+    let endpoint = endpoint(Impersonation::Disabled);
+    let refused = endpoint.list_tables(&at).expect_err("this transport cannot list a dataset");
+    assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
+    assert!(
+        !endpoint.listing_was_refused(&refused),
+        "a listing this transport never asked for was not refused by anybody"
+    );
+    // And the other direction on the same value, so a cell that only ever saw `false` cannot pass
+    // over a predicate that answers `false` to everything: the deadline and result-size questions
+    // are the two other predicates this error reaches, and neither may claim it either.
+    assert!(!endpoint.result_did_not_fit(&refused), "{refused:?}");
+    assert!(!endpoint.deadline_exceeded(&refused), "{refused:?}");
 }

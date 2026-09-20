@@ -667,6 +667,8 @@ macro_rules! registered {
                 ("CI_RESULT", "skipped"),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", ""),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -686,6 +688,8 @@ macro_rules! registered {
                 ("CI_RESULT", "success"),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),
@@ -698,11 +702,62 @@ macro_rules! registered {
         }
 
         #[test]
+        fn a_selected_but_skipped_bigquery_driver_leg_is_still_red() {
+            // The same rule over `bigquery-driver-check`, and it is here because the category it
+            // reads was published by `ci` and consumed by NOTHING between the HTTP transport's
+            // deletion and that job's arrival - so an adapter whose diff selected
+            // `data_source_bigquery` had no leg to be held to. This cell is what makes the new
+            // arm of the aggregator mean something: it reads no secret either, so every event
+            // that selects the category must see it succeed.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("KC_RESULT", "success"),
+                ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", "true"),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
+            assert!(
+                text.contains("bigquery-driver-check must run"),
+                "the verdict should name the required-but-skipped leg: {text}"
+            );
+        }
+
+        #[test]
+        fn a_failed_but_unselected_bigquery_driver_leg_is_still_red() {
+            // The OTHER direction, which the keycloak arm has no cell for: a leg that was not
+            // required to run and reported neither `skipped` nor `success` is a failure nobody
+            // asked for, and the aggregator may not wave it through. Without this the `else` arm
+            // of the new branch could return green for every value and the cell above would not
+            // see it.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "success"),
+                ("KC_RESULT", "success"),
+                ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "failure"),
+                ("BQ_SELECTED", ""),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(!ok, "an unselected leg that FAILED must stay RED, got: {text}");
+            assert!(
+                text.contains("bigquery-driver-check reported"),
+                "the verdict should name the leg and what it reported: {text}"
+            );
+        }
+
+        #[test]
         fn a_clean_run_is_green() {
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "success"),
                 ("KC_RESULT", "success"),
                 ("KC_SELECTED", "true"),
+                ("BQ_RESULT", "success"),
+                ("BQ_SELECTED", "true"),
                 ("EVENT", "push"),
                 ("PR_HEAD", ""),
                 ("REPO", "telekom/sutura"),

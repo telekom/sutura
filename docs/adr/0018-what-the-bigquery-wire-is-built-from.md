@@ -963,6 +963,63 @@ public option surface is a different kind of debt from a `go.mod` floor relax). 
 refuses an unknown option key rather than ignoring it, so a deployment pointed at an upstream `.so`
 would fail closed - which is what makes this safe to propose and unsafe to assume.
 
+### The values are BOUND, and the first shape of this amendment refused every question
+
+`adbc_core::Statement::bind` takes one Arrow `RecordBatch` and the driver reads a `bigquery`
+query parameter per column (`record_reader.go`'s `getQueryParameter`). Between the transport's
+adoption and this paragraph the transport did not call it: it answered
+`Uncovered("bind statement parameters")` to any request carrying values. **That was the whole
+surface, not a corner.** `sutura_domain::query::Question` makes its `range` a mandatory field, and
+`sutura_sql::Dialect::BigQuery` renders `PlaceholderStyle::Question`, so every rendered statement
+carries positional `?` and values to go with them - a served `bigquery` deployment booted clean and
+answered nothing. Round-2 review of telekom/sutura#929 found it; `crates/sutura-exec-bigquery/src/adbc/bind.rs`
+is the fix and carries the type map.
+
+**One row, and the driver is why that is a property rather than a detail.** Inside each bound batch
+the driver loops `for i := range int(rec.NumRows())` and runs the whole query once per row, appending
+each result to the same stream - so a two-row batch is one question answered twice and concatenated,
+which is a wrong number under a certified metric name and nothing would report it. `ONE_QUESTION` is
+a named constant and `a_parameter_batch_carries_exactly_one_row` is its cell.
+
+A date binds as Arrow `Date32` and not as text, because the driver derives the `GoogleSQL` type from
+the ARROW type: a date sent as `STRING` compares against a `DATE` column through a coercion
+`GoogleSQL` does not perform, and against a text column compares lexically. The domain's `Date`
+already holds days since the epoch, so nothing is formatted on that path.
+
+### The driver is not linked in, and `unsafe_code = "forbid"` is why
+
+The owner asked for the driver to be INCLUDED in the release artefacts and verified in CI, for
+normal CI and for the musl artefact. The mechanism that would resolve all three at once is known and
+is not taken: `-buildmode=c-archive` instead of `c-shared`, linking the archive into the binary, and
+`adbc_driver_manager::ManagedDriver::load_static` instead of `load_dynamic_from_filename`. Then the
+driver ships because it IS the binary, static musl works because no `dlopen` is reached, and the
+`SUTURA_BIGQUERY_ADBC_DRIVER` startup requirement disappears.
+
+**It needs first-party `unsafe` and this workspace forbids it.** `load_static` takes an
+`&adbc_ffi::FFI_AdbcDriverInitFunc`, which is
+`unsafe extern "C" fn(c_int, *mut c_void, *mut FFI_AdbcError) -> AdbcStatusCode`, and the only way to
+obtain one for a linked archive is an `unsafe extern` block declaring the archive's `AdbcDriverInit`
+symbol. `Cargo.toml`'s workspace lints set `unsafe_code = "forbid"` and say why in the same place:
+*a crate cannot re-allow it locally … needing `unsafe` here is an architecture decision, and lifting
+a `forbid` is exactly the size of diff that decision deserves.* So the archive route is an owner
+decision rather than an implementation detail, and it is recorded here rather than worked around: an
+`#[allow]` beside it would be the whole of the control this line is about.
+
+**What was built instead, because a link check would have been worse than nothing.** `sutura doctor`
+loads the `.so` through the driver manager and reports the outcome, which runs the driver's Go
+runtime inside the shipped binary beside tokio and the release allocator - the coexistence that is
+the real risk and that linking alone cannot show. `just bigquery-driver-check` runs that command
+against BOTH release binaries and asserts the gnu one loads and the static musl one does not, in
+both directions: if musl ever loads, the check refuses and says this record is wrong rather than
+going green. `ci.yml`'s `bigquery-driver-check` job invokes it on the `data_source_bigquery`
+classification, and `ci-aggregate` holds run-or-fail for it.
+
+**And the driver's own BUILD check was gated by nothing until the same change.** It sat only inside
+the `continue-on-error: true` measure-host stage, with no unconditional re-run beneath it the way
+`reuse` and `helm-chart` have - so its exit code was discarded on every push, which is how it stayed
+green while its own script was failing on `Is a directory`. `ci.yml` now realises it in an
+unconditional `ADBC driver` step as well.
+
 ### What else moved with the transport
 
 - `WorkloadIdentityBroker` survives with its ports, its cache, its floor and its claim check, and has
@@ -981,5 +1038,15 @@ would fail closed - which is what makes this safe to propose and unsafe to assum
 - **No release artefact carries a driver.** `nix/shipped.nix` and `nix/oci.nix` publish none, while
   `SUTURA_BIGQUERY_ADBC_DRIVER` is a hard startup requirement, so `bigquery` is non-functional out of
   the box on all four triples. And a static musl binary cannot `dlopen` a `.so` at all, so two of the
-  four triples cannot load one however it is shipped. Both are open decisions, not conclusions of this
-  record.
+  four triples cannot load one however it is shipped - which is now ASSERTED by running the artefact
+  rather than stated (see above). Both are open decisions, not conclusions of this record; the
+  archive route that would close them is the `unsafe_code` section above.
+- **The driver is loaded at BOOT now, not on the first question.** Both composition roots call
+  `AdbcBigQuery::probe` after reading the path, so a missing or wrong-ABI `.so` stops the process.
+  What that does not establish is that a question can be answered: the probe opens no connection.
+- **`list_tables` warns and SERVES, and the comment claiming otherwise is corrected.** The transport
+  cannot list a dataset (`GetObjects` is unbound), and it is not an authorization refusal - so
+  `serve::boot` takes the WARN arm. The consequence, stated where it is: on a `bigquery` source a
+  mistyped `table:` is not caught at boot; it fails the first question against that model, which a
+  `files` deployment does not do. `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
+  pins both directions, because review measured that flipping the predicate left the suite green.

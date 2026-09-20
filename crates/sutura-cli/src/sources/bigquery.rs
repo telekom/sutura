@@ -116,6 +116,12 @@ pub(super) fn open(
              libadbc_driver_bigquery.so for {source}"
         )
     })?;
+    // Loaded and initialised rather than merely named - `serve/bigquery.rs` carries the argument,
+    // and it applies identically here: a path naming no usable `.so` must stop this command rather
+    // than become a failure on the one question it was launched to answer.
+    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver_path).map_err(|cause| {
+        format!("`SUTURA_BIGQUERY_ADBC_DRIVER` names a driver this process cannot load for {source}: {cause}")
+    })?;
     let project = ProjectId::parse(billing_project.as_str())
         .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
     let dataset = DatasetId::parse(dataset.as_str())

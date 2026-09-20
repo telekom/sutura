@@ -59,6 +59,17 @@
 //! pool before anything was minted, and **that chain is not what ships here**. `docs/adr/0018`'s
 //! fifth amendment is the record, with the two alternatives that were priced against this one.
 //!
+//! **And because leg 1 is the only barrier, two of ITS limits are now limits on impersonation.**
+//! They were already recorded as leg-1 caveats; what changed is that nothing stands behind them any
+//! more. `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing
+//! to a request and stores nothing it has seen (`within_the_lifetime_ceiling`'s own doc says so), so
+//! inside that window a captured assertion is replayable - and now replayable *as a declared
+//! principal at the data system*. And the signing-key age bound `KeySetCache::stale_for` measures
+//! excludes a failing refresh: while the key source is unavailable the previously established keys
+//! keep verifying for no bounded time, so a key removed during an outage keeps authorizing the
+//! principal switch. Neither is new and neither is this crate's to fix; both are cited here because
+//! *the limit belongs beside the claim* and the claim moved.
+//!
 //! **The other subject shape is refused rather than degraded.** A [`Presented::SubjectToken`] is
 //! credential material for a transport to present as this job's bearer. The pinned ADBC driver has
 //! no option that accepts one - its auth types take a credential FILE, a credential JSON document or

@@ -612,6 +612,20 @@ jobs:
         if: ${{ !cancelled() }}
         run: nix build .#checks.x86_64-linux.helm-chart -L
 
+      # THE DRIVER CHECK, UNCONDITIONALLY - and it was gated by nothing until this step existed.
+      # It appears in the `continue-on-error: true` measure-host stage above, like `reuse` and
+      # `helm-chart`; unlike those two it had no unconditional re-run beneath, so a red driver
+      # build was masked on every push. Round-2 review of the ADBC PR measured exactly that: the
+      # check's own script was exiting 1 on `Is a directory` and CI was green over it.
+      #
+      # Cheap to always run for `Licensing`'s reason: four Go cross-builds with no dependency on
+      # the Rust closure, so there is nothing to wait for and nothing saved by skipping. It builds
+      # the `.so`; whether that `.so` LOADS is `bigquery-driver-check` below, which is a different
+      # question and a different venue.
+      - name: ADBC driver
+        if: ${{ !cancelled() }}
+        run: nix build .#checks.x86_64-linux.adbc-driver-bigquery -L
+
       # The authoritative secret scan. The pre-commit hook is best-effort - it can be
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
       # to be here. Never gated on classification: a credential can be committed in any file.
@@ -1564,9 +1578,47 @@ jobs:
   # reachability fix. The
   # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
+  # THE DRIVER, EXECUTED - and this is the owner's ask that a build check cannot answer. `ADBC
+  # driver` inside `ci` proves the four `.so` files BUILD; this loads one into the gnu release
+  # binary and into the static musl one, which runs the driver's Go runtime beside tokio and the
+  # release allocator. A link-success check would have passed today and been wrong.
+  #
+  # Category-gated on `data_source_bigquery`, which until this job existed was published by `ci`
+  # and read by NOTHING: the leg that consumed it was deleted with the HTTP transport, so the
+  # classification axis for this adapter was orphaned. `ci-aggregate` holds run-or-fail for it,
+  # exactly as it does for `keycloak-served-test`.
+  #
+  # It reads no secret and needs no environment, so a fork's pull request can run it - the same
+  # reason `keycloak-served-test` carries no event exception.
+  bigquery-driver-check:
+    needs: [ci]
+    if: needs.ci.outputs.data_source_bigquery == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # `bash nix/bigquery-driver-check.sh` and not `just` - the script IS the gate and the recipe
+      # only calls it, so this step runs the same bytes a developer does without needing the dev
+      # shell. Its own header carries what a green run does and does not establish.
+      - name: Driver executes
+        run: bash nix/bigquery-driver-check.sh
+
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test]
+    needs: [ci, keycloak-served-test, bigquery-driver-check]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1575,6 +1627,8 @@ jobs:
           CI_RESULT: ${{ needs.ci.result }}
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
+          BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
+          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -1598,6 +1652,19 @@ jobs:
             case "$KC_RESULT" in
               skipped|success) ;;
               *) fail "keycloak-served-test reported '$KC_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The same run-or-fail rule, for the same reason: this leg reads no secret either, so
+          # every event that selects `data_source_bigquery` must run it. Before this job existed
+          # that category was published and consumed by nothing.
+          if [ "$BQ_SELECTED" = "true" ]; then
+            if [ "$BQ_RESULT" != "success" ]; then
+              fail "bigquery-driver-check must run (data_source_bigquery category selected) but reported '$BQ_RESULT'"
+            fi
+          else
+            case "$BQ_RESULT" in
+              skipped|success) ;;
+              *) fail "bigquery-driver-check reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

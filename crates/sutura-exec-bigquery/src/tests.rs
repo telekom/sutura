@@ -207,6 +207,36 @@ fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
 }
 
 #[test]
+fn the_identity_read_under_a_declared_principal_goes_out_as_that_principal() {
+    // **THE ARM THAT SHIPS, and it had no cell** - review mutated this read's identity to
+    // `Transport` and the whole suite stayed green, which means the instrument leg 2's re-proof
+    // depends on was itself unpinned.
+    //
+    // `SESSION_USER()` under a principal switch is the WHOLE oracle: the driver becomes the declared
+    // account, the dataset answers with that account's address, and a read submitted under the
+    // transport's own identity would answer the deployment every time and PASS. The bearer arm two
+    // cells up and the shared arm below cover the two arms no served `bigquery` deployment uses.
+    let warehouse = open(
+        Recording::answering(answered_as("bq-a@sutura.example.com")),
+        impersonating_posture(),
+    );
+    let presented = Presented::SubjectPrincipal {
+        name: sutura_domain::identity::PrincipalName::parse("bq-a@sutura.example.com").expect("a test name is a name"),
+    };
+    let who = warehouse.session_user(&presented).expect("the fake answers one identity");
+    assert_eq!(who.as_str(), "bq-a@sutura.example.com");
+    let seen = warehouse.transport.seen.borrow();
+    let asked = seen.first().expect("the transport was asked once");
+    assert_eq!(asked.principal.as_deref(), Some("bq-a@sutura.example.com"));
+    // And NOT as the transport's own identity, which is the mutation this cell exists to kill: a
+    // read that lost the principal on the way to the request would answer the deployment and this
+    // fake would still hand back a row.
+    assert_eq!(asked.subject, None);
+    assert!(asked.statement.contains("SESSION_USER()"), "{}", asked.statement);
+    assert!(asked.params.is_empty(), "{:?}", asked.params);
+}
+
+#[test]
 fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_nothing() {
     // Three shapes that are not an identity, and one property that matters more than any of them:
     // **the refusal carries the SHAPE and never the value.** The venue that runs this read writes

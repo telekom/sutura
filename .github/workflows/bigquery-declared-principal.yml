@@ -1,0 +1,147 @@
+# LEG 2 for BigQuery, on the only venue that can answer it - `crates/sutura-exec-bigquery/tests/declared_principal.rs`.
+#
+# `workflow_dispatch` ONLY, and the reason is the same one the withdrawn exchanged-identity workflow
+# gave: this leg needs a project whose service accounts the running identity may impersonate
+# (`roles/iam.serviceAccountTokenCreator` on each), and wiring it into every push before those
+# bindings exist would make it red forever. A person dispatches it once the grants are applied.
+# `docs/where-identity-is-proven.md` moves this venue from `wired` to `yes` only after a run is
+# observed and reported there, never before - and the merge precondition for the ADBC adoption
+# (telekom/sutura#929) is that somebody dispatches this.
+#
+# `cargo xtask check-venues` reads the `nix run .#bigquery-declared-principal` line below as this
+# venue's anchor, whatever the trigger type. That is what takes the venue off `unrun`; `wired` is
+# the honest state of the commit that adds this file, because the run happens after the push.
+#
+# **WHAT THIS NEEDS THAT THE OLD LEG DID NOT, AND WHAT IT NO LONGER NEEDS.** The old one minted a
+# Google-issued ID token per principal from that principal's own key and exchanged each against a
+# workload-identity pool - three secrets, one pool, one `roles/iam.workloadIdentityUser` binding per
+# account. The ADBC transport performs no exchange: the driver impersonates the declared account from
+# the process's own application default credentials. So this job holds ONE credential and no
+# assertion at all, and the pool is not in the picture. That is a shorter setup and a SHORTER TRUST
+# CHAIN - the caller's own credential is not checked by Google on this path - which
+# `docs/adr/0018`'s fifth amendment prices and `crates/sutura-exec-bigquery/src/lib.rs` states
+# beside the claim.
+#
+# No input here comes from a GitHub event body (an issue, a PR title, a commit message, a comment):
+# every `${{ }}` expression below reads `secrets.*`, `vars.*` or `runner.temp`, none of which a
+# forker or commenter controls, so there is no injection surface a `run:` quoting rule would close.
+name: bigquery-declared-principal
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  bigquery-declared-principal:
+    runs-on: rust-mcp-16core
+    # This file is `workflow_dispatch`-only, so no fork rule applies - GitHub will not run the base
+    # repository's workflow from a fork. This `if:` states the on-demand contract in place of one.
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
+    # GitHub does not expose an environment's secrets to a fork's `pull_request` run, and
+    # `workflow_dispatch` from a fork cannot reach a push-protected environment either - naming it
+    # here is the mechanism, not decoration.
+    environment: bq-test
+    concurrency:
+      group: bigquery-declared-principal-${{ vars.SUTURA_BQ_DATASET }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # THE ONLY CREDENTIAL THIS LEG HOLDS: the deployment's own identity. It is what the driver
+      # authenticates as, what the control leg reads back, and what must hold
+      # `roles/iam.serviceAccountTokenCreator` on both declared accounts. Placed outside the
+      # checkout, never through `${{ }}` in a shell body, and removed at the end regardless of
+      # outcome - the discipline the withdrawn leg established for three secrets, applied to one.
+      - name: Place the CI credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-ci-key.json"
+          echo "CI credential placed, $(wc -c < "$RUNNER_TEMP/bq-ci-key.json") bytes, outside the checkout"
+
+      # Masking is per-job, so this job needs its own copy rather than inheriting another's. The
+      # project id comes OFF THE KEY rather than from an environment variable, and that is a
+      # decision: the key is the authority on which project this credential belongs to, and a
+      # variable naming a different one would point the leg at a project the credential cannot
+      # reach. It is masked first and exported second, so the value reaches the leg without ever
+      # reaching the log.
+      - name: Mask the resource names and read the project off the key
+        env:
+          K: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
+            || { echo "the key names no project_id" >&2; exit 1; }
+          if [ -z "$project" ]; then
+            echo "the key names an empty project_id" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$project"
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "the bq-test environment defines no SUTURA_BQ_DATASET - it names a resource this leg has to be pointed at" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
+          echo "two resource names masked for the rest of this job"
+
+      # The driver, built for this runner's own triple. It is a REAL artefact of this repository -
+      # the same derivation `checks.adbc-driver-bigquery` realises - rather than a CDN download, so
+      # what this leg exercises is what a release would ship.
+      - name: Build the ADBC driver for this runner
+        run: |
+          set -eu
+          out="$(nix build --no-link --print-out-paths .#adbc-driver-bigquery-x86_64-unknown-linux-gnu)"
+          echo "SUTURA_BIGQUERY_ADBC_DRIVER=$out/lib/libadbc_driver_bigquery.so" >> "$GITHUB_ENV"
+
+      # The cell itself. `nix run .#bigquery-declared-principal` is `check-venues`' anchor for this
+      # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
+      # than from an environment variable, and the two account addresses are what the leg asserts
+      # `SESSION_USER()` returns.
+      #
+      # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
+      # dispatch against not-yet-granted accounts is the run most likely to reach it, and the
+      # message to expect there is an `iamcredentials` 403 - which means the grant is missing, not
+      # that the mechanism is wrong.
+      - name: Declared-principal leg
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_SCOPE: https://www.googleapis.com/auth/cloud-platform
+          SUTURA_BQ_ACCOUNT_A: ${{ secrets.SUTURA_BQ_PRINCIPAL_A_EMAIL }}
+          SUTURA_BQ_ACCOUNT_B: ${{ secrets.SUTURA_BQ_PRINCIPAL_B_EMAIL }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
+            echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the accounts live in" >&2
+            exit 1
+          fi
+          if [ -z "${SUTURA_BQ_ACCOUNT_A:-}" ] || [ -z "${SUTURA_BQ_ACCOUNT_B:-}" ]; then
+            echo "the bq-test environment defines fewer than two declared account addresses - one account cannot show two principals" >&2
+            exit 1
+          fi
+          nix run .#bigquery-declared-principal -- --no-capture
+
+      - name: Remove the credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-ci-key.json"

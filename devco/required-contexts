@@ -160,6 +160,19 @@ ci.yml:pr-cache
 # permanently-pending merge this file's header warns about.
 ci.yml:keycloak-served-test
 
+# The ADBC driver, executed rather than built: `if: needs.ci.outputs.data_source_bigquery ==
+# 'true'`, so it reports nothing on a pull request whose diff does not touch that category - the
+# same reason `keycloak-served-test` above is advisory rather than required, and the same reason it
+# is nonetheless GATED: `ci-aggregate` holds run-or-fail for it, and `ci-aggregate` is a required
+# context. It reads no secret and needs no environment, so a fork's pull request can run it when
+# the paths select it.
+#
+# What it buys over the `ADBC driver` step inside `ci`: that step builds the four `.so` files, this
+# one LOADS one into both release binaries and runs the driver's Go runtime beside tokio and the
+# allocator. The owner asked for a run rather than a link, and a link-success check would have
+# passed over a driver that cannot initialise.
+ci.yml:bigquery-driver-check
+
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
 # `check-docs` inside `ci` is what holds the nav and the pages.

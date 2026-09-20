@@ -354,9 +354,48 @@ fn doctor() {
             "none - this build reads files, and pushes down to nothing"
         }
     );
+    // **THE LINE THAT EXECUTES SOMETHING, and it is the only verification of the native driver this
+    // repository can run without a project.** Every other statement above is a `cfg!` or a constant.
+    // This one loads `libadbc_driver_bigquery.so` through the driver manager, which runs the GO
+    // RUNTIME's initialisation inside this process - beside tokio, beside mimalloc, in the exact
+    // binary a release publishes. That coexistence is what the owner asked CI to verify by RUNNING
+    // rather than by linking, and it is why `just bigquery-driver-check` invokes this command.
+    //
+    // **It is also the musl verification, in the same line.** A static musl artefact has no dynamic
+    // loader, so `probe` cannot succeed there and this prints the failure - which makes *BigQuery is
+    // not functional on the static triples* a thing a run says out loud rather than a paragraph.
+    //
+    // Printed rather than exit-coded, because `doctor` reports and never refuses: the gate that
+    // decides is `just bigquery-driver-check`, which matches on this line. `cfg!` cannot know
+    // whether a driver is present, which is exactly the gap the previous version of this command
+    // left - it named a transport and said nothing about whether it could be reached.
+    println!("  bq driver    : {}", bigquery_driver());
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");
+}
+
+/// What `doctor` can find out about the ADBC driver, as one line.
+///
+/// Three outcomes and they mean three different things: the adapter is not linked at all; it is
+/// linked and no path was named; a path was named and the `.so` either initialised or did not. The
+/// failure is rendered from the adapter's own typed error, so the line never invents wording for a
+/// condition the transport already names.
+#[cfg(feature = "bigquery")]
+fn bigquery_driver() -> String {
+    match std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER") {
+        Err(_absent) => String::from("not configured - set SUTURA_BIGQUERY_ADBC_DRIVER to the driver .so"),
+        Ok(path) => match sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&path) {
+            Ok(()) => String::from("loaded and initialised"),
+            Err(cause) => format!("NOT usable: {cause}"),
+        },
+    }
+}
+
+/// The same line for a build that linked no adapter, so the release smoke test reads one shape.
+#[cfg(not(feature = "bigquery"))]
+fn bigquery_driver() -> String {
+    String::from("not linked - this build has no BigQuery adapter to load one for")
 }
 
 #[cfg(test)]

@@ -853,6 +853,36 @@
           '');
         };
 
+        # `nix run .#bigquery-declared-principal` - LEG 2 for BigQuery, on the venue that can answer
+        # it: does a declared subject's question really execute as the account this source declared?
+        #
+        # An app rather than a `checks.*` entry for `apps.keycloak-served-test`'s reason and one
+        # more: it needs a real project, so a build sandbox with no network cannot host it at all.
+        # `docs/where-identity-is-proven.md` is where what a green run of it may be cited for lives,
+        # and `cargo xtask check-venues` reads the `nix run` line in
+        # `.github/workflows/bigquery-declared-principal.yml` as this venue's own anchor.
+        #
+        # **Far smaller than the exchange leg it replaces, and the missing half is the point.** That
+        # one minted an assertion per principal and exchanged each against a workload-identity pool;
+        # this transport has no exchange, so the job hands over ONE credential - the deployment's own
+        # - and the two account addresses it is authorized to impersonate. Fewer secrets, and a
+        # shorter trust chain: `docs/adr/0018`'s fifth amendment prices exactly that trade.
+        #
+        # `--run-ignored only`, because both cells are `#[ignore]`d: `just validate` has no network,
+        # and a leg that skipped on an absent environment would report green over nothing. They
+        # panic naming the variable instead.
+        apps.bigquery-declared-principal = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-declared-principal" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' "$@"
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
