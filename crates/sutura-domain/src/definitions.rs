@@ -155,7 +155,7 @@ fn canonical_form(
 /// Written out rather than reached through `format!`, because the formatting machinery returns a
 /// `Result` that cannot fail here and the ways of discarding it all trip a lint: the alternatives are
 /// an `expect` on a path a catalog file can reach, or a `let _` on a `#[must_use]` value.
-fn nibble(value: u8) -> char {
+pub(crate) fn nibble(value: u8) -> char {
     if value < 10 {
         char::from(b'0'.saturating_add(value))
     } else {

@@ -254,6 +254,25 @@ impl SubjectKey {
         Ok(Self(validated))
     }
 
+    /// Contributes the FULL verified value to `hasher`, as its own fixed-width digest, without
+    /// returning it.
+    ///
+    /// **The only read of the unmasked value inside this module that is not a comparison, and it is
+    /// write-only by shape.** A hasher takes bytes and hands nothing back, so this cannot become the
+    /// path by which a raw subject reaches a formatter - which an `as_str` would be, in a type whose
+    /// whole purpose is that its `Display` is masked. `pub(super)` rather than `pub(crate)`: the one
+    /// caller is [`ComputeContext`](super::ComputeContext), a sibling of this module.
+    ///
+    /// The field's contribution is fixed-width, which is what makes the digest injective over its
+    /// inputs rather than over their concatenation: feeding raw bytes would let two different
+    /// (source, subject) pairs hash alike, and two pairs that hash alike are two callers the
+    /// federation optimizer is entitled to fuse. That is defence in depth at today's field order
+    /// rather than the thing holding it - `super::compute_context::feed_field` carries the
+    /// measurement and the limit. See [`ComputeContext::of`](super::ComputeContext::of).
+    pub(super) fn feed(&self, hasher: &mut sha2::Sha256) {
+        super::compute_context::feed_field(hasher, self.0.as_bytes());
+    }
+
     /// The stable masked form, for rendering. The `Debug`/`Display` impls are the only callers and
     /// neither can leak the raw value once this owns the string that becomes the rendered text.
     fn masked(&self) -> String {

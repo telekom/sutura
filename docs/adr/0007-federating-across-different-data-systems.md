@@ -5,7 +5,11 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended twice, in place, by the two blocks below. *Nothing
+Status: accepted, and **partly built** - amended three times, in place, by the three blocks below.
+**Read *Third amendment* before citing anything in this record about who combines:** it reverses
+*Second amendment* on an owner instruction, and
+[DataFusion is the combiner, and the federation boundary is Arrow](0037-datafusion-is-the-combiner-and-the-federation-boundary-is-arrow.md)
+carries the argument, the measurements and the one mechanism the reversal rests on. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
@@ -40,7 +44,11 @@ asserted, and two open questions that were closed. **Each is rewritten below rat
 banner over a live design is the shape this repository has already paid for once, and a reader who
 opens this record in the middle has no way to know a banner exists at the top.
 
-**Amended a second time, and again in place: the combiner is NOT DataFusion.** This record decided
+**Amended a second time, and again in place: the combiner is NOT DataFusion.** *This paragraph
+describes the tree as it stands and is REVERSED as a decision - see* Third amendment *below and
+`docs/adr/0037`, which restores* the combiner is DataFusion *and names the crate that supplies it.
+Read on for what the second amendment actually did, because the code it describes is still the code
+that runs.* This record decided
 *the combiner is DataFusion* and that the engine belongs above the port. The combine as built is
 `sutura_domain::plan::FederatedPlan::combine`, a pure domain function that no adapter is on the path
 of - so the second driven port this record designed does not exist, and the sentence that named the
@@ -1151,3 +1159,45 @@ as still type-level (`EXECUTES_AUTHORED_SQL`, `ACCEPTS_RAW_STATEMENTS`, `PRICES_
 `IMPERSONATION` itself) take the conservative default when erased behind it - a mixed build cannot
 serve the raw-SQL tool against a `Postgres` source it holds, nor read a real dry-run byte estimate
 off a `BigQuery` one, until each gets the same instance-method escape `executes_legs` did.
+
+## Third amendment, 2026-09-20: the combiner is DataFusion again, and the mechanism is a crate
+
+**This reverses *Second amendment* above, on an owner instruction, and the reason is one this record
+could not weigh when it landed:** a later move to more than one node must not have to redevelop
+federation, and `datafusion-federation` is where that work already is. So the combine does not stay
+a function of ours over Arrow, and it does not become a combiner of ours over DataFusion either -
+the engine combines above a federation boundary by itself, and what we supply is the boundary.
+
+[DataFusion is the combiner, and the federation boundary is Arrow](0037-datafusion-is-the-combiner-and-the-federation-boundary-is-arrow.md)
+is the record. It carries the argument, the upstream source citations, the measured dependency cost
+both as published and with one line changed upstream, and the sequence this lands in. Four things
+about it belong here, beside the text they correct:
+
+- **The second driven port this record designed still does not exist, and now it never will.** That
+  design was *the domain declares a port beside `Warehouse` and a crate above it implements the
+  combine over DataFusion*. What 0037 takes instead is `datafusion-federation`'s own
+  `FederationProvider`/`FederationPlanner` seam, so the trait that decides which remote a sub-plan
+  belongs to is the crate's rather than ours, and there is no second driven port to declare. 0007's
+  *A second driven port was designed here and is NOT what was built* is therefore right about the
+  absence and wrong about the plan.
+- **The `RowSet`-to-Arrow boundary this record placed in the combiner crate is removed rather than
+  moved.** *Where the `RowSet`-to-Arrow boundary lives* decided the port's currency stays `RowSet`
+  and the conversion lives in one function above it. Under 0037 the federation boundary carries the
+  engine's own batch stream, so there is no conversion on that seam at all - and the byte budget that
+  decision attached to the conversion moves to the engine's memory pool, which is where 0009's
+  Decision 3 put it in the first place.
+- **The generator is still never DataFusion, and that sentence is load-bearing rather than
+  surviving by luck.** 0037 refuses the crate's `SQLExecutor` seam precisely because DataFusion's
+  unparser renders a literal inline - `datafusion-sql` 55.1.0's `src/unparser/expr.rs:266` - which
+  would reverse this record's *a value from a question never reaches a statement as text*. So
+  `sutura-sql` keeps the rendering seat, no second SQL parser enters the closure through the route
+  taken, and the sixty-three statement goldens do not move. The measured price of the other route is
+  in 0037.
+- **`RefusalReason::MeasureDoesNotFederate` is not retired and not narrowed.** A federated engine
+  changes who re-aggregates, not whether an aggregate re-aggregates, so the correction at the top of
+  this record stands unchanged.
+
+**What survives untouched is what the first version of this record got right:** per-source legs,
+each a whole mono-source plan, executed in its own adapter under its own credential, joined and
+re-aggregated above the port. Only the identity of the thing above the port has moved, twice, and it
+has moved to a crate rather than to code of ours.

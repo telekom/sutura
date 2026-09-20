@@ -2668,6 +2668,25 @@ secret comes into existence.
 
 `Clone`, `Debug`
 
+### `use ComputeContext`
+
+An opaque, stable discriminator for *which caller, on which data system* a federated leg runs as.
+
+**There is one constructor and it takes the subject, so a context with no subject in it is not a
+value this type has.** That is the mechanism rather than a convention: the field is private, no
+`From`, `Default` or `parse` exists, and `Self::of` cannot be called without a `Subject` in
+hand. A future `FederationProvider::compute_context` that returns `self.context.as_str()` is
+therefore subject-bearing by construction, and one that returns `None` or a constant does not
+type-check against this type at all.
+
+Equality and ordering are over the digest, which is what the optimizer's comparison needs: equal
+for one caller's repeated scans of one source, unequal for two callers or two sources.
+
+**No `serde` derive, deliberately.** Nothing in `crate::identity`'s principal half is
+serializable, for that module's stated reason - a type that can be read off the wire is a caller
+stating its own identity - and a compute context is derived from a verified subject. It reaches a
+remote as plan text, which is the adapter's business, not a wire shape this type owns.
+
 ### `use Agreed`
 
 What a broker answered, checked against the request it was asked about.
