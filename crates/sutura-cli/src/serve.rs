@@ -457,6 +457,7 @@ pub(crate) fn run() -> Result<(), String> {
 /// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
 /// attached, so "the agent surface is only served where a caller can be verified" cannot be
 /// un-paired by a later edit.
+#[cfg(feature = "agent")]
 fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
     if !state.settings().server().agent_surface_enabled() {
         return Ok(None);
