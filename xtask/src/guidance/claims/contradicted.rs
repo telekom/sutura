@@ -855,7 +855,12 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             // `SpendHeadroomPush::of(&state)` can build.
             Evidence {
                 path: "crates/sutura-http/src/state.rs",
-                holds: "pub enum SpendHeadroomPush",
+                // Anchored on the constructor, not the bare `pub enum SpendHeadroomPush`
+                // declaration: a rename or a visibility change of the enum would silently move
+                // that literal, while `SpendHeadroomPush::of` is called at every construction
+                // site and a rename has to fix all of them - so the ratchet cannot be retired by
+                // a refactor-shaped edit (`pub enum .. {` -> `pub(crate) enum .. {`).
+                holds: "SpendHeadroomPush::of",
             },
         ],
         instead: "the composition root hands this state's own gauge into the `Serving` wrapper, \
