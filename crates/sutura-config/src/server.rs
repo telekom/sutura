@@ -170,7 +170,8 @@ impl RequestTimeout {
     /// `docs/adr/0009-the-plan-from-one-source-to-many.md`'s third amendment records the run and
     /// its host: the whole answer path - compile, mint, execute, materialise - over the committed
     /// `examples/single-player` corpus on the in-process `DataFusion` engine, by `just bench`. It
-    /// costs single-digit milliseconds against the budget this default opens, so the measurement
+    /// costs under two milliseconds on a quiet host against the 29-second budget this default
+    /// opens - four orders of magnitude of headroom - so the measurement
     /// argues for leaving the number alone rather than for a new one; the amendment says so
     /// explicitly, which is what a later re-measurement needs in order to be a comparison.
     ///

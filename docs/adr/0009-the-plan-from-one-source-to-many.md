@@ -763,41 +763,45 @@ developer shell that `just bench` runs in. **Not the nix sandbox** - no derivati
 here, deliberately, because a benchmark that reddens a build on noise is worse than none - so the
 sandbox's own figure for this path is unmeasured and the two cannot be compared.
 
-**Conditions, stated before the numbers.** The host was carrying several other build lanes
-throughout. The quoted run began at a 1-minute load average of **46.70 over 15 cores**; two earlier
-runs of the same harness began at 28 and 59. **None of the three is a clean measurement of what the
-answer path costs.** An idle host was waited for and did not arrive - the 1-minute average was
-sampled every 30 seconds for half an hour and never fell below 12 - and that is recorded rather than
-worked around, because a number taken under conditions nobody wrote down is the defect this
-amendment exists to end.
+**Conditions, stated before the numbers.** The quoted run began at a 1-minute load average of
+**4.34 over 15 cores**, and the harness's own contention warning did not fire for it - the first
+reading of this path taken on a host that was not oversubscribed. Getting there took waiting: this
+repository's ordinary working mode is several build lanes at once, and four earlier runs of the same
+harness began at load 28, 40.94, 46.70 and 59. They are kept below as the noise envelope rather
+than discarded, because the difference between them and this one is the whole reason a measurement
+carries its conditions.
 
 | Case (`examples/single-player`)          | fastest  | median   | mean     | slowest  |
 | ---------------------------------------- | -------- | -------- | -------- | -------- |
-| `recurring_revenue_by_month`             | 809.1 µs | 1.191 ms | 1.368 ms | 2.767 ms |
-| `subscription_months_by_region_and_term` | 1.641 ms | 2.344 ms | 2.543 ms | 3.967 ms |
+| `recurring_revenue_by_month`             | 694.9 µs | 755.9 µs | 778.6 µs | 1.457 ms |
+| `subscription_months_by_region_and_term` | 1.377 ms | 1.453 ms | 1.489 ms | 2.519 ms |
 
-**Why a contended number still decides this, and the reasoning that did NOT survive contact with the
-data.** The tempting argument is that contention only inflates a latency, so a busy host gives an
-upper bound. The three runs refuse it: the medians were 1.191/2.344 ms at load 46.70, 1.232/2.285 ms
-at load 28 and 1.852/3.419 ms at load 59, which is **not monotonic in load** - a single-threaded
-bench on a 15-core host is affected by scheduling noise rather than by pure queueing. What the three
-runs do establish is the SIZE of that noise: across a load range of 28 to 59 every median stayed
-inside a factor of two, and the worst single sample anywhere was about 11.5 ms. The conclusion below
-needs three orders of magnitude, so it survives a factor of two with room to spare - and that, not an
-upper-bound argument, is why these numbers are usable. **A clean figure remains unmeasured.**
+**What contention did to the same two numbers, and a claim it retired.** The four oversubscribed
+runs put the first case's median at 1.191 ms (load 46.70), 1.232 ms (28), 1.852 ms (59) and 807.2 µs
+(40.94, where the load was this harness's own build tailing off rather than other lanes), and the
+second case's at 1.453-3.419 ms. So contention inflates the median by up to about 2.4x and the worst
+single sample anywhere was about 11.5 ms. Two things follow. **The envelope is a factor of ~2.4, not
+an order of magnitude** - which is what makes the conclusion below safe, since it needs three orders.
+And **an ordering by load average alone does not reproduce**: the runs at 28 and 46.70 differ by less
+than the spread within either, so a load figure separates *quiet* from *busy* here and nothing finer.
+An earlier draft of this amendment read that as *not monotonic in load*; with the quiet point in hand
+the direction is the expected one, and only the fine ordering fails.
 
-**Found by taking the measurement, and fixed in the same change.** The two earlier load figures are
+**Found by taking the measurement, and fixed in the same change.** Two of those load figures are
 whole numbers because the harness's own probe was dropping the fraction: `uptime` formats its
 averages in the invoking shell's locale, and under a decimal comma the field separator and the
 decimal point are the same character, so a host at 5,90 announced itself as `5.00`. The probe
 understated the one number that decides whether a benchmark is quotable, in the direction that makes
-a busy host look quiet. `sutura_dev::bench_venue` now cuts the field on the separator both formats
-share - the `46.70` above is the first reading that kept its fraction.
+a busy host look quiet - and this amendment's own quiet run would have been indistinguishable from a
+5,90 that is not quiet at all. `sutura_dev::bench_venue` now cuts the field on the separator both
+formats share; `4.34` and `46.70` are readings that kept their fraction.
 
 **What it decides.** The shipped default is 30 seconds, of which `0029`'s reply margin reserves one,
-so the execution port opens a 29-second budget. The worst single sample observed across three
-oversubscribed runs is about 11.5 ms, which is roughly 0.04% of that budget: **on this corpus and
-this adapter the deadline is nowhere near binding, and nothing here argues for a different number.** So the default stays at 30 seconds and stops being provisional in the sense this
+so the execution port opens a 29-second budget. On the quiet host the median answer is 755.9 µs and
+1.453 ms - about 0.003% and 0.005% of that budget - and the worst single sample seen anywhere, on a
+four-times-oversubscribed host, is about 11.5 ms, still only 0.04%: **on this corpus and this adapter
+the deadline is nowhere near binding, and nothing here argues for a different number.** So the
+default stays at 30 seconds and stops being provisional in the sense this
 record used the word - it is a number with a run behind it and a stated reason for being where it
 is, rather than one nobody had looked at. `RequestTimeout::DEFAULT_SECONDS` now carries that reason
 where the value is read, and a test holds it against `defaults.yaml` so the two shipped copies
@@ -813,10 +817,11 @@ one.
 - **One corpus, hundreds of rows.** The same limit the working-set amendment states. This is a floor
   on a real deployment's cost, not a ceiling on it.
 - **One venue, and no cross-venue comparison.** Developer shell only, for the reason above.
-- **A contended host, and no idea which way that moved the figures.** Recorded as measured rather
-  than re-run until it looked better. The direction is genuinely unknown - see the three runs above -
-  so nothing here is an upper bound on anything; a clean figure on an idle host is a cheap follow-up
-  and the only way to get one.
+- **Quiet, not idle.** A load average of 4.34 on 15 cores is a host with work on it, just not more
+  than it has cores. A genuinely idle machine would read lower still, so the quoted medians are an
+  upper bound on this host's own best case and nothing stronger.
+- **One host.** Every figure here is from a single Apple Silicon developer machine. No Linux number
+  for this path exists, which is the venue a deployment actually runs in.
 - **The prose is held by a reader.** The two shipped copies of the value are held against each other
   by a test. A number restated in a record - here, or in `0007` - is held by nobody, which is the
   defect this amendment is correcting rather than one it closes.

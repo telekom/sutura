@@ -1182,8 +1182,9 @@ convention; this is the correction.
 **Both halves are now measured, and both are recorded where the bound lives** - in
 [0009](0009-the-plan-from-one-source-to-many.md), whose first amendment carries the working-set
 envelope (largest operator-reservation peak 1.37% of the 1 GiB default, on a named host) and whose
-third carries the deadline (the whole answer path over the single-source example corpus, single-digit
-milliseconds against a 29-second execution budget, by `just bench`). Neither measurement moved its
+third carries the deadline (the whole answer path over the single-source example corpus, medians of
+755.9 microseconds and 1.453 milliseconds against a 29-second execution budget, by `just bench` on a
+host whose load was below its core count). Neither measurement moved its
 default, and both say so rather than leaving the reader to infer it.
 
 **What this record still wants back is narrower than the retired bullet, and it is unchanged by
