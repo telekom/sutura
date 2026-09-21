@@ -28,10 +28,11 @@
 //! not a usable identifier is refused by the conversion's parse) that a `pub` field would let a
 //! struct literal walk past.
 
-use serde::Deserialize;
+use serde::ser::SerializeMap as _;
+use serde::{Deserialize, Serialize, ser};
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, AnchorValue, Description, Dimension, DimensionValue};
+use sutura_domain::catalog::{Anchor, AnchorValue, Description, Dimension, DimensionValue, InvalidViaChain, ViaChain};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{ColumnName, DimensionName, Grain, RelationshipName};
 
@@ -495,13 +496,24 @@ impl SuturaContent {
 ///
 /// A list entry with its own `name`, so a deployment declaring one name twice survives to
 /// `Definitions::assemble` to be refused rather than silently collapsing.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+///
+/// **`via` is the same scalar-or-seq shape the markdown document spells, in and out.** The custom
+/// `Serialize` writes a scalar when the chain has one hop and a sequence otherwise, and the input
+/// side accepts both, so a stored chain reads the same as a stored hop.
+///
+/// **The byte-stability that buys holds in ONE direction.** A deployment that stored a scalar gets a
+/// scalar back, which is the case that matters because it is what every document in the field already
+/// holds. A deployment that stored a one-element SEQUENCE gets a scalar back instead - same meaning,
+/// different bytes - because the writer is keyed on the chain's length rather than on what was read.
+/// Round-tripping is therefore idempotent but not byte-preserving, and nothing here records the
+/// original spelling to make it so.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuturaDimension {
     name: DimensionName,
     column: ColumnName,
     #[serde(default)]
-    via: Option<RelationshipName>,
+    via: Option<ViaDoc>,
     /// The values a filter may use. Absent means "group by this, do not filter on it".
     #[serde(default)]
     allowed_values: Option<std::collections::BTreeSet<DimensionValue>>,
@@ -509,27 +521,115 @@ pub struct SuturaDimension {
     description: Description,
 }
 
+impl Serialize for SuturaDimension {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // `serialize_with` takes `&Option<&T>` by serde's contract, and that shape makes
+        // `ref_option_ref` fire on any derive that carries the field - the lint reads macro
+        // output, so no attribute can reach it. The map is therefore written by hand: field order
+        // and the scalar-or-seq `via` shape are what the recorded fixtures hold byte-stable, and
+        // `serialize_via` writes the one field whose shape serde cannot be told.
+        let via = self.via.as_ref().map(|doc| match doc {
+            ViaDoc::Chain(hops) => hops.as_slice(),
+            ViaDoc::One(name) => std::slice::from_ref(name),
+        });
+        let mut map = serializer.serialize_map(Some(if via.is_some() { 5 } else { 4 }))?;
+        map.serialize_entry(&"name", &self.name)?;
+        map.serialize_entry(&"column", &self.column)?;
+        if let Some(hops) = via {
+            map.serialize_key(&"via")?;
+            serialize_via(hops, &mut map)?;
+        }
+        map.serialize_entry(&"allowed_values", &self.allowed_values)?;
+        map.serialize_entry(&"description", &Some(&self.description))?;
+        map.end()
+    }
+}
+
+/// The wire shape for a chain: one name, or the sequence of them.
+///
+/// An empty slice means `via` was absent on the value being written, and serializes as nothing -
+/// the same `skip_serializing_if` outcome the other borrowed fields get from serde.
+fn serialize_via<M>(hops: &[RelationshipName], map: &mut M) -> Result<(), M::Error>
+where
+    M: ser::SerializeMap,
+{
+    match hops {
+        [only] => map.serialize_value(only),
+        hops => map.serialize_value(hops),
+    }
+}
+
+/// The hops a dimension is reached through, as the property spells them.
+///
+/// One name, or a sequence of them. The same untagged shape the markdown adapter's `via:` takes, so
+/// the two adapters agree on what a stored chain means - #266's one-content-one-meaning rule, at
+/// this field.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(untagged)]
+pub enum ViaDoc {
+    One(RelationshipName),
+    Chain(Vec<RelationshipName>),
+}
+
+impl TryFrom<ViaDoc> for ViaChain {
+    type Error = InvalidViaChain;
+
+    /// One name is a one-hop chain; the sequence is the chain as spelled.
+    ///
+    /// The match arms name the enum explicitly rather than `Self`: `Self` here is `ViaChain`, the
+    /// target, and the lint that asks for it cannot see past the impl's target type.
+    #[expect(
+        clippy::use_self,
+        reason = "Self in this impl is ViaChain, the conversion's target, not the ViaDoc the arms \
+                  match on; the suggested rewrite does not compile"
+    )]
+    fn try_from(doc: ViaDoc) -> Result<Self, Self::Error> {
+        match doc {
+            ViaDoc::One(name) => ViaChain::of(vec![name]),
+            ViaDoc::Chain(hops) => ViaChain::of(hops),
+        }
+    }
+}
+
 impl SuturaDimension {
     /// A dimension, in the order `Definitions::assemble` wants it.
-    pub const fn new(
+    pub fn new(
         name: DimensionName,
         column: ColumnName,
-        via: Option<RelationshipName>,
+        via: Option<ViaChain>,
         allowed_values: Option<std::collections::BTreeSet<DimensionValue>>,
         description: Description,
     ) -> Self {
         Self {
             name,
             column,
-            via,
+            via: via.map(|chain| ViaDoc::Chain(chain.as_slice().to_vec())),
             allowed_values,
             description,
         }
     }
 
     /// Into the domain type `Definitions::assemble` holds.
+    ///
+    /// The expect is on `ViaChain`'s own invariant, not on anything this adapter parsed: the
+    /// property carries only chains built through `ViaChain::of`, so a non-empty chain is what
+    /// arrives, and the domain type keeps its parse-only construction honest.
+    #[expect(
+        clippy::expect_used,
+        reason = "the property stores only chains built through ViaChain::of, so an empty chain \
+                  cannot reach this conversion; a panic would name a violated invariant rather \
+                  than silently mint one"
+    )]
     pub fn into_domain(self) -> Dimension {
-        Dimension::new(self.name, self.column, self.via, self.allowed_values, self.description)
+        let via = self
+            .via
+            .map(ViaChain::try_from)
+            .transpose()
+            .expect("the property carried a non-empty chain");
+        Dimension::new(self.name, self.column, via, self.allowed_values, self.description)
     }
 }
 

@@ -8,8 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_DEFINITIONS_BYTES,
-    MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
+    ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -116,11 +117,18 @@ fn declaring(name: &str, dimensions: Vec<Dimension>) -> Result<Metric, Inconsist
     )
 }
 
-fn dimension(name: &str, col: &str, via: Option<&str>, values: Option<&[&str]>) -> Dimension {
+/// A dimension, with its hops given in declared order.
+///
+/// `&[]`-style slices rather than a count of `&str` arguments: most cases here are one hop, but the
+/// chain cases pass two, and `Some(&[])` would be an empty chain, which `ViaChain::of` refuses - so
+/// `None` stays the only no-hop spelling.
+fn dimension(name: &str, col: &str, via: Option<&[&str]>, values: Option<&[&str]>) -> Dimension {
     Dimension::new(
         dimension_name(name),
         column(col),
-        via.map(relationship_name),
+        via.map(|hops| {
+            ViaChain::of(hops.iter().map(|h| relationship_name(h)).collect::<Vec<_>>()).expect("a test chain has hops")
+        }),
         values.map(|v| v.iter().map(|s| value(s)).collect::<BTreeSet<_>>()),
         Description::default(),
     )
@@ -137,7 +145,7 @@ fn a_consistent_catalog_assembles_and_is_addressable_by_name() {
     let definitions = assemble_one(metric(
         "revenue",
         vec![
-            dimension("region", "region_code", Some("orders_customer"), Some(&["north"])),
+            dimension("region", "region_code", Some(&["orders_customer"]), Some(&["north"])),
             dimension("day_of", "order_date", None, None),
         ],
     ))
@@ -241,7 +249,7 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
     )];
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("orders_customer"), None)],
+        vec![dimension("region", "region_code", Some(&["orders_customer"]), None)],
     );
     assert_eq!(
         Definitions::assemble(models, fanning, vec![m]).unwrap_err(),
@@ -249,6 +257,7 @@ fn a_join_that_could_duplicate_rows_is_refused_rather_than_optimised() {
             metric: metric_name("revenue"),
             dimension: dimension_name("region"),
             relationship: relationship_name("orders_customer"),
+            hop: 1,
         }
     );
 }
@@ -268,7 +277,7 @@ fn a_dimension_reached_through_a_relationship_that_starts_elsewhere_is_refused()
     )];
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("customer_orders"), None)],
+        vec![dimension("region", "region_code", Some(&["customer_orders"]), None)],
     );
     assert_eq!(
         Definitions::assemble(models, backwards, vec![m]).unwrap_err(),
@@ -287,7 +296,7 @@ fn an_empty_value_allowlist_is_refused_rather_than_meaning_nothing() {
     // refused for a reason that describes the question rather than the catalog.
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("orders_customer"), Some(&[]))],
+        vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&[]))],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -460,7 +469,7 @@ fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
             )],
             vec![metric(
                 "revenue",
-                vec![dimension("region", "region_code", Some("orders_customer"), None)]
+                vec![dimension("region", "region_code", Some(&["orders_customer"]), None)]
             )]
         )
         .unwrap_err(),
@@ -664,7 +673,7 @@ fn a_relationship_naming_a_column_that_does_not_exist_is_refused() {
 fn a_dimension_naming_a_relationship_that_does_not_exist_is_refused() {
     let m = metric(
         "revenue",
-        vec![dimension("region", "region_code", Some("no_such_join"), None)],
+        vec![dimension("region", "region_code", Some(&["no_such_join"]), None)],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -680,7 +689,7 @@ fn a_dimension_naming_a_relationship_that_does_not_exist_is_refused() {
 fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
     let m = metric(
         "revenue",
-        vec![dimension("region", "not_there", Some("orders_customer"), None)],
+        vec![dimension("region", "not_there", Some(&["orders_customer"]), None)],
     );
     assert_eq!(
         assemble_one(m).unwrap_err(),
@@ -692,6 +701,8 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
         }
     );
 }
+
+mod chain;
 
 #[test]
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {
@@ -715,7 +726,7 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
     assert_eq!(
         assemble_one(metric(
             "revenue",
-            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+            vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&listed))],
         ))
         .expect_err("a dimension over the value bound does not assemble"),
         InconsistentDefinitions::TooManyValues {
@@ -732,7 +743,7 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
     drop(
         assemble_one(metric(
             "revenue",
-            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+            vec![dimension("region", "region_code", Some(&["orders_customer"]), Some(&listed))],
         ))
         .expect("exactly the limit assembles"),
     );

@@ -88,16 +88,21 @@ pub enum CompileFailure
 
 Why compiling failed, which is never why a question was refused.
 
-**Four arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
+**Several arms rather than one bundle error, and `telekom/sutura#338` is the report.** A question
 the deployment declines comes back as `Compiled::Refused`; what reaches this type is our own
-side being wrong. Those are the four ways that can happen: the pinned bundle names something it
+side being wrong. Each arm below is one way that can happen: the pinned bundle names something it
 does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
 splitter built a two-source plan that
-`FederatedPlan::new` then rejected, and a producer
-built a plan whose predicates and parameters did not resolve each other. The third used to
+`FederatedPlan::new` then rejected, a producer
+built a plan whose predicates and parameters did not resolve each other, the splitter ran with no
+remote dimension, and a chain reached the plan stage having left the metric's data system.
+`NotAssembled` used to
 be flattened into `RefusalReason::FederationNotExecutable`, which is what a build whose adapter
 type does not declare `Warehouse::EXECUTES_LEGS` is told - so a wiring defect and a statement
 about the build's own capability arrived as one value, and a caller could not tell which it had.
+
+The arms are deliberately NOT counted in this prose: a number here is a second thing to keep
+true, and it had already stopped being true once - it said four while the enum held five.
 
 **The limit, next to the claim:** nothing provokes `NotAssembled`
 or `NotBound` today. Every `FederatedPlanError` variant is
@@ -120,6 +125,13 @@ as a refusal a caller would retry.
   remote source exists and a remote dimension has a join by construction, so nothing provokes
   this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
   limit: 2 }` a caller could not have narrowed their way out of.
+- `ChainLeavesItsSource` - A chain that leaves the metric's data system after its first hop reached the plan stage.
+
+  The bundle should not have assembled: `sutura_domain::catalog` refuses such a chain at load,
+  naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
+  buys is the thing the load check alone did not have - a second reader of the same rule, on
+  the path where getting it wrong renders another data system's table into one statement under
+  a certified metric name. `crate::plan::PlanError::ChainLeavesItsSource` carries the report.
 
 ### Implements
 
