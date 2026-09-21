@@ -815,7 +815,8 @@
         };
 
         # `nix run .#keycloak-served-test` - the one cell that needs a REAL identity provider rather
-        # than the mock, on `apps.bigquery-acceptance`'s pattern: an app rather than a check because
+        # than the mock, on the pattern the since-removed `bigquery-acceptance` app established
+        # (#430): an app rather than a check because
         # `checks.*` run once per `wholeTree` build and this leg's own JVM boot is a cost `just
         # validate` should not add to every one of them - `nix/keycloak-tier.nix`'s own header names
         # the same tradeoff for why this tier is not yet in `checks.nextest`'s `preCheck`.
@@ -861,7 +862,10 @@
         };
 
         # `nix run .#bigquery-declared-principal` - LEG 2 for BigQuery, on the venue that can answer
-        # it: does a declared subject's question really execute as the account this source declared?
+        # it: do two declared subjects' questions execute as two DIFFERENT principals, neither of
+        # them the deployment's own? The source's declared map decides only which subjects may be
+        # served; which principal each becomes is the declared pool's, so no address this venue
+        # holds predicts the answer and the cells compare the two answers against each other.
         #
         # An app rather than a `checks.*` entry for `apps.keycloak-served-test`'s reason and one
         # more: it needs a real project, so a build sandbox with no network cannot host it at all.
@@ -869,11 +873,13 @@
         # and `cargo xtask check-venues` reads the `nix run` line in
         # `.github/workflows/bigquery-declared-principal.yml` as this venue's own anchor.
         #
-        # **Far smaller than the exchange leg it replaces, and the missing half is the point.** That
-        # one minted an assertion per principal and exchanged each against a workload-identity pool;
-        # this transport has no exchange, so the job hands over ONE credential - the deployment's own
-        # - and the two account addresses it is authorized to impersonate. Fewer secrets, and a
-        # shorter trust chain: `docs/adr/0018`'s fifth amendment prices exactly that trade.
+        # **The pool is back in the picture, which a round of this comment had it out of.** The
+        # withdrawn principal switch handed over ONE credential - the deployment's own - plus the two
+        # account addresses it was authorized to impersonate; `docs/adr/0018`'s fifth amendment
+        # priced that shorter chain and its sixth amendment withdrew it. What ships federates each
+        # subject's OWN assertion against the declared pool, so this job places the deployment's
+        # credential (the control leg reads it) and one assertion per subject, and the two addresses
+        # are not passed at all.
         #
         # `--run-ignored only`, because both cells are `#[ignore]`d: `just validate` has no network,
         # and a leg that skipped on an absent environment would report green over nothing. They

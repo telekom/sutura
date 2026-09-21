@@ -8,9 +8,10 @@
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
 //! implementor a composition root can reach. `sutura_exec_bigquery::DeclaredPrincipalBroker` is what
-//! the ADBC transport can be served through: it presents the PRINCIPAL a source declared for the
-//! asking subject, and the driver becomes that principal. Its own module header states what that
-//! costs relative to the exchange.
+//! the ADBC transport can be served through: it presents the asking subject's OWN verified
+//! assertion, and the declared pool is what resolves that subject to a principal. What the declared
+//! map decides is only WHETHER this caller may be served here. Its own module header states what
+//! that costs relative to the exchange.
 //!
 //! It scans the WHOLE `sources:` registry rather than the `bigquery`-kind entries only, for the
 //! reason the deleted builder did: a plan may read a shared source of one kind and an impersonating

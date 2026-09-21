@@ -56,12 +56,16 @@ Those three plus secure-by-design are the definition of *correct* in review here
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
-  who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: BigQuery
-  executes a question as the account its declared per-source map names, and the hosted venue that
-  would show it is `wired` - nobody has dispatched it. **The run this sentence used to cite was of
-  code no longer in the tree**, an HTTP exchange against a workload-identity pool that the ADBC
-  adoption deleted. `docs/where-identity-is-proven.md` decides which venue may be cited, and
-  `check-guidance` now refuses this claim while that page records no run.
+  who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: on BigQuery
+  a source's declared per-source map decides only WHETHER a caller may be served there, and the
+  source executes as whatever principal the declared pool resolves that subject to - so the map's
+  VALUES are read by nothing. The hosted venue that would show a pool resolving one is `wired`,
+  nobody has dispatched it, and **the run this sentence used to cite was of code no longer in the
+  tree** - an HTTP exchange against a workload-identity pool that the ADBC adoption deleted.
+  `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
+  this claim while that page records no run - **in prose files only**: its scope is
+  `md`/`nix`/`yml`/`yaml`/`toml`/`sh`, so the same overstatement in a Rust comment is held by
+  review alone.
 - **Never commit or force-push unless asked.** Prefer stacked, individually reviewable PRs via stax.
 - **This shell's cargo env leaks into other checkouts** - `CARGO_*CODEGEN_BACKEND=cranelift` and
   `DUCKDB_*_DIR` are unscoped, and a C++-linking crate built under them aborts. Unset them before

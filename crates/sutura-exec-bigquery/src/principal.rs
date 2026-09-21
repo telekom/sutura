@@ -1,5 +1,10 @@
-//! The broker a served `BigQuery` deployment impersonates through: a verified subject in, the
-//! principal a source declared for that subject out.
+//! The broker a served `BigQuery` deployment impersonates through: a verified subject in, that
+//! subject's own verified assertion out.
+//!
+//! **Never the declared principal**, which is the trap this header used to set. A source's declared
+//! map decides WHETHER a caller may be served here; the source executes as whatever principal the
+//! declared pool resolves the subject to, so the accounts in the map's VALUES are read by nothing
+//! (see [`DeclaredPrincipals::names`]).
 //!
 //! **Why this is the only broker this crate carries.** It used to sit beside an EXCHANGING one -
 //! `sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
@@ -77,9 +82,10 @@ impl DeclaredPrincipals {
     ///
     /// **Keyed on the FULL verified subject and never on the masked
     /// [`SubjectId`](sutura_domain::identity::SubjectId)**, for the reason `sutura_config`'s own
-    /// declaration gives: which declared account a caller may become is an authorization decision,
-    /// and a masked key hands a declared subject's account to every undeclared caller that shares
-    /// its mask.
+    /// declaration gives: whether a caller may be served at this source at all is an authorization
+    /// decision, and a masked key admits every undeclared caller that shares a declared subject's
+    /// mask - which, since the pool resolves whoever is admitted to a principal of its own, is an
+    /// undeclared caller reading rows as somebody.
     ///
     /// # Errors
     ///
@@ -133,8 +139,12 @@ pub enum DeclaredPrincipalsUnusable {
     },
 }
 
-/// Presents the principal a source declared for the asking subject, and the operator's witness for a
-/// shared one.
+/// Presents the asking subject's own verified assertion at a source that declares it, and the
+/// operator's witness for a shared one.
+///
+/// **Not the declared principal.** What this broker decides is only WHETHER this caller may be
+/// served here; who they become at the data system is the declared pool's, resolved from the
+/// assertion the transport puts in front of the driver.
 ///
 /// **Both maps, because one plan may read one of each and a broker is per answer rather than per
 /// source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.

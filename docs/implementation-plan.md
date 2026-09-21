@@ -178,10 +178,11 @@ as a missed one.
 
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
-the asker - is **built and unproven**: BigQuery executes a question as the account its declared
-per-source map names, and the hosted venue that would show it is `wired` with nobody having
-dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC adoption
-deleted. See
+the asker - is **built and unproven**: on BigQuery a source's declared per-source map decides only
+WHETHER a caller may be served there, the source executes as whatever principal the declared pool
+resolves that subject to, and the hosted venue that would show a pool resolving one is `wired` with
+nobody having dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC
+adoption deleted. See
 [where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for
 which claim.
 

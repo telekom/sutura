@@ -383,8 +383,12 @@ point, and erasing it would lose which transport failed.
 
 ## `use DeclaredPrincipalBroker`
 
-Presents the principal a source declared for the asking subject, and the operator's witness for a
-shared one.
+Presents the asking subject's own verified assertion at a source that declares it, and the
+operator's witness for a shared one.
+
+**Not the declared principal.** What this broker decides is only WHETHER this caller may be
+served here; who they become at the data system is the declared pool's, resolved from the
+assertion the transport puts in front of the driver.
 
 **Both maps, because one plan may read one of each and a broker is per answer rather than per
 source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
@@ -943,10 +947,13 @@ pub const fn identity(&self) -> JobIdentity<'_>
 
 Who this job is to be executed as.
 
-**This is the half that makes a `BigQuery` source execute as the asker**, and which of
+**This is the half that decides who a `BigQuery` job is executed as**, and which of
 `JobIdentity`'s arms a leg carries is decided once, above, from what the broker presented -
 never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
-ignored it would answer as itself while provenance reported the asker.
+ignored it would answer as itself while provenance reported the asker. It does not make the
+source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
+assertion and the declared pool is what resolves it to a principal - unproven against a live
+pool, per `docs/where-identity-is-proven.md`.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]

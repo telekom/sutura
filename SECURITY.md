@@ -35,9 +35,10 @@ credentials and they are not the same thing:
 **What neither of them does is decide which rows an answer contains.** A credential port exists and
 every execution of a question goes through it - `Warehouse::execute` has no signature that runs
 without a credential a broker minted for that source, and a subject with no credential at a source is
-refused rather than answered as the process. But **no adapter in this build can carry a per-subject
-credential**: both declare that they have nowhere for one to arrive, and the broker that ships mints
-what an operator configured. So a deployment can know exactly who is asking, record it, and still read
+refused rather than answered as the process. But **no published adapter can carry a per-subject credential**: both
+adapters in a published binary declare that they have nowhere for one to arrive, and the broker that
+ships mints what an operator configured. *Published* rather than *built*, because `bigquery` is a
+default-off feature whose adapter does carry one. So a deployment can know exactly who is asking, record it, and still read
 every row as one identity.
 
 That makes the scope precise rather than absent:
@@ -93,7 +94,10 @@ And on the identity path, now that one exists:
 
 Per-**row** access as the calling subject is still the highest-severity class this project will have,
 and it does not exist yet. The two credentials above are not steps toward it: what it needs is an
-adapter that can carry a per-subject credential, and neither shipped adapter can.
+adapter that can carry a per-subject credential, and neither adapter in a published binary can.
+The default-off `bigquery` feature builds one that does, and no run has shown a data system
+applying the row grant of the principal it resolves to - see
+`docs/where-identity-is-proven.md`.
 
 ## What we already treat as a defect
 
@@ -121,9 +125,10 @@ is the state of the repository, recorded in `.agents/skills/sutura/invariants` a
 
 - **a query executing as the calling subject.** The port is there and the fallback is not: every
   question goes through a credential a broker minted, and a subject with no credential at a source is
-  refused rather than downgraded. What is missing is the other end - no adapter in this build has
-  anywhere for a per-subject credential to arrive, so a leg runs under the identity the operator
-  configured for that source. A report that this build does not impersonate is the state of the
+  refused rather than downgraded. What is missing is the other end - no adapter in a
+  published binary has anywhere for a per-subject credential to arrive, so a leg runs under the
+  identity the operator configured for that source. The default-off `bigquery` feature builds one
+  that does, unproven against a live pool. A report that this build does not impersonate is the state of the
   repository; a report that it *says* it does is a finding
 - **`AnchorPlan` is not a barrier, and citing it as one is the mistake this line exists to stop.**
   It parses a plan as one the pinned bundle itself agrees is a declared anchor's own, so it catches a

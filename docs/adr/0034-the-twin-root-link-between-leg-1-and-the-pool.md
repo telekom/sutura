@@ -118,3 +118,40 @@ runtime half removes a check that could not fire; it does not widen what a deplo
 **Moves no row on `docs/where-identity-is-proven.md`,** in either direction, for the reason this
 record has always given: the twin-root question is answered by a live pool, and nothing here dials
 one.
+
+## Third amendment, 2026-09-22: a subject's assertion DOES reach the pool, and both amendments above overstate that it does not
+
+**The correction.** The first amendment says *no transport in this build exchanges a subject's token
+against a pool* and the second repeats it. That was true of the tree between the fifth and sixth
+amendments of `docs/adr/0018`, and it is false now. The shipped ADBC transport builds an
+`external_account` credential document per request whose `credential_source` is a loopback `url`
+serving the asking subject's own verified assertion, and the driver hands that to Google's token
+service, which federates it against the pool `sources.<alias>.workload_identity.audience` names.
+What this repository no longer contains is an exchange it performs ITSELF.
+
+**So the chain the first amendment wrote down is also reversed.** It reads *leg 1 verifies the
+caller, this deployment maps the verified subject to a declared account, and this deployment's own
+identity is authorized to become it*. None of the second and third clauses holds:
+`service_account_impersonation_url` is deliberately absent from the document
+(`crates/sutura-exec-bigquery/src/adbc/subject/tests.rs` asserts that key is null), so nothing
+impersonates a declared account, the federated credential IS the pool principal, and
+`roles/iam.serviceAccountTokenCreator` on the deployment's own identity is the grant that stopped
+applying. The declared map's KEYS decide whether a caller may be served; its VALUES are read by
+nothing. The chain is *leg 1 verifies the caller, the deployment decides whether that caller may be
+served at this source, and the declared pool resolves that subject to a principal of its own.*
+
+**What this does NOT change: the decision, and the refusal that survived it.** The problem this
+record names - leg 1 verifying a document the source's identity provider would decline - is
+reopened rather than sidestepped, because the pool now sees that document. But nothing compares
+`expected_issuer`/`expected_audience` against `security.inbound`, so the twin-root link is still
+missing, and `crates/sutura-cli/src/serve/broker.rs` still refuses a source that declares either
+key. That refusal is the right behaviour under this amendment for a sharper reason than the first
+amendment had: the declaration would now describe a comparison that MATTERS and that nothing makes.
+
+**Moves no row on `docs/where-identity-is-proven.md`,** in either direction. Nothing here dials a
+pool, and the venue that would is `wired`.
+
+**The limit on this record's own class of defect:** `0034` is not in `check-guidance`'s leg-2
+exemption list, so a page here stating a registered *leg 2 is proven* wording is refused; nothing
+refuses the two sentences this amendment corrects, because they overstate a NEGATIVE. No gate reads
+them, and none reads a Rust comment at all.

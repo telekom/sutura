@@ -498,7 +498,7 @@ that resolve to one subject are then allowed and two subjects are refused, which
 was always meant. **That check cannot be written today, and the reason has narrowed since this was
 written:** the types now exist - `sutura_domain::identity` holds the principal chain, the request context and the
 `CredentialBroker` port, and `Warehouse::execute` takes a credential minted for the source it reads.
-What is still missing is a second identity for two sources to resolve to: no adapter in this build can
+What is still missing is a second identity for two sources to resolve to: no published adapter can
 carry a per-subject credential, so every leg presents the identity this deployment holds for that
 source and a set keyed on identity would hold one element for a reason that has nothing to do with the
 asker.

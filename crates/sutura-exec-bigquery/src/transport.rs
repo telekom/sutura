@@ -168,10 +168,13 @@ impl<'job> JobRequest<'job> {
 
     /// Who this job is to be executed as.
     ///
-    /// **This is the half that makes a `BigQuery` source execute as the asker**, and which of
+    /// **This is the half that decides who a `BigQuery` job is executed as**, and which of
     /// [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented -
     /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
-    /// ignored it would answer as itself while provenance reported the asker.
+    /// ignored it would answer as itself while provenance reported the asker. It does not make the
+    /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
+    /// assertion and the declared pool is what resolves it to a principal - unproven against a live
+    /// pool, per `docs/where-identity-is-proven.md`.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {

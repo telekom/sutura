@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a question executes as the account the source's declared per-source map names for the asking subject, through the driver's own impersonation option. The port, the broker and the serve composition are built; the hosted venue that would show it is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides only WHETHER a caller may be served there; the source executes as whatever principal the declared pool resolves that subject to, through workload-identity federation of the subject's own assertion. The port, the broker and the serve composition are built; the hosted venue that would show a pool resolving one is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -167,47 +167,57 @@ caller's credential.
 A broker that could not be **reached** is not a refusal: that is `SurfaceFailure::Broker` and
 `503 identity_unavailable`, which shares its status with a dead data system and not its code.
 
-## Wired in serve, and the two things it is still not
+## Wired in serve, and what it is still not
 
-- The BigQuery adapter declares a per-subject credential and sends the asker's token as its job's
-  own bearer, decided **once before anything is built or sent** - the asker's where the leg carried
-  one, otherwise the source's own, never both, which is what keeps two concurrent subjects apart at
-  that seam. The expiry guard stays on the source's own credential, because a subject's token was
-  already checked by the broker that minted it.
-- **`sutura serve` attaches the exchanging broker** to a served `bigquery` source with a declared
-  `workload_identity`, so an impersonating source is no longer refused by name - it is opened and
-  answers as the asker. The `sutura` command (`mcp`/`query`) still refuses by name, because it
-  attaches only `StaticCredentialBroker`; the two roots are separate binaries and the CLI's
-  attaching half is not built. A forgotten attachment cannot silently read every row as the
-  deployment: the port refuses a source the broker holds neither half for as `credential_unavailable`.
-- **An exchange HAS run against real STS and `iamcredentials`** - hosted, in the `bq-test` environment on 2026-09-16 - and resolved each principal to its own account. The limit beside it: that is BigQuery only, through the per-source map the source declares. No served binary has yet answered a caller under an asker.
-- `CredentialUnavailable` is reachable **through the served binary** now: a served impersonating
-  source with no inbound gate answers `403 credential_unavailable` (no assertion to exchange), and a
-  caller whose exchange the provider refuses gets `503` from `SurfaceFailure::Broker`. None of that
-  is an answer *under* an asker.
+- The BigQuery adapter builds a **workload-identity credential document** per request and hands it
+  to the driver: an `external_account` whose `credential_source` is a loopback `url` serving the
+  asking subject's OWN verified assertion, nonce-bound, for as long as one request holds it
+  (`crates/sutura-exec-bigquery/src/adbc/subject.rs`). No token is exchanged in this tree - Google's
+  token service federates the assertion against the pool the source declares. Which of
+  [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
+  transport that cannot serve the arm it is handed refuses.
+- **`service_account_impersonation_url` is deliberately absent from that document**, asserted null
+  by `adbc/subject/tests.rs`. So nothing impersonates a declared account, the federated credential
+  IS the pool principal, and the grant that matters is `roles/iam.workloadIdentityUser` on the pool
+  - **not** `roles/iam.serviceAccountTokenCreator`, which is what stopped applying. A reader who
+  provisions from the older wording grants the wrong thing.
+- **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
+  a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no
+  longer refused by name - it is opened. The `sutura` command (`mcp`/`query`) still refuses by name,
+  because it attaches only `StaticCredentialBroker`; the two roots are separate binaries and the
+  CLI's attaching half is not built. A forgotten attachment cannot silently read every row as the
+  deployment: the port refuses a source the broker holds neither half for as
+  `credential_unavailable`.
+- `CredentialUnavailable` is reachable **through the served binary**: a served impersonating source
+  with no inbound gate answers `403 credential_unavailable` (no verified subject to serve), and a
+  broker that cannot be reached gets `503` from `SurfaceFailure::Broker`. None of that is an answer
+  *under* an asker.
+- **No exchange has run against a real Google token service from any code in this tree.** A round of
+  this file offered a hosted run on 2026-09-16 as evidence, unqualified. That run was of
+  `wire::StsOverHttp`, `wire::IamCredentialsOverHttp` and `WorkloadIdentity::target_for` - all three
+  deleted with the HTTP transport (`docs/adr/0018`, fifth and eighth amendments) - so it is a run of
+  code this tree does not contain and may not be cited for anything the tree does now.
 
-**What proved leg 2 for BigQuery, hosted.** The pool is provisioned, the acceptance leg is written -
-`sutura-exec-bigquery`'s `each_principal_is_who_this_source_says_it_is_executing_as` with
-`the_deployments_own_identity_is_neither_principal` as its control, each `#[ignore]`d and failing
-rather than skipping when the environment is unset - and on 2026-09-16 a hosted `workflow_dispatch`
-run of it concluded `success`, each principal resolved to its own account. **The hop that used to be
-the missing third thing is built:** `wire::StsOverHttp` posts the RFC 8693 request and returns the
-FEDERATED credential a workload-identity pool resolves to a pool subject with; `wire::IamCredentialsOverHttp`
-now makes the second call (`iamcredentials.generateAccessToken`) to the account
-`WorkloadIdentity::target_for` declares (telekom/sutura#774), so a source's exchange resolves to a
-service account rather than stopping at the pool subject. **All three of those types were deleted
-with the HTTP transport** (`docs/adr/0018`, fifth amendment), so the run that paragraph cited is a
-run of code this tree does not contain. **And what ships is not the principal switch either** - a
-round of this row said the transport sets `bigquery.impersonate.target_principal` per job with the
-caller's credential nowhere in the chain, which was true for two rounds and was rejected. The
-shipped mechanism is Workload Identity Federation: the asker's own verified assertion becomes an
-`external_account` credential document (`docs/adr/0018`, sixth amendment), so Google's token service
-verifies it and the source executes as the principal the declared pool resolves that subject to. The
-limit beside the claim: **leg 2 is not proven.** Nothing reachable from this repository shows Google
-ACCEPTING an assertion - the venue that would is `wired` in `docs/where-identity-is-proven.md` and
-nobody has dispatched it.
+**What leg 2 rests on, and it is a `wired` venue rather than a run.** The mechanism is built, the
+pool is provisioned in `test-infra/pulumi/google`, and the cells are written:
+`crates/sutura-exec-bigquery/tests/declared_principal.rs`'s
+`each_subject_executes_as_its_own_principal_at_the_declared_pool` with
+`the_deployments_own_identity_is_neither_subjects_principal` as its control, each `#[ignore]`d and
+failing rather than skipping when the environment is unset, dispatched by
+`.github/workflows/bigquery-declared-principal.yml`. **Nobody has dispatched it**, which is why
+`docs/where-identity-is-proven.md` records that venue as `wired` and not `yes`. Nothing reachable
+from this repository shows Google ACCEPTING an assertion.
 
-**And one consequence for what a subject token can buy.** A plain exchange yields exactly ONE
-identity per subject token - whoever the token's `sub` is - so *two* principals need *two* subject
-tokens. One workload identity becomes two accounts through the `iamcredentials` hop, per the map
-`WorkloadIdentity::target_for` holds.
+**And what ships is not the principal switch either.** A round of this row said the transport sets
+`bigquery.impersonate.target_principal` per job with the caller's credential nowhere in the chain,
+which was true for two rounds and was rejected; `JobIdentity` has no spelling for it now.
+
+**One consequence for what the declared map buys.** Its KEYS decide which subjects a source may be
+asked as; its VALUES - the account addresses - are read by nothing, because the pool resolves a
+subject to its own principal and no `service_account_impersonation_url` is sent. Two subjects
+therefore need two pool bindings, not two entries in a map.
+
+**The limit on all of the above, stated where the claim is:** `check-guidance`'s leg-2 rule
+(`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, but its scope is
+`md`/`nix`/`yml`/`yaml`/`toml`/`sh` - **no gate in this repository can refuse a leg-2 overstatement
+in a Rust comment**, and it matches literal wordings, so a paraphrase escapes.

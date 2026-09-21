@@ -348,8 +348,11 @@ token minted for other resources too is fine.
 **What it does not grant, and this is the sentence to keep.** A scope decides which *operations* a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
 same pinned bundle and every question executes with whatever access the service process already had:
-no adapter in this build can carry a per-subject credential, so no source executes as the asking
-subject. A caller granted `sutura:metrics.ask` gets exactly the numbers any other caller would.
+no published adapter can carry a per-subject credential, so no source executes as the asking
+subject. **Published**, and not *built*, because the qualifier is load-bearing: `bigquery` is a
+default-off feature and the adapter behind it DOES carry one - a `--features bigquery` build
+federates the asking subject's own assertion against a declared pool, and `nix/shipped.nix` names
+that feature only to probe that a source build links. A caller granted `sutura:metrics.ask` gets exactly the numbers any other caller would.
 
 The agent surface offers the same two capabilities under the names `describe_catalog` and `ask_metric`,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
@@ -1256,7 +1259,7 @@ Named rather than implied, because an absence that reads as an oversight gets as
   than a proof of transit, and why the hop from the component is a trusted boundary.
 - **No source that executes as the asking subject.** Leg 1 establishes who is asking and the
   credential port makes a question unable to execute without a credential minted for its source - but
-  no adapter in this build can carry a per-subject one, so every question still reads as one identity.
+  no published adapter can carry a per-subject one, so every question still reads as one identity.
   See the first section - this is the single most important absence on this page.
 - **No request identifier.** It belongs in the failure body and there is nothing to put in it, and a
   field that is always absent is worse than no field.

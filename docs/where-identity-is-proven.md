@@ -179,9 +179,9 @@ everything *around* it, and shrinks to the one job only it can do.
 | The refetch rate limit under concurrency | - | **yes**, at the cache - over a source that counts its own calls, never the published file | - | - | - | - | - |
 | `credential_unavailable` through the request path | - | **yes** | - | - | - | - | - |
 | Two subjects driving two different credentials to the port | - | **yes** | - | - | - | - | - |
-| The RFC 8693 request document a broker sends | **yes**, against a fake exchange | - | - | - | - | - | - |
-| The document leg 1 verified is the `subject_token` the **shipped** exchanging broker offers | - | **yes**, over a fake exchange - the two halves were each green against their own fixture | - | - | - | - | - |
-| A subject the shipped exchanging broker holds nothing for reaches no authorization server and no data system | - | **yes** | - | - | - | - | - |
+| The RFC 8693 request document a broker sent, while one existed | - nothing in this build sends one: the broker and its fake exchange were deleted with the `wire` transport (`docs/adr/0018`, eighth amendment). The cell was green against that fake and is kept as a record of a withdrawn claim, not a live one | - | - | - | - | - | - |
+| The document leg 1 verified was the `subject_token` the exchanging broker offered | - | - no exchanging broker is shipped; this was green over a fake exchange, in two halves each against its own fixture, until that tree was deleted. What ships puts the verified document behind a loopback `url` credential source instead, and `adbc/subject/tests.rs` is where that is asserted | - | - | - | - | - |
+| A subject the shipped broker holds nothing for reaches no authorization server and no data system | - | **yes** - `DeclaredPrincipalBroker` refuses a caller its source does not name before anything is built or sent; the exchanging broker this row was written for is deleted and the refusal outlived it | - | - | - | - | - |
 | The composition root arms leg 1 over the governed routes, or does not start | - | **yes**, on the spawned binary | - | - | redundant | - | - |
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - | - |
 | An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
@@ -190,9 +190,9 @@ everything *around* it, and shrinks to the one job only it can do.
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **only here** | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | - |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | no - nothing per-subject is OBTAINED here: the deployment's own identity becomes a declared account, so there is no credential for a subject to hold | - |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **wired** - this is the row below in other words: a per-subject `external_account` document is built and the pool resolves it, and no run has been observed | - |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no | no - it reads one identity per question and no rows at all; the row half needs the served surface | - |
-| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - no bearer is presented on this path at all | - |
+| **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the cells here read `SESSION_USER()` and no rows, and `test-infra/pulumi/google`'s row access policies grant `serviceAccount:` members rather than the pool subject this mechanism executes as, so the grants are not provisioned for it either | - |
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no | no - a different adapter, refused at boot before any venue | - |
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
@@ -541,10 +541,17 @@ does not.
 Identity Federation pool, its OIDC provider and the `roles/iam.workloadIdentityUser` bindings **no
 longer applied** - true while the shipped mechanism was a principal switch on the deployment's own
 credentials, and false since `docs/adr/0018`'s sixth amendment. The transport federates each
-subject's own assertion against the pool, so `test-infra/pulumi/google/__main__.py`'s pool, its
-`issuer_uri` and the per-principal `roles/iam.workloadIdentityUser` bindings are exactly what the
-run needs. `roles/iam.serviceAccountTokenCreator` on the deployment's own identity is what stopped
-applying: nothing impersonates a declared account from the deployment's credentials any more.
+subject's own assertion against the pool, so `test-infra/pulumi/google/__main__.py`'s pool and its
+`issuer_uri` are back in the picture. `roles/iam.serviceAccountTokenCreator` on the deployment's
+own identity is what stopped applying: nothing impersonates a declared account from the
+deployment's credentials any more.
+
+**What the per-principal `roles/iam.workloadIdentityUser` bindings still buy is OPEN, and a round
+of this paragraph called them "exactly what the run needs".** That role authorizes impersonating
+the account it is bound on, which is the step the shipped document no longer asks for. Whether STS
+federates for a pool subject holding no such binding is a property of Google's service nothing here
+has exercised, so it is a question a dispatch answers and this page may not. `test-infra/README.md`
+carries the same limit beside the resource.
 
 The oracle is unchanged - `SELECT SESSION_USER()`, read through
 `sutura_exec_bigquery::SessionUser`. What it returns depends on the pool: the credential document this
@@ -561,8 +568,9 @@ impersonation.
 `.github/workflows/bigquery-declared-principal.yml` is the job: it places one credential - the
 deployment's own - builds the driver for the runner's triple, and runs the two cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
-two service accounts with their own keys, each bound `roles/iam.workloadIdentityUser` on the pool,
-the pool's audience, and `SUTURA_BQ_DATASET`. The two account ADDRESSES are no longer needed - the
+two service accounts with their own keys - each bound `roles/iam.workloadIdentityUser` on the pool,
+as the stack provisions them, with the paragraph above's caveat on whether that role is still what
+carries the federation - the pool's audience, and `SUTURA_BQ_DATASET`. The two account ADDRESSES are no longer needed - the
 cells compare the two answers against each other rather than against a declared account, because
 the pool decides the principal. **Nobody has dispatched it**, which is why that venue says `wired`
 and not `yes`.

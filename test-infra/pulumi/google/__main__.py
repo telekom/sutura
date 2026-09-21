@@ -145,20 +145,26 @@ gcp_provider = gcp.Provider(
 # API bootstrap - `up` enables what it needs on a fresh project, no separate gcloud CLI.
 # --------------------------------------------------------------------------- #
 # Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`, the
-# exchange and impersonation hops on `sts` and `iamcredentials`) is turned on as a Pulumi
-# resource first, and every consumer below waits on the enabling call via `depends_on`.
+# federation on `sts` and the impersonation hop this stack no longer exercises on
+# `iamcredentials`) is turned on as a Pulumi resource first, and every consumer below waits on the
+# enabling call via `depends_on`.
 # serviceusage.googleapis.com powers the ENABLING call itself, so it is enabled FIRST and the
 # rest depend on it - without it, `up` fails on a fresh project with `SERVICE_DISABLED` on the
 # enable call, which is exactly what a disabled Service Usage API produces. The applying
 # credential still needs `serviceusage.services.enable`; self-bootstrapping moves that ONE grant
 # into the credential, which is the same class of trust the provider key is.
 #
-# `sts.googleapis.com` and `iamcredentials.googleapis.com` are the two grants the leg-2 exchange
-# (issue #376) needs and a fresh project does not have: `sts` is the Security Token Service that
-# `StsOverHttp` exchanges a caller's token against (RFC 8693), and `iamcredentials` is the
-# `generateAccessToken` hop that turns the exchanged pool principal into the service account whose
-# email `SESSION_USER()` must read. Without the APIs enabled, a fresh `up` provisions pools and
-# bindings and then every exchange and every impersonation answers `SERVICE_DISABLED`.
+# `sts.googleapis.com` is what leg 2 needs and a fresh project does not have: the Security Token
+# Service is what federates a subject's own assertion against the pool, driven by the BigQuery
+# driver from the `external_account` credential document the adapter builds. Without it enabled, a
+# fresh `up` provisions pools and bindings and then every federation answers `SERVICE_DISABLED`.
+#
+# `iamcredentials.googleapis.com` is **not exercised by the shipped mechanism.** It powered the
+# `generateAccessToken` hop that turned a pool principal into a service account, and that hop went
+# with the HTTP transport: the credential document carries no `service_account_impersonation_url`,
+# so the federated credential IS the pool principal. Left enabled rather than removed - dropping a
+# resource from this stack is a change nobody has run against a project, and `down`/`up` on a live
+# venue is not a prose fix - but it is dead surface, not a requirement.
 _usage = gcp.projects.Service(
     "api-serviceusage.googleapis.com",
     project=project,
@@ -171,7 +177,7 @@ API_BOOTSTRAP = [_usage]
 # every resource in this project, and `disable_on_destroy=False` keeps it on after a `down`. These
 # enables by themselves grant nothing - the per-principal `roles/iam.workloadIdentityUser` bindings
 # below hold that - but they are the blast radius of this stack: once `sts`/`iamcredentials` are on,
-# any project member can call them. That is the accepted cost of a project dedicated to the
+# any project member can call them, `iamcredentials` included even though nothing here uses it. That is the accepted cost of a project dedicated to the
 # identity/e2e venue and must not be copy-pasted onto a shared project.
 for _api in [
     "bigquery.googleapis.com",
@@ -520,13 +526,33 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
 )
 
-# The iamcredentials hop - telekom/sutura#376. After STS exchanges a subject's token to a pool
-# principal, an `iamcredentials.generateAccessToken` call on that principal's OWN service account
-# is what turns the exchanged credential into that ACCOUNT - `SESSION_USER()` reads the account's
-# email, not the `principal://...` federated string it would else produce. The comparison that
-# names the answer is `each_principal_is_who_this_source_says_it_is_executing_as`, which a federated
-# string can never satisfy, so without these bindings every exchange resolves to a federated pool
-# subject and never the principal.
+# THE BINDING LEG 2 ACTUALLY RESTS ON, and its purpose is narrower than an earlier round of this
+# comment claimed. That round described an `iamcredentials.generateAccessToken` hop turning the
+# federated credential into the ACCOUNT, so that `SESSION_USER()` would read an account email, and
+# cited a comparison (`each_principal_is_who_this_source_says_it_is_executing_as`) that exists in no
+# tree. Both went with the HTTP transport: the shipped credential document carries no
+# `service_account_impersonation_url`, so the federated credential IS the pool principal and
+# `SESSION_USER()` reads whatever the pool resolves each subject to. The cells that read it -
+# `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
+# `the_deployments_own_identity_is_neither_subjects_principal` - compare the two answers against
+# each other and against the deployment's own, never against an address, precisely because nothing
+# predicts that string.
+#
+# WHAT THESE BINDINGS STILL BUY IS OPEN, and saying so is the honest state. `workloadIdentityUser`
+# authorizes an external identity to impersonate the account it is bound on - which is the step the
+# shipped document no longer asks for. Whether STS will federate an assertion for a pool subject
+# that holds no such binding is a property of Google's service that nothing in this repository has
+# exercised: the venue is `wired` in `docs/where-identity-is-proven.md` and nobody has dispatched
+# it. Kept as provisioned, because a binding removed on a guess costs a dispatch to discover.
+#
+# A SECOND CONSEQUENCE THE ROW GRANTS HAVE NOT CAUGHT UP WITH. `grantees` above is
+# `serviceAccount:<email>` for each account, and the shipped mechanism executes as the POOL SUBJECT
+# rather than as either account. So the two row access policies grant rows to identities this
+# mechanism never becomes, and the row half of leg 2 - two subjects reading two different row sets -
+# is not provisioned for by this stack as it stands. The account half is:
+# `each_subject_executes_as_its_own_principal_at_the_declared_pool` compares `SESSION_USER()`
+# answers and needs no row grant. Named here rather than repaired, because the repair is a
+# `principal://` grantee shape nobody has applied to a live project.
 #
 # Authorized by `roles/iam.workloadIdentityUser`, bound to the pool SUBJECT of that account - the
 # member the account's minted id_token `sub` (its numeric `unique_id`, via

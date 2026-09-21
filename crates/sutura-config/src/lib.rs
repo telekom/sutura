@@ -37,7 +37,7 @@
 //!
 //! sutura has a request context and a credential broker now, and a deployment that declares
 //! `security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
-//! the part that matters: **no adapter in this build can carry a per-subject credential.** Every
+//! the part that matters: **no PUBLISHED adapter can carry a per-subject credential.** Every
 //! question executes with a credential a broker minted, and what that credential says is *the identity
 //! this process holds for that source*. `AGENTS.md` records which half is mechanised, and
 //! `examples/README.md` explains why single-player makes "every query runs as the calling

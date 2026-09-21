@@ -1,9 +1,12 @@
 # LEG 2 for BigQuery, on the only venue that can answer it - `crates/sutura-exec-bigquery/tests/declared_principal.rs`.
 #
 # `workflow_dispatch` ONLY, and the reason is the same one the withdrawn exchanged-identity workflow
-# gave: this leg needs a project whose service accounts the running identity may impersonate
-# (`roles/iam.serviceAccountTokenCreator` on each), and wiring it into every push before those
-# bindings exist would make it red forever. A person dispatches it once the grants are applied.
+# gave: this leg needs a project with a workload-identity pool whose provider trusts the issuer that
+# mints each subject's assertion, and one `roles/iam.workloadIdentityUser` binding per principal on
+# that pool. Wiring it into every push before those bindings exist would make it red forever. A
+# person dispatches it once the grants are applied. NOT
+# `roles/iam.serviceAccountTokenCreator` - an earlier round of this header asked for that, which is
+# the grant the withdrawn principal switch needed and the one that stopped applying.
 # `docs/where-identity-is-proven.md` moves this venue from `wired` to `yes` only after a run is
 # observed and reported there, never before - and the merge precondition for the ADBC adoption
 # (telekom/sutura#929) is that somebody dispatches this.
@@ -63,9 +66,11 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # THE ONLY CREDENTIAL THIS LEG HOLDS: the deployment's own identity. It is what the driver
-      # authenticates as, what the control leg reads back, and what must hold
-      # `roles/iam.serviceAccountTokenCreator` on both declared accounts. Placed outside the
+      # THE DEPLOYMENT'S OWN IDENTITY, which is what the CONTROL leg reads back - the shared
+      # posture runs on application default credentials and impersonates nothing. It needs no grant
+      # on either declared account: the declared-principal legs federate each subject's own
+      # assertion against the pool instead, so what carries them is the pool's
+      # `roles/iam.workloadIdentityUser` bindings and not this key. Placed outside the
       # checkout, never through `${{ }}` in a shell body, and removed at the end regardless of
       # outcome - the discipline the withdrawn leg established for three secrets, applied to one.
       - name: Place the CI credential outside the checkout
@@ -168,9 +173,10 @@ jobs:
       #
       # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
       # dispatch against a pool with no binding for these subjects is the run most likely to reach
-      # it, and the message to expect there is an STS refusal of the subject token - which means the
-      # pool's provider or its `roles/iam.workloadIdentityUser` binding is missing, not that the
-      # mechanism is wrong.
+      # it, and the message to expect there is an STS refusal of the subject token. The likeliest
+      # cause is a missing pool provider or `roles/iam.workloadIdentityUser` binding - but nobody has
+      # run this leg, so a refusal here is not yet evidence against the environment rather than
+      # against the mechanism. Read the driver's text and decide, do not assume the binding.
       - name: Declared-principal leg
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
