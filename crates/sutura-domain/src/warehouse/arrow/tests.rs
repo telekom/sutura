@@ -1,33 +1,38 @@
-//! The value mapping, as a table, held against the other implementor of the [`Warehouse`] port.
+//! The schema guard, and the value mapping as a table.
 //!
-//! **The table is duplicated on purpose, and the duplication is the test.** The two `cell` functions
-//! live in different crates - this one takes an Arrow array and the data source's takes a
-//! `duckdb::types::Value` - and neither crate may depend on the other: they are two implementors of
-//! one port, and a shared helper would have to live in `sutura-domain`, which is not allowed to know
-//! that either of them exists. So the agreement is asserted as the same expected column written out
-//! in both places: here, and in `every_type_this_adapter_maps_answers_what_the_engine_answers` in
-//! `crates/sutura-exec-duckdb/src/lib.rs`. The two test names quote each other, so a change made to
-//! one and not the other shows up as a failing assertion rather than as a disagreement nobody
-//! notices until an anchor stops reproducing.
+//! # The mapping table is still duplicated once, and the duplication is still the test
+//!
+//! It used to be duplicated because it had to be: the two `cell` functions lived in two adapter
+//! crates, neither may depend on the other, and a shared helper would have had to live here - which
+//! this crate was not allowed to name an Arrow type in. `docs/adr/0039` reverses exactly that, so
+//! the Arrow half of the table is now HERE and the engine has no `cell` of its own.
+//!
+//! What survives is the ONE-sided duplication against a source that does not speak Arrow:
+//! `every_type_this_adapter_maps_answers_what_the_engine_answers` in
+//! `crates/sutura-exec-duckdb/src/lib.rs` maps a `duckdb::types::Value`, and that crate still may
+//! not name an Arrow type - the `duckdb` crate declares `arrow ^58` while this major is 59
+//! (`devco/arrow-majors-allow`). So the agreement between those two is asserted as the same
+//! expected column written out in both places, and the two test names quote each other, so a change
+//! made to one and not the other shows up as a failing assertion rather than as a disagreement
+//! nobody notices until an anchor stops reproducing.
 //!
 //! The alternative - one test calling both adapters - already exists as `tests/differential.rs` in
 //! `sutura-app`, which runs one plan through both and compares the rows. It can only see the types a
 //! fixture CSV produces, which is why this table is not redundant with it: it reaches the widths a
 //! Parquet file has and a CSV never will.
-//!
-//! [`Warehouse`]: sutura_domain::warehouse::Warehouse
 
-use datafusion::arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int8Array, Int16Array,
-    Int32Array, Int64Array, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
-};
-use datafusion::arrow::datatypes::i256;
 use std::sync::Arc;
-use sutura_domain::calendar::Date;
-use sutura_domain::warehouse::{Real, Value};
 
-use super::DataFusionError;
-use super::collect::cell;
+use arrow_array::{
+    ArrayRef, BooleanArray, Date32Array, Decimal128Array, Decimal256Array, Float32Array, Float64Array, Int8Array, Int16Array,
+    Int32Array, Int64Array, RecordBatch, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+};
+use arrow_buffer::i256;
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+
+use super::{Accumulating, UnannouncedBatch, UnreadableCell, cell, of_rows};
+use crate::calendar::Date;
+use crate::warehouse::{Real, Value};
 
 /// One row of the shared table: what the value is called, the array the engine would hand over, and
 /// the domain value both adapters have to produce for it. Named because the tuple is over the
@@ -68,7 +73,7 @@ fn wide_decimal(value: i128, scale: i8) -> ArrayRef {
 }
 
 #[test]
-fn every_type_the_engine_maps_answers_what_the_data_source_answers() {
+fn every_type_the_interior_maps_answers_what_the_data_source_answers() {
     // The twin of `every_type_this_adapter_maps_answers_what_the_engine_answers` in
     // `crates/sutura-exec-duckdb/src/lib.rs`. Same logical values, same expected column, one row per
     // width - because a Parquet `INT32` column under a `min` or a `max` answered there and errored
@@ -171,7 +176,7 @@ fn a_null_of_any_mapped_type_is_null_and_not_the_zero_of_that_type() {
 }
 
 #[test]
-fn a_32_bit_float_is_refused_on_both_sides_of_the_port() {
+fn a_32_bit_float_is_refused_here_because_the_data_source_refuses_it() {
     // The data source widened this one to an `f64` and this engine refused it, which is one plan
     // answering 0.10000000149011612 through one adapter and erroring through the other. Refusing is
     // the half of that disagreement that can be fixed without inventing a rendering: there is no
@@ -179,7 +184,7 @@ fn a_32_bit_float_is_refused_on_both_sides_of_the_port() {
     // `crates/sutura-exec-duckdb/src/lib.rs` is the same assertion against the data source.
     let array = Float32Array::from(vec![0.1_f32]);
     let error = cell("amount", &array, 0).expect_err("a 32-bit float is not mapped");
-    assert!(matches!(error, DataFusionError::UnsupportedType { .. }), "{error:?}");
+    assert!(matches!(error, UnreadableCell::UnsupportedType { .. }), "{error:?}");
     // And the width that does answer, so this is not a test that would pass with every float
     // refused.
     let wide = Float64Array::from(vec![0.1_f64]);
@@ -190,7 +195,7 @@ fn a_32_bit_float_is_refused_on_both_sides_of_the_port() {
 }
 
 #[test]
-fn a_non_finite_double_is_refused_on_both_sides_of_the_port() {
+fn a_non_finite_double_is_refused_here_because_the_data_source_refuses_it() {
     // THE FINDING THIS ARM EXISTS FOR, and the twin of
     // `a_non_finite_double_is_refused_here_because_it_is_refused_there` in
     // `crates/sutura-exec-duckdb/src/lib.rs`. This arm was `Value::Real(..)` on a raw `f64`, and the
@@ -209,7 +214,7 @@ fn a_non_finite_double_is_refused_on_both_sides_of_the_port() {
     ] {
         let array = Float64Array::from(vec![raw]);
         let error = cell("revenue_per_refunded_order", &array, 0).expect_err(name);
-        assert!(matches!(error, DataFusionError::NotFinite { .. }), "{name}: {error:?}");
+        assert!(matches!(error, UnreadableCell::NotFinite { .. }), "{name}: {error:?}");
         assert_eq!(
             error.to_string(),
             "column revenue_per_refunded_order came back as a value that is not a finite number",
@@ -227,5 +232,143 @@ fn a_non_finite_double_is_refused_on_both_sides_of_the_port() {
     assert_eq!(
         cell("average_order", &average, 0).expect("an average is a finite number"),
         Value::Real(real(63_335.777_777_777_78))
+    );
+}
+
+/// A one-column Int64 schema under `label`.
+fn one_int(label: &str) -> SchemaRef {
+    Arc::new(Schema::new(vec![Field::new(label, DataType::Int64, true)]))
+}
+
+fn ints(values: &[i64]) -> ArrayRef {
+    Arc::new(Int64Array::from(values.to_vec()))
+}
+
+/// THE DEFECT THIS GUARD EXISTS FOR: two SAME-TYPED columns delivered in the wrong order.
+///
+/// A differently-typed swap Arrow already refuses through `RecordBatch::try_new`, so a test that
+/// swapped an integer for a string would prove nothing about this code. Two `Int64` columns build a
+/// perfectly valid batch under either schema, and a consumer that only counted columns would label
+/// each column with the other's name - a transposed answer under a certified metric name, with no
+/// error anywhere.
+#[test]
+fn a_same_typed_column_swap_is_refused_before_a_value_is_read() {
+    let announced: SchemaRef = Arc::new(Schema::new(vec![
+        Field::new("orders", DataType::Int64, true),
+        Field::new("refunds", DataType::Int64, true),
+    ]));
+    // Arrow accepts this: same width, same types, different NAMES.
+    let swapped: SchemaRef = Arc::new(Schema::new(vec![
+        Field::new("refunds", DataType::Int64, true),
+        Field::new("orders", DataType::Int64, true),
+    ]));
+    let batch = RecordBatch::try_new(Arc::clone(&swapped), vec![ints(&[7]), ints(&[2])])
+        .expect("Arrow accepts a same-typed swap, which is the whole point");
+
+    let mut accumulating = Accumulating::announcing(announced, 10);
+    let refused = accumulating.push(batch).expect_err("a swapped batch is refused");
+    assert!(matches!(refused, UnannouncedBatch::Mislabelled { at: 0, .. }), "{refused:?}");
+    // The refusal names both descriptors and no cell value.
+    let message = refused.to_string();
+    assert!(message.contains("refunds Int64"), "{message}");
+    assert!(message.contains("orders Int64"), "{message}");
+    assert!(!message.contains('7'), "a refusal must not quote a cell: {message}");
+}
+
+/// A narrower batch is refused, and the width check is what stops the name check truncating.
+#[test]
+fn a_batch_narrower_than_its_schema_is_refused_rather_than_matched_on_its_prefix() {
+    let announced: SchemaRef = Arc::new(Schema::new(vec![
+        Field::new("orders", DataType::Int64, true),
+        Field::new("refunds", DataType::Int64, true),
+    ]));
+    let narrow = RecordBatch::try_new(one_int("orders"), vec![ints(&[7])]).expect("a one-column batch is valid");
+    let refused = Accumulating::announcing(announced, 10)
+        .push(narrow)
+        .expect_err("a narrow batch is refused");
+    assert_eq!(
+        refused,
+        UnannouncedBatch::Width {
+            announced: 2,
+            delivered: 1
+        }
+    );
+}
+
+/// The ceiling fires at the batch that crosses it, not after the stream is collected.
+#[test]
+fn the_row_ceiling_refuses_the_batch_that_crosses_it() {
+    let schema = one_int("orders");
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 3);
+    let two = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&[1, 2])]).expect("a two-row batch is valid");
+    accumulating.push(two.clone()).expect("two rows are under the ceiling");
+    assert_eq!(accumulating.delivered(), 2);
+    let refused = accumulating.push(two).expect_err("four rows are over a ceiling of three");
+    assert_eq!(refused, UnannouncedBatch::OverBound { most: 3 });
+}
+
+/// A batch that matches its announced schema by name and type is kept, and reads back as rows.
+#[test]
+fn an_announced_batch_reads_back_under_the_names_it_was_announced_with() {
+    let schema = one_int("orders");
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10);
+    accumulating
+        .push(RecordBatch::try_new(schema, vec![ints(&[7, 2])]).expect("a valid batch"))
+        .expect("an announced batch is kept");
+    let result = accumulating.finish();
+    assert_eq!(result.rows(), 2);
+    let rows = result.to_rows().expect("Int64 maps");
+    assert_eq!(rows.columns(), ["orders"]);
+    assert_eq!(rows.rows(), [vec![Value::Integer(7)], vec![Value::Integer(2)]]);
+}
+
+/// Rows in, the same rows out - for the two column shapes a source actually produces.
+///
+/// **A MIXED column is deliberately NOT asserted to round-trip**, because it does not: `of_rows`
+/// falls back to `Utf8` and renders each value, so an `Integer` in a column that also holds `Text`
+/// comes back as `Text`. That is the stated limit on `arrow_column`, and no data system produces such
+/// a column - a source declares a column's type.
+#[test]
+fn a_typed_column_round_trips_through_arrow_and_a_mixed_one_becomes_text() {
+    let columns = vec![String::from("region"), String::from("orders"), String::from("rate")];
+    let rows = vec![
+        vec![Value::Text(String::from("north")), Value::Integer(7), Value::Real(real(0.25))],
+        vec![Value::Text(String::from("south")), Value::Null, Value::Null],
+    ];
+    let result = of_rows(&columns, &rows).expect("a rectangular fixture builds");
+    let back = result.to_rows().expect("every built column maps back");
+    assert_eq!(back.columns(), columns.as_slice());
+    assert_eq!(back.rows(), rows.as_slice());
+
+    let mixed = of_rows(
+        &[String::from("amount")],
+        &[vec![Value::Integer(42)], vec![Value::Text(String::from("12.34"))]],
+    )
+    .expect("a mixed fixture builds");
+    assert_eq!(
+        mixed.to_rows().expect("a text column maps back").rows(),
+        [
+            vec![Value::Text(String::from("42"))],
+            vec![Value::Text(String::from("12.34"))]
+        ],
+        "a mixed column is text, which is the stated limit"
+    );
+}
+
+/// A ragged fixture is refused here rather than as an Arrow error nobody reads.
+#[test]
+fn a_ragged_fixture_is_refused_with_the_row_that_is_wrong() {
+    let refused = of_rows(
+        &[String::from("a"), String::from("b")],
+        &[vec![Value::Integer(1), Value::Integer(2)], vec![Value::Integer(3)]],
+    )
+    .expect_err("a ragged fixture is refused");
+    assert_eq!(
+        refused,
+        crate::warehouse::MalformedRowSet::RowWidth {
+            row: 1,
+            cells: 1,
+            columns: 2
+        }
     );
 }

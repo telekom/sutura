@@ -103,15 +103,22 @@ of them correct how this was scoped, and the third is the one that makes step 2 
   boundary. What it does forbid until `duckdb-rs` releases its merged arrow-59 bump is a **DuckDB
   adapter that hands its native batches through**, which is the one adapter that must keep building
   rows by hand.
-- **The port change is not a signature tweak.** On this tree: 52 `fn execute` implementations, 59
-  `.execute(` call sites, 79 `RowSet::new` constructions and 94 `.rows()` reads. Most are fakes, and
-  the shape that makes it mechanical rather than a rewrite is a domain-side pair - build batches from
-  rows, read rows from batches - so an adapter or a fake that has rows changes one line. **The cost
-  that is not mechanical is `ALLOWED_IN_DOMAIN`**: the domain naming `arrow-array` adds its closure
-  to an allowlist walked over the whole resolve graph, including a time-zone database and an entropy
-  source. That is the architecture decision inside step 2, and it is this record that authorises it -
-  Arrow is a data format rather than a runtime, a client or an engine, which is the line
-  `xtask/src/boundaries/edges.rs` actually draws.
+- **The port change is not a signature tweak, which is why it is not in this change.** On this tree:
+  52 `fn execute` implementations, 59 `.execute(` call sites, 79 `RowSet::new` constructions and 94
+  `.rows()` reads. Most are fakes, and the shape that makes it mechanical rather than a rewrite is
+  the domain-side pair above - build batches from rows, read rows from batches - so an adapter or a
+  fake that has rows changes one line.
+- **`ALLOWED_IN_DOMAIN` is the cost that is not mechanical, and it is paid.** The domain naming
+  `arrow-array` and `arrow-schema` took that allowlist's walk from 33 crates to 97. Twenty-two are
+  in the FEATURE-RESOLVED tree (`cargo tree -p sutura-domain --all-features`), and two of those
+  twenty-two are worth naming rather than counting: a time-zone database (`chrono`,
+  `iana-time-zone`) and an entropy source (`getrandom`, through `ahash` through `hashbrown`) are now
+  in the hexagon's interior, reachable from no code this crate has. The remaining forty-two are the
+  over-broad kind that allowlist already carries - optional and platform-specific edges
+  `cargo metadata` resolves for every target, including a `wasm-bindgen` pair and the `windows-*`
+  family. **No new lockfile entry**: both crates were already resolved at 59.2.0. Arrow is a data
+  format rather than a runtime, a client or an engine, which is the line
+  `xtask/src/boundaries/edges.rs` actually draws - and this record is what authorises the entry.
 
 ## Step 3, decided and not built here: the combiner is a DataFusion plan
 

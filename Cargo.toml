@@ -195,6 +195,18 @@ futures-util = "0.3"
 # other two are parse-only.
 flate2 = "1"
 bzip2 = "0.6"
+# Arrow at the hexagon's interior - `docs/adr/0039`, and `crates/sutura-domain/Cargo.toml` carries
+# the argument and the measured cost. The major is the ENGINE's: `datafusion` resolves 59.2.0 and so
+# does `adbc_core`, so these unify with both and add no lockfile entry. `devco/arrow-majors-allow`
+# is where the surviving 58 major (the `duckdb` crate's) is explained; `cargo xtask check-arrow` is
+# what fails when a row there stops matching the lock.
+arrow-array = "59"
+arrow-schema = "59"
+# `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
+# `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
+# `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
+# dependency, so this is a new edge and not a new crate.
+arrow-buffer = "59"
 # TLS for a Postgres SOURCE connection: `MakeRustlsConnect`, which turns a `rustls::ClientConfig`
 # into the connector `tokio-postgres::Config::connect` wants. This is the first thing in the
 # workspace that must VERIFY a peer's chain - see `docs/adr/0010` - so the trust store is declared

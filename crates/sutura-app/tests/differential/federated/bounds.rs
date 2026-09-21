@@ -24,6 +24,7 @@ use crate::adapters::{a_caller, shared_credential};
 use sutura_app::ServiceError;
 use sutura_domain::plan::FederatedFailure;
 use sutura_domain::query::ToolOutcome;
+use sutura_domain::warehouse::UnreadableCell;
 use sutura_exec_datafusion::DataFusionError;
 
 const MEASURE_BOUNDS_CASE: &str = "MEASURE_BOUNDS_CASE";
@@ -115,8 +116,12 @@ fn expected_failure(name: &str, error: &ServiceError<DataFusionError, BrokerCann
         return false;
     }
     match error {
+        // Through the source chain since `docs/adr/0039`: the engine wraps the interior's own
+        // `UnreadableCell`, so the column this matches on is the one place it is named.
         ServiceError::Warehouse {
-            cause: DataFusionError::NotFinite { column, .. },
+            cause: DataFusionError::Unreadable {
+                cause: UnreadableCell::NotFinite { column, .. },
+            },
         } => column == EXPECTED_METRIC,
         ServiceError::Federated {
             cause: FederatedFailure::NonFinite { metric },

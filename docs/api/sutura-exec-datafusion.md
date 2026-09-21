@@ -105,26 +105,23 @@ map" send a reader to three different places.
   A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
 - `Analyze` - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
 - `Execute`
-- `UnsupportedType` - A column came back as a type this adapter does not map.
+- `Unreadable` - A result column could not be read as a domain value.
 
-  An error rather than a stringified fallback, for the reason the `DuckDB` adapter gives: a
-  nested type rendered with `Debug` would flow into an answer looking like data, and an anchor
-  comparison against it would pass or fail for reasons nobody could read.
-- `Downcast` - The schema said one Arrow type and the array was another.
+  **Wrapped rather than restated, and that is `docs/adr/0039`'s point.** The mapping from an
+  Arrow array to a `Value` is `sutura_domain::warehouse::arrow`'s, shared with every adapter
+  whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
+  downcast, a non-finite double, a day count that is not a date, a result that is not
+  rectangular - are one cause with one set of messages instead of one copy per adapter.
 
-  Unreachable through the engine, and reported rather than skipped anyway: the alternative is
-  substituting a null for a value that exists.
-- `NotFinite` - A floating-point column came back as a value that is not a number.
+  The `#[source]` chain is what keeps the detail reachable: `sutura-app`'s bounds suite matches
+  `UnreadableCell::NotFinite`'s own column through it, which is what
+  `zero_denominator: fails` actually produces.
+- `Unannounced` - A result batch did not carry the fields the schema it arrived under announced.
 
-  **What `zero_denominator: fails` actually produces.** A ratio measure choosing that word is
-  translated as an unguarded division with the numerator cast to `Float64`, so the division is
-  IEEE float division: dividing by zero answers `inf` here rather than failing, and zero divided
-  by zero answers `NaN`. `Real` refuses all three, which is what makes the word `fails` true of
-  the metric that chose it instead of the string `inf` arriving under a certified name.
-
-  The cause names which of the three it was; this variant names the column.
-- `NotADate` - A day number came back that is not a date this build can represent.
-- `Shape`
+  Unreachable through this engine - it produces its own batches from its own plan - and kept
+  because the check is the shared one: `Accumulating` is the same guard a foreign ADBC driver's
+  stream goes through, and one path through it is what stops the engine's own collection being
+  the lenient copy.
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
 
   Checked rather than papered over. `QueryPlan::result_labels` is the one definition both

@@ -10796,6 +10796,36 @@ assert_eq!(
 );
 ```
 
+### `use Accumulating`
+
+One result stream, checked against its announced schema batch by batch.
+
+**The accumulator exists so the schema check and the row ceiling fire WHILE the stream is read.**
+A driver's reader is driven straight into `Self::push`, so a stream that will be refused is
+refused at the batch that crosses the line - not after every batch has been collected, which is
+the point at which the memory a ceiling protects has already been spent.
+
+### `use ResultBatches`
+
+A result, as Arrow: the schema every batch was checked against, and the batches.
+
+**A newtype whose invariant is the schema agreement**, so a value of this type is one whose every
+batch carried the announced fields by name and type. There is no public constructor taking
+batches directly - `Accumulating` is the only way in - because a constructor that took a
+`Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
+and the check has to happen while the stream is read or a bound on it is not a bound.
+
+### `use UnannouncedBatch`
+
+Why a result stream was refused, before any value in it was read.
+
+Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
+metadata - and never a cell, so a refusal an operator reads discloses no data.
+
+### `use UnreadableCell`
+
+Why an Arrow array could not become a domain value.
+
 ### `use NotFinite`
 
 Why a floating-point cell was refused.
@@ -12377,6 +12407,244 @@ The rows, for the boot path that compares them against what an author certified.
 ##### Implements
 
 `Clone`, `Debug`, `PartialEq`
+
+### Module `arrow`
+
+An Arrow result at the interior.
+
+The schema guard a foreign driver needs, and the one place an Arrow array becomes a `Value`.
+`docs/adr/0039` decides that the interior may name an Arrow array type; the module header
+carries the argument and where its checks stop.
+An Arrow result at the interior: the schema guard a foreign driver needs, and the one place an
+Arrow array becomes a domain `Value`.
+
+# Why the hexagon's interior names an Arrow array type
+
+`docs/adr/0039` decides it, reversing `docs/adr/0007`'s *the port's currency stays `RowSet`*
+and the unmerged 0037's refusal. The argument is the one `ALLOWED_IN_DOMAIN`'s own line draws -
+*no runtime, no client, no engine*: Arrow is a data FORMAT, and the engine, the ADBC driver
+manager and every future Arrow Flight leg already speak it. **The cost is in that allowlist and
+nowhere else**, which is where it can be argued in a diff.
+
+What it buys is one decode instead of one per adapter. Before this module there were three, and
+the `BigQuery` one went through TEXT: Arrow arrays cast to `Utf8`, a text cell per value, then a
+`parse::<i64>()` back to a number. A total that was exact in the data system and exact in Arrow
+had two chances to stop being exact on the way out.
+
+# `RecordBatch::try_new` is not a schema check, and that is the whole reason `Accumulating`
+exists
+
+Arrow validates a batch **positionally and by type only** - it zips columns against fields and
+never reads a field NAME. So a driver that hands back two same-typed columns in the wrong order
+builds a perfectly valid `RecordBatch`, and a consumer that only counted columns would label
+those values with the announced schema's names: a transposed answer under a certified metric
+name, with no error anywhere. A differently-typed swap Arrow already refuses, which is why the
+swap that matters - and the mutation worth running against this module - is of two **same-typed**
+columns.
+
+Nothing in `DataFusion` closes it either: `SchemaAdapter`/`SchemaMapper` are deprecated,
+`PhysicalExprAdapter` resolves by name on the DATASOURCE path and is opt-in, and nothing
+validates that a custom `ExecutionPlan`'s stream matches its declared schema at all. For a
+foreign driver the obligation is ours, so it is held here once rather than per adapter.
+
+# Where this module's checks stop
+
+`Accumulating` refuses a width, a mislabelled position and a row ceiling **before a value is
+read**. It does not check nullability - Arrow does, positionally - and it does not check that the
+announced schema is the one the plan asked for; that is the caller's, and
+`sutura_domain::plan::QueryPlan::result_labels` is what it compares against.
+
+#### `struct ResultBatches`
+
+```rust
+pub struct ResultBatches
+```
+
+A result, as Arrow: the schema every batch was checked against, and the batches.
+
+**A newtype whose invariant is the schema agreement**, so a value of this type is one whose every
+batch carried the announced fields by name and type. There is no public constructor taking
+batches directly - `Accumulating` is the only way in - because a constructor that took a
+`Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
+and the check has to happen while the stream is read or a bound on it is not a bound.
+
+##### Methods
+
+```rust
+pub fn batches(&self) -> &[RecordBatch]
+```
+
+The batches, in the order the stream delivered them.
+
+```rust
+pub fn none_under(schema: SchemaRef) -> Self
+```
+
+A result with no rows, under a schema - what an adapter answers for an empty stream.
+
+```rust
+pub const fn rows(&self) -> usize
+```
+
+How many rows the stream delivered.
+
+```rust
+pub const fn schema(&self) -> &SchemaRef
+```
+
+The schema every batch was checked against.
+
+```rust
+pub fn to_rows(&self) -> Result<RowSet, UnreadableCell>
+```
+
+The result as domain rows.
+
+**The one Arrow-to-`Value` decode in this workspace.** It used to be three - the engine's
+own, the `DuckDB` adapter's, and `BigQuery`'s via text - and one plan answered by two adapters
+has to produce one number or an anchor certified against one stops reproducing against the
+other. Agreement is a correctness property here, not tidiness, which is why the mapping is a
+single function with a single test table rather than a convention.
+
+# Errors
+
+`UnreadableCell`, naming the column and the Arrow type.
+
+##### Implements
+
+`Clone`, `Debug`
+
+#### `enum UnannouncedBatch`
+
+```rust
+pub enum UnannouncedBatch
+```
+
+Why a result stream was refused, before any value in it was read.
+
+Each variant carries field DESCRIPTORS - a name and an Arrow type, which is a driver's own
+metadata - and never a cell, so a refusal an operator reads discloses no data.
+
+##### Variants
+
+- `Width` - A batch of a different width than the schema it arrived under.
+- `Mislabelled` - A batch of the right width whose field at one position is not the announced one, so its values would have been labelled with another column's name.
+- `OverBound` - The stream carried more rows than the caller's ceiling allows.
+
+  The ceiling is passed in rather than fixed here: what is a sane bound depends on whether the
+  caller is reading an answer or a federation leg, and only the caller knows which.
+
+##### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum UnreadableCell`
+
+```rust
+pub enum UnreadableCell
+```
+
+Why an Arrow array could not become a domain value.
+
+##### Variants
+
+- `UnsupportedType` - A column whose Arrow type this domain does not map.
+
+  An error rather than a `Debug` rendering, because this is the last place a value can be wrong
+  without anybody noticing: a rendered nested type would flow into an answer looking like data,
+  and an anchor comparison against it would pass or fail for reasons nobody could read.
+- `Downcast` - An array whose runtime type is not the one its own schema declares - an Arrow invariant violation, so a driver defect rather than anything a caller asked for.
+- `NotFinite` - A 64-bit float that is not finite.
+
+  CHECKED rather than taken: `inf` is what an unguarded division answers, and rendering it puts
+  the string `"inf"` in an answer under a metric's own certified name.
+- `NotADate` - A day count that is not a date this calendar can express.
+- `Ragged` - The decoded rows did not form a rectangle - unreachable by construction, propagated rather than swallowed so an edit that breaks the construction fails loudly.
+
+##### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+#### `struct Accumulating`
+
+```rust
+pub struct Accumulating
+```
+
+One result stream, checked against its announced schema batch by batch.
+
+**The accumulator exists so the schema check and the row ceiling fire WHILE the stream is read.**
+A driver's reader is driven straight into `Self::push`, so a stream that will be refused is
+refused at the batch that crosses the line - not after every batch has been collected, which is
+the point at which the memory a ceiling protects has already been spent.
+
+##### Methods
+
+```rust
+pub const fn announcing(schema: SchemaRef, most: usize) -> Self
+```
+
+Starts reading a stream announced under `schema`, refusing past `most` rows.
+
+```rust
+pub const fn delivered(&self) -> usize
+```
+
+How many rows have been accepted so far, which a completeness check compares against.
+
+```rust
+pub fn finish(self) -> ResultBatches
+```
+
+The checked result.
+
+```rust
+pub fn push(&mut self, batch: RecordBatch) -> Result<(), UnannouncedBatch>
+```
+
+Checks one batch against the announced schema and keeps it.
+
+# Errors
+
+`UnannouncedBatch::Width` for a batch of the wrong width, `UnannouncedBatch::Mislabelled`
+for one whose field at a position is not the announced one, and
+`UnannouncedBatch::OverBound` where this batch would take the stream past the ceiling.
+
+##### Implements
+
+`Debug`
+
+#### `fn arrow_column`
+
+```rust
+pub fn arrow_column(values: &[crate::warehouse::cell::Value]) -> (arrow_schema::DataType, arrow_array::ArrayRef)
+```
+
+One column's Arrow array, built from domain values.
+
+Behind the `fixtures` feature, because only a fake and an adapter whose source speaks rows need
+it: an adapter reading Arrow from its driver has nothing to build.
+
+**The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`, all-`Real` is `Float64`, anything else is `Utf8` with each value
+rendered - so a MIXED column round-trips as text rather than as the types it went in as. That is
+the honest limit of a per-cell union meeting a per-column format, and no source produces a mixed
+column: a data system declares a column's type.
+
+#### `fn of_rows`
+
+```rust
+pub fn of_rows(columns: &[String], rows: &[Vec<crate::warehouse::cell::Value>]) -> Result<ResultBatches, crate::warehouse::rows::MalformedRowSet>
+```
+
+A result built from domain rows, for a fake and for an adapter whose source speaks rows.
+
+Behind `fixtures` for `arrow_column`'s reason, and it carries that function's inference limit.
+
+# Errors
+
+`MalformedRowSet::RowWidth` for a ragged input, refused here rather than at the Arrow layer -
+`RecordBatch::try_new` would answer a different error for the same defect, and one of the two
+would be the one nobody had read.
 
 ### Module `raw`
 

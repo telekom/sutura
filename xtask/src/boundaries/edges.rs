@@ -114,6 +114,104 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // `secrecy` with `zeroize` alone failed `check-boundaries` by name, which is what the list is for.
     // Its own tree is `proc-macro2`, `quote` and `syn`, all already above for the serde derives.
     "zeroize_derive",
+    // ============================================================================================
+    // ARROW AT THE INTERIOR - `docs/adr/0039`, by owner instruction, and the largest single entry
+    // this list has taken. It reverses `docs/adr/0007`'s `RowSet`-at-the-port decision and the
+    // unmerged 0037's refusal of Arrow as domain vocabulary.
+    //
+    // **The argument is this list's own line - no runtime, no client, no engine.** Arrow is a data
+    // FORMAT. The engine resolves it through `datafusion`, the ADBC driver manager through
+    // `adbc_core`, and any Arrow Flight leg will too; all three are on major 59, so a batch crosses
+    // from any of them into `sutura_domain::warehouse::arrow` with no conversion and no C data
+    // interface - which `unsafe_code = "forbid"` puts out of reach anyway. What it buys is ONE
+    // Arrow-to-`Value` decode where there were three, and the one it deletes went through TEXT: a
+    // cast to `Utf8`, a text cell, then a `parse::<i64>()` back, so an exact total had two chances
+    // to stop being exact.
+    //
+    // **What is really compiled, and what is only in this graph.** `cargo tree -p sutura-domain
+    // --all-features` lists TWENTY-TWO of the entries below: the four `arrow-*` crates, `chrono`
+    // with `iana-time-zone` and `core-foundation-sys` (a time-zone database), `getrandom` and
+    // `zerocopy`/`zerocopy-derive` via `ahash` via `hashbrown` (an entropy source), `half`, the
+    // `num-*` family, `bytes`, `libm`, `once_cell`, `autocfg` and `version_check`. **Two of those
+    // are worth naming rather than counting** - a time-zone database and an entropy source are now
+    // in the hexagon's interior, reachable from no code this crate has: nothing here reads a zone
+    // and nothing here seeds a generator. If either ever is read, that is a decision and this is
+    // where it gets argued.
+    //
+    // Everything else below is the OVER-BROAD kind the `allocator-api2` block above describes -
+    // `chrono-tz`'s zone tables and its `phf` maps, the `futures-*` set, the `wasm-bindgen` and
+    // `js-sys` pair, the `windows-*` family, `android_system_properties`, `iana-time-zone-haiku`,
+    // the `cc`/`jobserver`/`shlex`/`find-msvc-tools` build stack, `bitflags`, `bumpalo`,
+    // `const-random`, `crunchy`, `log`, `pin-project-lite`, `r-efi`, `rand_core`, `rustversion`,
+    // `siphasher`, `slab`, `tiny-keccak`, `wasi`/`wasip2`/`wit-bindgen`. They are optional edges
+    // some other workspace crate enables, or platform-specific ones `cargo metadata` resolves for
+    // every target. **The gate found every one of them rather than a reader did**, which is the
+    // whole reason the list is an allowlist over the resolve graph and not a denylist.
+    // ============================================================================================
+    "ahash",
+    "android_system_properties",
+    "arrow-array",
+    "arrow-buffer",
+    "arrow-data",
+    "arrow-schema",
+    "autocfg",
+    "bitflags",
+    "bumpalo",
+    "bytes",
+    "cc",
+    "chrono",
+    "chrono-tz",
+    "const-random",
+    "const-random-macro",
+    "core-foundation-sys",
+    "crunchy",
+    "find-msvc-tools",
+    "futures-channel",
+    "futures-core",
+    "futures-io",
+    "futures-macro",
+    "futures-sink",
+    "futures-task",
+    "futures-util",
+    "getrandom",
+    "half",
+    "iana-time-zone",
+    "iana-time-zone-haiku",
+    "jobserver",
+    "js-sys",
+    "libm",
+    "log",
+    "num-bigint",
+    "num-complex",
+    "num-integer",
+    "num-traits",
+    "once_cell",
+    "phf",
+    "phf_shared",
+    "pin-project-lite",
+    "r-efi",
+    "rand_core",
+    "rustversion",
+    "shlex",
+    "siphasher",
+    "slab",
+    "tiny-keccak",
+    "version_check",
+    "wasi",
+    "wasip2",
+    "wasm-bindgen",
+    "wasm-bindgen-macro",
+    "wasm-bindgen-macro-support",
+    "wasm-bindgen-shared",
+    "windows-core",
+    "windows-implement",
+    "windows-interface",
+    "windows-link",
+    "windows-result",
+    "windows-strings",
+    "wit-bindgen",
+    "zerocopy",
+    "zerocopy-derive",
 ];
 
 pub(crate) const DOMAIN: &str = "sutura-domain";

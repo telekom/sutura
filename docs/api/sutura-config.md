@@ -4550,7 +4550,7 @@ legitimate one.
 
 #### Variants
 
-- `Files` - A directory of CSV or Parquet files, read by the in-process engine.
+- `Files` - A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
 
   **A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
@@ -5090,7 +5090,7 @@ be skipped" look like the same sentence and are not.
 
 ##### Variants
 
-- `Files` - A directory of CSV or Parquet files, read by the in-process engine.
+- `Files` - A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read by the in-process engine.
 - `BigQuery` - A `BigQuery` dataset, plus the project its jobs are billed to.
 
   **The limit, worth stating because the deployment it cannot describe is the one this file's

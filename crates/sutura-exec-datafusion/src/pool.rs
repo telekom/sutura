@@ -181,11 +181,9 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         | DataFusionError::UnknownFormat { .. }
         | DataFusionError::Build { .. }
         | DataFusionError::Analyze { .. }
-        | DataFusionError::UnsupportedType { .. }
-        | DataFusionError::Downcast { .. }
-        | DataFusionError::NotFinite { .. }
-        | DataFusionError::NotADate { .. }
-        | DataFusionError::Shape { .. }
+        // Both are read AFTER the batches came back, so the reservation they needed was granted.
+        | DataFusionError::Unreadable { .. }
+        | DataFusionError::Unannounced { .. }
         | DataFusionError::SchemaMismatch { .. }
         // A probe's result that is not two counts is read AFTER the batches came back, so the
         // reservation it needed was granted.
