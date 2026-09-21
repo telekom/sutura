@@ -113,6 +113,38 @@ disallowed-methods = [
   # actually imports (`rmcp::ErrorData::invalid_params`) resolved and rejected identically - measured
   # on #782, not assumed - so the choice below is the re-export, matching `use rmcp::{ErrorData,
   # ...}` in `server.rs`.
+  # **The six rustls builders that AUTO-DETECT a process-level `CryptoProvider`, and in this
+  # workspace that detection PANICS.** `sutura-exec-oracle` brings `aws-lc-rs` into rustls's
+  # feature set beside the `ring` every other adapter here uses, and cargo unifies features across a
+  # workspace - so `get_default_or_install_from_crate_features`, which every entry below calls, finds
+  # two providers compiled in, cannot choose, and panics. `panic = "abort"` makes that the process.
+  # The replacement is the `*_with_provider` form beside each of them, naming `ring` explicitly,
+  # which is what `sutura-exec-postgres::tls`, `sutura-http::tls` and every test helper here already
+  # do - for the reason those sites state, which is older than this hazard: a process-global default
+  # makes an adapter's behaviour depend on whether something else got there first.
+  #
+  # **The LIMIT, and it is narrower than this ban reads - measured both ways rather than read off
+  # the feature list.** Feature unification is per BUILD GRAPH, so which providers rustls compiles
+  # depends on what the invocation includes. The same probe in `sutura-exec-postgres::tls`:
+  # `cargo test -p sutura-exec-postgres --all-features` PASSED - that graph has `ring` alone, so
+  # the auto-detection resolves - and `cargo test --workspace --all-features` panicked with rustls's
+  # own *"Could not automatically determine the process-level CryptoProvider from Rustls crate
+  # features"*. So the hazard belongs to the workspace-wide venues: `just test`, `just lint`,
+  # `just gates` and the nix `nextest` check. It is NOT a shipped hazard at all - no published
+  # artefact links `sutura-exec-oracle`, so a release compiles one provider - and no call site in
+  # the tree reaches it today, because every one of them already names `ring`. What this refuses is
+  # the NEXT call site written under the unified features, which is why a lint rather than a type:
+  # there is nothing in a released binary for a type to protect.
+  #
+  # VERIFIED TO RESOLVE the way this file's header requires: all six were written as calls in
+  # `sutura-exec-postgres::tls` and clippy rejected each one by file and line, under
+  # `--all-targets --all-features`.
+  { path = "rustls::ClientConfig::builder", reason = "auto-detects a process-level CryptoProvider, which PANICS while two are compiled in; use builder_with_provider with ring::default_provider()" },
+  { path = "rustls::ClientConfig::builder_with_protocol_versions", reason = "the same auto-detection as builder, with versions chosen; use builder_with_provider, which takes both" },
+  { path = "rustls::ServerConfig::builder", reason = "auto-detects a process-level CryptoProvider, which PANICS while two are compiled in; use builder_with_provider with ring::default_provider()" },
+  { path = "rustls::ServerConfig::builder_with_protocol_versions", reason = "the same auto-detection as builder, with versions chosen; use builder_with_provider, which takes both" },
+  { path = "rustls::server::WebPkiClientVerifier::builder", reason = "the same auto-detection, on the verifier rather than the config; use builder_with_provider with ring::default_provider()" },
+  { path = "rustls::client::WebPkiServerVerifier::builder", reason = "the same auto-detection, on the verifier rather than the config; use builder_with_provider with ring::default_provider()" },
   { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
 ]
 

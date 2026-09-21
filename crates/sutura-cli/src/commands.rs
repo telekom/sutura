@@ -19,7 +19,7 @@ use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
-use sutura_domain::model::SourceName;
+use sutura_domain::model::{RelationshipName, SourceName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
@@ -210,7 +210,12 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
             println!(
                 "  dimension  {dimension_name} -> {}{}{}",
                 dimension.column(),
-                dimension.via().map_or_else(String::new, |via| format!(" via {via}")),
+                dimension.via().map_or_else(String::new, |via| {
+                    format!(
+                        " via {}",
+                        via.iter().map(RelationshipName::as_str).collect::<Vec<_>>().join(" -> ")
+                    )
+                }),
                 if dimension.is_filterable() {
                     " (filterable)"
                 } else {
