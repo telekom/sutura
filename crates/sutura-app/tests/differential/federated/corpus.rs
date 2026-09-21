@@ -119,6 +119,24 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
             with: "  - name: customer_key\n    column: status\n    values: [active, terminated]\n    description: >\n      A legal dimension whose NAME is the remote join target's column, backed by a different\n      column. It is here so the splitter's internal link label has something to collide with.\nanchor:\n  range:",
         },
     ),
+    // **The shared corpus's one CHAINED dimension, removed - and the reason is a limit of the
+    // splitter rather than a convenience.** `sales_area` is reached through `subscription_customer`
+    // then `customer_region`, and a federated plan carries exactly one link and one lookup TABLE:
+    // hop 1 is the link, and there is nowhere for hop 2 to be planned. So the topology this file
+    // derives cannot state that dimension at all - with `customers` on the second data system the
+    // chain would cross at hop 1 and come back at hop 2, which
+    // `sutura_domain::catalog::Definitions::assemble` refuses by name and which
+    // `sutura_semantic::plan` refuses again. Removed from BOTH catalogs, so the derivation stays
+    // one document wide, and the shared question that asks for it is then refused identically on
+    // both sides and skipped. A two-hop dimension's evidence is the shared corpus's own golden and
+    // executed cells, which this file does not replace.
+    (
+        "metrics/recurring_revenue.md",
+        Edit::Rewrite {
+            find: "  - name: sales_area\n    column: sales_area\n    via: [subscription_customer, customer_region]\n    values: [central, north_east, south_west]\n    description: >\n      Which sales area the customer's region rolls up into. The one dimension here\n      reached through a chain of two relationships rather than one.\n",
+            with: "",
+        },
+    ),
     // A zero denominator in ONE subgroup, under `fails`: the answer this metric's own document
     // argues for is a failure rather than a figure, and grouping it by a REMOTE attribute is
     // what makes the guard fire above two legs instead of inside one statement.

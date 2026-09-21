@@ -598,6 +598,17 @@ One dimension, spelled exactly as a markdown metric's dimension is.
 A list entry with its own `name`, so a deployment declaring one name twice survives to
 `Definitions::assemble` to be refused rather than silently collapsing.
 
+**`via` is the same scalar-or-seq shape the markdown document spells, in and out.** The custom
+`Serialize` writes a scalar when the chain has one hop and a sequence otherwise, and the input
+side accepts both, so a stored chain reads the same as a stored hop.
+
+**The byte-stability that buys holds in ONE direction.** A deployment that stored a scalar gets a
+scalar back, which is the case that matters because it is what every document in the field already
+holds. A deployment that stored a one-element SEQUENCE gets a scalar back instead - same meaning,
+different bytes - because the writer is keyed on the chain's length rather than on what was read.
+Round-tripping is therefore idempotent but not byte-preserving, and nothing here records the
+original spelling to make it so.
+
 #### Methods
 
 ```rust
@@ -606,11 +617,36 @@ pub fn into_domain(self) -> Dimension
 
 Into the domain type `Definitions::assemble` holds.
 
+The expect is on `ViaChain`'s own invariant, not on anything this adapter parsed: the
+property carries only chains built through `ViaChain::of`, so a non-empty chain is what
+arrives, and the domain type keeps its parse-only construction honest.
+
 ```rust
-pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
+pub fn new(name: DimensionName, column: ColumnName, via: Option<ViaChain>, allowed_values: Option<std::collections::BTreeSet<DimensionValue>>, description: Description) -> Self
 ```
 
 A dimension, in the order `Definitions::assemble` wants it.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum ViaDoc`
+
+```rust
+pub enum ViaDoc
+```
+
+The hops a dimension is reached through, as the property spells them.
+
+One name, or a sequence of them. The same untagged shape the markdown adapter's `via:` takes, so
+the two adapters agree on what a stored chain means - #266's one-content-one-meaning rule, at
+this field.
+
+#### Variants
+
+- `One`
+- `Chain`
 
 #### Implements
 

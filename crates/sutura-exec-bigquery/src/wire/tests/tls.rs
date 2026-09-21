@@ -132,10 +132,18 @@ pub(super) fn server_config_requiring_client_auth(
     roots
         .add(client_root.der().clone())
         .expect("the client's self-signed certificate is a usable root");
-    let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    // `builder_with_provider`, not the bare `builder`: the bare form asks rustls to AUTO-DETECT the
+    // process-level `CryptoProvider` from which crate feature is on, and it panics rather than
+    // guessing once more than one is - which `github.com/telekom/sutura#127`'s `oracledb` dependency
+    // makes true workspace-wide (`oracledb` requires `rustls`'s own default features, and those
+    // default to `aws_lc_rs`, alongside the `ring` this crate's own fixtures already pin explicitly
+    // two lines below). Naming the SAME provider here is what keeps this fixture's behaviour fixed
+    // to `ring` regardless of which other providers a `--workspace --all-features` build compiles
+    // into the same test binary.
+    let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(Arc::new(roots), Arc::clone(&provider))
         .build()
         .expect("a non-empty root store builds a client verifier");
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
     Arc::new(
         rustls::ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
