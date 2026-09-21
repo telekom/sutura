@@ -1,6 +1,16 @@
 //! The classification-base decision that closes #561, and the proof that an evicted run's
 //! commits are still covered.
 //!
+//! THE MODEL AND ITS LIMIT. The shell this module models lives in `ci.yml`'s base-resolution
+//! step, and it is read here as prose, not compared mechanically: nothing in the tree checks
+//! that the YAML and these functions agree. That gap is where defect D lived - the marker read
+//! took the newest artifact by DESCENDING ID (`head -n 1` over an unsorted page) while id does
+//! not track creation time, so the shell could resolve an older run's head than the model's
+//! assumption, and the widened range it produced then fed `Test causality`, which had no base of
+//! its own on push. Causality now derives its own base per venue (`workflows::step::causality`
+//! holds that shell), so the model below is consumed by `Classify the change` only; the
+//! merge-group limit is stated at `ci.yml`'s base step, and the push arm's is stated beside it.
+//!
 //! `ci.yml` has a per-ref concurrency group with `cancel-in-progress: false`. GitHub keeps only ONE
 //! pending run per group, so a third arrival EVICTS the second - and an evicted run never starts a
 //! job, contributes no validation, and its commits fall out of the NEXT run's range if that range
@@ -112,10 +122,16 @@ mod tests {
         );
     }
 
+    /// No marker -> the previous push, so a first run on a fresh branch with no completed
+    /// predecessor still classifies its own range; an empty marker is treated as absent.
+    ///
+    /// The name promises only "the base never reaches past the given marker" - the one property
+    /// `resolve_push_base` can hold without knowing the graph - so the test stays at that: it
+    /// does NOT assert the marker is newer than `before`, because the module has no mechanism
+    /// comparing the shell's artifact ordering with this model. The shell's own gate for the
+    /// ordering is `workflows::step::causality`'s fixture plus `Classify the change`'s log.
     #[test]
-    fn a_marker_never_advances_past_head() {
-        // No marker -> the previous push, so a first run on a fresh branch with no completed
-        // predecessor still classifies its own range; an empty marker is treated as absent.
+    fn an_empty_marker_falls_back_to_the_previous_push() {
         assert_eq!(resolve_push_base(None, "a0"), "a0");
         assert_eq!(resolve_push_base(Some(""), "a0"), "a0");
     }

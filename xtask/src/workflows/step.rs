@@ -234,21 +234,48 @@ run_step() {
   [ "$(cat seen-paths)" = "$expected_paths" ] || { echo wrong-paths; cat seen-paths; exit 1; }
 }
 
+# THE PUSH ARM (`ci.yml`, `elif [ "$EVENT" = push ]`) narrows the base to HEAD's own single
+# parent: the marker-derived classification base is deliberately wide (#561), but causality at
+# this HEAD was already measured at HEAD^..HEAD by its merge_group run at the SAME SHA (the
+# squash queue previews each entry as ONE commit), so re-reading the wide range as fresh
+# evidence is the defect. UNCONDITIONAL on push on purpose - the fixture exports neither
+# GITHUB_REF_NAME nor DEFAULT_BRANCH, so a branch-filtered arm would take its else-branch here
+# and stay green while never executing. A REAL `main` push HEAD is single-parent (squash), so
+# the loop's push pass exercises the arm at a squash-shaped HEAD, not the merge head.
+git checkout --quiet -B squashpoint "$merge_head^1"
+printf squash > squash.txt
+git add squash.txt
+git commit --quiet -m squash-of-topic
+squash_head=$(git rev-parse HEAD)
+git checkout --quiet --detach "$merge_head"
+
 for EVENT in pull_request push merge_group; do
   PR_HEAD=$pr_head
   if [ "$EVENT" = pull_request ]; then
     BASE=$stale
     expected_head=$pr_head
     expected_paths=topic.txt
+    # The PR arm derives its own base; any event-supplied BASE is discarded.
+    expected_base=$fork
+  elif [ "$EVENT" = push ]; then
+    # The push arm narrows to HEAD's own single parent; any event-supplied BASE is discarded.
+    git checkout --quiet --detach "$squash_head"
+    BASE=$fork
+    expected_head=$squash_head
+    expected_base=$(git rev-parse "$merge_head^1")
+    expected_paths='squash.txt'
   else
+    # merge_group measures the batch checkout: its base stays what the resolver supplied.
+    git checkout --quiet --detach "$merge_head"
     BASE=$fork
     expected_head=$merge_head
+    expected_base=$fork
     expected_paths=$(printf 'main-only.txt\ntopic.txt')
   fi
   for GATE_EXIT in 0 1 3; do
     expected_exit=$GATE_EXIT
     [ "$GATE_EXIT" -ne 3 ] || expected_exit=0
-    run_step "$expected_exit" "$expected_head" "$fork" "$expected_paths"
+    run_step "$expected_exit" "$expected_head" "$expected_base" "$expected_paths"
     if [ "$GATE_EXIT" -eq 3 ]; then
       [ -s summary ] || { echo inconclusive-was-hidden; exit 1; }
     else
@@ -256,6 +283,7 @@ for EVENT in pull_request push merge_group; do
     fi
   done
 done
+git checkout --quiet --detach "$merge_head"
 
 # PR causality derives its own fork even if ordinary classification had no usable base.
 EVENT=pull_request
@@ -286,10 +314,26 @@ run_step 1 not-called '' ''
 printf root > common.txt
 git add common.txt
 
-# The existing empty-base policy remains unchanged for non-PR events.
-for EVENT in push merge_group; do
-  run_step 0 not-called '' ''
-done
+# THE PUSH ARM (`ci.yml`, `elif [ "$EVENT" = push ]`) is UNCONDITIONAL on push on purpose -
+# the fixture exports neither GITHUB_REF_NAME nor DEFAULT_BRANCH, so a branch-filtered arm
+# would take its else-branch here and stay green while never executing. The loop above already
+# exercised the arm at the squash-shaped HEAD; the two cases it needs beyond that loop:
+EVENT=push
+git checkout --quiet --detach "$squash_head"
+run_step 0 "$squash_head" "$(git rev-parse "$merge_head^1")" 'squash.txt'
+
+# A push HEAD with any parent count but 1 fails open (empty base), matching merge_group's
+# precedent, rather than guessing an ancestor.
+git checkout --quiet --detach "$merge_head"
+run_step 0 not-called '' ''
+
+# The existing empty-base policy remains unchanged for the non-PR events: an empty BASE from
+# the resolver leaves the step green over nothing-run (the ::warning above). There is no
+# empty-base case for pull_request to assert - the PR arm derives its own base and never
+# reads the resolver's output.
+EVENT=merge_group
+BASE=
+run_step 0 not-called '' ''
 "#;
     }
 

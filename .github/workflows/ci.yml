@@ -388,9 +388,10 @@ jobs:
             # guess if the one-parent assumption ever stops holding: a HEAD with any parent count
             # but 1 leaves `base` empty. That is NOT "everything will run" for every reader of
             # `base` below - `Classify the change` treats it that way, but `Test causality`
-            # (this file, further down) skips SILENTLY on an empty base, so that step now carries
-            # its own `::warning` for exactly this case, matching `Find the CRAP baseline`'s
-            # existing precedent for the same empty-base shape.
+            # (this file, further down) no longer reads this output on `merge_group` at all: it
+            # derives its own single-entry base, and on an empty one it skips with its own
+            # `::warning` rather than silently, matching `Find the CRAP baseline`'s existing
+            # precedent for the same empty-base shape.
             parents="$(git show -s --format=%P HEAD)"
             read -r parent extra <<< "$parents"
             if [ -n "$parent" ] && [ -z "$extra" ]; then
@@ -416,11 +417,12 @@ jobs:
             marker="$(
               gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=last-validated&per_page=100" 2>/dev/null |
                 jq -r --arg branch "$DEFAULT_BRANCH" '
-                  .artifacts[]
-                  | select(.expired == false)
-                  | select(.workflow_run.head_branch == $branch)
+                  [ .artifacts[]
+                    | select(.expired == false)
+                    | select(.workflow_run.head_branch == $branch) ]
+                  | sort_by(.created_at) | last
                   | .workflow_run.head_sha
-                ' | head -n 1
+                '
             )" || marker=""
             if [ -n "$marker" ] && git merge-base --is-ancestor "$marker" HEAD 2>/dev/null; then
               base="$marker"
@@ -1162,10 +1164,13 @@ jobs:
       # THE CONVERSATION MECHANISM IS IN THIS FILE, in the `crap-comment` job below: a
       # marker-keyed sticky comment posted from a separate job holding `pull-requests: write`,
       # shaped so a delivery failure cannot recolour the gate. Routing this verdict through it is
-      # the open improvement, and it was not taken yet because the branch below HAS EXECUTED IN NO
-      # VENUE - no run of this repository has reached exit 3 here - so a delivery path built on top
-      # of it would be assumed rather than proven. What IS proven about this branch: exit 3 is a
-      # unit test on `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
+      # the open improvement, and it was not taken yet because the delivery path built on top of
+      # the branch below would be a NEW mechanism whose only live evidence is GREEN-OVER-EXIT-3:
+      # two of the last six green `main` runs reached exit 3 here (both annotated INCONCLUSIVE,
+      # the first reading `0 of 18 added tests measured`), so the branch itself is exercised - but
+      # a delivery mechanism downstream of it has never run at all, so it would be assumed rather
+      # than proven. What IS proven about this branch: exit 3 is a unit test on
+      # `Verdict::exit_code`, `nix run` propagates 3 unchanged, and
       # `cargo xtask check-inconclusive` refuses a venue that suppresses it or declares a branch
       # it does not have.
       #
@@ -1195,6 +1200,32 @@ jobs:
             BASE=$(git merge-base "$base_tip" "$PR_HEAD")
             trap 'git checkout --detach "$merge_head" || exit 1' EXIT
             git checkout --detach "$PR_HEAD"
+          elif [ "$EVENT" = push ]; then
+            # THE CLASSIFICATION BASE IS TOO WIDE FOR THIS GATE. `base` above is the durable
+            # marker, deliberately wide so an EVICTED run's commits stay covered (#561) - correct
+            # for `Classify the change`, which an evicted run invalidates - but causality at this
+            # HEAD was already measured at `HEAD^..HEAD` by its own `merge_group` `ci` run at the
+            # SAME SHA (squash queue), so re-measuring every commit since the marker is not
+            # evidence, it is re-reading `pull_request` and `merge_group` verdicts: an ordinary
+            # undeclared test in the widened range reads as this commit's own unvalidated test,
+            # and the run goes red for a change causality never reached. The marker/ancestor
+            # shell below is MODELLED by `xtask validated_base`, and that model's own limit
+            # applies here too: the `--is-ancestor` check and the `HEAD^` parse below have no
+            # mechanism comparing the shell with the model, and `xtask
+            # workflows::step::causality` is the only gate holding this arm.
+            #
+            # UNCONDITIONAL on push, not filtered on the default branch: `on:` above already
+            # restricts push to main, and a `GITHUB_REF_NAME = DEFAULT_BRANCH` guard would be
+            # INVISIBLE to that gate - its fixture exports neither variable, so a filtered arm
+            # would never execute there and a mutation disabling it would stay green.
+            parents="$(git show -s --format=%P HEAD)"
+            read -r parent extra <<< "$parents"
+            if [ -n "$parent" ] && [ -z "$extra" ]; then
+              BASE="$parent"
+            else
+              echo "push HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
+              BASE=""
+            fi
           fi
           if [ -z "$BASE" ]; then
             echo "::warning title=Test causality::No usable base ref, so this step is green over NOTHING RUN - not a red-before-green verdict. Read the base-resolution step above for why none was resolved."
