@@ -1,0 +1,162 @@
+# THE DEMO'S CONTAINER TIER: the real, docker-assembled image, over its own in-container health
+# gate. Called by `ci.yml`, where it is advisory, and by `release.yml`, where its job sits in
+# `publish`'s `needs:` and so is required at the release boundary. Owner decision, 2026-09-19:
+# `github.com/telekom/sutura#639`.
+#
+# WHAT THIS PROVES THAT NOTHING ELSE DOES. `demo/test_behavior.py`, run inside `checks.nextest`
+# (`preCheck` in `flake.nix`), already proves `demo/run.sh`'s supervision with stub child
+# processes and `demo/healthcheck.py`'s answer/refusal logic against fake HTTP servers - both
+# hermetic, no docker. Neither exercises the ASSEMBLED artefact: the real `sutura` binary
+# `demo/start.sh` builds with nix, inside the real Compose service `compose.services.yaml`
+# declares, behind the real `HEALTHCHECK` a released image ships with. This job is that proof.
+#
+# A REUSABLE WORKFLOW rather than a job written twice, because the body is identical in both
+# callers and only the gating differs - `ci.yml`'s classification stays where the decision is
+# reviewed, the same split `cross-link.yml`'s header argues for its own body/gating boundary.
+#
+# NOT HERMETIC, said here rather than assumed: this uses the runner's docker daemon, so it is a
+# docker-tier job and not a nix check - `github.com/telekom/sutura#233`'s pattern for a service
+# that cannot be hermetic, declared as such with its reason. The BINARY inside the image is
+# nix-built; the image ASSEMBLY is docker, which is the one part that needs the daemon.
+#
+# NO PAID OR EXTERNAL MODEL. `demo/start.sh`'s own transport policy refuses an `http://` endpoint
+# that is not on this machine, so the stub model server below - deterministic, local, answers only
+# `GET /models` - is what that policy already accepts, not a hole punched in it. The demo's real
+# answer/refusal smoke test still runs: it is `demo/healthcheck.py`'s `HEALTHCHECK`, asking the
+# `sutura` server directly, and `xtask dev-up --only demo` blocks on it turning healthy.
+#
+# NOT REQUIRED ON A PULL REQUEST, and `devco/required-contexts` records why: the context this job
+# reports through `ci.yml` is prefixed by the caller's job, the same shape `cross-link.yml`'s legs
+# report, which the classification rule there cannot resolve as a required context either.
+#
+# THE LIMIT, next to the claim. This proves the image answers and refuses ONCE, on first probe,
+# behind the readiness latch `demo/healthcheck.py` already uses for its external checks - it is a
+# smoke test, not a repeated run of the full demo. It does not prove a PRE-EXISTING service or
+# named volume in the same worktree project survives a `dev-down --only demo` alongside this one:
+# nothing here starts a second service to spare, and `demo/test_behavior.py`'s own
+# `test_dev_down_only_demo_scopes_the_docker_teardown_it_issues` states the same limit about its
+# stub. That survival property is held instead by `xtask/src/compose/teardown.rs`'s
+# `scoped_down_args` (never `--volumes`) and `xtask/src/compose/tier.rs`'s `volume_selection`
+# (exactly one project-scoped volume or a refusal), both unit-tested without docker.
+name: demo-container
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # `demo/start.sh` calls `just dev-endpoint demo` directly, and this runner has nix but no
+      # host-installed `just` guaranteed - so a wrapper goes on `PATH` before the script needs it.
+      # `nix run .#just`, never `nix build`: a literal package build is a release output in
+      # ordinary CI's own refusal (`xtask/src/workflows/reach.rs`), and an app is not one.
+      - name: Put a `just` wrapper on PATH
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/just" <<'SH'
+          #!/usr/bin/env bash
+          exec nix run '.#just' -- "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/bin/just"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # A local, deterministic stand-in for the demo's model endpoint - never a paid or hosted one.
+      # It answers exactly what `demo/start.sh`'s own transport policy already accepts: a local,
+      # keyless `http://` endpoint. Bound to every interface so the container can reach it over
+      # `host.docker.internal`, which `compose.services.yaml`'s `extra_hosts` maps on native Linux.
+      - name: Start a local stub model endpoint
+        id: stub-model
+        run: |
+          set -eu
+          cat > "$RUNNER_TEMP/stub-model.py" <<'PY'
+          import http.server
+          import json
+          import sys
+
+
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def log_message(self, *_args: object) -> None:
+                  pass
+
+              def do_GET(self) -> None:
+                  if self.path == "/models":
+                      body = json.dumps({"data": []}).encode()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(body)))
+                      self.end_headers()
+                      self.wfile.write(body)
+                  else:
+                      self.send_response(404)
+                      self.end_headers()
+
+
+          server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), Handler)
+          print(server.server_address[1])
+          sys.stdout.flush()
+          server.serve_forever()
+          PY
+          python3 "$RUNNER_TEMP/stub-model.py" \
+            > "$RUNNER_TEMP/stub-model.port" 2> "$RUNNER_TEMP/stub-model.log" &
+          echo $! > "$RUNNER_TEMP/stub-model.pid"
+          for _ in $(seq 1 50); do
+            [ -s "$RUNNER_TEMP/stub-model.port" ] && break
+            sleep 0.1
+          done
+          port="$(cat "$RUNNER_TEMP/stub-model.port")"
+          [ -n "$port" ]
+          echo "port=$port" >> "$GITHUB_OUTPUT"
+
+      # THE REAL PATH: nix builds the binary, `demo/Dockerfile` assembles the image around it, and
+      # `xtask dev-up --only demo` (through `demo/start.sh --up-only`) blocks on the same
+      # `HEALTHCHECK` a released image ships with - registration, an answer and a refusal, all
+      # inside the container. `--up-only`, never the full lifecycle: nothing here should block on
+      # a terminal loop.
+      - name: Bring the demo up, over its own health gate
+        env:
+          SUTURA_DEMO_MODEL_ENDPOINT: http://127.0.0.1:${{ steps.stub-model.outputs.port }}
+          SUTURA_DEMO_MODEL: stub-model
+          SUTURA_DEMO_ACKNOWLEDGE: this is a disposable single-user CI run, never a shared deployment
+        run: |
+          set -eu
+          bash demo/start.sh --up-only
+
+      # ALWAYS: `--up-only` installs no EXIT trap of its own - that belongs to the full lifecycle,
+      # which nothing here runs - so a failed health gate above would otherwise leave the demo
+      # service, its container and its named volume behind on a runner this job does not own
+      # exclusively.
+      - name: Remove the demo's own resources
+        if: always()
+        run: |
+          set -eu
+          cargo run -q -p xtask -- dev-down --only demo || true
+
+      # ALWAYS, and by PID rather than by port or by name: an orphaned probe on a long-lived
+      # self-hosted runner is host load a later, unrelated job then has to contend with.
+      - name: Stop the stub model endpoint
+        if: always()
+        run: |
+          set -eu
+          if [ -f "$RUNNER_TEMP/stub-model.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/stub-model.pid")" 2>/dev/null || true
+          fi

@@ -1,0 +1,9 @@
+name: overflowing-integer-total-by-day
+metric: overflow_amount_total
+aggregate: sum
+column: overflow_amount
+keys:
+order: asserted
+rows:
+text:2026-01-01	text:9223372036854775808
+text:2026-01-02	int:6

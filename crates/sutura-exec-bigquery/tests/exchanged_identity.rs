@@ -358,9 +358,9 @@ mod tests {
                 String::from("the credential this leg presented disagrees with how the source was declared")
             }
             BigQueryError::NoPrincipalSwitch { .. } => String::from("a principal switch has no mechanism here"),
-            BigQueryError::Render { .. } | BigQueryError::LegWithoutCombiner { .. } => {
-                String::from("a defect in this test file rather than an answer")
-            }
+            BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::UnresolvableConnection { .. } => String::from("a defect in this test file rather than an answer"),
             BigQueryError::UnmappedType { .. }
             | BigQueryError::NotAnInteger { .. }
             | BigQueryError::NotADouble { .. }

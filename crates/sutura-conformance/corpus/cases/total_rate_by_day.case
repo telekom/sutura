@@ -1,0 +1,9 @@
+name: total-rate-by-day
+metric: rate_total
+aggregate: sum
+column: rate
+keys:
+order: asserted
+rows:
+text:2026-01-01	real:2.25
+text:2026-01-02	real:3.25

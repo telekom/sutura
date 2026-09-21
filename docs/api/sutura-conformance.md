@@ -633,13 +633,21 @@ crate - the packs depend on the interior and on nothing else, so `sutura-exec-du
 them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` or
 `sutura-app`.
 
+# The cases are files, not code
+
+A case is a tracked data file under `corpus/cases/`, embedded at compile time by
+`include_str!` and parsed by the typed loader in `case_files`. Adding a case is a data edit - a
+new `.case` file plus one `include_str!` line - and no Rust function in this module changes.
+That is the half of `docs/adr/0012`'s *the corpus is files, not code* that was unbuilt when the
+cases were values in this module. The fixture table (`corpus/conformance_events.csv`) set the
+precedent: a tracked data file read at compile time, served from the file rather than from a
+copied constant.
+
 # What this corpus does NOT contain, stated so nobody reads it as the whole suite
 
 - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
   keys. Each needs a second table and a federated plan; none is here.
-- **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
-  this module, so adding one is still a code change.
 
 # Null placement in a group key: decided, and what the null row does and does NOT detect
 
@@ -676,10 +684,10 @@ for those three. Through `crate::Behaviour::Content` it is a claim about OUR cod
 must be a GROUP and not a row a join or a filter dropped, which is the failure class
 `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 
-# Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
+# Collation: the opt-out this corpus used to lack, and what it does and does not decide
 
 Every key above is chosen so no bound engine's own collation can disagree with byte order -
-`docs/adr/0012` names this as the corpus's deliberate limit. `total_by_collation_sensitive_key_and_day`
+`docs/adr/0012` names this as the corpus's deliberate limit. `total-by-collation-sensitive-key-and-day`
 is the one case that does not have that property on purpose, and `Case::order_is_asserted` is
 what lets it exist without lying: `Behaviour::Order` skips exactly this case, so a source
 whose locale answers `"apple"` before `"Banana"` is not reported as a defect for disagreeing
@@ -715,10 +723,10 @@ pub const fn expected(&self) -> &RowSet
 The rows every conforming adapter answers, in the order the plan's `ORDER BY` claims.
 
 ```rust
-pub const fn name(&self) -> &'static str
+pub fn name(&self) -> &str
 ```
 
-The name a failure reports. Static, so a fault carries it without allocating.
+The name a failure reports.
 
 ```rust
 pub const fn order_is_asserted(&self) -> bool
@@ -739,6 +747,10 @@ pub const fn plan(&self) -> &QueryPlan
 ```
 
 The plan to execute.
+
+#### Implements
+
+`Debug`
 
 ### `struct LegCase`
 
@@ -881,6 +893,11 @@ Every question in the corpus.
 A `Vec` rather than a constant, because a `QueryPlan` owns its strings and none of these types
 is `const`-constructible. The count is what `crate::census` reports, so a corpus that lost its
 cases is a failure rather than a fast green.
+
+The cases are parsed from tracked data files under `corpus/cases/` by the loader in `case_files`.
+The file list is `FILES`, embedded at compile time by
+`include_str!`, so a file removed from disk is a compile error and a file removed from the list
+is caught by `the_loader_reads_every_case_file` in that module's own tests.
 
 ### `fn leg_case`
 

@@ -181,13 +181,13 @@ services:
   # The columnar source. The HTTP interface, which is what an adapter would speak.
   clickhouse:
     # CI venue: compose only.
-    # Because: nothing in this repository READS ClickHouse - there is no `-exec-clickhouse` adapter -
-    #   so a hermetic tier would provision a server no adapter asks a question of. Its one caller is
-    #   the tier's own wiring cell, and that cell is about docker having allocated an ephemeral host
-    #   port, which is a claim the compose venue is the only venue for.
-    # Converges: when an adapter exists. This half is a limit of the repository and not of the
-    #   software - `nixpkgs` carries the server - so the tier is the only missing piece and
-    #   `nix/postgres-tier.nix` is the shape it takes.
+    # Because: the adapter (`crates/sutura-exec-clickhouse`) exists but nothing runs it against a
+    #   ClickHouse in the nix sandbox - no `clickhouse-tier.nix` provisions one there the way
+    #   `nix/postgres-tier.nix` does, so a hermetic tier would provision a server no CI job asks a
+    #   question of. Its one caller is the tier's own wiring cell, and that cell is about docker
+    #   having allocated an ephemeral host port, which is a claim the compose venue is the only venue for.
+    # Converges: when a nix-native execution venue exists. `nixpkgs` carries the server, so the tier
+    #   is the only missing piece and `nix/postgres-tier.nix` is the shape it takes.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/clickhouse/clickhouse-server:26.7-alpine
     environment:
       CLICKHOUSE_USER: *fixture-user
