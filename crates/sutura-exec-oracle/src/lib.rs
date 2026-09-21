@@ -48,7 +48,7 @@
 //!   decides which venues those are.
 //! - **No venue that runs `just validate` can reach a live Oracle.** `compose.services.yaml`'s
 //!   `oracle` service is a docker-compose tier brought up by hand (`just dev-up-oracle`); the nix
-//!   sandbox has no docker socket and no `nix/oracle-tier.nix` exists, so a gate leg cannot
+//!   sandbox has no docker socket and no `oracle-tier.nix` exists, so a gate leg cannot
 //!   provision one - and Oracle Database is proprietary, so no nix-native tier could take
 //!   `nix/postgres-tier.nix`'s shape even in principle. The render goldens this suite pins for
 //!   Oracle therefore assert what `sutura-sql` emitted and nothing a data system said back; that
