@@ -461,6 +461,13 @@ lint-workflows:
 lint-text:
     bash nix/format-text.sh check
 
+# Through `nix/run-gate.sh`, so this, the `chart` commit hook and `.github/workflows/ci.yml`'s
+# `Chart` step all build the one `checks.helm-chart` derivation - `nix/helm-chart.nix` carries its
+# four legs, its tool pins and what `helm lint` alone is measured NOT to catch.
+# The chart's own gate: helm lint, the no-values refusal, the render goldens, kubeconform.
+chart:
+    bash nix/run-gate.sh chart
+
 # The shell `just lint-workflows` cannot reach: the bodies inside `devenv.nix` are Nix strings, so
 # the `*.sh` glob, zizmor and the action reader filter them out - `hook_coverage.rs` carries that as
 # a surface with an EMPTY hook set. It asserts the EMISSION: `checkPhase = "true";` in that wrapper
