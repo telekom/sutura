@@ -490,9 +490,9 @@ enum Evidence {
     /// that parses can still compute the wrong number. A wrong `TRUNC` argument order or a wrong
     /// grain keyword is unguarded here and this arm is the declaration of that, not a mitigation.
     RenderOnly {
-        /// WHICH half is absent. Two dialects can both be render-only for entirely different
-        /// reasons, and before this field they read the same.
-        venue: MissingVenue,
+        /// WHERE the venue is, given that it is not a leg of any gate. Two dialects can be
+        /// render-only for entirely different reasons, and before this field they read the same.
+        venue: Venue,
         /// The file whose own header states this dialect's limit at length. Asserted to EXIST, so a
         /// moved or deleted header reddens this axis instead of leaving a dangling citation.
         ///
@@ -502,79 +502,112 @@ enum Evidence {
     },
 }
 
-/// Where a dialect's execution venue is *not*.
+/// Where a dialect's execution venue is, given that it is not here.
 ///
-/// Spelled in `docs/where-identity-is-proven.md`'s own venue column - *in process, every run* /
-/// *a GitHub environment, on demand* / *nowhere yet* - rather than a second vocabulary invented
-/// here. That page's other axis, `unrun`/`wired`/`yes`, is deliberately NOT reused: it grades how
-/// strongly an EXISTING venue's claim has been observed, and no dialect on this tree has a venue
-/// whose job exists but has never run. Borrowing it would have graded an absence as a weak
-/// presence.
+/// **A venue a developer brings up by hand is the shape
+/// `docs/where-identity-is-proven.md` has no row for, and that is why this is a second enum rather
+/// than a citation of that page's vocabulary.** Its venue column reads *in process, every run* /
+/// *a GitHub environment, on demand* / *nowhere yet*, because it grades venues a GATE reaches;
+/// [`Self::OnDemand`] is its second row exactly, and [`Self::ByHandOnly`] is a
+/// `compose.services.yaml` service no task in that page's `Reached by` column can invoke. That
+/// page's other axis - `unrun`/`wired`/`yes` - is deliberately not borrowed at all: it grades how
+/// strongly an EXISTING venue's claim has been observed, and borrowing it here would have graded
+/// an absence as a weak presence.
+///
+/// **Both arms claim an adapter exists**, because on this tree every dialect has one (`ls
+/// crates/sutura-exec-*`). A dialect with no adapter at all needs a third arm, and it is absent
+/// rather than reserved: the workspace denies `dead_code`, so a variant nothing constructs does not
+/// compile - measured, `error: variant ... is never constructed`. The exhaustive match in
+/// [`evidence`] is what forces the decision when that dialect arrives.
 #[derive(Debug, Clone, Copy)]
-enum MissingVenue {
-    /// *Nowhere yet*, and no adapter either: nothing under `crates/` could execute this dialect
-    /// even if a venue appeared. Checked - `crates/sutura-exec-{dialect}` must NOT exist.
-    NoAdapterAtAll,
-    /// An adapter exists, and its venue runs *a GitHub environment, on demand* - never a leg of
-    /// `just validate`, so this axis never asks it a question. Checked - the adapter must exist.
-    AdapterAndVenueOnDemand,
-    /// An adapter exists and NO venue is provisioned for it anywhere, on demand or otherwise: no
-    /// nix tier stands one up, so no `just` task reaches one. Checked - the adapter must exist.
-    AdapterAndNoVenueAnywhere,
+enum Venue {
+    /// *A GitHub environment, on demand.* Checked - `task` names a real `just` task, and
+    /// `compose.services.yaml` carries NO service for the dialect, so this arm and the next cannot
+    /// both describe one venue.
+    OnDemand {
+        /// The `just` task that reaches the venue. Asserted to be declared in the `justfile`, so
+        /// this cannot cite a task that was renamed away.
+        task: &'static str,
+    },
+    /// A `compose.services.yaml` service a developer brings up by hand, and nothing else. Checked -
+    /// that service is named there, so the claim is not of a venue nobody can reach at all.
+    ByHandOnly,
 }
 
 /// What backs each dialect's goldens.
 ///
 /// **Exhaustive over [`Dialect`], never a wildcard arm**, so a sixth dialect does not compile until
 /// somebody decides what backs it. That much already held before `#919`; what is new is that the
-/// decision is now a value the test below compares against the tree, rather than prose it could
-/// only check was non-empty.
+/// decision is a value the test below compares against the tree, rather than prose it could only
+/// check was non-empty.
 fn evidence(dialect: Dialect) -> Evidence {
     match dialect {
         // Both execute in process on every run - DuckDB in-process, Postgres against the
         // postmaster `nix/postgres-tier.nix` stands up in the same sandbox.
         Dialect::DuckDb | Dialect::Postgres => Evidence::Executed,
         Dialect::BigQuery => Evidence::RenderOnly {
-            venue: MissingVenue::AdapterAndVenueOnDemand,
+            venue: Venue::OnDemand {
+                task: "bigquery-acceptance",
+            },
             stated_in: "crates/sutura-exec-bigquery/tests/corpus.rs",
         },
         Dialect::ClickHouse => Evidence::RenderOnly {
-            venue: MissingVenue::AdapterAndNoVenueAnywhere,
+            venue: Venue::ByHandOnly,
             stated_in: "crates/sutura-exec-clickhouse/src/lib.rs",
         },
+        // `sutura-exec-oracle` arrived with `github.com/telekom/sutura#127` PR 2 while this change
+        // was in review, and this arm MOVED for it: the declaration it replaced said *no adapter
+        // executes Oracle on this tree*, prose that went false on a merge no gate would have read.
+        // That is `#919` in one line.
         Dialect::Oracle => Evidence::RenderOnly {
-            venue: MissingVenue::NoAdapterAtAll,
-            stated_in: "crates/sutura-sql/src/dialect.rs",
+            venue: Venue::ByHandOnly,
+            stated_in: "crates/sutura-exec-oracle/src/lib.rs",
         },
     }
 }
 
 /// **What `#919` closes.** For every dialect `sutura-sql` renders for, [`evidence`] declares what
-/// backs its goldens and that declaration is compared against the tree - four checks, each of which
-/// the prose it replaced could not make:
+/// backs its goldens and that declaration is compared against the tree - six checks, none of which
+/// the prose it replaced could make:
 ///
-/// 1. **Render goldens exist at all.** Without this a dialect with nothing whatsoever could declare
-///    a limit and read as covered-but-honest.
+/// 1. **Render goldens exist at all.** Without it a dialect with nothing whatsoever could declare a
+///    limit and read as covered-but-honest.
 /// 2. **[`Evidence::Executed`] means every one of [`Family::EXECUTION`] is non-empty**, and a
-///    missing one is named. The count it replaces was a floor: 33 of 34 goldens deleted still
-///    passed it.
+///    missing one is NAMED. The count it replaces was a floor: 33 of 34 goldens deleted passed it.
 /// 3. **[`Evidence::RenderOnly`] means no execution family holds anything.** So the declaration
-///    EXPIRES: a dialect that acquires a venue is red here until its arm moves, where the old prose
-///    stayed green forever.
-/// 4. **The absence is the one claimed.** [`MissingVenue::NoAdapterAtAll`] is checked against
-///    `crates/sutura-exec-{dialect}` being absent and the other two against its being present, so
-///    "no adapter" cannot outlive the adapter's arrival.
+///    EXPIRES: a dialect that acquires a venue is red here until its arm moves.
+/// 4. **The adapter the declaration claims is there.**
+/// 5. **No `nix/{dialect}-tier.nix` exists.** This is the sharpest of the six, because a nix tier is
+///    exactly what would put the dialect inside a `just validate` leg - so adding one makes
+///    *render-only* false, and this check is what says so. Not the only reader of that path:
+///    `xtask`'s `compose::file::every_nix_tier_module_is_provisioned_by_a_nix_check` already holds
+///    a tier module to being provisioned, and this one holds it to the dialect's GOLDENS, which is
+///    the edge that was missing.
+/// 6. **The venue named is the venue there is**: [`Venue::OnDemand`]'s task is declared
+///    in the `justfile` and the dialect has no compose service; [`Venue::ByHandOnly`]'s
+///    compose service is named. Without this the `venue` field would be decoration, and `BigQuery`'s
+///    hosted absence would read the same as `ClickHouse`'s by-hand one.
+///
+/// Plus `stated_in` resolving to a file, so a moved header is a red and not a dangling citation.
 ///
 /// **Limits, next to the claim.** The dialect-to-crate-directory mapping is
-/// `sutura-exec-{Dialect::as_str}`, a naming convention this test relies on and no mechanism holds -
-/// an adapter crate named otherwise would read as absent. A present directory is not a WIRED
-/// adapter: nothing here asks whether a composition root links it. And this test says nothing about
-/// whether any golden's CONTENT is right - [`Evidence::RenderOnly`]'s own doc names that ceiling,
-/// and closing it needs a venue, not a test.
+/// `sutura-exec-{Dialect::as_str}` and the tier path `nix/{as_str}-tier.nix`: naming conventions
+/// this test relies on and no mechanism holds, so an adapter or a tier named otherwise reads as
+/// absent. A present directory is not a WIRED adapter - nothing here asks whether a composition
+/// root links it, and `sutura-exec-clickhouse` is the standing case of one nothing links. The
+/// compose and `justfile` reads are substring searches over the file, not a parse of either. And
+/// none of this reaches whether a golden's CONTENT is right: measured, flipping `ClickHouse`'s
+/// `date_trunc_shape` to the wrong shape and re-accepting the render goldens leaves this test and
+/// `dialects::clickhouse::every_generated_statement_parses_here` both green, which is the ceiling
+/// [`Evidence::RenderOnly`] declares rather than closes.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
-    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |relative: &str| {
+        std::fs::read_to_string(root.join(relative)).unwrap_or_else(|cause| panic!("{relative} did not read: {cause}"))
+    };
+    let justfile = read("justfile");
+    let compose = read("compose.services.yaml");
     for &dialect in dialect::ALL {
         let counted = census(dialect);
         let held = |family: Family| counted.get(&family).copied().unwrap_or_default();
@@ -607,18 +640,37 @@ fn every_dialect_declares_what_backs_its_goldens() {
                      something executes it now, so move its arm in `evidence` to \
                      `Evidence::Executed` rather than leaving a limit nothing expires"
                 );
-                let adapter = crates.join(format!("sutura-exec-{name}"));
+                assert!(
+                    root.join(format!("crates/sutura-exec-{name}")).is_dir(),
+                    "{name} declares {venue:?}, which claims an adapter, but crates/sutura-exec-{name} \
+                     is not there"
+                );
+                let tier = format!("nix/{name}-tier.nix");
+                assert!(
+                    !root.join(&tier).exists(),
+                    "{tier} exists, so a `just validate` leg can provision {name} and its goldens are \
+                     no longer render-only - move its arm in `evidence` to `Evidence::Executed` and \
+                     produce execution goldens from that tier"
+                );
+                let service = format!("\n  {name}:\n");
                 match venue {
-                    MissingVenue::NoAdapterAtAll => assert!(
-                        !adapter.exists(),
-                        "{name} declares `MissingVenue::NoAdapterAtAll` and {} exists - the adapter \
-                         arrived, so the absence to declare is now about its VENUE",
-                        adapter.display()
-                    ),
-                    MissingVenue::AdapterAndVenueOnDemand | MissingVenue::AdapterAndNoVenueAnywhere => assert!(
-                        adapter.is_dir(),
-                        "{name} declares {venue:?}, which claims an adapter, but {} is not there",
-                        adapter.display()
+                    Venue::OnDemand { task } => {
+                        assert!(
+                            justfile.contains(&format!("\n{task}:")),
+                            "{name} declares its venue is reached by `just {task}`, which the justfile \
+                             does not declare"
+                        );
+                        assert!(
+                            !compose.contains(&service),
+                            "{name} declares an on-demand venue and compose.services.yaml names a \
+                             {name} service too - one of the two is the venue, so say which"
+                        );
+                    }
+                    Venue::ByHandOnly => assert!(
+                        compose.contains(&service),
+                        "{name} declares a by-hand compose venue and compose.services.yaml names no \
+                         {name} service, so nothing reaches it at all - that is a stronger absence \
+                         than this arm states"
                     ),
                 }
                 assert!(

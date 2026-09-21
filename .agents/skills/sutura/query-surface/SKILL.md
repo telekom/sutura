@@ -229,9 +229,10 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   venue exists** - `compose.services.yaml`'s `clickhouse` service is a docker-compose tier a person
   brings up by hand, and no `clickhouse-tier.nix` provisions one the way `nix/postgres-tier.nix` does,
   so the nix sandbox `just validate` runs in cannot reach one. The DIALECT golden axis declares an
-  `Evidence::RenderOnly { venue: MissingVenue::AdapterAndNoVenueAnywhere, .. }` arm for this
-  rather than an execution entry, for the same reason - and that arm is CHECKED against the tree:
-  it asserts the adapter crate is present and that no execution golden exists for the dialect, so a
-  venue arriving reddens the declaration instead of leaving a stale sentence.
+  `Evidence::RenderOnly { venue: Venue::ByHandOnly, .. }` arm for this rather than an
+  execution entry, for the same reason - and that arm is CHECKED against the tree: it asserts the
+  adapter crate is present, that `compose.services.yaml` names the service, that no
+  `clickhouse-tier.nix` exists under `nix/` and that no execution golden does either. So a tier arriving
+  reddens the declaration instead of leaving a stale sentence.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.
