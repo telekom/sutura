@@ -355,9 +355,13 @@ mod tests {
         // NINE of the seventeen: the eight the report measured by hand, plus `chart` - #149's
         // local half, which reaches the chart gate the same tiered way. (The retired `fmt-parity`
         // hook was once another, and `run-gate.sh` still carries its arm for `just` to reach.)
-        // THIS ASSERTION is what makes the counts above a measurement rather than a memory: a hook
-        // that joins or leaves the tiering has to come here, so the header cannot rot alone.
+        // THESE TWO ASSERTIONS are what make the counts above a measurement rather than a memory,
+        // and it takes both: review found that pinning only the nine left the SEVENTEEN unheld, so
+        // an eighteenth hook that does not self-skip kept this cell green while every header saying
+        // `nine of the seventeen` turned false. A hook that joins or leaves the tiering, and a hook
+        // that merely joins the config, both have to come here now.
         assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
+        assert_eq!(declared.len(), 17, "{} hook(s) declared", declared.len());
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
         let tools = |id: &str| -> Vec<super::Group> {
