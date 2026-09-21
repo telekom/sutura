@@ -66,6 +66,13 @@ mod reach;
 // did not hold up: the sentence above is the whole of it.
 mod scorecard;
 
+/// The one rule about a `vendor/` child that is not about attribution: does the copy declare what
+/// ENDS it? Its own module rather than a fifth rule inside [`scorecard`], which sits close enough
+/// to the unexemptable 1000-line cap that adding the rule and its cases there broke it - measured,
+/// `max-lines: FAILED`. A file at the cap is a missing abstraction rather than a file to split by
+/// ordinal, and *attribution* and *expiry* are two claims about the same child.
+mod vendored_expiry;
+
 // CAN THE PUBLICATION THE BADGE IS SERVED FROM LAND? `scorecard` holds badge <-> publication
 // DECLARED; this holds the workflow against the shape `api.scorecard.dev` will actually accept,
 // because three runs reported success while the API refused every one of them.

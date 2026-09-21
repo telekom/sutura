@@ -69,6 +69,7 @@ mod unused_deps;
 #[cfg(test)]
 mod validated_base;
 mod vendor_count;
+mod vendor_expiry;
 mod venues;
 mod warm_start;
 mod workflows;

@@ -19,4 +19,12 @@
 # source under `crates/` or `xtask/` cannot be exempted here at all. Delete a stale entry with
 # its reason when the clone it excused leaves the tree.
 
-# No entries. A deliberate clone is added here with its reason.
+# UPSTREAM SOURCE, not a deliberate clone of ours - and the distinction is why this entry reads
+# differently from the ones the header describes. `devco/jscpd.json` cannot be the place for it:
+# `check_census` FAILS when an ignore glob matches an in-scope `.rs`, deliberately, so that
+# narrowing the scan is not how a clone hides. The reason this one is excused is that the file is
+# byte-identical to the published `datafusion-federation` 0.5.6 artifact (`VENDOR.md` records the
+# sha256), the two blocks are upstream's large-list and large-list-view cast helpers, and
+# deduplicating them would rewrite a vendored file - the one thing vendoring must never do. It
+# leaves with the vendor, which `devco/vendor-expiry` is what watches for.
+vendor/datafusion-federation/src/schema_cast/lists_cast.rs:20 == vendor/datafusion-federation/src/schema_cast/lists_cast.rs:78 : upstream's own source, unmodified; deduplicating a vendored file is forbidden, and the clone leaves when the vendor does

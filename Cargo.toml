@@ -103,7 +103,12 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/mimalloc_rust"]
+#
+# `vendor/datafusion-federation` is excluded for the second half of that reasoning rather than the
+# first: it builds on every platform, but it is third-party source and `--workspace` clippy and
+# tests have no business judging it. Nothing depends on it yet - see `VENDOR.md` - so nothing
+# compiles it in this tree at all, which is the limit of what a green run here says about it.
+exclude = ["vendor/mimalloc_rust", "vendor/datafusion-federation"]
 
 [workspace.package]
 version = "0.5.1"

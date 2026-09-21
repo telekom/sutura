@@ -382,6 +382,10 @@ fn vendored_tree_problems(root: &Path, package: &str) -> Vec<String> {
         )),
     }
 
+    // FOUR: every copied CARGO PACKAGE declares what ENDS it - the half `VENDOR.md` could never
+    // hold, argued in [`super::vendored_expiry`] and kept there because this file is at the cap.
+    problems.extend(super::vendored_expiry::problems(root, VENDOR, &children));
+
     problems
 }
 
@@ -785,6 +789,18 @@ mod tests {
         assert!(!found.iter().any(|p| p.contains("vendor/upstream.rs")), "{found:?}");
         std::fs::remove_file(scratch.join("vendor/upstream.rs")).expect("the copied file");
         write(&scratch.join(PACKAGE), catch_all_and_one_block);
+
+        // 7. AND RULE FOUR IS REACHED THROUGH HERE. Its own cases live beside it in
+        //    `super::vendored_expiry`; what this asserts is the wiring, because a
+        //    `vendored_tree_problems` that stopped making the call would pass every case there.
+        std::fs::create_dir_all(scratch.join("devco")).expect("the devco directory");
+        write(
+            &scratch.join(crate::vendor_expiry::DECLARATION),
+            "# a header and no row yet\n",
+        );
+        write(&scratch.join("vendor/tree/Cargo.toml"), "[package]\nname = \"tree\"\n");
+        let found = problems(&scratch);
+        assert!(found.iter().any(|p| p.contains("declares no row for it")), "{found:?}");
 
         std::fs::remove_dir_all(&scratch).expect("the scratch tree");
     }

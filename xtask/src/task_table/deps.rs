@@ -7,7 +7,7 @@
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
     arrow_major, default_feature_tests, default_features, feature_remedies, nix_platform, pins, shipped, unused_deps,
-    vendor_count, warm_start,
+    vendor_count, vendor_expiry, warm_start,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -87,6 +87,21 @@ pub(crate) const TASKS: &[Task] = &[
             in_scope: Some("VENDOR.md"),
         },
         run: vendor_count::run,
+    },
+    Task {
+        // Beside `check-vendor-count` because the subject is the same vendored trees, and
+        // `Kind::Standalone` because it needs EGRESS. `just validate`'s nix checks are hermetic
+        // and must stay that way, and a gate that reddens whichever branch is open at the moment
+        // upstream publishes is worse than the rot it closes - the finding is about the
+        // repository, not about that diff. `just update` is its caller, which is where somebody
+        // is already deciding about versions. The hermetic half - `devco/vendor-expiry` names
+        // every `vendor/` child and nothing else - is a rule inside `check-workflows`, so a new
+        // vendored tree with no expiry declaration fails there rather than here.
+        name: "check-vendor-expiry",
+        description: "no vendored crate has a newer release published than the version it was vendored at",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: vendor_expiry::run,
     },
     Task {
         // Beside `check-shared-client` because it is the same shape again: one declaration, read

@@ -52,8 +52,16 @@ update:
     # Needs network. pixi holds only the hook runner and interpreter - neither changes a verdict.
     pixi update
     cargo update --workspace
+    # A vendored crate is a path dependency, so `cargo update` cannot see it and neither can a
+    # dependency bot. This is the one moment its upstream gets asked. Last, so a network failure
+    # here does not lose the three bumps above.
+    cargo run -q -p xtask -- check-vendor-expiry
     echo
     echo 'Bumped flake.lock, pixi.lock and Cargo.lock. Review the diff before committing.'
+
+# Has a vendored crate's reason expired? NEEDS NETWORK, which is why it is not in `just validate`.
+vendor-expiry:
+    cargo run -q -p xtask -- check-vendor-expiry
 
 # ---------------------------------------------------------------- inner loop ---
 
