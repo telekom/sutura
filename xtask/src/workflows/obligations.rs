@@ -65,7 +65,15 @@
 
 use std::path::Path;
 
-/// A step that must stay reachable, and the exact condition that keeps it so.
+/// A step whose `if:` is held by this rule, and the exact form it needs.
+///
+/// **Two kinds of obligation now, and the table is the same shape for both.** Three rows are here
+/// because a condition keeps the step REACHABLE after a red above it - the finding this module's
+/// header is about. `PR title` is here because its condition decides the EVENT it runs on: the
+/// title expression expands to the empty string on anything but a `pull_request`, so a dropped
+/// `if:` would put the gate on a run with nothing to judge. Its own gate fails closed on that
+/// rather than passing, which is why the two mechanisms are worth having together - this one names
+/// the step in `check-workflows`, that one reddens the run.
 struct Obligation {
     /// The step's `name:` value, which is also how a reader finds it.
     step: &'static str,
@@ -73,7 +81,8 @@ struct Obligation {
     condition: &'static str,
 }
 
-/// The steps whose obligation survives a red above them, and the form each needs.
+/// The steps whose `if:` this rule holds, and the form each needs - three for reachability after a
+/// red, one for the event it has to run on ([`Obligation`]).
 ///
 /// A table rather than two hand-written arms so that adding a third is one line, and so the
 /// verdict can print how many it held - a rule over an empty table would pass by finding nothing.
@@ -89,6 +98,14 @@ const REQUIRED: &[Obligation] = &[
     Obligation {
         step: "Chart",
         condition: "!cancelled()",
+    },
+    Obligation {
+        // #935. The landed subject is composed from the pull-request title, so the gate holding the
+        // commit vocabulary over it can only run where that title exists. No `always()` and no
+        // `!cancelled()`: on every other event the expression supplying the title is empty, and the
+        // step has nothing to judge.
+        step: "PR title",
+        condition: "github.event_name == 'pull_request'",
     },
 ];
 
@@ -181,19 +198,29 @@ mod tests {
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
     /// `None` writes the step with no `if:` at all, which is the state the finding was about.
+    /// `PR title` gets the body it really carries, because it is the one obligation that PAYS for
+    /// the xtask closure - so these trees exercise the order half as well as the condition half.
     fn tree(gates: &[Option<&str>]) -> String {
         let mut text = String::from("jobs:\n  ci:\n    steps:\n");
         for (want, gate) in REQUIRED.iter().zip(gates) {
-            text.push_str("      - name: ");
-            text.push_str(want.step);
-            text.push('\n');
-            if let Some(gate) = gate {
-                text.push_str("        if: ${{ ");
-                text.push_str(gate);
-                text.push_str(" }}\n");
-            }
-            text.push_str("        run: true\n");
+            text.push_str(&step(want.step, *gate));
         }
+        text
+    }
+
+    /// One step, with `gate` as its condition - `None` writes no `if:` at all.
+    fn step(name: &str, gate: Option<&str>) -> String {
+        let mut text = format!("      - name: {name}\n");
+        if let Some(gate) = gate {
+            text.push_str("        if: ${{ ");
+            text.push_str(gate);
+            text.push_str(" }}\n");
+        }
+        text.push_str(if name == "PR title" {
+            "        run: nix run .#xtask -- check-pr-title \"$TITLE\"\n"
+        } else {
+            "        run: true\n"
+        });
         text
     }
 
@@ -250,6 +277,47 @@ mod tests {
     /// trusting the generic tests above to cover it: those iterate `REQUIRED` itself, so an
     /// entry that was never added would leave them passing over one fewer obligation and
     /// nothing would say so.
+    /// #935: the step that reads the pull-request title, and the condition deciding the EVENT it
+    /// runs on. Named rather than left to the loops above, for the reason the chart's test gives -
+    /// an entry never added would leave them passing over one fewer obligation.
+    #[test]
+    fn the_pr_title_step_is_a_required_obligation() {
+        assert!(
+            REQUIRED
+                .iter()
+                .any(|o| o.step == "PR title" && o.condition == "github.event_name == 'pull_request'"),
+            "the pull-request title's step obligation is missing or holds the wrong condition"
+        );
+    }
+
+    /// The ORDER half over the shape #935 introduced: `PR title` realises the xtask closure, so
+    /// every closure-free obligation has to stay ahead of it - and the rule may not report that
+    /// step against itself, which is what placing it first measures.
+    #[test]
+    fn a_closure_free_obligation_behind_the_title_step_is_refused() {
+        let mut text = String::from("jobs:\n  ci:\n    steps:\n");
+        text.push_str(&step("PR title", Some("github.event_name == 'pull_request'")));
+        for want in REQUIRED.iter().filter(|want| want.step != "PR title") {
+            text.push_str(&step(want.step, Some(want.condition)));
+        }
+
+        let found = check(&text);
+
+        assert_eq!(
+            found.len(),
+            REQUIRED.len().saturating_sub(1),
+            "every closure-free obligation behind it, and only those: {found:?}"
+        );
+        assert!(
+            found.iter().all(|problem| problem.contains("sits behind ci.yml:")),
+            "{found:?}"
+        );
+        assert!(
+            !found.iter().any(|problem| problem.contains("`PR title` sits behind")),
+            "the first xtask step is not behind itself: {found:?}"
+        );
+    }
+
     #[test]
     fn the_chart_step_is_a_required_obligation() {
         assert!(
