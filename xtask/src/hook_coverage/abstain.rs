@@ -1,17 +1,17 @@
 //! Whether a hook COULD have inspected the diff on this host, derived from the shell that decides.
 //!
-//! **The finding this exists for: eight of the fifteen declared hooks print `Passed` after deciding
+//! **The finding this exists for: nine of the seventeen declared hooks print `Passed` after deciding
 //! not to run.** `shellcheck` and `zizmor` are
 //! `command -v nix >/dev/null 2>&1 && exec ... || echo "... skipped ..."`; `betterleaks` is the same
-//! on its own tool; `rust-tests`, `rust-crap`, `secret-sweep` and `cargo-deny` route
-//! through `nix/run-gate.sh`, whose tier 3 prints `run-gate: SKIPPED ...` and falls off the end of
+//! on its own tool; `rust-tests`, `rust-crap`, `jscpd`, `chart`, `secret-sweep` and `cargo-deny`
+//! route through `nix/run-gate.sh`, whose tier 3 prints `run-gate: SKIPPED ...` and falls off the end of
 //! the `case` with status 0. Measured with the `shellcheck` entry verbatim and `nix` off `PATH`: the
 //! notice printed, exit status 0. prek reads that as `Passed`, [`super::Coverage::Ran`] read that as
 //! *inspected the diff*, and `just ship-check` printed `pre-push - 4 of 4 declared hook(s) ran`
 //! while three of the four announced their own skip - on a configuration
 //! `.pre-commit-config.yaml` argues for at length for a MISSING TOOL, *"a hook that cannot run
 //! must not be a wall"*. It no longer argues it for a missing toolchain: `nix/run-gate.sh` refuses
-//! a host with neither the dev shell's tools nor nix, so the eight are eight only where the
+//! a host with neither the dev shell's tools nor nix, so the nine are nine only where the
 //! abstention is a tool's. This paragraph is prose in `.rs` and `check-guidance`'s scope stops at
 //! the file extension, so it is held by review - the registered half is in
 //! `xtask/src/guidance/claims/contradicted.rs`.
@@ -36,7 +36,7 @@
 //!
 //! Every self-skip in this repository is guarded by one of two probe shapes - `command -v <tool>`
 //! and `<tool> --version` - and both are in the text that DECIDES: the hook's own `entry:` for the
-//! three inline ones, and `nix/run-gate.sh`'s `case` arm for the five tiered ones. So the tools are
+//! three inline ones, and `nix/run-gate.sh`'s `case` arm for the six tiered ones. So the tools are
 //! read out of that text rather than listed here. A list would be a second copy of `run-gate.sh`'s
 //! tiers, and two owners for one decision is the shape `sutura/gates` records under *one owner per
 //! concern*.
@@ -101,7 +101,7 @@ pub(super) struct Abstentions {
 /// Every declared hook's decision, resolved against this host.
 pub(super) fn over(root: &Path, declared: &[hooks::Hook]) -> Result<Abstentions, String> {
     let script = std::fs::read_to_string(root.join(RUN_GATE))
-        .map_err(|error| format!("could not read {RUN_GATE}, which decides five hooks' tiers: {error}"))?;
+        .map_err(|error| format!("could not read {RUN_GATE}, which decides six hooks' tiers: {error}"))?;
     let mut unavailable = BTreeSet::new();
     let mut unreadable = Vec::new();
     let mut deciding = 0_usize;
@@ -352,9 +352,16 @@ mod tests {
         let declared = crate::hooks::hooks(&text);
         let read = super::over(&root, &declared).expect("the run-gate script");
         assert!(read.unreadable.is_empty(), "{:?}", read.unreadable);
-        // EIGHT of the fifteen, which is the count the report measured by hand (the retired
-        // `fmt-parity` hook was the ninth).
-        assert_eq!(read.deciding, 8, "{} hook(s) decide", read.deciding);
+        // NINE of the seventeen: the eight the report measured by hand, plus `chart` - #149's
+        // local half, which reaches the chart gate the same tiered way. (The retired `fmt-parity`
+        // hook was once another, and `run-gate.sh` still carries its arm for `just` to reach.)
+        // THESE TWO ASSERTIONS are what make the counts above a measurement rather than a memory,
+        // and it takes both: review found that pinning only the nine left the SEVENTEEN unheld, so
+        // an eighteenth hook that does not self-skip kept this cell green while every header saying
+        // `nine of the seventeen` turned false. A hook that joins or leaves the tiering, and a hook
+        // that merely joins the config, both have to come here now.
+        assert_eq!(read.deciding, 9, "{} hook(s) decide", read.deciding);
+        assert_eq!(declared.len(), 17, "{} hook(s) declared", declared.len());
         // And the tools come out per hook, so a tier silently losing its nix fallback is visible.
         let script = std::fs::read_to_string(root.join(super::RUN_GATE)).expect(super::RUN_GATE);
         let tools = |id: &str| -> Vec<super::Group> {
@@ -363,6 +370,7 @@ mod tests {
         };
         assert_eq!(tools("shellcheck"), vec![vec![String::from("nix")]]);
         assert_eq!(tools("zizmor"), vec![vec![String::from("nix")]]);
+        assert_eq!(tools("chart"), vec![vec![String::from("nix")]]);
         assert_eq!(tools("betterleaks"), vec![vec![String::from("betterleaks")]]);
         assert_eq!(tools("jscpd"), vec![vec![String::from("jscpd")], vec![String::from("nix")]]);
         assert_eq!(

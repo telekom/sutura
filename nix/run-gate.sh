@@ -128,6 +128,28 @@ jscpd)
         echo "          CI (checks.hygiene) enforces it; this only delays the finding."
     fi
     ;;
+chart)
+    # The chart's own gate (#149): `helm lint`, the no-values refusal and its wording, every values
+    # file rendered against its committed golden, and `kubeconform` against the vendored schemas -
+    # `nix/helm-chart.nix` carries all four legs and the tool pins.
+    #
+    # THROUGH THE FLAKE CHECK, and that is what makes the local half and the CI half one thing:
+    # `.github/workflows/ci.yml`'s `Chart` step builds this same `checks.<system>.helm-chart`
+    # attribute, so there is one invocation and nothing to drift. A local `helm` would be a second,
+    # UNPINNED verdict, and this check's own premise is that the tool's version decides what it
+    # reports - which is why `nix/helm-chart.nix` prints `helm version --short` from inside the
+    # derivation rather than trusting whoever's PATH ran it.
+    #
+    # TIER 2 ONLY - there is no tier 1, because there is no unpinned route worth taking. Skips with
+    # a notice where nix is absent, the shellcheck / zizmor contract: a hook that cannot run must
+    # not be a wall, and CI enforces it, so a skip here delays the finding rather than losing it.
+    if command -v nix >/dev/null 2>&1; then
+        nix_check helm-chart
+    else
+        echo "run-gate: SKIPPED the chart gate - no nix on this host."
+        echo "          CI (checks.helm-chart) enforces it; this only delays the finding."
+    fi
+    ;;
 fmt-parity)
     # The push-tier format check goes through the flake's pinned check, the exact verdict CI
     # reaches. It is a check, not a local tool, so it needs nix.
