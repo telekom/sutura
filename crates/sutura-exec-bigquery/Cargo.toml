@@ -26,7 +26,6 @@ adbc = [
   "dep:adbc_driver_manager",
   "dep:arrow-array",
   "dep:arrow-schema",
-  "dep:arrow-cast",
   "dep:getrandom",
 ]
 
@@ -83,9 +82,17 @@ adbc_driver_manager = { version = "0.24", optional = true }
 # because only that transport serves a subject token.
 getrandom = { version = "0.3", optional = true }
 
+# The driver's own result vocabulary. The major is the ENGINE's, which is also
+# `sutura-domain`'s since `docs/adr/0039`, and the ADBC driver manager resolves the same
+# major - so a batch reaches
+# the interior's `Accumulating` with no conversion.
+#
+# `arrow-cast` was here and is GONE with the text decode it existed for: this transport
+# used to cast every result column to `Utf8` and hand text cells up, and the domain now
+# reads the typed arrays directly. `cargo check` names an unused optional dependency, so
+# the manifest is what caught the leftover.
 arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }
-arrow-cast = { version = "59", optional = true }
 
 [dev-dependencies]
 # Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed

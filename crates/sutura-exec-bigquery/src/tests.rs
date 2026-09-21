@@ -18,9 +18,14 @@ use sutura_domain::model::{ColumnName, Grain, MetricName, TableName};
 use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, ResultLabel};
 use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{PreFlight, Value, Warehouse};
+use sutura_domain::warehouse::{Accumulating, PreFlight, ResultBatches, Warehouse};
 
-use crate::transport::{Cell, Field, FieldType, JobDeadline, JobRows, ListingTotal, NotShort, Shortfall};
+use std::sync::Arc;
+
+use arrow_array::{ArrayRef, RecordBatch, StringArray};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+
+use crate::transport::{JobDeadline, ListingTotal, NotShort, Shortfall};
 use crate::{BigQueryError, BigQueryWarehouse};
 
 /// The transports and fixtures these assertions are written against.
@@ -29,8 +34,8 @@ mod preflight;
 mod results;
 
 use fakes::{
-    Broken, Case, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
-    one_cell, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
+    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
+    one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -146,24 +151,32 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
     assert_ne!(seen[0].subject, seen[1].subject);
 }
 
-/// The answer an identity read is supposed to get: one `session_user` column, one row, one cell.
+/// An identity read's answer: one `session_user` column of `text`, as Arrow.
 ///
 /// Here rather than in `fakes`, and it is the one fixture in this file that is: `fakes` is the
 /// half a reverted implementation takes with it, so a fixture that lives there is one the causality
-/// gate cannot see these assertions using. It is also three lines, and `one_cell`'s column is named
-/// `value` - which in an identity read would read as the value-mapping table's fixture pointed at
-/// the wrong test.
-fn one_identity(cell: Cell) -> JobRows {
-    JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![vec![cell]],
-        1,
-    )
+/// gate cannot see these assertions using. It is also three lines, and `one_column`'s column is
+/// named `value` - which in an identity read would read as the value-mapping table's fixture
+/// pointed at the wrong test.
+fn identity_column(rows: Vec<Option<&str>>) -> ResultBatches {
+    labelled("session_user", rows)
+}
+
+/// A one-column `text` result under any label, as Arrow.
+fn labelled(label: &str, rows: Vec<Option<&str>>) -> ResultBatches {
+    let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(label, DataType::Utf8, true)]));
+    let count = rows.len();
+    let array: ArrayRef = Arc::new(StringArray::from(rows));
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), count.max(1));
+    accumulating
+        .push(RecordBatch::try_new(schema, vec![array]).expect("a one-column fixture batch is rectangular"))
+        .expect("a fixture batch carries its own schema");
+    accumulating.finish()
 }
 
 /// The same, spelled from an identifier, for the two tests that assert on the value.
-fn answered_as(who: &str) -> JobRows {
-    one_identity(Cell::Text(String::from(who)))
+fn answered_as(who: &str) -> ResultBatches {
+    identity_column(vec![Some(who)])
 }
 
 #[test]
@@ -238,26 +251,25 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
     // to a public workflow log, and the one thing this answer can contain is an account
     // identifier - so a refusal quoting what came back would be the disclosure the read exists to
     // check for.
-    let two_rows = JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![
-            vec![Cell::Text(String::from("principal-a@example.com"))],
-            vec![Cell::Text(String::from("principal-b@example.com"))],
-        ],
-        2,
-    );
-    let two_columns = JobRows::of(
-        vec![
-            Field::of(String::from("session_user"), FieldType::String),
-            Field::of(String::from("extra"), FieldType::String),
-        ],
-        vec![vec![
-            Cell::Text(String::from("principal-a@example.com")),
-            Cell::Text(String::from("principal-b@example.com")),
-        ]],
-        1,
-    );
-    for answer in [two_rows, one_identity(Cell::Null), two_columns] {
+    let two_rows = identity_column(vec![Some("principal-a@example.com"), Some("principal-b@example.com")]);
+    let two_columns = {
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            Field::new("session_user", DataType::Utf8, true),
+            Field::new("extra", DataType::Utf8, true),
+        ]));
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["principal-a@example.com"])) as ArrayRef,
+                Arc::new(StringArray::from(vec!["principal-b@example.com"])) as ArrayRef,
+            ],
+        )
+        .expect("a two-column fixture batch is rectangular");
+        accumulating.push(batch).expect("a fixture batch carries its own schema");
+        accumulating.finish()
+    };
+    for answer in [two_rows, identity_column(vec![None]), two_columns] {
         let warehouse = open(Recording::answering(answer), impersonating_posture());
         let refused = warehouse
             .session_user(&a_subject_token("exchanged-for-principal-a"))
@@ -273,26 +285,13 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
     }
 }
 
-#[test]
-fn an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal() {
-    // One comparison, in one place. `Incomplete` is this crate's documented reading of *the
-    // endpoint delivered fewer rows than it reported*, and an identity read writing a second
-    // comparison of its own beside it is the two-deadlines defect `docs/adr/0008` part 6 records -
-    // two answers to one question, free to disagree.
-    let short = JobRows::of(
-        vec![Field::of(String::from("session_user"), FieldType::String)],
-        vec![vec![Cell::Text(String::from("principal-a@example.com"))]],
-        2,
-    );
-    let warehouse = open(Recording::answering(short), impersonating_posture());
-    let refused = warehouse
-        .session_user(&a_subject_token("exchanged-for-principal-a"))
-        .expect_err("a page short of its own total is refused");
-    assert!(
-        matches!(refused, BigQueryError::Incomplete { delivered: 1, total: 2 }),
-        "{refused:?}"
-    );
-}
+// `an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal` WENT WITH THE
+// PAGING IT READ. It asserted `BigQueryError::Incomplete` - a delivered count below the endpoint's
+// own reported `totalRows` - which only the deleted HTTP wire transport ever reported. An ADBC read
+// streams the whole result and `run` drains the reader, so a truncated stream is an `Err` rather
+// than a short answer; `docs/adr/0039` records why completeness is the drain. The SHAPE check the
+// identity read still needs is asserted one cell up, which is the half that would be a wrong
+// identity rather than a missing one.
 
 #[test]
 fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpoint() {

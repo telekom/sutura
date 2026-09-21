@@ -1,6 +1,6 @@
 //! The adapter's own suite: attaching a file, executing a plan, and the translation helpers.
 //!
-//! In its own file for the reason `value_mapping_tests.rs` and `width_tests.rs` are: `lib.rs` is at
+//! In its own file for the reason `width_tests.rs` is: `lib.rs` is at
 //! the 1000-line gate, and the gate's answer to that is to split the file rather than to shorten
 //! the fix. A pure move - nothing here changed with the split.
 

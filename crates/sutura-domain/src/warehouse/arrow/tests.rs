@@ -30,7 +30,7 @@ use arrow_array::{
 use arrow_buffer::i256;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
-use super::{Accumulating, UnannouncedBatch, UnreadableCell, cell, of_rows};
+use super::{Accumulating, ResultBatches, UnannouncedBatch, UnreadableCell, cell, of_rows};
 use crate::calendar::Date;
 use crate::warehouse::{Real, Value};
 
@@ -72,8 +72,9 @@ fn wide_decimal(value: i128, scale: i8) -> ArrayRef {
     )
 }
 
-#[test]
-fn every_type_the_interior_maps_answers_what_the_data_source_answers() {
+/// The shared table, so `every_mapped_type_passes_the_schema_pass_and_float32_does_not` reads the
+/// same rows rather than a second list of its own.
+fn mapping_table() -> Vec<Case> {
     // The twin of `every_type_this_adapter_maps_answers_what_the_engine_answers` in
     // `crates/sutura-exec-duckdb/src/lib.rs`. Same logical values, same expected column, one row per
     // width - because a Parquet `INT32` column under a `min` or a `max` answered there and errored
@@ -155,7 +156,13 @@ fn every_type_the_interior_maps_answers_what_the_data_source_answers() {
             Value::Text(String::from("2026-06-01")),
         ),
     ];
-    for (name, array, expected) in cases {
+    cases
+}
+
+/// Every row of the table, mapped.
+#[test]
+fn every_type_the_interior_maps_answers_what_the_data_source_answers() {
+    for (name, array, expected) in mapping_table() {
         assert_eq!(cell(name, array.as_ref(), 0).expect(name), expected, "{name}");
     }
 }
@@ -370,5 +377,66 @@ fn a_ragged_fixture_is_refused_with_the_row_that_is_wrong() {
             cells: 1,
             columns: 2
         }
+    );
+}
+
+/// THE HOLE THE TYPE PASS CLOSES, in both shapes it was reachable in.
+///
+/// `cell` answers a null before it reads the column's type. So a result with NO rows never reaches
+/// it, and a column that is entirely null reaches it and is answered - which made whether this
+/// workspace maps a type depend on what the data happened to be. A `TIMESTAMP` column came back as
+/// a successful empty result. Both shapes are asserted because they were reachable for two
+/// different reasons.
+#[test]
+fn an_unmapped_column_is_refused_whatever_the_data_happened_to_be() {
+    let unmapped: SchemaRef = Arc::new(Schema::new(vec![Field::new("at", DataType::Float32, true)]));
+
+    let no_rows = ResultBatches::none_under(Arc::clone(&unmapped));
+    match no_rows.to_rows().expect_err("a zero-row unmapped schema is refused") {
+        UnreadableCell::UnsupportedType {
+            ref column,
+            ref arrow_type,
+        } => {
+            assert_eq!(column, "at");
+            assert!(arrow_type.contains("Float32"), "{arrow_type}");
+        }
+        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
+    }
+
+    let mut accumulating = Accumulating::announcing(Arc::clone(&unmapped), 10);
+    let all_null: ArrayRef = Arc::new(Float32Array::from(vec![None::<f32>, None::<f32>]));
+    accumulating
+        .push(RecordBatch::try_new(unmapped, vec![all_null]).expect("a null column is a valid batch"))
+        .expect("the batch carries the announced field");
+    assert!(
+        matches!(accumulating.finish().to_rows(), Err(UnreadableCell::UnsupportedType { .. })),
+        "an all-null unmapped column was mapped"
+    );
+}
+
+/// The schema pass and the value mapping agree, read off the mapping table above rather than a
+/// second list.
+///
+/// Two matches over one set of Arrow types is a drift risk, and this is what holds them together.
+/// Both drift directions fail CLOSED - a type only `cell` reads is refused at the pass, a type only
+/// the pass names is refused per cell - so the cost of a drift is a refused column and never a
+/// value.
+#[test]
+fn every_mapped_type_passes_the_schema_pass_and_float32_does_not() {
+    for (name, array, _expected) in mapping_table() {
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(name, array.data_type().clone(), true)]));
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10);
+        accumulating
+            .push(RecordBatch::try_new(schema, vec![Arc::clone(&array)]).expect("a one-column batch"))
+            .expect("the batch carries the announced field");
+        assert!(
+            accumulating.finish().to_rows().is_ok(),
+            "{name} is in the mapping table, so the schema pass must accept it"
+        );
+    }
+    let refused: SchemaRef = Arc::new(Schema::new(vec![Field::new("amount", DataType::Float32, true)]));
+    assert!(
+        ResultBatches::none_under(refused).to_rows().is_err(),
+        "Float32 is not mapped, so the schema pass must refuse it"
     );
 }

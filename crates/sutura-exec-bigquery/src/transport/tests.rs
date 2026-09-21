@@ -70,27 +70,11 @@ fn a_dataset_id_keeps_its_case_and_refuses_a_hyphen() {
     );
 }
 
-#[test]
-fn a_type_name_the_endpoint_sends_decodes_to_the_vocabulary_this_adapter_maps() {
-    // A query response spells the legacy names; the closed vocabulary is named after the modern
-    // forms. Decoding belongs HERE so a transport written from the variant names cannot map
-    // `INTEGER` to `Unmapped` and hand a live answer a type nobody mapped.
-    use super::FieldType;
-    for (wire, expected) in [
-        ("INTEGER", FieldType::Int64),
-        ("INT64", FieldType::Int64),
-        ("FLOAT", FieldType::Float64),
-        ("FLOAT64", FieldType::Float64),
-        ("BOOLEAN", FieldType::Bool),
-        ("BOOL", FieldType::Bool),
-        ("NUMERIC", FieldType::Numeric),
-        ("BIGNUMERIC", FieldType::Numeric),
-        ("STRING", FieldType::String),
-        ("DATE", FieldType::Date),
-    ] {
-        assert_eq!(FieldType::parse(wire), expected, "{wire}");
-    }
-    // The limit the crate documentation names: a time column is a time the endpoint has and this
-    // adapter does not, so it stays named rather than becoming a column that answers.
-    assert_eq!(FieldType::parse("TIMESTAMP"), FieldType::Unmapped(String::from("TIMESTAMP")));
-}
+// `a_type_name_the_endpoint_sends_decodes_to_the_vocabulary_this_adapter_maps` WENT WITH
+// `FieldType`. It asserted that a query response's legacy type spellings - `INTEGER`, `FLOAT`,
+// `BOOLEAN` - decoded into this crate's own closed vocabulary. Those spellings are JSON schema
+// fields of the deleted HTTP wire transport; the ADBC driver announces an Arrow schema, so there is
+// no type NAME to decode and `sutura_domain::warehouse::arrow`'s own mapping is what decides which
+// Arrow types this workspace reads. `docs/adr/0039` records the move, and
+// `every_mapped_type_passes_the_schema_pass_and_float32_does_not` in
+// `crates/sutura-domain/src/warehouse/arrow/tests.rs` is what holds the closed set now.

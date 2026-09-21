@@ -1,6 +1,6 @@
 //! How wide the engine runs, and that a wide one is still callable the way the port is called.
 //!
-//! Its own file for the reason `value_mapping_tests.rs` is: `lib.rs` is at the 1000-line gate, and
+//! Its own file for the reason `execute_tests.rs` is: `lib.rs` is at the 1000-line gate, and
 //! the gate's answer to that is to split the file rather than to shorten the change.
 //!
 //! **What is asserted here, and what deliberately is not.** The numbers that justified widening the

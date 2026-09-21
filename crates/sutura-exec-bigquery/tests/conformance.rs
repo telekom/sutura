@@ -64,14 +64,17 @@
 #[cfg(test)]
 mod conformance {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
+
+    use arrow_array::{ArrayRef, Decimal128Array, Float64Array, Int64Array, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
     use sutura_conformance::{Fixture, corpus};
     use sutura_domain::warehouse::estimate::EstimatedBytes;
-    use sutura_domain::warehouse::{ParamValue, RowSet, Value};
+    use sutura_domain::warehouse::{Accumulating, ParamValue, ResultBatches, RowSet, Value};
     use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::transport::{
-        Cell, DatasetAddress, DatasetId, DryRunEstimate, Field, FieldType, HeldTables, JobRequest, JobRows, JobTransport,
-        ListingTotal, ProjectId,
+        DatasetAddress, DatasetId, DryRunEstimate, HeldTables, JobRequest, JobTransport, ListingTotal, ProjectId,
     };
     use sutura_sql::{Dialect, generate};
 
@@ -101,62 +104,161 @@ mod conformance {
         !body.is_empty() && body.matches('.').count() <= 1 && body.chars().all(|c| c.is_ascii_digit() || c == '.')
     }
 
-    /// The one column type a domain [`Value`] round-trips through this adapter's own wire mapping
-    /// exactly.
+    /// The one Arrow type a whole column of domain [`Value`]s round-trips through exactly.
     ///
-    /// **A whole-column decision over every row, not the first non-null cell** - `wide-total-by-day`
-    /// and its two siblings are exactly the case that heuristic gets wrong: one day's total widens
-    /// past `i64` and answers `Value::Text`, the other stays small and answers `Value::Integer`, and
-    /// a real `BigQuery` reports ONE `NUMERIC` type for the whole column either way. `Value::Real`
-    /// wins outright; a genuinely non-numeric `Text` (a dimension, a date) makes the column
-    /// `String`; a numeric-looking `Text` anywhere makes it `Numeric` even where every OTHER row is
-    /// a plain `Integer`, because that is the shape whose per-value fallback this proves.
-    fn kind_of(column: usize, rows: &[Vec<Value>]) -> FieldType {
+    /// **A whole-column decision over every row, not the first non-null cell, and `docs/adr/0039`
+    /// is why this fixture still needs one.** Arrow is columnar and a domain `Value` is a per-cell
+    /// union, so a column that answers `Integer` for one row and a wide `Text` for another - which
+    /// `wide-total-by-day` and its two siblings are exactly - has to be given ONE type, and a real
+    /// `BigQuery` reports one `NUMERIC` for that column either way. `Decimal128(38, 0)` is the
+    /// Arrow shape of that claim: the interior's decode widens a zero-scale decimal that fits an
+    /// `i64` and leaves the rest as text, per cell, which is the behaviour the wire mapping this
+    /// replaced had.
+    ///
+    /// `sutura_domain::warehouse::arrow::of_rows` is deliberately NOT used here even though it
+    /// builds columns from rows: its inference is the narrow one a FAKE needs (all-`Integer`, or
+    /// all-`Real`, else text), and it states that a mixed column becomes text. This fixture is
+    /// claiming what a data system would have SENT, which is the one case that inference declines.
+    fn kind_of(column: usize, rows: &[Vec<Value>]) -> DataType {
         let mut integer = false;
         let mut numeric_text = false;
         for value in rows.iter().filter_map(|row| row.get(column)) {
             match *value {
                 Value::Null => {}
-                Value::Real(_) => return FieldType::Float64,
+                Value::Real(_) => return DataType::Float64,
                 Value::Integer(_) => integer = true,
                 Value::Text(ref text) if is_decimal_literal(text) => numeric_text = true,
-                Value::Text(_) => return FieldType::String,
+                Value::Text(_) => return DataType::Utf8,
             }
         }
         if numeric_text {
-            FieldType::Numeric
+            DataType::Decimal128(DECIMAL_PRECISION, scale_of(column, rows))
         } else if integer {
-            FieldType::Int64
+            DataType::Int64
         } else {
-            FieldType::String
+            DataType::Utf8
         }
     }
 
-    /// One cell, as the wire would send it - the inverse of `rowset::cell` in this crate's `src/`,
-    /// and it has to be: what this file proves is that the two agree.
-    fn cell_of(value: &Value) -> Cell {
-        match *value {
-            Value::Null => Cell::Null,
-            Value::Integer(v) => Cell::Text(v.to_string()),
-            Value::Real(v) => Cell::Text(v.get().to_string()),
-            Value::Text(ref v) => Cell::Text(v.clone()),
+    /// How many decimal places the widest numeric text in this column needs.
+    ///
+    /// **A whole-column scale, for the reason `kind_of` needs a whole-column TYPE**: one Arrow
+    /// decimal column carries one scale, and an exact decimal rendered at the wrong one is a
+    /// different number. `decimal-total-by-day` is the case that measured this - it expects
+    /// `Text("11.50")`, so a column declared at scale 0 lost the fraction and answered null - while
+    /// `wide-total-by-day` needs scale 0 so the interior's own decode widens a whole number back to
+    /// `Integer`.
+    fn scale_of(column: usize, rows: &[Vec<Value>]) -> i8 {
+        let mut widest = 0_usize;
+        for value in rows.iter().filter_map(|row| row.get(column)) {
+            if let Value::Text(ref text) = *value
+                && let Some((_whole, fraction)) = text.split_once('.')
+            {
+                widest = widest.max(fraction.len());
+            }
+        }
+        i8::try_from(widest).unwrap_or(0)
+    }
+
+    /// One value as this column's decimal payload, at `scale`.
+    ///
+    /// Scaled by moving the point in TEXT rather than by multiplying a float, which is the whole
+    /// point of an exact decimal: `11.50` at scale 2 is the payload `1150`, and reaching that
+    /// through an `f64` is how a total that was exact stops being exact.
+    fn payload_of(value: Option<&Value>, scale: i8) -> Option<i128> {
+        let places = usize::try_from(scale).unwrap_or(0);
+        match value {
+            Some(&Value::Integer(number)) => {
+                let mut text = number.to_string();
+                text.push_str(&"0".repeat(places));
+                text.parse::<i128>().ok()
+            }
+            Some(Value::Text(text)) => {
+                let (whole, fraction) = text.split_once('.').unwrap_or((text.as_str(), ""));
+                if fraction.len() > places {
+                    return None;
+                }
+                let mut scaled = String::from(whole);
+                scaled.push_str(fraction);
+                scaled.push_str(&"0".repeat(places - fraction.len()));
+                scaled.parse::<i128>().ok()
+            }
+            _ => None,
         }
     }
 
-    /// A case's expected rows, as the answer a wire transport would have sent for it.
-    fn canned_rows(expected: &RowSet) -> JobRows {
-        let kinds: Vec<FieldType> = (0..expected.columns().len())
-            .map(|column| kind_of(column, expected.rows()))
-            .collect();
-        let fields: Vec<Field> = expected
-            .columns()
-            .iter()
-            .zip(&kinds)
-            .map(|(name, kind)| Field::of(name.clone(), kind.clone()))
-            .collect();
-        let rows: Vec<Vec<Cell>> = expected.rows().iter().map(|row| row.iter().map(cell_of).collect()).collect();
-        let total = rows.len();
-        JobRows::of(fields, rows, total)
+    /// The width this fixture declares every exact decimal at.
+    ///
+    /// The SCALE is per column - see `scale_of` - and the two halves of that split are both
+    /// load-bearing: at scale 0 the interior's decode widens a whole number that fits an `i64` back
+    /// to `Integer` (`wide-total-by-day`), and at a positive scale it renders the exact text
+    /// (`decimal-total-by-day`). One constant for both would break one of the two.
+    const DECIMAL_PRECISION: u8 = 38;
+
+    /// One column, as the arrays a driver would hand back.
+    ///
+    /// The inverse of the interior's own `cell`, and it has to be: what this file proves is that the
+    /// two agree. A value that does not match the column's declared type is a defect in `kind_of`
+    /// above rather than a case to answer as null, so each arm says which type it expected.
+    fn column_of(kind: &DataType, column: usize, rows: &[Vec<Value>]) -> ArrayRef {
+        let cells = rows.iter().map(|row| row.get(column));
+        match *kind {
+            DataType::Float64 => Arc::new(Float64Array::from(
+                cells
+                    .map(|value| match value {
+                        Some(&Value::Real(real)) => Some(real.get()),
+                        _ => None,
+                    })
+                    .collect::<Vec<Option<f64>>>(),
+            )),
+            DataType::Int64 => Arc::new(Int64Array::from(
+                cells
+                    .map(|value| match value {
+                        Some(&Value::Integer(number)) => Some(number),
+                        _ => None,
+                    })
+                    .collect::<Vec<Option<i64>>>(),
+            )),
+            DataType::Decimal128(precision, scale) => {
+                let payloads: Vec<Option<i128>> = cells.map(|value| payload_of(value, scale)).collect();
+                Arc::new(
+                    Decimal128Array::from(payloads)
+                        .with_precision_and_scale(precision, scale)
+                        .expect("a fixture decimal has a width and a scale"),
+                )
+            }
+            _ => Arc::new(StringArray::from(
+                cells
+                    .map(|value| match value {
+                        None | Some(&Value::Null) => None,
+                        Some(other) => Some(other.render()),
+                    })
+                    .collect::<Vec<Option<String>>>(),
+            )),
+        }
+    }
+
+    /// A case's expected rows, as the Arrow batches a driver would have handed back for it.
+    ///
+    /// Built through `Accumulating` for the reason production is: `ResultBatches` has no other
+    /// constructor, so a fixture cannot hand back a result the announced-schema guard would have
+    /// refused.
+    fn canned_rows(expected: &RowSet) -> ResultBatches {
+        let mut fields = Vec::with_capacity(expected.columns().len());
+        let mut arrays = Vec::with_capacity(expected.columns().len());
+        for (index, label) in expected.columns().iter().enumerate() {
+            let kind = kind_of(index, expected.rows());
+            arrays.push(column_of(&kind, index, expected.rows()));
+            fields.push(Field::new(label.as_str(), kind, true));
+        }
+        let schema: SchemaRef = Arc::new(Schema::new(fields));
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), expected.rows().len().max(1));
+        if expected.rows().is_empty() {
+            return accumulating.finish();
+        }
+        let batch = RecordBatch::try_new(schema, arrays).expect("a canned answer is rectangular");
+        accumulating.push(batch).expect("a canned answer carries its own schema");
+        accumulating.finish()
     }
 
     /// Never returned: every statement [`Canned`] is asked comes from a case it precomputed an
@@ -170,7 +272,7 @@ mod conformance {
     /// The fake transport this binding stands up unconditionally. See this file's own header for
     /// what a HELD behaviour over it does and does not establish.
     struct Canned {
-        answers: BTreeMap<Key, JobRows>,
+        answers: BTreeMap<Key, ResultBatches>,
     }
 
     impl Canned {
@@ -190,7 +292,7 @@ mod conformance {
     impl JobTransport for Canned {
         type Error = NoCannedAnswer;
 
-        fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+        fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
             let key = key_of(request.statement(), request.params());
             self.answers.get(&key).cloned().ok_or(NoCannedAnswer)
         }

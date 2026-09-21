@@ -61,9 +61,11 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
 
 /// Every column type this importer will declare.
 ///
-/// The five `BigQuery` types [`crate::transport::FieldType`] maps, and no others - so a fixture
-/// cannot produce a table whose columns come back as `Unmapped`. `NUMERIC` is deliberately absent:
-/// nothing in the corpus needs an exact decimal, and a type nothing exercises reads as coverage.
+/// Five `BigQuery` types whose Arrow form `sutura_domain::warehouse::arrow` maps, and no others -
+/// so a fixture cannot produce a table whose columns come back refused. `NUMERIC` is deliberately
+/// absent: nothing in the corpus needs an exact decimal, and a type nothing exercises reads as
+/// coverage. This used to cite this crate's own `FieldType`; `docs/adr/0039` moved the mapping to
+/// the interior and the set it has to stay inside with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ColumnType {
     Bool,

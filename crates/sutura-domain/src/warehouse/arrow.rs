@@ -255,6 +255,16 @@ impl ResultBatches {
             .iter()
             .map(|field| String::from(field.name().as_str()))
             .collect();
+        // THE TYPE PASS, BEFORE A ROW IS READ, and the hole it closes was measured rather than
+        // imagined. `cell` answers a null before it looks at the column's type, so a result with NO
+        // rows never reaches it at all and a result whose unmapped column happens to be entirely
+        // null reaches it and is answered: a `TIMESTAMP` column came back as a successful EMPTY
+        // result, and whether this workspace maps a type depended on what the data happened to be.
+        // `sutura-exec-bigquery`'s own decoder had this pass and the engine did not; it is here now,
+        // so every adapter gets it.
+        for (label, field) in columns.iter().zip(self.schema.fields()) {
+            mapped(label, field.data_type())?;
+        }
         let mut rows: Vec<Vec<Value>> = Vec::with_capacity(self.rows);
         for batch in &self.batches {
             for row in 0..batch.num_rows() {
@@ -274,6 +284,39 @@ impl ResultBatches {
             }
         }
         RowSet::new(columns, rows).map_err(UnreadableCell::Ragged)
+    }
+}
+
+/// Whether this domain maps a column of this Arrow type at all, asked of the TYPE and no value.
+///
+/// **A second match over the same set as [`cell`], and both directions of a drift fail closed.** A
+/// type [`cell`] reads but this does not name is refused at the schema pass, which is a column
+/// refused that could have been read; a type this names but [`cell`] does not is refused per cell as
+/// [`UnreadableCell::UnsupportedType`] instead, one step later. Neither direction answers a value.
+/// `every_mapped_type_passes_the_schema_pass_and_float32_does_not` is what holds the two together,
+/// and it reads the mapping table rather than a list of its own.
+fn mapped(label: &str, kind: &DataType) -> Result<(), UnreadableCell> {
+    match *kind {
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Float64
+        | DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Utf8View
+        | DataType::Date32
+        | DataType::Boolean
+        | DataType::Decimal128(..)
+        | DataType::Decimal256(..) => Ok(()),
+        ref other => Err(UnreadableCell::UnsupportedType {
+            column: String::from(label),
+            arrow_type: format!("{other:?}"),
+        }),
     }
 }
 

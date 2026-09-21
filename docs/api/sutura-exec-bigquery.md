@@ -24,15 +24,18 @@ What it contains is everything this adapter DECIDES:
 - the rendering, through `sutura-sql` in `Dialect::BigQuery`, so no second set of quoting and
   placeholder decisions exists here;
 - the refusal of a federated leg, because there is no combiner above it;
-- the value mapping, which is where a wrong number would come from;
+- handing the driver's Arrow batches to the interior's own decode, which is where a wrong
+  number would come from and which is no longer this crate's code (`docs/adr/0039`);
 - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
   tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
   on a `files` deployment rather than a failed answer for whoever asks first.
 
 **A limit of that mapping, stated because it decides what a time column on this source is:**
-`transport::FieldType` reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
-as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
-answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
+`sutura_domain::warehouse::arrow` maps `Date32` and refuses every timestamp type, so a
+`TIMESTAMP` or `DATETIME` column is refused NAMING its Arrow type and fails the answer - the
+correct and loud outcome. A time column therefore has to be a `DATE` here. The refusal moved
+there with the rest of the mapping (`docs/adr/0039`); it used to be this crate's own
+`FieldType::Unmapped` over a type NAME the deleted HTTP transport read out of a JSON schema.
 
 The **transport** - one `transport::JobTransport` that executes the statement - is `adbc`,
 behind the default-off `adbc` feature: it loads the self-built `libadbc_driver_bigquery.so`
@@ -145,47 +148,23 @@ an owned `#[source]`.
   credential the transport already holds while provenance, read off this source's posture,
   reported the answer as impersonated.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
-- `UnmappedType` - A column came back as a type this adapter does not map.
+- `Unreadable` - A result column could not be read as a domain value.
 
-  It NAMES the type rather than answering null, which is the whole reason
-  `FieldType::Unmapped` carries the endpoint's own
-  spelling.
-- `NotAnInteger` - A cell declared `INT64` did not parse as one.
+  **This one variant replaces seven**, and `docs/adr/0039` is the record. The seven were an
+  unmapped type, an `INT64` that did not parse, a `FLOAT64` that did not parse, a `BOOL` that
+  was neither spelling, a non-finite double, a date that did not parse, and a row whose width
+  disagreed with the schema. Every one of them existed because the deleted HTTP wire transport
+  received each value as TEXT whatever its declared type was, so "declared an integer" and
+  "parses as an integer" were two separate facts this adapter had to check. The ADBC driver
+  hands back typed Arrow arrays, so there is no text to re-parse and no place for those four
+  parse failures to occur; what remains is the interior's own mapping and its errors.
 
-  **Two variants rather than one carrying a `&'static str`, because the CAUSE differs.** The
-  endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
-  two facts, and the standard-library error that says why is worth keeping on the chain.
-- `NotADouble` - A cell declared `FLOAT64` did not parse as one.
-- `NotABool` - A cell declared `BOOL` was neither `true` nor `false`.
-
-  No `#[source]`: there is no parse behind it, because the check is a comparison against the two
-  spellings the endpoint documents. A variant with an invented cause would be worse than none.
-- `NotFinite` - A double came back non-finite.
-
-  **What this arm actually guards, on THIS target, is narrower than the two SQL adapters
-  agreeing.** In `GoogleSQL` the `/` operator raises on a zero divisor for every numeric type -
-  only `IEEE_DIVIDE` answers `inf`/`NaN` - so an unguarded zero-division ratio fails at the
-  service first, as `Self::Endpoint` with the same `503` as a dead data system. What reaches
-  this arm is a non-finite value STORED in a `FLOAT64` column, and the check keeps that stored
-  `Infinity` from answering a real under a certified metric name. It is `sutura-exec-duckdb`'s
-  same arm that gives `zero_denominator: fails` its meaning, because there the unguarded `/`
-  does answer `inf`; the sentence that credits this arm with the ratio case belongs to `DuckDB`.
-- `NotADate` - A cell declared as a date did not parse as one.
-- `RowWidth` - A row had more or fewer cells than the schema had columns.
-
-  Distinct from `Self::Shape`: this one is the ENDPOINT disagreeing with itself, caught before
-  a row is built, so the position of the offending row is reportable.
-- `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
-
-  `jobs.query` answers one page at a time, and completeness is stated as `totalRows` beside the
-  rows - never by the rows alone. A first page, or an incomplete job's empty `rows`, would read
-  to `answer()` as *under the cap, not truncated*: a wrong number under a certified name, through
-  the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
-  reported total is refused here, at the seam, rather than certified.
+  The column is named one level down, on `UnreadableCell`, which is where every adapter now
+  names it.
 - `NoIdentityInTheAnswer` - The identity read came back as something other than one row of one text cell.
 
-  Its own variant rather than `Self::RowWidth` or `Self::Shape`, because what a caller does
-  about it is different: those two are a result set this adapter could not map, and this is
+  Its own variant rather than `Self::Unreadable`, because what a caller does about it is
+  different: that one is a result set this workspace could not map, and this is
   *the endpoint did not tell us who ran the job* - which for the one caller that asks
   (`BigQueryWarehouse::session_user`) is the whole
   answer rather than a cell of it.
@@ -193,7 +172,6 @@ an owned `#[source]`.
   **It carries the SHAPE and never the value**, deliberately. The one thing this answer can
   contain is an account identifier, and the venue that reads it writes to a public log - so a
   refusal that quoted what came back would be the disclosure the read exists to check for.
-- `Shape` - The result set could not be built.
 
 ### Implements
 
@@ -325,7 +303,7 @@ nothing that federates.
 # Errors
 
 `BigQueryError::Endpoint` where the endpoint did not answer,
-`BigQueryError::Incomplete` where the page and the reported total disagree, and
+`BigQueryError::Unreadable` where the one cell is not a text this workspace maps, and
 `BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
 Nothing here quotes what came back: see that variant.
 
@@ -468,7 +446,12 @@ Why the ADBC transport could not answer.
 - `Load` - The driver `.so` could not be loaded.
 - `Adbc` - An ADBC call (connect, prepare, execute) failed.
 - `Batch` - A result batch could not be read from the stream.
-- `Decode` - The result set could not be decoded into the adapter's own shape.
+- `Unannounced` - A batch did not carry the fields the driver's own announced schema said it would.
+
+  **The check is `sutura_domain::warehouse::Accumulating`'s and not this crate's**, which is
+  `docs/adr/0039`'s point: a foreign driver streaming over a C ABI is exactly the case to
+  refuse rather than trust, and the obligation is the same for every adapter that has one.
+  This variant also carries the row ceiling being reached - see `MOST_RESULT_ROWS`.
 - `Uncovered` - ADBC does not yet cover a port method this transport was asked for.
 - `NoDryRun` - There is no ADBC call that prices a statement without running it.
 
@@ -586,7 +569,7 @@ federated credential with an impersonated token source. A screened value this tr
 send would read as a control that is in place, so it is not held here at all and the operator is
 told where they declare it.
 
-### `use MOST_RESULT_ROWS`
+### `constant MOST_RESULT_ROWS`
 
 How many rows this transport will materialise from one result stream before refusing.
 
@@ -601,8 +584,8 @@ It is not a cap on an answer either, and that distinction decides the value.
 federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
 leg is not an answer - so for a leg there is nothing in the statement bounding what the source
 may stream back, and the only thing between a driver that streams without end and this process is
-a number here. The refusal fires WHILE reading, in `Decoding::push`, so it cannot be reached by
-first materialising the whole stream.
+a number here. The refusal fires WHILE reading, in `Accumulating::push`, so it cannot be reached
+by first materialising the whole stream.
 
 Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
 have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
@@ -611,179 +594,10 @@ keeps. **The VALUE is held rather than commented** - review measured that raisin
 the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
 `tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
 
-### `use Reported`
-
-The row count a stream reports, when it reports one at all.
-
-`Reported::Unreported` is an honest absence, never a defaulted `0`.
-
-### Module `decode`
-
-Arrow -> `JobRows` decode for the ADBC transport (telekom/sutura#913).
-
-The driver returns Arrow record batches; this pure half turns a schema +
-batches into the adapter's own `JobRows`, reusing the same
-`crate::transport::FieldType` vocabulary the wire uses, so one plan answered
-by two transports agrees on field kinds.
-
-# A batch is checked against the schema it was announced under, by NAME
-
-**A width check is not a schema check, and the difference is a wrong answer rather than a
-failure.** Arrow itself validates a `RecordBatch` positionally and never by name -
-`arrow_array::RecordBatch::try_new` zips columns against fields and compares type and
-nullability - so a driver that hands back two same-typed columns in the wrong order builds a
-perfectly valid batch, and a decoder that only counted columns would label those values with the
-outer schema's names. That is a transposed answer under a certified metric name, with no error
-anywhere. The same defect class was measured in a third-party positional cast: a swapped integer
-key and decimal measure came back transposed, and a same-typed swap came back silently empty.
-
-So `Decoding::push` refuses a batch whose field at a position is not the field the schema
-announced there - name AND type - as `Decode::Mislabelled`, before a single value is read.
-Nothing in `DataFusion` would have done it for us: `SchemaAdapter`/`SchemaMapper` are deprecated
-and their default implementation returns `not_impl_err!`, the live `PhysicalExprAdapter`
-resolves by name only on the datasource path, and nothing validates that a custom plan's stream
-matches its declared schema at all. For a foreign driver behind this transport the obligation is
-ours.
-
-# The stream is decoded as it arrives, under a ceiling
-
-One pass, not two: `Decoding` takes one batch at a time and appends its rows, so nothing ever
-holds a `Vec<RecordBatch>` beside the rows decoded from it. The cast to text is one vectorised
-`arrow_cast::cast` per COLUMN per batch - it used to run inside the row loop, which cast every
-column once per row.
-
-# Completeness is the full drain, and nothing reads a reported total
-
-The wire refused a first page by comparing the delivered count to the endpoint's `totalRows`; an
-ADBC read streams the whole result, so completeness here is the stream draining fully -
-`AdbcBigQuery`'s `JobTransport::run` consumes the reader to exhaustion and any error on the way is
-an `Err`, so a truncated stream is a failure rather than a short answer.
-
-**`Reported::Total` is not wired, and the sentence that said it was conditional is gone.**
-`Decoding::finish` refuses a delivered count that does not reach a total it is GIVEN, and the
-only production call passes `Reported::Unreported` - so `Decode::Incomplete` is reachable
-from this module's own tests and from nowhere else. The claim it replaced said the total was
-checked *when the driver reports one*, citing schema-metadata keys measured in a provisioned leg;
-nothing in this crate reads schema metadata, and the leg cited never ran. Reading the driver's
-metadata keys is a change with a provisioned run behind it, not a comment.
-
-#### `enum Decode`
-
-```rust
-pub enum Decode
-```
-
-Why a result set could not be decoded.
-
-##### Variants
-
-- `UnmappedColumn` - A column whose Arrow type this adapter does not map.
-- `Shape` - A batch that disagrees with the schema it was announced under - a stream arriving over a C ABI from a foreign driver is exactly the case to refuse rather than trust.
-- `Mislabelled` - A batch of the right WIDTH whose field at one position is not the field the schema announced there, so its values would have been labelled with somebody else's name.
-
-  Carries both descriptors - `name type`, which is a driver's own metadata and not a value -
-  so an operator can see which way round the two are without the refusal quoting a cell.
-- `Incomplete` - The stream was not complete: a reported total the delivered rows do not reach.
-- `OverBound` - The stream carried more rows than this transport will materialise - see `MOST_RESULT_ROWS`.
-
-##### Implements
-
-`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-#### `enum Reported`
-
-```rust
-pub enum Reported
-```
-
-The row count a stream reports, when it reports one at all.
-
-`Reported::Unreported` is an honest absence, never a defaulted `0`.
-
-##### Variants
-
-- `Unreported`
-- `Total`
-
-##### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-#### `struct Decoding`
-
-```rust
-pub struct Decoding<'announced>
-```
-
-One result stream, decoded batch by batch into the adapter's own rows.
-
-**The accumulator exists so the bound and the schema check can fire WHILE the stream is read.**
-The transport's `run` drives it directly off the driver's `RecordBatchReader`, so a stream that
-will be refused is refused at the batch that crosses the line rather than after every batch has
-been collected and then decoded a second time. It replaced a `job_rows(&schema, &batches, ..)`
-whose only caller collected the whole stream first; nothing needs that shape now, so it is gone
-rather than kept beside this one.
-
-##### Methods
-
-```rust
-pub fn finish(self, reported: Reported) -> Result<JobRows, Decode>
-```
-
-The decoded rows, refusing a stream that did not reach a reported total.
-
-# Errors
-
-`Decode::Incomplete` where `reported` names a total the delivered rows do not reach.
-
-```rust
-pub fn of(announced: &'announced Schema, most: usize) -> Result<Self, Decode>
-```
-
-Reads the announced schema's types, refusing one this adapter does not map.
-
-**The type pass is here rather than per batch on purpose:** a result with no rows at all
-still refuses an unmapped column, which is the answer a caller needs before it reads a field
-list. `most` is the row ceiling, passed rather than defaulted so the call site says which
-bound it is under - `MOST_RESULT_ROWS` is what the transport passes.
-
-```rust
-pub fn push(&mut self, batch: &RecordBatch) -> Result<(), Decode>
-```
-
-Checks one batch against the announced schema and appends its rows.
-
-# Errors
-
-`Decode::Shape` for a batch of the wrong width, `Decode::Mislabelled` for one whose
-field at a position is not the announced one, `Decode::OverBound` where this batch would
-take the stream past the ceiling, and `Decode::UnmappedColumn` where a column would not
-cast to text.
-
-#### `constant MOST_RESULT_ROWS`
-
-How many rows this transport will materialise from one result stream before refusing.
-
-**A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
-was called a ceiling on this process's memory; a row count times an unbounded row width is not a
-memory bound, and what decides the width is the plan's projection - a property of the plans a
-deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
-unending driver is refused, a million very wide rows are not.
-
-It is not a cap on an answer either, and that distinction decides the value.
-`sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
-federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
-leg is not an answer - so for a leg there is nothing in the statement bounding what the source
-may stream back, and the only thing between a driver that streams without end and this process is
-a number here. The refusal fires WHILE reading, in `Decoding::push`, so it cannot be reached by
-first materialising the whole stream.
-
-Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
-have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
-keeps. **The VALUE is held rather than commented** - review measured that raising it to
-`usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
-the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
-`tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
+**The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
+caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
+batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
+puts it. A foreign driver is what a row ceiling exists for.
 
 ## Module `transport`
 
@@ -1194,10 +1008,13 @@ entries and no readable id, which read `Self::Accounted` over no ids at all - th
 reporting every table absent while the cross-check read clean. An entry with no readable id is
 the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 
-The same cross-check one document over is `crate::BigQueryError::Incomplete`, which compares
-`delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-here so a reader who greps one finds the other. This type carries the inventory evidence;
-preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
+**This is the only reported-total cross-check left in this crate.** There used to be a second,
+`BigQueryError::Incomplete`, comparing a query answer's delivered count against the endpoint's
+own `totalRows`; `docs/adr/0039` records why an ADBC read's completeness is the full drain
+instead, and it went with the paging it described. A LISTING still carries a total, because a
+dataset listing is a metadata document and not a result stream. This type carries the inventory
+evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
+through a value.
 
 #### Variants
 
@@ -1363,150 +1180,6 @@ Why a resource name this adapter was handed is not usable.
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `enum FieldType`
-
-```rust
-pub enum FieldType
-```
-
-What the endpoint said a column is.
-
-**A closed set plus one named escape**, rather than a passthrough of every type the endpoint can
-return. Each variant here is a claim that this adapter maps that type to a domain value and has a
-test saying so; `Self::Unmapped` carries the endpoint's own spelling so a type nobody mapped
-produces an error NAMING it rather than a null.
-
-#### Variants
-
-- `Int64` - A 64-bit integer.
-- `Float64` - A double. Mapped through `Real`, which refuses a non-finite value.
-- `Numeric` - An exact decimal - `NUMERIC` or `BIGNUMERIC`. Mapped to TEXT rather than to a double, so an exact total stays exact; `sutura-exec-duckdb` maps its own `Decimal` the same way and for the same sentence.
-- `Bool` - A boolean.
-- `String` - Text.
-- `Date` - A calendar date, as ISO text.
-- `Unmapped` - A type this adapter does not map, under the name the endpoint used for it.
-
-#### Methods
-
-```rust
-pub fn parse(name: &str) -> Self
-```
-
-Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
-
-A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
-variants here are named after their modern spellings. The transport that reads an answer's
-schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
-lives, and not in the unbuilt transport. A name nobody maps becomes `Self::Unmapped` under
-the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct Field`
-
-```rust
-pub struct Field
-```
-
-One column, as the endpoint described it.
-
-#### Methods
-
-```rust
-pub const fn kind(&self) -> &FieldType
-```
-
-What the endpoint said this column is.
-
-```rust
-pub fn name(&self) -> &str
-```
-
-The label a result column carries.
-
-```rust
-pub const fn of(name: String, kind: FieldType) -> Self
-```
-
-Names one column.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `enum Cell`
-
-```rust
-pub enum Cell
-```
-
-One cell, as the endpoint sent it.
-
-**Text or nothing, and that is the endpoint's shape rather than a simplification.** A value in a
-query response is a JSON string whatever its declared type is - an integer arrives as `"250"` - so
-the mapping from text to a typed domain value is this adapter's work, and `Field::kind` is what
-decides it. Modelling it as already-typed here would move that work into the transport, where the
-fake and the real implementor would each have to do it and could disagree.
-
-#### Variants
-
-- `Null` - JSON `null`.
-- `Text` - A value, as the endpoint spelled it.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
-
-### `struct JobRows`
-
-```rust
-pub struct JobRows
-```
-
-A job's result: what the columns are, the rows under them, and how many the job produced.
-
-**The count is part of the result, and that is what makes a partial answer not a result.** The
-endpoint's `jobs.query` answers one page - "as many results as can be contained within the
-maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
-single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
-truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
-endpoint reported as total - see `super::BigQueryError::Incomplete`.
-
-#### Methods
-
-```rust
-pub fn fields(&self) -> &[Field]
-```
-
-The columns, in the order the statement projected them.
-
-```rust
-pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self
-```
-
-Assembles a result.
-
-`total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
-complete - so an incomplete job has no value to fill it with, and the transport has to error.
-
-```rust
-pub fn rows(&self) -> &[Vec<Cell>]
-```
-
-The rows on this page.
-
-```rust
-pub const fn total_rows(&self) -> usize
-```
-
-What the endpoint said the job's total is, which a delivered page is compared against.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ### `trait JobTransport`
 

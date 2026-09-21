@@ -78,31 +78,117 @@ nothing reads is an entry justified by nothing. `xz` and `zst` are **parse-only*
 to the right codec and no cell decodes one - and no gate would notice if this build could not in fact
 decode them. Adding a writer for either is the fix if that matters.
 
-## Step 2, decided and not built here: Arrow at the `Warehouse` port
+## Step 2, decided, and built as far as the interior: Arrow as domain vocabulary
 
-**The decision:** `Warehouse::execute`'s currency becomes Arrow record batches, and the domain names
-the Arrow array types. That reverses 0007's *the port's currency stays `RowSet`* and 0037's refusal
-of Arrow as domain vocabulary, and it is what lets `sutura-exec-bigquery` stop turning Arrow arrays
-into text cells and text cells into domain values on the way out of a driver that already speaks
-Arrow.
+**The decision:** the domain names the Arrow array types, and `Warehouse::execute`'s currency
+becomes Arrow record batches. That reverses 0007's *the port's currency stays `RowSet`* and 0037's
+refusal of Arrow as domain vocabulary.
 
-**Three measurements that bound it, taken on this branch on 2026-09-21.** They are here because two
-of them correct how this was scoped, and the third is the one that makes step 2 possible at all:
+**Built: the first half, which is the architecture decision.**
+`sutura_domain::warehouse::arrow` holds `Accumulating` - a stream checked against its announced
+schema by NAME and type, under a row ceiling, before a value is read - and `ResultBatches::to_rows`,
+the one Arrow-to-`Value` decode in this workspace, with a type pass ahead of it. The engine reads
+its own collected batches through it and has no `cell` of its own any more.
+
+**Built: `BigQuery` stops hand-decoding, which is what the four open review threads on
+`telekom/sutura#929` were all asking for.** The transport port's `run` returns `ResultBatches`, so
+the ADBC driver's typed Arrow arrays reach the interior unchanged. What that DELETED, rather than
+moved:
+
+| Gone                                                     | What it was                                                                                                                                                                                                                                    |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adbc/decode.rs`                                         | cast every column to `Utf8`, then a text cell per value                                                                                                                                                                                        |
+| `rowset.rs`                                              | a schema pass over six `FieldType`s, then a `parse::<i64>()` per cell                                                                                                                                                                          |
+| `transport.rs`'s `Cell`, `Field`, `FieldType`, `JobRows` | a text-cell result vocabulary, shaped by the deleted HTTP wire transport where every value arrived as a JSON string whatever its declared type was                                                                                             |
+| seven `BigQueryError` variants                           | an unmapped type, an `INT64` that did not parse, a `FLOAT64` that did not parse, a `BOOL` that was neither spelling, a non-finite double, a date that did not parse, a ragged row - one `Unreadable` wrapper over the interior's own cause now |
+| `BigQueryError::Incomplete`                              | a delivered count against the endpoint's `totalRows`; see below                                                                                                                                                                                |
+| the `arrow-cast` dependency                              | what the cast-to-text needed, and `cargo check` named it once nothing used it                                                                                                                                                                  |
+
+**Why `Incomplete` is gone rather than relaxed.** It refused a page whose row count was below the
+endpoint's reported total, which is `jobs.query`'s paging shape and which only the deleted HTTP
+transport ever reported. An ADBC read streams the whole result and `run` drains the reader to
+exhaustion, so completeness IS the drain: a truncated stream is an `Err` rather than a short answer.
+A LISTING still carries a total, because a dataset listing is a metadata document rather than a
+result stream, and `ListingTotal` is unchanged.
+
+**What replaced the page bound, because a bound was removed and something had to.** A result that
+did not fit used to be recognised two ways - a page token, and `Incomplete`. An ADBC stream has no
+pages; what it has is `MOST_RESULT_ROWS`, and a stream refused for crossing it is equally *the caller
+cannot get this whatever it retries*. So `AdbcBigQuery` overrides `result_did_not_fit` for
+`UnannouncedBatch::OverBound` alone: the port's default `false` would have reached a caller as a
+`503`, the status a dead endpoint produces, inviting a retry that returns the same stream.
+
+**The hole the interior's type pass closes, and it was measured rather than imagined.** `cell`
+answers a null before it reads a column's type, so a result with NO rows never reaches it and a
+column that is entirely null reaches it and is answered: a `TIMESTAMP` column came back as a
+successful EMPTY result, and whether this workspace maps a type depended on what the data happened
+to be. `sutura-exec-bigquery`'s own decoder had a schema pass that closed it and the engine did not.
+It is in `ResultBatches::to_rows` now, which is the shape of this whole step: a check that existed
+once and applied to one adapter now exists once and applies to all of them.
+
+**Not built: the port's signature.** `Warehouse::execute` still returns a `RowSet`, so an adapter
+converts at its own boundary rather than the caller converting at the presentation edge. What the
+built half changes is that there is nothing left to RELOCATE when it moves - one decode, in the
+interior, called by every adapter whose driver speaks Arrow.
+
+**One row-handling path in `sutura-exec-bigquery` is deliberately untouched**, because it is not a
+result decode: `importer.rs` renders a fixture CSV's cells into `GoogleSQL` literals behind the
+default-off `fixtures` feature. That is a WRITE path with its own no-interpolation argument, and no
+question reaches it.
+
+**Why the guard is ours to write, and it is not a belt on a brace.** `RecordBatch::try_new`
+validates positionally and by TYPE ONLY - it zips columns against fields and never reads a field
+name - so a driver handing back two same-typed columns in the wrong order builds a perfectly valid
+batch, and a consumer that counted columns would label those values with the announced schema's
+names: a transposed answer under a certified metric name, with no error anywhere. A
+differently-typed swap Arrow already refuses, which is why the mutation that matters, and the cell
+that pins it, is a swap of two **same-typed** columns. Nothing in `DataFusion` closes it either:
+`SchemaAdapter`/`SchemaMapper` are deprecated, the live `PhysicalExprAdapter` resolves by name on
+the DATASOURCE path and is opt-in, and nothing validates a custom `ExecutionPlan`'s stream against
+its declared schema at all.
+
+**The ceiling is the caller's, and the two callers pass different values.** A foreign driver is what
+the bound exists for - a federation leg carries no `LIMIT`, so nothing in the statement bounds what
+the source streams - and `MOST_RESULT_ROWS` is that caller. The engine passes `usize::MAX`
+deliberately: what protects this process from its own wide result is the memory pool in
+`sutura-exec-datafusion`'s `pool`, an operator reservation, which is where 0009 puts it. So
+`UnannouncedBatch::OverBound` is unreachable through the engine's own collection, and saying so is
+cheaper than a second bound that would refuse an answer the pool had already granted.
+
+**A limit on the row builder, stated where it is made.** `arrow::of_rows` - behind the `fixtures`
+feature, for a fake and for an adapter whose source speaks rows - infers a column type: all-`Integer`
+is `Int64`, all-`Real` is `Float64`, anything else is `Utf8` with each value rendered. So a MIXED
+column does not round-trip: an `Integer` in a column that also holds `Text` comes back as `Text`.
+That is a per-cell union meeting a per-column format, and it is acceptable because no data system
+produces a mixed column - a source declares a column's type. The cell that pins the round-trip
+asserts the mixed case as text rather than pretending otherwise.
+
+**The one place that limit bites, and what the fixture does about it.** `sutura-exec-bigquery`'s
+conformance fake is claiming what a data system would have SENT, and the corpus has columns that
+answer `Integer` for one row and a wide `Text` for another - a real `BigQuery` reports one `NUMERIC`
+for such a column either way. So that fake declares `Decimal128` with a PER-COLUMN scale rather than
+using `of_rows`: at scale 0 the interior widens a whole number that fits an `i64` back to `Integer`
+(`wide-total-by-day`), and at a positive scale it renders the exact text (`decimal-total-by-day`).
+Getting that split wrong is what a run measured - a column declared at scale 0 lost `11.50`'s
+fraction and answered null.
+
+**Four measurements that bound it, taken on this branch on 2026-09-21.** Two of them correct how
+this was scoped, one is what makes step 2 possible at all, and the last is what it cost:
 
 - **The ADBC driver manager is on the engine's Arrow major.** `adbc_core 0.24.0` declares
   `arrow-array 59.2.0` and `arrow-schema 59.2.0` in `Cargo.lock`, which is the major
   `sutura-exec-datafusion` resolves through `datafusion`. So a batch the BigQuery driver produces can
-  reach an Arrow-typed port with no conversion and no C data interface - which `unsafe_code =
-  "forbid"` puts out of reach anyway.
+  reach the interior with no conversion and no C data interface - which `unsafe_code = "forbid"`
+  puts out of reach anyway.
 - **The 58/59 split is still open, and it bounds which adapter can be Arrow-native rather than
   whether the port can be.** `duckdb 1.10505.0` - the pinned release, checked against
   `index.crates.io` - still declares `arrow ^58`, and `devco/arrow-majors-allow` tolerates the split
-  as a DUPLICATE on the stated test *whether any first-party crate names the type*. An Arrow-typed
-  port keeps that answer NO for `sutura-exec-duckdb`, which converts through the domain's own row
-  vocabulary and names no Arrow type - so the port change does not convert the duplicate into a type
-  boundary. What it does forbid until `duckdb-rs` releases its merged arrow-59 bump is a **DuckDB
-  adapter that hands its native batches through**, which is the one adapter that must keep building
-  rows by hand.
+  as a DUPLICATE on the stated test *whether any first-party crate names the type*. The interior
+  naming `arrow-array 59` keeps that answer NO for `sutura-exec-duckdb`, which converts through the
+  domain's own row vocabulary and names no Arrow type - so this change does not convert the duplicate
+  into a type boundary. What it does forbid until `duckdb-rs` releases its merged arrow-59 bump is a
+  **DuckDB adapter that hands its native batches through**, which is the one adapter that must keep
+  building rows by hand.
 - **The port change is not a signature tweak, which is why it is not in this change.** On this tree:
   52 `fn execute` implementations, 59 `.execute(` call sites, 79 `RowSet::new` constructions and 94
   `.rows()` reads. Most are fakes, and the shape that makes it mechanical rather than a rewrite is

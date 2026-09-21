@@ -22,9 +22,9 @@ use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
 use sutura_domain::identity::Secret;
-use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::{ParamValue, ResultBatches};
 
 /// How a request writes its bind parameters.
 ///
@@ -319,10 +319,13 @@ pub struct HeldTables {
 /// reporting every table absent while the cross-check read clean. An entry with no readable id is
 /// the shape signal; an id `usable_table_id` rejected is the legitimate drop, and it still counts.
 ///
-/// The same cross-check one document over is [`crate::BigQueryError::Incomplete`], which compares
-/// `delivered` against `total` on a query answer and REFUSES. Two vocabularies for one shape, named
-/// here so a reader who greps one finds the other. This type carries the inventory evidence;
-/// preflight decides whether it leaves a requested table unaccounted for and refuses through a value.
+/// **This is the only reported-total cross-check left in this crate.** There used to be a second,
+/// `BigQueryError::Incomplete`, comparing a query answer's delivered count against the endpoint's
+/// own `totalRows`; `docs/adr/0039` records why an ADBC read's completeness is the full drain
+/// instead, and it went with the paging it described. A LISTING still carries a total, because a
+/// dataset listing is a metadata document and not a result stream. This type carries the inventory
+/// evidence; preflight decides whether it leaves a requested table unaccounted for and refuses
+/// through a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListingTotal {
     /// The document carried no total at all, so an empty listing and an empty dataset are one value.
@@ -633,149 +636,6 @@ impl DatasetId {
     }
 }
 
-/// What the endpoint said a column is.
-///
-/// **A closed set plus one named escape**, rather than a passthrough of every type the endpoint can
-/// return. Each variant here is a claim that this adapter maps that type to a domain value and has a
-/// test saying so; [`Self::Unmapped`] carries the endpoint's own spelling so a type nobody mapped
-/// produces an error NAMING it rather than a null.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FieldType {
-    /// A 64-bit integer.
-    Int64,
-    /// A double. Mapped through `Real`, which refuses a non-finite value.
-    Float64,
-    /// An exact decimal - `NUMERIC` or `BIGNUMERIC`. Mapped to TEXT rather than to a double, so an
-    /// exact total stays exact; `sutura-exec-duckdb` maps its own `Decimal` the same way and for the
-    /// same sentence.
-    Numeric,
-    /// A boolean.
-    Bool,
-    /// Text.
-    String,
-    /// A calendar date, as ISO text.
-    Date,
-    /// A type this adapter does not map, under the name the endpoint used for it.
-    Unmapped(String),
-}
-
-impl FieldType {
-    /// Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
-    ///
-    /// A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
-    /// variants here are named after their modern spellings. The transport that reads an answer's
-    /// schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
-    /// lives, and not in the unbuilt transport. A name nobody maps becomes [`Self::Unmapped`] under
-    /// the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
-    #[must_use]
-    pub fn parse(name: &str) -> Self {
-        match name {
-            "INT64" | "INTEGER" => Self::Int64,
-            "FLOAT64" | "FLOAT" => Self::Float64,
-            "BOOL" | "BOOLEAN" => Self::Bool,
-            "NUMERIC" | "BIGNUMERIC" => Self::Numeric,
-            "STRING" => Self::String,
-            "DATE" => Self::Date,
-            other => Self::Unmapped(String::from(other)),
-        }
-    }
-}
-
-/// One column, as the endpoint described it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Field {
-    name: String,
-    kind: FieldType,
-}
-
-impl Field {
-    /// Names one column.
-    #[must_use]
-    pub const fn of(name: String, kind: FieldType) -> Self {
-        Self { name, kind }
-    }
-
-    /// The label a result column carries.
-    #[inline]
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// What the endpoint said this column is.
-    #[inline]
-    #[must_use]
-    pub const fn kind(&self) -> &FieldType {
-        &self.kind
-    }
-}
-
-/// One cell, as the endpoint sent it.
-///
-/// **Text or nothing, and that is the endpoint's shape rather than a simplification.** A value in a
-/// query response is a JSON string whatever its declared type is - an integer arrives as `"250"` - so
-/// the mapping from text to a typed domain value is this adapter's work, and [`Field::kind`] is what
-/// decides it. Modelling it as already-typed here would move that work into the transport, where the
-/// fake and the real implementor would each have to do it and could disagree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Cell {
-    /// JSON `null`.
-    Null,
-    /// A value, as the endpoint spelled it.
-    Text(String),
-}
-
-/// A job's result: what the columns are, the rows under them, and how many the job produced.
-///
-/// **The count is part of the result, and that is what makes a partial answer not a result.** The
-/// endpoint's `jobs.query` answers one page - "as many results as can be contained within the
-/// maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
-/// single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
-/// truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
-/// endpoint reported as total - see [`super::BigQueryError::Incomplete`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JobRows {
-    fields: Vec<Field>,
-    rows: Vec<Vec<Cell>>,
-    total_rows: usize,
-}
-
-impl JobRows {
-    /// Assembles a result.
-    ///
-    /// `total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
-    /// complete - so an incomplete job has no value to fill it with, and the transport has to error.
-    #[must_use]
-    pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self {
-        Self {
-            fields,
-            rows,
-            total_rows,
-        }
-    }
-
-    /// The columns, in the order the statement projected them.
-    #[inline]
-    #[must_use]
-    pub fn fields(&self) -> &[Field] {
-        &self.fields
-    }
-
-    /// The rows on this page.
-    #[inline]
-    #[must_use]
-    pub fn rows(&self) -> &[Vec<Cell>] {
-        &self.rows
-    }
-
-    /// What the endpoint said the job's total is, which a delivered page is compared against.
-    #[inline]
-    #[must_use]
-    pub const fn total_rows(&self) -> usize {
-        self.total_rows
-    }
-}
-
 /// A dry run's own byte estimate, when it priced one - `None` is `docs/adr/0030`'s honest absence,
 /// never a defaulted zero.
 ///
@@ -809,8 +669,20 @@ pub trait JobTransport {
     /// the domain port raw.
     type Error: core::error::Error + Send + Sync + 'static;
 
-    /// Runs a job and returns its rows.
-    fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error>;
+    /// Runs a job and returns its result, as Arrow.
+    ///
+    /// **Arrow rather than this crate's own row vocabulary, and `docs/adr/0039` decides it.** There
+    /// used to be a `JobRows` here - a `Vec<Vec<Cell>>` of TEXT, because the deleted HTTP wire
+    /// transport received every value as a JSON string whatever its declared type was. The ADBC
+    /// driver hands back typed Arrow arrays on the same `arrow-array` major
+    /// `sutura_domain::warehouse::arrow` names, so a batch reaches the interior with no conversion
+    /// at all; the shape it replaced cast every column to `Utf8` and then parsed the text back into
+    /// a number, which gave an exact total two chances to stop being exact.
+    ///
+    /// `ResultBatches` carries its own invariant: every batch was checked against the announced
+    /// schema by NAME and type before a value in it was read. A transport cannot hand back one it
+    /// did not check, because `Accumulating` is the only constructor.
+    fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error>;
 
     /// Validates a job without reading data.
     ///
