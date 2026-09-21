@@ -244,10 +244,13 @@ it fails a declared dependency no crate references. `datafusion-federation`'s ca
 `default-features = false`, and Cargo unifies features additively, so adopting it turns datafusion's
 `sql` feature back on no matter which of its APIs is called - a second SQL parser and an unparser in
 the closure, beside `polyglot-sql`. `Cargo.toml`'s comment calls `sql` being off the strongest
-sentence in that file, and this is what would end it. **So the ecosystem move comes first:** a
-one-line upstream change setting `default-features = false` on that dependency, proposed rather than
-patched here, which is AGENTS.md's own preference order and what step 3 of
-`.agents/skills/sutura/dependencies` asks for before a `[patch]` and long before a vendor.
+sentence in that file, and this is what would end it. **So the ecosystem move comes first, and it is
+already made:** the one-line upstream change setting `default-features = false` on that dependency is
+proposed and OPEN against the crate's own repository, rather than patched or vendored here. That is
+AGENTS.md's *engage the ecosystem instead of monkeypatching*, and step 1 of
+`.agents/skills/sutura/dependencies`' escalation order - long before a `[patch]`, and longer still
+before a vendor. Adopting the crate ahead of that change costs the `sql` feature and nineteen
+lockfile entries; adopting it after costs three.
 
 Its `compression` half is no longer part of that argument: this record turns the feature on
 deliberately, so unification can no longer bring it in as a surprise.
@@ -266,6 +269,33 @@ scan on the other caller's credential, with no bug on either caller's own path. 
 therefore carry an **opaque per-subject digest**: unequal per subject so the fusion cannot happen,
 and disclosing nothing, because the value is interpolated into plan text and a raw subject there is a
 person's identifier in `EXPLAIN` output.
+
+## Two things this record was asked to decide and finds already decided
+
+**A value from a question still never reaches a statement as text, and nothing here trades that
+away.** 0007:109 is the invariant and it holds on both paths today: a SQL adapter's leg is a
+`GeneratedQuery` with statement and parameters in separate fields, and the engine does not render a
+statement at all - `sutura-exec-datafusion`'s `translate::literal` turns a `ParamValue` into a
+`datafusion::logical_expr::Expr` literal, so a value from a question is an expression node and
+there is no text for it to be inside. **Binding EARLIER than the handoff is therefore already the
+shape**, and it is the strongest available: DataFusion's `Expr::Placeholder` round-trips through the
+unparser, which the route this branch takes never reaches. What would reopen the question is step 4
+
+- `SQLExecutor`'s executing method takes one `&str` and no parameter list, so a pushed-down statement
+  has nowhere but the text to carry a value, which ADR 0006 measured and this record inherits as the
+  cost of that step rather than of this one.
+
+**Oracle goes through `polyglot-sql`, and `transpile` is not the way to widen that.** Every Oracle
+statement renders through `sutura_sql::generate` at `Dialect::Oracle` - `sutura-exec-oracle` compiles
+and translates nothing - and `dialect-oracle` is already enabled. The `transpile` feature is
+deliberately ABSENT and `Cargo.toml` carries the measurement: upstream's own Oracle `transform_expr`
+renames `DATE_TRUNC` to `TRUNC` and leaves the arguments untouched, so it fixes neither the argument
+order nor the bare-keyword-to-quoted-format difference - it would still be wrong, under a feature the
+manifest says is not compiled. `dialect::DateTruncShape` builds the correct call directly instead.
+**So "enable `transpile` if that is the clean route" has an answer and the answer is no**, and the
+question only becomes live at step 4, where a statement DataFusion generated would have to be
+translated to Oracle: that is a transpile by definition and it is the reason step 4 needs its own
+measurement rather than this feature flag.
 
 ## What this does not buy
 
