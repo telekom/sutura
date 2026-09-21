@@ -473,6 +473,46 @@ impl DataSystemUnderTest for sutura_exec_bigquery::BigQueryWarehouse<NoLocalTier
     }
 }
 
+/// The fourth DATA SOURCE, over the wire like Postgres - `github.com/telekom/sutura#127` PR 2.
+///
+/// **`available()` answers `false` unconditionally, like `bigquery`'s - and for a related but not
+/// identical reason.** `BigQuery` is cloud-only and has no local venue at all; Oracle Database DOES
+/// have one - `compose.services.yaml`'s `oracle` profile, over `just dev-up-oracle` - but two
+/// things stop this cell from reaching it yet:
+///
+/// - **No nix-native venue exists**, unlike Postgres: Oracle Database is proprietary and not
+///   packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` for any `just validate` leg to
+///   provision - `compose.services.yaml`'s own row on the service says so. `available()` is
+///   therefore NOT gated by discovery at all here, which is deliberate: `sutura_dev::provisioned::
+///   here` applies `SUTURA_DEV_REQUIRE_TIER` PER PROCESS, not per named service, and that flag is
+///   set globally the moment the (unrelated) Postgres tier comes up under `nix/with-tier.sh` - so
+///   calling the panicking `here` for `"oracle"` here would turn every `just test`/`just causality`
+///   run FATAL the instant Postgres provisions, over a service nothing asked it to bring up. That
+///   is a limit of the shared flag, not of this adapter, and it is exactly why `sutura-catalog-
+///   datahub`'s own `datahub`-tier cell lives behind `#[ignore]` and a named acceptance task instead
+///   of in this matrix.
+/// - **No CSV-fixture importer exists yet.** `PostgresWarehouse`/`DuckDbWarehouse` both grow a
+///   `load_csv`/`attach_csv` that infers a schema from the example corpus's CSVs and loads it;
+///   `OracleWarehouse` has no such method, because writing one blind - with no live Oracle to
+///   validate the generated DDL and bulk-insert shape against - is exactly the "looks like coverage,
+///   proves nothing" failure `AGENTS.md` warns against.
+///
+/// So this registration compiles `OracleWarehouse` against the matrix's own `DataSystemUnderTest`
+/// port and reserves its place; every cell this axis is expanded over skips it the same way it
+/// already skips `bigquery`, and `crates/sutura-app/tests/golden/dialects.rs`'s `oracle` render
+/// cells are still the only Oracle coverage this suite produces.
+impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
+    const NAME: &'static str = "oracle";
+
+    fn available() -> bool {
+        false
+    }
+
+    fn open(_pinned: &PinnedDefinitions) -> Self {
+        panic!("`available()` guards the Open of every oracle cell")
+    }
+}
+
 /// A per-process counter, so each `open` in one test process gets a distinct schema name.
 fn schema_counter() -> usize {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -664,6 +704,8 @@ macro_rules! registered {
             bigquery,
             sutura_exec_bigquery::BigQueryWarehouse<crate::adapters::NoLocalTier>
         );
+        // `available()` also answers `false` unconditionally, for its own two reasons: see the impl.
+        $cell!(oracle, sutura_exec_oracle::OracleWarehouse);
     };
 
     (dialects: $cell:ident) => {
@@ -683,10 +725,13 @@ macro_rules! registered {
             sutura_sql::Dialect::BigQuery,
             polyglot_sql::DialectType::BigQuery
         );
-        // Rendering only - PR 1 of `github.com/telekom/sutura#127`. No `sutura-exec-oracle`
-        // adapter and no execution golden yet, so the parse check this cell runs is the whole of
-        // what backs it: green means this crate's own renderer produced something Oracle's own
-        // grammar accepts, not that a real Oracle agrees with the number.
+        // `sutura-exec-oracle` exists now (`#127` PR 2, above in `data_systems:`), and it is
+        // registered with `available() == false` - no venue in `just validate` brings up a real
+        // Oracle, and no CSV importer attaches the corpus to one yet even where a developer's own
+        // docker could. So the parse check this cell runs is STILL the whole of what backs the
+        // render: green means this crate's own renderer produced something Oracle's own grammar
+        // accepts, not that a real Oracle agrees with the number - see the `data_systems:` entry's
+        // own doc for exactly what is missing and why.
         $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
     };
 }

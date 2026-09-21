@@ -332,6 +332,29 @@ pub fn into_domain(self) -> Relationship
 
 `Debug`, `Deserialize<'de>`
 
+### `enum ViaDoc`
+
+```rust
+pub enum ViaDoc
+```
+
+The hops a dimension is reached through, as the document spells them: one name, or a sequence of
+them.
+
+An untagged enum rather than two optional fields: `via:` with a single name keeps the byte shape
+every existing document has, and `via: [a, b]` is the chain. `deny_unknown_fields` is a struct
+rule, so the enum carries the adapter's one place where a misspelled key is not caught - a
+misspelled NAME inside the chain still refuses, because the name is a `RelationshipName`.
+
+#### Variants
+
+- `One`
+- `Chain`
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
 ### `struct DimensionDoc`
 
 ```rust
@@ -419,6 +442,12 @@ happened.
   which document to open, and whoever renders it walks the chain for which character to look
   for. Reported per metric rather than per field because a metric document declares one anchor.
 - `Audience` - The `audience:` declaration is not a usable one - `docs/adr/0028`.
+- `EmptyChain` - A dimension's `via:` chain names nothing.
+
+  The domain's `ViaChain::of` refuses the empty chain; this is where the refusal learns which
+  document to open, the same arrangement `Self::AnchorValue` uses. The refused chain is the
+  `source`, though `ViaChain::of` has one reason to refuse and this is it - so the chain
+  carries what the renderers walk without naming what is already spelled in the message.
 
 #### Implements
 

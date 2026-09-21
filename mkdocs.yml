@@ -260,6 +260,7 @@ nav:
           - sutura-exec-bigquery: api/sutura-exec-bigquery.md
           - sutura-exec-postgres: api/sutura-exec-postgres.md
           - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
+          - sutura-exec-oracle: api/sutura-exec-oracle.md
           - sutura-tls: api/sutura-tls.md
           - sutura-app: api/sutura-app.md
           - sutura-config: api/sutura-config.md

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    AnchorValue, Audience, Definitions, Description, DimensionValue, InconsistentDefinitions, Metric, Model,
+    AnchorValue, Audience, Definitions, Description, DimensionValue, InconsistentDefinitions, Metric, Model, ViaChain,
 };
 use sutura_domain::knowledge::{
     Capability, GlossaryEntry, InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase,
@@ -427,7 +427,12 @@ fn the_rest_of_a_metric_rides_the_deployment_defined_property() {
                 vec![SuturaDimension::new(
                     DimensionName::parse("segment").expect("a test dimension name is a name"),
                     ColumnName::parse("segment").expect("a test column is a column"),
-                    Some(RelationshipName::parse("orders_to_customer").expect("a test relationship is a name")),
+                    Some(
+                        ViaChain::of(vec![
+                            RelationshipName::parse("orders_to_customer").expect("a test relationship is a name"),
+                        ])
+                        .expect("a one-hop chain has hops"),
+                    ),
                     Some(
                         [
                             DimensionValue::parse("retail").expect("a test value is a value"),

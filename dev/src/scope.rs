@@ -209,6 +209,18 @@ pub const SERVICES: &[Service] = &[
         profile: Some("datahub"),
     },
     Service {
+        // The Oracle data source (`github.com/telekom/sutura#127`). Unlike Postgres and Keycloak,
+        // Oracle Database is not packaged in `nixpkgs` and never converges to a nix-native tier -
+        // `compose.services.yaml`'s own row says so - so this is the FIRST discoverable service
+        // whose only venue, ever, is this compose file.
+        //
+        // OFF unless asked for: it is a full database server, and a tier that started it on every
+        // `just dev-up` would pay for it on every run for the one adapter that reads it.
+        name: "oracle",
+        container_port: 1521,
+        profile: Some("oracle"),
+    },
+    Service {
         // The local chat demo, and the ONE service whose container holds two processes: the
         // `sutura serve` subcommand against the example corpus, and the chat client that calls it.
         //
@@ -510,12 +522,15 @@ mod tests {
         //     with an operator's key or run locally - so it can only come up where somebody has
         //     configured one, and a `dev-up` that started it would fail for want of a model on
         //     every developer's machine.
+        //   * `oracle` is opt-in because it is a full database server and there is exactly ONE
+        //     reader for it (`sutura-exec-oracle`, `github.com/telekom/sutura#127`) that a tier
+        //     starting it on every run would pay for on every run without using.
         let opt_in: Vec<&str> = SERVICES
             .iter()
             .filter(|service| !service.is_default())
             .map(super::Service::name)
             .collect();
-        assert_eq!(opt_in, vec!["keycloak", "datahub", "demo"]);
+        assert_eq!(opt_in, vec!["keycloak", "datahub", "oracle", "demo"]);
 
         // And a CHEAP data source is not behind a profile: that is what an adapter is tested
         // against, so making it opt-in would be the tier failing at its own job. `clickhouse` is
@@ -581,7 +596,7 @@ mod tests {
         // ACTIVE profiles - so a profile missing from this walk leaves a container and a named
         // volume behind while the destroy reports success. Derived from `SERVICES`, so adding a
         // profile cannot forget to update it.
-        assert_eq!(super::profiles(), vec!["identity", "datahub", "demo"]);
+        assert_eq!(super::profiles(), vec!["identity", "datahub", "oracle", "demo"]);
         for service in SERVICES {
             if let Some(profile) = service.profile() {
                 assert!(
