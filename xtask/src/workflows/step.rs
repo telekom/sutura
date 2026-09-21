@@ -147,12 +147,15 @@ mod tests {
                 .map(str::trim_start)
                 .collect::<Vec<_>>()
                 .join("\n");
-            let scratch = std::env::temp_dir().join(format!("sutura-pr-causality-{}", std::process::id()));
-            #[expect(clippy::create_dir, reason = "exclusive creation refuses stale fixture state")]
-            std::fs::create_dir(&scratch).expect("a new isolated fixture directory");
+            // `Tree` rather than an exclusive `create_dir` on a pid-keyed path - #938: a pid is
+            // not unique across runs, so a leftover panicked setup. The isolation wanted here is
+            // "no state a previous run wrote", which `Tree::of` gives by sweeping the path first,
+            // and its `Drop` sweeps again even where the assert below fires.
+            let tree = crate::scratch_tree::Tree::of("pr-causality", &[]);
+            let scratch = tree.root();
             let output = Command::new("bash")
                 .args(["--noprofile", "--norc", "-c", HISTORY])
-                .current_dir(&scratch)
+                .current_dir(scratch)
                 .env_remove("BASH_ENV")
                 .env_remove("GIT_DIR")
                 .env_remove("GIT_WORK_TREE")
@@ -163,7 +166,6 @@ mod tests {
                 .env("CAUSALITY_STEP", body)
                 .output()
                 .expect("the workflow shell executes");
-            std::fs::remove_dir_all(&scratch).expect("remove only this fixture");
             assert!(
                 output.status.success(),
                 "the real step chose the wrong tree, scope or status:\n{}\n{}",

@@ -551,9 +551,12 @@ mod tests {
         let steps = extract(&text);
         let first = steps.first().expect("action has shell");
         assert_eq!(first.step, "Refuse a previous provenance export");
-        let scratch = std::env::temp_dir().join(format!("sutura-export-guard-{}", std::process::id()));
-        #[expect(clippy::create_dir, reason = "exclusive fixture ownership")]
-        std::fs::create_dir(&scratch).expect("new fixture directory");
+        // `Tree` rather than an exclusive `create_dir` on a pid-keyed path - #938: a pid is not
+        // unique across runs, so a leftover made setup panic before this asserted anything. The
+        // ownership this fixture needs is "nothing a previous run wrote", which `Tree::of` gives by
+        // sweeping the path first, and its `Drop` sweeps again even if an assert fires.
+        let tree = crate::scratch_tree::Tree::of("export-guard", &[]);
+        let scratch = tree.root();
         let mut statuses = Vec::new();
         for (name, kind) in [
             ("sutura-provenance.intoto.jsonl", "absent"),
@@ -571,7 +574,7 @@ mod tests {
             let output = std::process::Command::new("bash")
                 .args(["--noprofile", "--norc", "-c", &first.body])
                 .env_remove("BASH_ENV")
-                .env("ASSETS", &scratch)
+                .env("ASSETS", scratch)
                 .output()
                 .expect("actual guard shell");
             statuses.push(output.status.code());
@@ -579,7 +582,6 @@ mod tests {
                 std::fs::remove_file(&path).expect("remove only fixture file or symlink");
             }
         }
-        std::fs::remove_dir_all(&scratch).expect("remove only fixture directory");
         assert_eq!(statuses, [Some(0), Some(1), Some(1), Some(1), Some(1)]);
     }
 
@@ -591,9 +593,9 @@ mod tests {
             .into_iter()
             .find(|step| step.step == "Publish")
             .expect("publication shell");
-        let scratch = std::env::temp_dir().join(format!("sutura-export-publication-{}", std::process::id()));
-        #[expect(clippy::create_dir, reason = "exclusive fixture ownership")]
-        std::fs::create_dir(&scratch).expect("new fixture directory");
+        // See the guard test above: `Tree` for #938's pid collision, and it sweeps on drop.
+        let tree = crate::scratch_tree::Tree::of("export-publication", &[]);
+        let scratch = tree.root();
         std::fs::create_dir_all(scratch.join("dist")).expect("fixture assets");
         std::fs::write(scratch.join("notes.md"), "fixture notes").expect("fixture notes");
         std::fs::write(scratch.join("dist/runtime.tar.gz"), "fixture bytes").expect("fixture asset");
@@ -605,7 +607,7 @@ mod tests {
             std::fs::write(scratch.join("calls"), "").expect("clear fake port ledger");
             let output = std::process::Command::new("bash")
                 .args(["--noprofile", "--norc", "-c", PUBLISH_FAKE])
-                .current_dir(&scratch)
+                .current_dir(scratch)
                 .env_remove("BASH_ENV")
                 .env("PUBLISH_STEP", &step.body)
                 .env("GITHUB_REF_NAME", "v0.0.0")
@@ -614,7 +616,6 @@ mod tests {
             let calls = std::fs::read_to_string(scratch.join("calls")).expect("fake port ledger");
             outcomes.push((output.status.code(), calls, output));
         }
-        std::fs::remove_dir_all(&scratch).expect("remove only fixture directory");
         for (index, (code, calls, output)) in outcomes.into_iter().enumerate() {
             if index < 2 {
                 assert_eq!(code, Some(1), "{output:?}");

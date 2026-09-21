@@ -284,8 +284,12 @@ mod tests {
     use crate::Verdict;
 
     /// Synthetic material only: these fixtures make no cryptographic claim.
+    ///
+    /// The directory is a [`crate::scratch_tree::Tree`], so it is swept when this value drops -
+    /// including when an assert panics first, which is how `github.com/telekom/sutura#938`'s
+    /// leftover was minted in the first place.
     struct Fixture {
-        root: PathBuf,
+        tree: crate::scratch_tree::Tree,
         args: Vec<String>,
         bundles: Vec<Value>,
     }
@@ -331,10 +335,19 @@ mod tests {
         })
     }
 
+    /// A fresh fixture directory, EVEN WHEN A PREVIOUS RUN LEFT ONE BEHIND - #938.
+    ///
+    /// This used to be an exclusive `create_dir` on a path keyed by stem and process id, which
+    /// reads as "refuse stale fixture inputs" and behaves as "panic during setup whenever the
+    /// kernel hands out a pid some killed run already used". A long-uptime host recycles pids, so
+    /// the outcome depended on pid allocation rather than on anything the test asserts - and it
+    /// surfaced only under `just gates`, since `check-default-feature-tests` is one of the two legs
+    /// `just validate` does not run. [`crate::scratch_tree::Tree`] keeps the property that mattered
+    /// (the fixture never reads a previous run's leftovers - it sweeps the path before creating it)
+    /// and drops the panic, and its `Drop` sweeps on the way out so a killed run poisons nothing.
     fn fixture(stem: &str) -> Fixture {
-        let root = std::env::temp_dir().join(format!("sutura-provenance-{stem}-{}", std::process::id()));
-        #[expect(clippy::create_dir, reason = "exclusive creation refuses stale fixture inputs")]
-        std::fs::create_dir(&root).expect("new fixture directory");
+        let tree = crate::scratch_tree::Tree::of(&format!("provenance-{stem}"), &[]);
+        let root = tree.root().to_path_buf();
         let hashes: Vec<_> = (0..4).map(|n| format!("{n:064x}")).collect();
         let assets = bundled(&json!([
             {"name": "runtime.tar.gz", "digest": {"sha256": hashes[0]}},
@@ -367,7 +380,7 @@ mod tests {
             std::fs::write(&path, serde_json::to_vec_pretty(bundle).expect("fixture JSON")).expect("bundle output");
             args.push(path.to_str().expect("fixture path").to_owned());
         }
-        Fixture { root, args, bundles }
+        Fixture { tree, args, bundles }
     }
 
     fn registered(args: &[String]) -> Verdict {
@@ -377,10 +390,37 @@ mod tests {
         (task.run)(args)
     }
 
+    /// **#938's own cell: a leftover fixture directory must not refuse the next run.**
+    ///
+    /// The path is keyed by stem and process id, so a second call in one process takes the same
+    /// path a previous run with a recycled pid would have.
+    ///
+    /// It holds BOTH halves, because either alone leaves the trap: `!root.exists()` holds the sweep
+    /// on the way out, and the planted leftover holds the sweep on the way in. Against the
+    /// exclusive `create_dir` this replaces, the second `fixture` call panicked `AlreadyExists` at
+    /// setup before asserting anything - and only under `just gates`, since
+    /// `check-default-feature-tests` is one of the two legs `just validate` does not run.
+    #[test]
+    fn a_leftover_fixture_directory_does_not_refuse_the_next_run() {
+        let root = {
+            let first = fixture("relitigated");
+            first.tree.root().to_path_buf()
+        };
+        assert!(!root.exists(), "the fixture directory is swept when it drops");
+        // What a killed or panicking run leaves: the directory, with nobody left to sweep it.
+        std::fs::create_dir_all(&root).expect("what a killed run leaves behind");
+        let leftover = root.join("stale-input-from-a-killed-run");
+        std::fs::write(&leftover, "stale").expect("a leftover fixture input");
+        let second = fixture("relitigated");
+        assert_eq!(second.tree.root(), root, "the same path, so this is #938's collision");
+        assert!(!leftover.exists(), "a fixture never reads a previous run's leftovers");
+        assert_eq!(registered(&second.args), Verdict::Pass, "and the collector still runs on it");
+    }
+
     #[test]
     fn the_registered_collector_preserves_all_three_records_and_refuses_overwrite() {
         let fixture = fixture("clean");
-        let staging = fixture.root.join(".sutura-provenance.intoto.jsonl.tmp");
+        let staging = fixture.tree.root().join(".sutura-provenance.intoto.jsonl.tmp");
         let first = registered(&fixture.args);
         let bytes = std::fs::read(&fixture.args[2]);
         let clean_stage = staging.try_exists();
@@ -396,7 +436,6 @@ mod tests {
         std::fs::write(&staging, "preexisting stage").expect("fixture stage sentinel");
         let stale = registered(&fixture.args);
         let stage_sentinel = std::fs::read_to_string(&staging);
-        std::fs::remove_dir_all(&fixture.root).expect("remove only fixture");
         assert_eq!(first, Verdict::Pass);
         let bytes = bytes.expect("JSONL asset was written");
         let records: Vec<Value> = String::from_utf8(bytes.clone())
@@ -476,7 +515,6 @@ mod tests {
             registered(&fixture.args),
             PathBuf::from(&fixture.args[2]).exists(),
         ));
-        std::fs::remove_dir_all(&fixture.root).expect("remove only fixture");
         for (case, verdict, exists) in observed {
             assert_eq!((verdict, exists), (Verdict::Fail, false), "{case}");
         }
@@ -536,7 +574,6 @@ mod tests {
             .expect("restored export")
             .lines()
             .count();
-        std::fs::remove_dir_all(&fixture.root).expect("remove only fixture");
         for (case, verdict, exists) in observed {
             assert_eq!((verdict, exists), (Verdict::Fail, false), "{case}");
         }

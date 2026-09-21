@@ -8,6 +8,20 @@
 //! into the system temp directory whenever an assert fires first, so the restore belongs in a
 //! `Drop` that runs either way.
 //!
+//! **The copy that keys the path on the process id AND creates it exclusively is the one that
+//! fails, and it fails LATER than the run that wrote it** - `github.com/telekom/sutura#938`. A pid
+//! is unique among live processes and not across runs, so a killed or panicking run leaves the
+//! directory and the next run with that pid recycled panics in SETUP:
+//! `new fixture directory: Os { code: 17, kind: AlreadyExists }`, before asserting anything. Worst
+//! of all it surfaces under `just gates` and not `just validate`, because the leg that runs those
+//! cells (`check-default-feature-tests`) is one of the two `just validate` does not run - so it is
+//! invisible to CI and blames whoever gates locally. `Tree::of` sweeps before it creates, which
+//! keeps the exclusivity that pattern wanted, and `Drop` sweeps on the way out so a killed run
+//! poisons nothing. What holds it: `clippy::create_dir` is `restriction`, so `just lint` refuses a
+//! bare `std::fs::create_dir` anywhere in the workspace - test code included - and after #938 no
+//! `#[expect]` for it is left. THE LIMIT: an author can still write the allowance back, so the
+//! lint refuses the silent copy rather than a deliberate one.
+//!
 //! **jscpd would not have reported the next copy**: its threshold is 30 lines / 250 tokens and
 //! each copy is around fifteen. That is the signal's stated limit rather than a reason to lower it.
 //! Nothing here weakens a gate - this module is `#[cfg(test)]` and ships in no binary.
