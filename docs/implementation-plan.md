@@ -84,7 +84,7 @@ So the division is:
 | The twenty-six numbered steps, their order, and the arguments for that order | this table, and the two sibling pages                                                                  |
 | Everything raised since, its priority, and what to pull next                 | [the tracker](https://github.com/telekom/sutura/issues/134) and the board it indexes                   |
 | What blocks what                                                             | the issues themselves - *blocked by* is a relationship GitHub answers, and it cannot go stale in prose |
-| Which record a piece of work needs, and its number                           | the tracker's reserved-number table, so two branches cannot both mint `0022`                           |
+| Which record a piece of work needs, and its number                           | the tracker names the record; `check-guidance` refuses two files claiming one ordinal                  |
 
 **A row that is DONE stays here** - the argument for why a step went where it did is worth more after it
 lands than before, and deleting it would leave the next reader unable to tell a decision from an

@@ -653,6 +653,26 @@ jobs:
         if: ${{ always() }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
+      # THE ONE SUBJECT NO HOOK SEES. The queue squashes and composes the landed subject from the
+      # PULL-REQUEST TITLE, so `commit-msg` - which judges commits made in a checkout - never reads
+      # the string that becomes permanent history: `spike(metadata): …` is on `main` as `ed650549`
+      # over a vocabulary that holds eleven types and not that one (#935). This step is the venue
+      # that has the title.
+      #
+      # IT IS THE FIRST `nix run .#xtask` STEP IN THIS FILE, DELIBERATELY. `obligations::REQUIRED`
+      # holds its `if:` by a line, and that rule's order half requires every obligation to sit
+      # ahead of the first step realising the xtask closure - which this one is, so it neither
+      # displaces the three closure-free obligations above it nor sits behind a closure it would
+      # otherwise wait on. Moving it below `Classify the change` reddens `check-workflows`.
+      #
+      # THE GATE FAILS CLOSED ON AN EMPTY TITLE, which is what this expression expands to on any
+      # event without a pull request - so dropping the `if:` is a red run rather than a silent pass.
+      - name: PR title
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: nix run .#xtask -- check-pr-title "$TITLE"
+
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
       # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
       - name: Classify the change

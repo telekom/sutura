@@ -100,6 +100,7 @@ mod features;
 #[cfg(test)]
 mod fixtures;
 mod isolation;
+mod membership;
 mod names;
 mod place;
 mod plan;
@@ -172,12 +173,36 @@ fn prove(
     files: &[diff::ChangedFile],
     read: &regions::PostImage<'_>,
 ) -> Verdict {
-    let first = base_state(root, base, &separable.revert);
-    let holding = separable.held();
+    // A CRATE THIS BRANCH ADDED IS ITS MANIFEST TOO, and reverting the sources alone left a
+    // workspace member with no targets - cargo refuses before the compiler and the gate had no
+    // verdict to give any branch that adds a crate (`membership`, #936).
+    //
+    // ONE WITHDRAWAL PER ATTEMPT, keyed on what that attempt keeps at HEAD. The first keeps the
+    // held-back files AND the test files, so a new crate carrying either stays whole; the retry
+    // keeps only the test files, which are never reverted at all - the proof needs them present -
+    // so a provable test inside the new crate keeps the crate in the workspace on both attempts.
+    // Withdrawing it there would leave that test in a directory cargo no longer reads, and nextest
+    // failing an empty filterset is a red about this partition rather than about the change.
+    let inputs = &separable.build_inputs;
+    let membership = membership::Membership::of(root, base, inputs);
+    let mut at_head = separable.held();
+    at_head.extend(separable.test_files.iter().cloned());
+    let reverting = membership.reverting(&separable.revert, inputs, &at_head);
+    let holding = membership.reverting(&separable.held(), inputs, &separable.test_files);
+    let first = base_state(root, base, &reverting);
     let held = base_state(root, base, &holding);
+    // Named as unreverted only while it IS: a withdrawn manifest goes to base on the first
+    // attempt, and printing it as held at HEAD would be this gate describing a tree it did not
+    // build. The retry prints the rest by name where it applies them.
+    let unreverted: Vec<String> = separable
+        .build_inputs
+        .iter()
+        .filter(|path| !reverting.contains(path))
+        .cloned()
+        .collect();
 
     if first.restore.is_empty() {
-        return report_no_base_behaviour(base.short(), &first.remove, coverage, &separable.build_inputs);
+        return report_no_base_behaviour(base.short(), &first.remove, coverage, &unreverted);
     }
 
     println!("xtask test-causality: proving red-before-green");
@@ -197,7 +222,7 @@ fn prove(
     for f in &separable.test_only {
         println!("  held:      {f}  (test-only code that names no test)");
     }
-    report_unreverted(&separable.build_inputs);
+    report_unreverted(&unreverted);
 
     // HEAD must be green, or "red on base" means nothing.
     // One directory for both runs. Beside the worktree under `target/`, so a `cargo clean`

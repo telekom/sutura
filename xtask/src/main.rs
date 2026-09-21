@@ -50,6 +50,7 @@ mod nix_platform;
 mod one_bound;
 mod orphan_modules;
 mod pins;
+mod pr_title;
 mod refusals;
 mod registry;
 mod release_provenance;
