@@ -1,0 +1,9 @@
+name: decimal-total-by-day
+metric: decimal_amount_total
+aggregate: sum
+column: decimal_amount
+keys:
+order: asserted
+rows:
+text:2026-01-01	text:11.50
+text:2026-01-02	text:19.50

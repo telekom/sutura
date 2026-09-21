@@ -660,7 +660,7 @@ keycloak-served-test:
     nix run .#keycloak-tier -- start
     if [ "$rc" = 1 ]; then trap 'nix run .#keycloak-tier -- stop' EXIT; fi
     cargo nextest run -p sutura-cli --run-ignored only \
-      -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused)'
+      -E 'test(a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused) | test(a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys)'
 # Mints one Google-issued ID token from a service-account key file, for the exchanged-identity cell
 # above - telekom/sutura#376. `key` is a path to the key, never its content; `out` is the path the
 # token is written to, never printed. Not a gate; a CI-only step invokes this per principal through

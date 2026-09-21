@@ -384,6 +384,11 @@ rec {
             printf '"tls_certificate_file":"%s",' "$cacertfile"
             printf '"realm":"%s","client":{"id":"%s","secret":"%s"},' \
               "$realm" "$client" "$client_secret"
+            # The third-party audience the `id-token-audience` mapper puts in the ID token's `aud`
+            # when the password grant requests `scope=openid` (`nix/keycloak-tier.nix`'s own
+            # `idTokenAudience`). Published here rather than restated in the test, so the value the
+            # tier provisions and the value the cell asserts against are the same document.
+            printf '"id_token_audience":"%s",' "$idTokenAudience"
             printf '"admin":{"username":"%s","password":"%s"},' "$admin_user" "$admin_password"
             printf '"subjects":['
             separator=
