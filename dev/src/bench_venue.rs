@@ -49,7 +49,7 @@ fn load_average_1m() -> Option<f64> {
 ///
 /// The field is cut at the first `", "` instead, which is the separator in both formats, and any
 /// comma left inside it is then the decimal point. **The limit:** a locale that writes a decimal
-/// comma AND no space after the separator leaves this unable to parse, and [`print`] then says the
+/// comma AND no space after the separator leaves this unable to parse, and [`print()`] then says the
 /// average could not be read - fail-closed to the honest message rather than to a low number.
 fn first_load_average(uptime: &str) -> Option<f64> {
     let (_, after) = uptime.rsplit_once("load average")?;
