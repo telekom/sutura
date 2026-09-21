@@ -58,18 +58,12 @@ sutura-domain = { workspace = true }
 # this adapter compiles nothing.
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
-# The exchanged-credential cache's own lock (`src/sts/cache.rs`, `docs/adr/0031`) - not
-# feature-gated: the cache holds no network client and no TLS stack, it is a
-parking_lot = { workspace = true }
 
-# Always-on, not feature-gated, because the identity-exchange broker (core `sts.rs`, telekom/sutura#817)
-# decodes the `iss`/`aud` claims of the subject token it hands to the metadata service - a broker-level
-# check that must run whether or not this build links a transport, and one the broker's fake
-# `StsExchange` tests exercise. A JSON value and a base64url decode are already in every served binary
-# through `sutura-config`/`sutura-http`, so promoting them here adds no new package to `Cargo.lock`
-# and no network stack to any build.
+# The ADBC driver takes its `external_account` credential as ONE JSON document string, so this
+# adapter builds that document rather than handing the driver fields. `parking_lot` and `base64`
+# were here for the exchanging broker's cache lock and its subject-token claim decode, and both went
+# with it (`docs/adr/0018`, eighth amendment) - `unused-deps` is what caught them.
 serde_json = { workspace = true }
-base64 = { workspace = true }
 
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }

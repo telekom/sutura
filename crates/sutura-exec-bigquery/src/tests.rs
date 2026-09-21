@@ -277,7 +277,7 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
 fn an_identity_read_whose_page_is_short_of_its_own_total_is_the_documented_refusal() {
     // One comparison, in one place. `Incomplete` is this crate's documented reading of *the
     // endpoint delivered fewer rows than it reported*, and an identity read writing a second
-    // comparison of its own beside it is the two-deadlines defect `sts::clears_floor` records -
+    // comparison of its own beside it is the two-deadlines defect `docs/adr/0008` part 6 records -
     // two answers to one question, free to disagree.
     let short = JobRows::of(
         vec![Field::of(String::from("session_user"), FieldType::String)],

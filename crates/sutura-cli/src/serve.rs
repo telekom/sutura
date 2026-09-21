@@ -206,9 +206,12 @@ pub(crate) fn run() -> Result<(), String> {
     //   this process holds, and a source the broker holds nothing for is refused as
     //   `credential_unavailable` rather than answered as this process.
     // - A `bigquery` deployment with an impersonating source is served under
-    //   `sutura_exec_bigquery::sts::WorkloadIdentityBroker`, which holds BOTH shapes - a declared
-    //   witness for shared sources and an exchanged per-subject credential for impersonating ones -
-    //   because one plan may read one of each and the broker is per answer, not per source.
+    //   `sutura_exec_bigquery::DeclaredPrincipalBroker`, which holds BOTH shapes - a declared
+    //   witness for shared sources and, for an impersonating one, the asking subject's own verified
+    //   assertion for the driver to federate - because one plan may read one of each and the broker
+    //   is per answer, not per source. **The EXCHANGING broker this line used to name is deleted**
+    //   (`docs/adr/0018`, eighth amendment): its HTTP hops went with the `wire` transport, leaving a
+    //   type no root could reach whose every exchange was a test fake.
     //
     // **In every arm, a subject with no credential at a source is refused as `credential_unavailable`
     // rather than answered under the deployment's own identity** - the fallback the port exists to
@@ -263,10 +266,10 @@ pub(crate) fn run() -> Result<(), String> {
             // not accept one. The gate reads the order of three call sites in this file; its own
             // header states what that is worth and what it cannot see.
             boot::refuse_absent_tables(&pinned, &engines)?;
-            // **The broker that makes an impersonating source answerable, and it is not the
-            // exchanging one.** `StsOverHttp`/`IamCredentialsOverHttp` went with the `wire` half, so
-            // `WorkloadIdentityBroker` has no implementor to attach; the ADBC driver cannot take a
-            // subject's bearer either. What it CAN take is a principal to become, so this attaches
+            // **The broker that makes an impersonating source answerable, and it is the only one
+            // this crate can attach.** The exchanging broker's HTTP hops went with the `wire` half
+            // and the broker itself is deleted; the ADBC driver cannot take a subject's bearer
+            // either. What it CAN take is a principal to become, so this attaches
             // `DeclaredPrincipalBroker` - the declared subject-to-account map, presented as the
             // identity each job runs as. `crate::serve::broker` carries what that does not cover,
             // and refuses at boot every declaration this build cannot honour.

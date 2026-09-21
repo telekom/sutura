@@ -17,7 +17,7 @@ there. Every grant this stack provisions is anchored to a service account as an 
 
 **A second hop, `iamcredentials.generateAccessToken`, behind a declared per-source map.**
 `WorkloadIdentityBroker` gains a second port, `ImpersonateAsAccount`
-(`crates/sutura-exec-bigquery/src/sts.rs`), called immediately after a successful `StsExchange`
+(`sts.rs`, deleted since - see the amendment below), called immediately after a successful `StsExchange`
 exchange for a source whose declared `WorkloadIdentity` names a target account for the caller's
 `SubjectId`. `wire::IamCredentialsOverHttp` is the real implementor, mirroring `wire::StsOverHttp`:
 same `WireAgent`, same pins, same outbound-anchor resolution, a different request and response shape
@@ -154,3 +154,24 @@ rather than folded into this change's own scope.
   requested - so the correctness gap this record's first round called out is closed); what remains an
   optimisation rather than a correctness gap is picking the REQUESTED lifetime from the caller's
   budget, which the broker's own expiry floor already refuses on the safe side regardless.
+
+## Second amendment, 2026-09-21: the hop is deleted with the broker, and no served path performs it
+
+**`ImpersonateAsAccount`, its `NoImpersonation` default, and the `WorkloadIdentityBroker` they hung
+off are deleted** (`docs/adr/0018`, eighth amendment), along with the cells this record cited -
+`sts::tests::a_declared_subject_resolves_through_the_hop_to_the_declared_sa` and its committed claim
+mutation among them. `wire::IamCredentialsOverHttp`, the one real implementor, had already gone with
+the `wire` transport, so from that point the hop was reachable only from a test fake.
+
+**What replaces the mechanism, and it is narrower.** A source declared `impersonation-at-source`
+resolves a caller through `DeclaredPrincipalBroker` (`crates/sutura-exec-bigquery/src/principal.rs`),
+whose declared per-source map keys on the same full [`SubjectKey`] this record argued for - so the
+first amendment's resolution of option (2) survives the deletion: a real IdP subject is still the key
+the map keys on, and a caller absent from it is still refused before any network call rather than
+widened. What does NOT survive is *two accounts from one workload identity*: there is no second hop,
+so the pool resolves the asker's assertion to whatever principal it resolves it to, and the declared
+map decides only WHETHER this caller may be served here.
+
+**Does not move `docs/where-identity-is-proven.md`'s row, in either direction.** Deleting evidence
+that was only ever fake-port cells proves nothing new, and the venue that would answer leg 2 is still
+what that page says it is.

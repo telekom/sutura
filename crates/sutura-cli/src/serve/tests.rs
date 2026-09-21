@@ -352,10 +352,10 @@ mod agent;
 #[cfg(test)]
 mod bigquery;
 
-// The agent-route byte join: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
-// over the shipped exchanging broker. Only a composition root links both the MCP transport (the
-// `agent` feature) and the `bigquery` broker, which is why this lives here and not in `sutura-http`
-// next to its sibling - `sutura-http`'s `agent` feature is deliberately empty. `just test` runs
+// The composed agent route: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
+// answered by the broker a served `bigquery` deployment actually attaches. Only a composition root
+// links both the MCP transport (the `agent` feature) and that broker, which is why this lives here
+// and not in `sutura-http` - `sutura-http`'s `agent` feature is deliberately empty. `just test` runs
 // `--all-features`, so both halves are linked there.
 #[cfg(all(feature = "agent", feature = "bigquery"))]
 mod agent_identity;

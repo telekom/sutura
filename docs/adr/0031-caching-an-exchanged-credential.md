@@ -40,7 +40,7 @@ audience and scope are declared once at startup and never change while a process
 own wording asks for the literal exchange input, and keying on it directly is the shape that stays
 correct if that assumption ever stops holding.
 `the_same_subject_through_a_different_acting_agent_pays_its_own_round_trip`
-(`crates/sutura-exec-bigquery/src/sts/cache.rs`) is the permanent regression.
+(`sts/cache.rs`) was the permanent regression, and went with the cache - see the second amendment.
 
 **The residual, stated rather than assumed away.** A verified `PrincipalChain` is exactly what
 `sutura_domain::identity` parses from a token's `sub` and `act` claims - a claim a provider maps
@@ -156,3 +156,31 @@ loses the one value (`RequestContext::chain().subject()`) the rest of this recor
 `with_floor(request_timeout.seconds())`". `sutura-serve` folded into `sutura-cli`'s `serve` module
 (`github.com/telekom/sutura#685` step 2); the call site is `broker.rs`
 now, and the claim about what it does and does not assert is unaffected.
+
+## Second amendment, 2026-09-21: the cache is deleted with the broker that held it, and this decision is spent
+
+**Everything this record decided lived inside `sts::cache`, a private module of the one broker that
+EXCHANGED - and that broker is deleted** (`docs/adr/0018`, eighth amendment). There is no cache in
+this tree now, and nothing at `CredentialBroker::mint` caches anything: the ADBC path does not
+exchange a credential at all, it hands the asking subject's own verified assertion to the driver for
+Google's token service to federate, so there is no exchanged material to hold.
+
+**Why it went rather than waiting for a second exchanging broker.** The cache's every cell ran
+against a fake `StsExchange`; the broker had no implementor a composition root could reach after the
+`wire` transport was removed, so the round trip the cache existed to save was a round trip nothing
+made. Keeping 838 lines plus their suite against a hypothetical future exchange is the accumulation
+`AGENTS.md` refuses.
+
+**What stays, and the limit beside it.** `security.credential_cache` (`sutura-config`'s
+`identity_cache` module, `CredentialCacheSettings`) is still parsed and still refuses a zero
+capacity or window at startup - **and no component reads it.** It was already unread before this
+change: the boot line that named it went with the `wire` composition. So an operator who writes
+`security.credential_cache.enabled: true` gets no cache and no warning. That is a settings surface
+with no mechanism behind it, stated here rather than asserted away; removing it is a config-schema
+change this record does not make.
+
+**What this does NOT reverse.** The key argument - that a credential cache must be keyed on the
+WHOLE `PrincipalChain` and never a bare `Subject`, because `sutura-http`'s inbound gate builds an
+acting chain from an `act` claim - is the part worth reading if a second exchanging broker is ever
+built. It was measured at review cost, not derived, and a new cache that keys on a subject alone
+would serve a delegated caller the direct caller's credential.

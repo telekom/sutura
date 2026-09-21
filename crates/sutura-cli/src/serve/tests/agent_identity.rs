@@ -1,50 +1,45 @@
-//! The agent-route half of the byte join: a `/mcp` tool call, mounted by the composition root's
-//! own [`crate::serve::agent::mount`] behind the REAL `sutura_http::capability::establish_asked`
-//! and leg 1, answered by the SHIPPED exchanging broker - and the assertion that the
-//! `subject_token` that broker offered to an exchange is, byte for byte, the compact JWT leg 1
-//! verified.
+//! The composed agent route, mounted by the composition root's own `crate::serve::agent_mount`,
+//! behind the REAL `sutura_http::capability::establish_asked` and leg 1 - and answered by the broker
+//! a served `bigquery` deployment attaches.
 //!
-//! This is the sibling of `sutura_http`'s own
-//! `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified`, but reached from the
-//! agent route rather than `/v1/query`: it rides the streamable-HTTP transport's `Asking::PerRequest`
-//! path, where each call's `Asked` comes out of `sutura_http::capability::establish_asked` inserting
-//! it into the request's own extensions. The two halves each stay green against their own fixture -
-//! `crate::inbound` retains what verified, `WorkloadIdentityBroker` offers an asker's token to an
-//! exchange - and the assertion here is the identity of those bytes on the surface a pipe cannot
-//! carry. It has to live in this crate, and not in `sutura-http` next to its sibling, because only
-//! a composition root links both transports: `sutura-http`'s `agent` feature is deliberately empty
-//! (a transport never links another transport), so the mount that combines `establish_asked` behind
-//! leg 1 with `sutura_mcp::http::service` exists here and only here (`crate::serve::agent::mount`).
+//! It rides the streamable-HTTP transport's `Asking::PerRequest` path, where each call's `Asked`
+//! comes out of `sutura_http::capability::establish_asked` inserting it into the request's own
+//! extensions. It has to live in this crate, and not in `sutura-http`, because only a composition
+//! root links both transports: `sutura-http`'s `agent` feature is deliberately empty (a transport
+//! never links another transport), so the mount that combines `establish_asked` behind leg 1 with
+//! `sutura_mcp::http::service` exists here and only here (`crate::serve::agent`).
 //!
-//! Gated on BOTH `agent` and `bigquery`, because that is what the two halves need: the `agent`
-//! feature links `sutura_mcp::http` (and `sutura-http`'s `agent`), and the `bigquery` feature links
-//! the `WorkloadIdentityBroker` TYPE this cell drives over a fake exchange. `just test` runs
-//! `--all-features`, so this cell runs there; a default build has no `/mcp` and no exchanging broker
-//! to join.
+//! Gated on BOTH `agent` and `bigquery`: the `agent` feature links `sutura_mcp::http` (and
+//! `sutura-http`'s `agent`), and the `bigquery` feature links `DeclaredPrincipalBroker`. `just test`
+//! runs `--all-features`, so these cells run there; a default build has no `/mcp` and no
+//! per-subject broker.
 //!
-//! **What that sentence used to claim, corrected: no served deployment attaches this broker.** It
-//! said the feature links the broker *a `bigquery` deployment serves under*, and the change that
-//! adopted ADBC deleted `StsOverHttp`/`IamCredentialsOverHttp` with the `wire` transport - so
-//! `WorkloadIdentityBroker` has no implementor a composition root can reach, `crate::serve` attaches
-//! `DeclaredPrincipalBroker` instead (`serve.rs`'s own comment and `serve/broker.rs` say so), and
-//! `docs/adr/0018`'s fifth amendment records it as no longer what a served deployment attaches.
-//! `rg WorkloadIdentityBroker crates/` finds it in tests only. So what this cell holds is the BYTE
-//! JOIN between leg 1 and an exchange that is handed a subject token - which is worth holding, and
-//! is not evidence about a deployment.
+//! # Two cells lived here that are deleted, and why
+//!
+//! They were the agent-route half of a BYTE JOIN: that the `subject_token`
+//! `sts::WorkloadIdentityBroker` offered to an `StsExchange` was, byte for byte, the compact JWT
+//! leg 1 verified. That broker had no implementor a composition root could reach - every
+//! `StsExchange` in the tree was a test fake - so the join was between leg 1's real bytes and a
+//! fixture, and `docs/adr/0018`'s eighth amendment deleted the broker with its tree. The same
+//! property on the path that SHIPS is held inside the adapter, where the asker's assertion is
+//! served to the ADBC driver verbatim over a loopback source
+//! (`crates/sutura-exec-bigquery/src/adbc/subject.rs`).
+//!
+//! **What survives here is narrower and says so:** `governance.per_replica_spend_ceiling` moving
+//! through the real `/mcp` transport for a verified caller, over the broker `crate::serve` really
+//! attaches.
 
 use std::sync::Arc;
 
 use sutura_config::{Environment, Settings, Sources};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
-use sutura_domain::identity::{Expiry, Presented, Secret};
+use sutura_domain::identity::Presented;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
-use sutura_exec_bigquery::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
-
-use super::super::agent::mount as mount_agent_surface;
+use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 
 // ------------------------------------------------------------------- fixtures ----
 
@@ -52,11 +47,12 @@ const ISSUER: &str = "https://issuer.example.com";
 const RESOURCE: &str = "https://sutura.example.com";
 const KID: &str = "the-current-key";
 
-/// The workload-identity pool an impersonating `bigquery` source declares. Not a real one.
-const POOL: &str = "//iam.googleapis.com/projects/000000000000/locations/global/workloadIdentityPools/example/providers/example";
-
-/// The scope that declaration asks for. A published Google scope string, which is public.
-const SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
+/// The one subject these cells ask as.
+///
+/// A constant rather than two literals: the broker DECLARES this subject and the issuer MINTS for
+/// it, and a drift between the two would be refused as `credential_unavailable` rather than
+/// answered - which would read as a spend defect.
+const ASKING_SUBJECT: &str = "ada@example.com";
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 const ANCHORED_VALUE: &str = "197122";
@@ -191,111 +187,6 @@ fn bundle() -> sutura_domain::pinned::PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
-/// The fixture exchange's own defect, which nothing here provokes.
-#[derive(Debug, thiserror::Error)]
-#[error("the fixture exchange in `serve::tests::agent_identity` cannot fail, and did")]
-struct NoFixtureExchangeFailure;
-
-/// One call the broker made to the exchange, recorded as it was made.
-///
-/// The `subject_token` field is the seam this module exists to close, so it is named rather than
-/// positional.
-struct Exchanged {
-    audience: String,
-    scope: String,
-    subject_token: String,
-}
-
-/// An RFC 8693 exchange that records what it was asked, and answers with a credential naming it.
-///
-/// A real implementor of `sutura_exec_bigquery::StsExchange`, so the shipped broker's real code
-/// path runs - a fixture broker of this crate's own would be asserting on itself. Records through
-/// an unbounded channel rather than a lock: `std::sync::Mutex` is banned here and the port method
-/// is synchronous, the same argument `sutura_http`'s own fake gives.
-struct EchoesWhatItWasAskedToExchange {
-    asked: tokio::sync::mpsc::UnboundedSender<Exchanged>,
-}
-
-impl StsExchange for EchoesWhatItWasAskedToExchange {
-    type Error = NoFixtureExchangeFailure;
-
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "reading the subject token IS the assertion: that the document leg 1 verified is what \
-                  the shipped broker offered to an exchange on the agent route"
-    )]
-    fn exchange(&self, audience: &str, scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
-        let offered = String::from(subject_token.expose_secret());
-        drop(self.asked.send(Exchanged {
-            audience: String::from(audience),
-            scope: String::from(scope),
-            subject_token: offered.clone(),
-        }));
-        Ok(StsCredential::of(
-            Secret::new(format!("sts-token-for/{offered}")),
-            Expiry::At {
-                unix_seconds: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |since| since.as_secs())
-                    .saturating_add(3_600),
-            },
-        ))
-    }
-}
-
-fn an_exchange() -> (
-    EchoesWhatItWasAskedToExchange,
-    tokio::sync::mpsc::UnboundedReceiver<Exchanged>,
-) {
-    let (asked, received) = tokio::sync::mpsc::unbounded_channel();
-    (EchoesWhatItWasAskedToExchange { asked }, received)
-}
-
-/// A data system that can carry a per-subject credential, and answers every question it is asked.
-///
-/// `PerSubjectCredential` and `ImpersonationAtSource`, which is what makes it the right fake here:
-/// it is the only fixture in this crate that agrees with a `SubjectToken` the exchanging broker
-/// mints, so the byte join can observe that credential travelling. `verify_anchor` reproduces the
-/// number the bundle's anchor certifies, so `LocalService::start` validates.
-struct PersonaWarehouse {
-    source: sutura_domain::model::SourceName,
-    posture: SourcePosture,
-    result: RowSet,
-}
-
-/// The one way this fake fails: it was handed a credential that disagrees with its own posture.
-#[derive(Debug, thiserror::Error)]
-#[error("this fake was handed a credential that does not agree with its posture")]
-struct Disagreed {
-    #[source]
-    cause: sutura_domain::identity::PresentedDisagreesWithPosture,
-}
-
-impl Warehouse for PersonaWarehouse {
-    type Error = Disagreed;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
-
-    fn source(&self) -> &sutura_domain::model::SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Ok(AnchorRows::of(self.result.clone()))
-    }
-
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| Disagreed { cause })?;
-        Ok(self.result.clone())
-    }
-}
-
 // --------------------------------------------------------------------- the cell ----
 
 /// The exchange the settled plan asks for, as the mounted `/mcp` transport frames it.
@@ -350,193 +241,6 @@ async fn post(app: axum::Router, token: &str, body: serde_json::Value) -> serde_
         .await
         .expect("the response body reads");
     serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the response body is JSON: {cause}"))
-}
-
-#[tokio::test]
-async fn the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_verified() {
-    // **The agent-route join, and the assertion neither half could make alone.** `establish_asked`
-    // retains the token leg 1 verified and `WorkloadIdentityBroker` offers an asker's token to an
-    // exchange - each against its own fixture, each green whatever the other did with the bytes.
-    // What is asserted here is the identity of those bytes on the mounted `/mcp` surface, through
-    // the composition root's own `mount` and the real `Asking::PerRequest` transport: an
-    // `establish_asked` that retained a MANGLED assertion (a scheme still on it, or a caller's
-    // NAME, or the process's own identity) passes every other agent-surface cell and fails here.
-    let issuer = an_issuer();
-    let published = PublishedKeySet::of(&issuer, "agent-byte-join").expect("the key set publishes");
-    let overlay = direct_overlay(&issuer, &published.path().to_string_lossy());
-    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
-        .expect("the agent-route overlay loads");
-
-    let (exchange, mut asked) = an_exchange();
-    let broker = WorkloadIdentityBroker::empty(exchange)
-        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
-    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
-        .expect("a one-cell result is a result set");
-    let warehouses = sutura_app::Warehouses::of(PersonaWarehouse {
-        source: source(),
-        posture: SourcePosture::ImpersonationAtSource,
-        result,
-    });
-
-    let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
-        sutura_app::surface::LocalService::start(
-            &catalog_of(bundle()),
-            warehouses,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            1 << 30,
-        )
-        .expect("the test bundle validates: the anchor path takes no credential"),
-    );
-
-    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    // The composition root's own mount: `sutura_mcp::http::service` (always `Asking::PerRequest`)
-    // wrapped in the erased-surface `Serving` that `sutura serve` serves over.
-    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone(), None).expect("the agent mount builds");
-    let gate = sutura_http::InboundGate::from_declaration(
-        &settings
-            .security()
-            .inbound()
-            .expect("this overlay declares an inbound identity")
-            .clone(),
-    )
-    .expect("a published key set builds a gate");
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission)
-        .with_inbound_identity(Arc::new(gate))
-        .with_agent_surface(mount);
-    let app = sutura_http::router(&state).expect("the test router assembles");
-
-    let token = issuer
-        .mint(&accepted_by("ada@example.com"))
-        .expect("the issuer signs a token");
-    drop(post(app.clone(), &token, initialize(1)).await);
-    let answered = post(app, &token, ask_metric_call()).await;
-    assert!(
-        answered.get("error").is_none(),
-        "the ask_metric call must be answered, not refused: {answered}"
-    );
-
-    let call = asked
-        .try_recv()
-        .expect("the agent surface performed an exchange through the shipped broker");
-    // The seam, and it is on the AGENT route this time: a transport that retained the header's whole
-    // value, or trimmed the token, or handed over the subject's NAME, passes every other agent-surface
-    // cell and fails here.
-    assert_eq!(
-        call.subject_token, token,
-        "the document exchanged on the agent route is not the one leg 1 verified"
-    );
-    assert_eq!(call.audience, POOL, "the pool the exchange was asked for");
-    assert_eq!(call.scope, SCOPE, "the scope the exchange was asked for");
-    assert!(asked.try_recv().is_err(), "one question over one source is one exchange");
-}
-
-/// Claim-Cell: `two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange`.
-///
-/// Pins behaviour the base tree already provides - the broker already offers each caller's own
-/// token, unchanged by this cell - so it needs the declared trailer and its killing mutation at
-/// `devco/claim-mutations/two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange.patch`.
-///
-/// The gap this closes: `two_callers_over_one_connection_are_two_different_askers`
-/// (`crates/sutura-mcp/src/server/tests/asking.rs`) proves asker distinctness at the PORT - it
-/// records the subject each context the port receives. It says nothing about the SUBJECT TOKENS
-/// offered to the exchange: a broker that resolved each caller correctly and then offered a cached
-/// or process-owned token would still pass it. This cell reaches the exchange itself, over the SAME
-/// mounted `/mcp` surface the one-caller cell above joins, with two different bearer tokens.
-#[tokio::test]
-async fn two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange() {
-    let issuer = an_issuer();
-    let published = PublishedKeySet::of(&issuer, "agent-byte-join-two-callers").expect("the key set publishes");
-    let overlay = direct_overlay(&issuer, &published.path().to_string_lossy());
-    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(&overlay))
-        .expect("the agent-route overlay loads");
-
-    let (exchange, mut asked) = an_exchange();
-    let broker = WorkloadIdentityBroker::empty(exchange)
-        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
-    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
-        .expect("a one-cell result is a result set");
-    let warehouses = sutura_app::Warehouses::of(PersonaWarehouse {
-        source: source(),
-        posture: SourcePosture::ImpersonationAtSource,
-        result,
-    });
-
-    let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
-        sutura_app::surface::LocalService::start(
-            &catalog_of(bundle()),
-            warehouses,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            1 << 30,
-        )
-        .expect("the test bundle validates: the anchor path takes no credential"),
-    );
-
-    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let mount = mount_agent_surface(Arc::clone(&service), &settings, admission.clone(), None).expect("the agent mount builds");
-    let gate = sutura_http::InboundGate::from_declaration(
-        &settings
-            .security()
-            .inbound()
-            .expect("this overlay declares an inbound identity")
-            .clone(),
-    )
-    .expect("a published key set builds a gate");
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission)
-        .with_inbound_identity(Arc::new(gate))
-        .with_agent_surface(mount);
-    let app = sutura_http::router(&state).expect("the test router assembles");
-
-    // Two callers, two tokens the same issuer signs for two different subjects - the only thing
-    // that varies between them.
-    let ada = issuer
-        .mint(&accepted_by("ada@example.com"))
-        .expect("the issuer signs ada's token");
-    let grace = issuer
-        .mint(&accepted_by("grace@example.com"))
-        .expect("the issuer signs grace's token");
-
-    drop(post(app.clone(), &ada, initialize(1)).await);
-    let ada_answered = post(app.clone(), &ada, ask_metric_call()).await;
-    assert!(
-        ada_answered.get("error").is_none(),
-        "ada's ask_metric call must be answered, not refused: {ada_answered}"
-    );
-
-    drop(post(app.clone(), &grace, initialize(1)).await);
-    let grace_answered = post(app, &grace, ask_metric_call()).await;
-    assert!(
-        grace_answered.get("error").is_none(),
-        "grace's ask_metric call must be answered, not refused: {grace_answered}"
-    );
-
-    let first = asked
-        .try_recv()
-        .expect("ada's ask_metric call performed an exchange through the shipped broker");
-    let second = asked
-        .try_recv()
-        .expect("grace's ask_metric call performed an exchange through the shipped broker");
-    assert!(
-        asked.try_recv().is_err(),
-        "two questions over one source is two exchanges, not three"
-    );
-
-    // The seam this cell exists to close: two callers over the agent route must offer two
-    // DISTINCT subject tokens - a broker that resolved each caller and then offered a cached or
-    // process-owned token would still pass the port-level distinctness cell, and fail only here.
-    assert_ne!(
-        first.subject_token, second.subject_token,
-        "two callers over the agent route must not offer the same subject token to the exchange"
-    );
-    assert_eq!(
-        first.subject_token, ada,
-        "ada's own token must be the one offered on her behalf"
-    );
-    assert_eq!(
-        second.subject_token, grace,
-        "grace's own token must be the one offered on her behalf"
-    );
 }
 
 // ----------------------------------------------------------------- spend headroom over /mcp ----
@@ -628,9 +332,17 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
         .expect("the priced agent-route overlay loads");
     let budget = settings.spend_budget().expect("the priced overlay configured a ceiling");
 
-    let (exchange, _asked) = an_exchange();
-    let broker = WorkloadIdentityBroker::empty(exchange)
-        .impersonating(source(), WorkloadIdentity::of(String::from(POOL), String::from(SCOPE)));
+    // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as.
+    // A caller this map does not name is refused rather than widened, so the spend the cells below
+    // measure is spend a broker admitted for THAT subject.
+    let broker = DeclaredPrincipalBroker::empty().impersonating(
+        source(),
+        DeclaredPrincipals::parse(std::collections::BTreeMap::from([(
+            sutura_domain::identity::SubjectKey::parse(ASKING_SUBJECT).expect("a test subject is a subject"),
+            sutura_domain::identity::PrincipalName::parse("bq-ada@example.com").expect("a test principal is a principal"),
+        )]))
+        .expect("a one-entry declaration is a declaration"),
+    );
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     let posture = SourcePosture::ImpersonationAtSource;
@@ -689,9 +401,7 @@ async fn a_served_agent_surface_pushes_spend_headroom_after_an_answer() {
     let untouched = gauge.value();
     assert_eq!(untouched, 1_000, "the boot reading is the full ceiling");
 
-    let token = issuer
-        .mint(&accepted_by("ada@example.com"))
-        .expect("the issuer signs a token");
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
     drop(post(app.clone(), &token, initialize(1)).await);
     let answered = post(app, &token, ask_metric_call()).await;
     assert!(
@@ -733,9 +443,7 @@ fn run_sql_call(statement: &str, id: i64) -> serde_json::Value {
 async fn a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call() {
     let PricedAgentSurface { app, gauge, issuer } = priced_agent_surface("agent-spend-run-sql");
 
-    let token = issuer
-        .mint(&accepted_by("ada@example.com"))
-        .expect("the issuer signs a token");
+    let token = issuer.mint(&accepted_by(ASKING_SUBJECT)).expect("the issuer signs a token");
     drop(post(app.clone(), &token, initialize(1)).await);
     // One priced `ask_metric` call drains 500 bytes; the `answer` push sets the gauge to 500.
     let answered = post(app.clone(), &token, ask_metric_call()).await;

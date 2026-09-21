@@ -137,17 +137,12 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 
-/// The broker a served impersonating `BigQuery` source is answered through - `sts`'s sibling and
-/// the one a composition root can reach, since the exchanging broker's HTTP hops went away with the
-/// `wire` transport.
+/// The broker a served impersonating `BigQuery` source is answered through, and now the only one
+/// this crate carries: the exchanging `WorkloadIdentityBroker` was deleted with its HTTP hops
+/// (`docs/adr/0018`, eighth amendment), since the ADBC path federates the asker's own assertion at
+/// Google's token service instead of exchanging it here.
 mod principal;
 pub use principal::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, NoDeclaredPrincipals};
-
-mod sts;
-pub use sts::{
-    ImpersonateAsAccount, NoImpersonation, StsCredential, StsExchange, SystemClock, UnixClock, WorkloadIdentity,
-    WorkloadIdentityBroker,
-};
 
 use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobRows, JobTransport, ProjectId};
 

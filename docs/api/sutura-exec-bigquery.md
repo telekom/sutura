@@ -387,7 +387,7 @@ Presents the principal a source declared for the asking subject, and the operato
 shared one.
 
 **Both maps, because one plan may read one of each and a broker is per answer rather than per
-source** - the same reason `crate::WorkloadIdentityBroker` holds two.
+source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
 
 ## `use DeclaredPrincipals`
 
@@ -414,101 +414,6 @@ Why a declared impersonation map is not one a source can be served under.
 
 One variant, and an enum for the reason every other error in this crate is one: a second reason
 has somewhere to go.
-
-## `use ImpersonateAsAccount`
-
-The second hop, telekom/sutura#376's iamcredentials step: a federated access token in, a
-service-account access token out.
-
-**A second port and not a second `StsExchange` method** - the two calls have different request
-and response shapes (RFC 8693 token exchange vs `{scope, lifetime}`) and different failure modes
-(STS `invalid_target` vs `iamcredentials`'s own `403` for "may not impersonate"). Everything this
-broker decides about WHEN to call it is exercised against a fake; the real HTTP call arrives at
-this port as the `wire` transport's `IamCredentialsOverHttp`, behind the same removal
-`StsExchange`'s real implementor is.
-
-## `use NoImpersonation`
-
-The impersonation port a broker holds when it was never wired to one.
-
-**The default for the same reason `SystemClock` is one for the clock parameter**: a composition
-root that never calls `WorkloadIdentityBroker::impersonating_via` gets a broker whose TYPE says
-the hop cannot run, rather than a value that happens never to be invoked. Every test and every
-existing call site that declares no `impersonate` entry at all never reaches
-`ImpersonateAsAccount::impersonate` - `WorkloadIdentity::target_for` answers `None` for every
-subject, so `mint` never calls it.
-
-**A composition root can still reach it by mistake**, declaring a source's `impersonate` map
-without ever calling `WorkloadIdentityBroker::impersonating_via` - the type system does not
-forbid attaching an `I` and a per-source map independently, since `WorkloadIdentityBroker::impersonating`
-(the per-source declaration) takes no `I` at all. So this is a REFUSAL, not an
-invariant asserted with `unreachable!`: a caller whose subject resolves a target here is told the
-composition is wrong, the same way `ExchangeUnusable::Provider` tells it about any other
-provider defect, rather than the process panicking on a request nobody malformed.
-
-## `use StsCredential`
-
-One exchanged credential: a Google access token and the instant it stops being usable.
-
-The deadline is carried beside the token - the whole point of `docs/adr/0008`'s
-`Expiry` - so a broker can compute one deadline for the whole
-answer and nothing answers with a token that was already dead.
-
-**No `PartialEq`/`Eq`, because it holds a `Secret`** - a derived `==` on credential material is a
-timing oracle, the same reason the domain's `Secret` has no comparison.
-
-## `use StsExchange`
-
-Exchanges one subject's token for a credential to a `BigQuery` source.
-
-**The narrow port that keeps `WorkloadIdentityBroker` testable without a network**, for the same
-reason `crate::transport::JobTransport` exists: everything the broker decides is exercised against
-a fake, and the HTTP exchange is one implementor behind the `wire` feature. Nothing here takes a
-`&Warehouse` or a deadline - it is as narrow as a broker's need.
-
-## `use SystemClock`
-
-The wall clock: the shipping `UnixClock`.
-
-What `WorkloadIdentityBroker::empty` hands a composition root, so wiring a served deployment
-takes no clock argument and a test that wants a fixed instant says so through
-`WorkloadIdentityBroker::measured_against`.
-
-**Not the only ambient time read on this path, and the distinction is the control's limit.**
-`crate::wire::StsOverHttp::exchange` reads its own clock to turn the provider's `expires_in`
-into the deadline this floor then judges. So the floor's COMPARISON is deterministic; the path
-it judges still has two clock reads in it, milliseconds apart in production and not the same
-instant.
-
-## `use UnixClock`
-
-Where this broker reads "now" for its expiry floor.
-
-**A port for the same reason `StsExchange` is one.** Everything this broker DECIDES is
-exercised against a fake, and the floor is one of the things it decides - so an ambient
-`SystemTime::now()` inside `WorkloadIdentityBroker::mint` would make the outcome of every
-broker-level test a function of the day it ran on. The instant is an input instead, and
-`A_FIXED_NOW` in this file's suite records what that bought.
-
-**The narrower shape this is NOT.** Every other time-dependent API in this workspace takes the
-instant as a parameter - `Expiry::passed_by`, `LegCredentials::still_usable_at`,
-`Minted::agreeing_with`, the `wire` transport's `AccessTokens::bearer` - and that is the better shape. It
-is unavailable here because `CredentialBroker::mint` is a DOMAIN port signature carrying no
-instant, and widening it reaches ten implementors across eight crates. A held clock is what an
-adapter can do alone; the parameter is the follow-up.
-
-## `use WorkloadIdentity`
-
-The setup one impersonating source needs from the settings tree, minus the borrowing.
-
-Carried here rather than as a reference into configuration because an adapter may not depend on
-the settings tree. The composition root constructs one of these per source from the parsed
-declaration, which has already refused a value that is not usable.
-
-## `use WorkloadIdentityBroker`
-
-A broker that mints a per-subject credential for impersonating sources and a declared witness for
-shared ones.
 
 ## Module `adbc`
 

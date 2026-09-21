@@ -8,11 +8,10 @@
 //! transports need the identical implementation rather than each re-deriving it (see this crate's
 //! own doc comment).
 //!
-//! [`WallClock`] is the port, [`SystemClock`] its first and only shipping implementor - the same
-//! shape as `sutura_exec_bigquery::sts::UnixClock`/`SystemClock`, for the same reason: everything
-//! [`resolve_range`] decides is exercised against a fixed clock in a test, so an ambient
-//! `SystemTime::now()` inside the resolution would make the outcome a function of the day the test
-//! ran on.
+//! [`WallClock`] is the port, [`SystemClock`] its first and only shipping implementor, and the
+//! reason it is a port at all: everything [`resolve_range`] decides is exercised against a fixed
+//! clock in a test, so an ambient `SystemTime::now()` inside the resolution would make the outcome
+//! a function of the day the test ran on.
 //!
 //! **The limit.** "Last week" resolves against THIS process's calendar date; a caller in another
 //! timezone gets the server's week, not their own. Nothing here reads a timezone, and nothing asks

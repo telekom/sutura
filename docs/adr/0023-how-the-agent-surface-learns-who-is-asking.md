@@ -328,7 +328,8 @@ The requirement this record serves is that the agent surface takes the caller's 
 whatever enterprise identity provider issued it and reaches a credential the data source accepts,
 through **however many exchanges that takes**.
 
-Measured at `5ae3bde`: the broker performs one. `crates/sutura-exec-bigquery/src/sts.rs:420`:
+Measured at `5ae3bde`: the broker performed one. `sts.rs:420`, in code this tree no longer
+contains:
 
 ```rust
 let credential = self
@@ -342,9 +343,12 @@ against the port `sutura_exec_bigquery::StsExchange`,
 **Corrected 2026-09-20:** this named `sts.rs:116` and `sts.rs:114` and said the port's one non-test
 implementor is `StsOverHttp`. Both line numbers now point at an accessor - a citation by line is one
 edit from wrong - and `StsOverHttp` was deleted with the BigQuery HTTP transport (`docs/adr/0018`,
-fifth amendment). **The port has five implementors at HEAD and every one of them is a fake**, so
-nothing in a shipped build exchanges anything: the hop this section calls the one that is built is
-no longer built, and `crates/sutura-exec-bigquery/src/sts.rs`'s own header says so at the type.
+fifth amendment). **The port had five implementors and every one of them was a fake**, so
+nothing in a shipped build exchanged anything: the hop this section calls the one that is built was
+no longer built, and `docs/adr/0018`'s eighth amendment has since deleted the port with its broker.
+**Nothing in this tree exchanges a token at all now** - the ADBC driver federates the asker's own
+assertion at Google's token service instead, so the chain this section measures has no first hop
+here to count.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -

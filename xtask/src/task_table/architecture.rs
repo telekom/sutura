@@ -54,9 +54,9 @@ pub(crate) const TASKS: &[Task] = &[
         run: newtype_leaks::run,
     },
     Task {
-        // Beside `check-newtype-leaks` for the same reason: it starts GREEN - the credential cache
-        // `docs/adr/0031` landed lives entirely inside `sutura_exec_bigquery`'s private `sts::cache`
-        // and never touches these two crates - and its whole job is to keep it that way. Deferred
+        // Beside `check-newtype-leaks` for the same reason: it starts GREEN - no map in these two
+        // crates holds an answer-path type, and the one credential cache this workspace ever had
+        // lived inside an adapter and is now deleted - and its whole job is to keep it that way. Deferred
         // from `telekom/sutura#381`, owed by that record's own "what this leaves for later", and
         // `telekom/sutura#706` is where the deferral is tracked.
         //

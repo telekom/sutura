@@ -1,5 +1,5 @@
 //! `DeclaredPrincipalBroker`'s own suite. A child module of `principal`, so every private item that
-//! file declares is reachable through `super::` - the same shape `sts::tests` has.
+//! file declares is reachable through `super::`.
 
 use std::collections::BTreeMap;
 
@@ -13,8 +13,8 @@ use super::{DeclaredPrincipalBroker, DeclaredPrincipals, NoDeclaredPrincipals};
 
 /// The instant every agreement below is measured against: 2096-10-02.
 ///
-/// **Far out on purpose**, for `sts::tests::A_FIXED_NOW`'s recorded reason: a suite measured
-/// against the wall clock is one scheduled to go red on a date nobody is watching. Before
+/// **Far out on purpose**, for the reason the deleted exchanging broker's suite recorded: one
+/// measured against the wall clock is scheduled to go red on a date nobody is watching. Before
 /// [`A_FIXTURE_EXPIRY`], so a fixture caller's assertion is still usable at it - the cell that cares
 /// about the other direction names its own instants.
 const A_FIXED_NOW: u64 = 4_000_000_000;

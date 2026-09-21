@@ -440,9 +440,10 @@ because a reader arriving at an amendment wants to know which of its limits a la
 **Corrected: the premise moved and the consequence with it.** `IMPERSONATION` is
 `ImpersonationCapability::PerSubjectCredential` now, so an `impersonation-at-source` declaration
 against this adapter is no longer refused by the posture cross-check alone - `deliverable_by`
-accepts it. The broker is built too: `crates/sutura-exec-bigquery/src/sts.rs`'s
-`WorkloadIdentityBroker` performs the exchange, and `sutura-serve`'s `bigquery` composition
-attaches it (#284). What gates per-subject execution is narrower than "nothing composes it" -
+accepts it. The broker was built too: `sts.rs`'s `WorkloadIdentityBroker` performed the exchange
+and `sutura-serve`'s `bigquery` composition attached it (#284) - **both deleted since**
+(`docs/adr/0018`'s eighth amendment), leaving `DeclaredPrincipalBroker` as what a served deployment
+attaches. What gates per-subject execution is narrower than "nothing composes it" -
 **superseded 2026-09-16, and superseded AGAIN 2026-09-20:** a hosted run of
 `bigquery-exchanged-identity` exchanged each principal's own assertion against a real STS and
 resolved it to that principal, and for four days AGENTS.md read leg 2 as proven on the strength of
@@ -754,8 +755,8 @@ sign-on. The venue for that is a developer's own machine, one-off, and recorded.
 
 ### What each cell required, and which are now true
 
-**The fakes cell is the oldest and still holds.** The wire is exercised against a fake
-[`transport::JobTransport`] and the broker against a fake [`StsExchange`] - a fake implements the port,
+**The fakes cell is the oldest and still holds.** The wire was exercised against a fake
+[`transport::JobTransport`] and the broker against a fake `StsExchange` - a fake implements the port,
 never a documented HTTP layer, so a test can never assert our own request bytes back to us. Nothing in
 this amendment changes it; it is here because a decision about venues starts with the one venue already
 settled.

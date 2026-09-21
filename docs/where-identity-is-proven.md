@@ -249,32 +249,22 @@ source that ships:
   on the **material**: each credential is derived from that caller's own assertion, so what is shown is
   that the document travelled and not only the name.
 - `an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says`
-- `the_shipped_exchanging_broker_exchanges_the_document_leg_one_verified` - the **join**, and the one
-  assertion neither half could make alone. `sutura_exec_bigquery::WorkloadIdentityBroker` is driven
-  through this router over a fake `StsExchange`, and what is compared is the *bytes*: the `subject_token`
-  the shipped broker sent is character for character the compact JWT the gate verified. Each half was
-  already green against its own fixture, so a transport retaining a mangled assertion - the `Bearer`
-  scheme still on it, say - would have left both suites passing while the exchange received garbage. The
-  pool and the scope are asserted too, so what reached the exchange is the declaration held for that
-  source rather than anything the request carried.
-- `a_source_the_shipped_exchanging_broker_holds_nothing_for_is_refused_before_anything_is_exchanged` -
-  the same `403` as above, produced by the **shipped** exchanging broker rather than a fake that only
-  refuses, plus the two assertions a status code cannot carry: nothing reached the authorization server
-  and nothing reached the data system.
 
-The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last five in
+The first six live in `crates/sutura-http/src/inbound/tests/published.rs` and the last three in
 `crates/sutura-http/src/identity_e2e.rs`, which is the same split the code has: one file is about
 establishing who is asking and the other about what is minted for them.
 
-**What the two exchange-chain tests do NOT reach, and it is unchanged by them:** the fake at the port
-is a fake, so nothing here says a real authorization server accepts that document - that stays the
-last venue's only claim. And they are router tests rather than composed-binary ones because they are
-about the EXCHANGING broker, which no composition root can build: its two HTTP hops went away with
-the BigQuery `wire` transport. **What the served root attaches instead is
-`DeclaredPrincipalBroker`**, which presents the principal a source declared for the asking subject
-rather than a credential exchanged for them - so a `bigquery` source declared
-`impersonation-at-source` now boots, and these two tests are still about a broker the binary cannot
-host.
+**Two exchange-chain tests used to close this list and are deleted** (`docs/adr/0018`, eighth
+amendment). They drove `sutura_exec_bigquery`'s exchanging broker through this router over a fake
+`StsExchange` and compared the `subject_token` it offered, byte for byte, against the compact JWT the
+gate verified. That broker had no implementor a composition root could build - its two HTTP hops went
+away with the BigQuery `wire` transport - and every `StsExchange` in the tree was a fake, so the join
+was between leg 1's real bytes and a fixture. **This removes no claim from this page**: the join was
+never citable for leg 2, and what it did say about leg 1 is said by the Keycloak venue below against
+a real issuer. **What the served root attaches is `DeclaredPrincipalBroker`**, which decides whether
+a caller may be served at a source the operator declared for them rather than exchanging a credential
+- so a `bigquery` source declared `impersonation-at-source` boots, and the assertion it carries goes
+to the ADBC driver for Google's token service to federate, which is the venue below and not this one.
 
 ### And on the composed binary, which is a different claim from any of the above
 

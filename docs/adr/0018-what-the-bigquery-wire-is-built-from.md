@@ -162,8 +162,8 @@ Four parts, each with its own reason:
    *this port* is otherwise unaffected: nothing here lets an implementation select a credential FOR
    the subject or tell two concurrent subjects apart, which is a property of `AccessTokens::bearer`'s
    signature rather than of the constant. What carries the leg's subject through per-leg execution is
-   `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
-   (#284). **Superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each
+   `sts.rs`'s `WorkloadIdentityBroker`, composed in `sutura-serve`
+   (#284) - both deleted by the eighth amendment below. **Superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity` exchanged each
    principal's own assertion against a real STS and resolved it to that principal, so leg 2 is
    proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads: *"Leg 1
    (knowing who is asking) is built. Leg 2 (a source executing AS them) is proven for BigQuery
@@ -403,8 +403,9 @@ somewhere to go: the assertion becomes an `external_account` credential document
 federates against the declared pool (sixth amendment) - `Presented::SubjectPrincipal` is refused
 (`BigQueryError::NoPrincipalSwitch`), since the mechanism that shape names was deleted. **What this section's premise still gets right:** the corpus leg tested here runs on the
 service-account credential, so a green run says nothing about the per-subject path. What that path
-needs is built, not unbuilt: `crates/sutura-exec-bigquery/src/sts.rs`'s `WorkloadIdentityBroker`
-mints the per-leg credential and `sutura-serve`'s `bigquery` composition attaches it (#284). The
+needed was built, not unbuilt: `sts.rs`'s `WorkloadIdentityBroker`
+minted the per-leg credential and `sutura-serve`'s `bigquery` composition attached it (#284) - both
+deleted by the eighth amendment below. The
 limit is narrower - **superseded 2026-09-16:** a hosted run of `bigquery-exchanged-identity`
 exchanged each principal's own assertion against a real STS and resolved it to that principal, so
 leg 2 is proven for BigQuery through the declared per-source map; AGENTS.md's sentence now reads:
@@ -1058,9 +1059,9 @@ unconditional `ADBC driver` step as well.
 
 ### What else moved with the transport
 
-- `WorkloadIdentityBroker` survives with its ports, its cache, its floor and its claim check, and has
-  **no implementor a composition root can reach** - both hops were the wire's. It is no longer what a
-  served deployment attaches.
+- `WorkloadIdentityBroker` survived with its ports, its cache, its floor and its claim check, and had
+  **no implementor a composition root could reach** - both hops were the wire's. It stopped being what
+  a served deployment attaches, and the eighth amendment below deletes it outright.
 - `sutura serve` attaches `sutura_exec_bigquery::DeclaredPrincipalBroker` instead: the declared
   subject-to-account map, presented as the identity each job runs as, with a startup refusal for a
   declaration naming nobody and for the pool expectations `telekom/sutura#817` added, which described
@@ -1152,8 +1153,9 @@ ACCEPTING the assertion - the document is built and the loopback source is asser
 socket, and the exchange needs a pool, a project and a hosted run, so
 `docs/where-identity-is-proven.md` keeps its venue at `wired` and **leg 2 is not proven.** And the
 multi-hop case the owner named (Keycloak or Entra, then an RFC 8693 exchange, then the pool) is not
-built: `WorkloadIdentityBroker` is the home for that hop and still has no HTTP implementor, so what
-ships is the single-hop case where the caller's own verified document is what the pool trusts.
+built: `WorkloadIdentityBroker` was the home for that hop and had no HTTP implementor, and the eighth
+amendment deletes it - so what ships is the single-hop case where the caller's own verified document
+is what the pool trusts, and a multi-hop exchange would start from nothing rather than from a type.
 
 ### Addendum to the sixth amendment, 2026-09-20: what review measured on the loopback source
 
@@ -1275,3 +1277,45 @@ answer now refuses. That is the direction to fail in - a refusal an operator can
 transposed aggregate nobody can see - but it is a behaviour change and not only a check. And the
 ceiling is a bound on this process's memory, never a cap on an answer: `sutura_domain::plan::MAX_ROWS`
 is the answer cap and travels in the statement's own `LIMIT`.
+
+## Eighth amendment, 2026-09-21: the exchanging broker is deleted, not kept beside the shipping path
+
+**`sts.rs`, `sts/cache.rs` and `sts/tests.rs` - 2,571 lines - are deleted, with the
+`WorkloadIdentityBroker` they held and its three ports (`StsExchange`, `ImpersonateAsAccount`,
+`UnixClock`).** The fifth and sixth amendments took the transport that implemented them; this one
+takes the code that was left.
+
+**Why, in the owner's own terms.** Leg 1 has real, independent evidence: a live Keycloak issues a
+token, the composed binary verifies it and refuses a wrong audience
+(`crates/sutura-cli/tests/served/keycloak_test.rs`), and `keycloak-served-test` is a required
+context. What the `sts` tree added on top of that was *the verified bytes are the bytes offered to an
+exchange* - and after the `wire` removal there was no exchange to offer them to. Every `StsExchange`
+in the tree was a test fake, no composition root could reach the broker, and the ADBC path never
+touched the module. So the tree was evidence about a leg that does not ship, propped up by fakes; the
+owner's decision was to drop it rather than keep artificial scaffolding around a claim that already
+has real evidence.
+
+**What the shipping path does instead.** `DeclaredPrincipalBroker`
+(`crates/sutura-exec-bigquery/src/principal.rs`) decides WHETHER a caller may be served at an
+impersonating source, from a declared per-source map keyed on the full verified subject; the ADBC
+transport then puts that caller's own assertion behind an `external_account` credential document
+served over a loopback source (`crates/sutura-exec-bigquery/src/adbc/subject.rs`), and Google's token
+service - not this process - performs the exchange. There is no second broker to pick and no arm
+a misconfiguration can select back onto an exchange this tree cannot make.
+
+### What went with it, each decided rather than fixed blind
+
+| Dependent                                           | What it became                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sutura-exec-bigquery`'s `lib.rs` re-exports        | Deleted; `principal`'s four types are the crate's whole broker surface                                                                                                                                                                                                                                                                                                                                      |
+| `sutura-exec-bigquery`'s `base64` and `parking_lot` | Deleted from the manifest - the claim decode and the cache lock were their only callers, and `unused-deps` is what caught them rather than a reading                                                                                                                                                                                                                                                        |
+| `sutura-http`'s `identity_e2e`                      | **Kept.** Five of its seven cells never touched the broker; the two that drove it over a fake exchange are deleted, and the `sutura-exec-bigquery` DEV-dependency with them - so one adapter-to-adapter edge is gone                                                                                                                                                                                        |
+| `sutura-cli`'s `serve::tests::agent_identity`       | **Kept.** Its two byte-join cells are deleted; the two spend-headroom cells stay and now run over `DeclaredPrincipalBroker`, the broker `serve` really attaches, which is stronger evidence than the fixture they used to run over                                                                                                                                                                          |
+| `devco/claim-mutations/`                            | Three patches deleted with the cells they killed - `a_declared_subject_resolves_through_the_hop_to_the_declared_sa`, `the_shipped_exchanging_broker_exchanges_the_document_the_agent_route_verified`, `two_callers_over_the_agent_route_offer_two_distinct_subject_tokens_to_the_exchange`. A patch whose anchor no longer exists cannot apply, which is a gate that refuses rather than a gate that passes |
+| `docs/adr/0031`, `docs/adr/0032`                    | Second amendments: each decision is spent, and each says what of its reasoning is still worth reading                                                                                                                                                                                                                                                                                                       |
+| `security.credential_cache`                         | **Left in place, and it reads nothing.** It was already unread before this change; `docs/adr/0031`'s second amendment states the limit rather than this amendment implying a cache still exists                                                                                                                                                                                                             |
+
+**What this does NOT change, and the sentence is the important one.**
+`docs/where-identity-is-proven.md` reads exactly as it did: leg 2's venue stays `wired`, because
+deleting evidence that was only ever a fake-port cell proves nothing. Leg 1's evidence is untouched -
+the Keycloak cells are not in this diff.

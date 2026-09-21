@@ -441,8 +441,9 @@ distinguishability this record asks for, now asserted by a test.
 **Corrected: the field is no longer missing, and it arrived the way this paragraph said it would -
 with the broker.** `sutura_domain::identity::RequestContext` carries the caller's own assertion
 behind a second constructor and an accessor, and the first `CredentialBroker` that exchanges one
-landed with it (`crates/sutura-exec-bigquery/src/sts.rs`), its real outbound exchange behind a
-default-off feature so the TLS stack stays a composition root's decision. **What does not change is
+landed with it (`sts.rs`, since deleted - `docs/adr/0018`'s eighth amendment), its real outbound
+exchange behind a default-off feature so the TLS stack stays a composition root's decision. The
+field stayed; what reads it now is the broker that hands the assertion to the driver to federate. **What does not change is
 what may be claimed from that.** This record is about leg 1 - establishing who is asking - and
 whether a source executed AS the asking subject is answered per venue in
 `docs/where-identity-is-proven.md`, which is the only place that may say so, this record included.

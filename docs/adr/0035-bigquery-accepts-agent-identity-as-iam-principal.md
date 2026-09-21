@@ -157,3 +157,20 @@ not change that; it is orthogonal to it.
 | Workload identity federation (contrast)       | https://cloud.google.com/iam/docs/workload-identity-federation              | Not agent identity - about workload pools for non-Google-Cloud workloads (CI, Kubernetes)                       |
 
 Note: The "federation support matrix" page originally linked from issue #760 concerns workload and workforce identity federation, **not** agent identities. Agent identity is a distinct mechanism from both.
+
+## Amendment, 2026-09-21: the file this decision left untouched is deleted, and the decision is unaffected
+
+**`sutura-exec-bigquery/src/sts.rs` no longer exists** (`docs/adr/0018`, eighth amendment). Limit 4
+below - *sts.rs is untouched* - was true when written and is now vacuous: the RFC 8693 exchange and
+the `iamcredentials` hop this record names were deleted with the broker that held them, and every
+sentence above describing the deployment's path as *"WIF via STS exchange in `sts.rs`"* should be
+read as *WIF, performed by Google's token service rather than by this process*.
+
+**Neither decision changes.** The mechanism is still Workload Identity Federation and still keyless:
+the ADBC transport puts a credential document in front of the driver
+(`crates/sutura-exec-bigquery/src/adbc/subject.rs`) and Google's token service does the exchange, so
+*WIF is load-bearing everywhere* and *agent identity is optional where it exists* both stand on the
+same ground. What moved is only WHERE the exchange happens, and it moved out of this repository -
+which strengthens Decision 3's argument rather than weakening it. The claim that a hosted run
+verified the hop against real STS is a claim about deleted code and is retracted here; what a green
+run may be cited for is `docs/where-identity-is-proven.md`'s business, and that page is unchanged.

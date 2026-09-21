@@ -100,3 +100,21 @@ linked to. `crates/sutura-exec-bigquery/src/lib.rs` states what that costs besid
 Whether they should be removed from the settings tree is an owner decision and is not taken here:
 keeping them means a deployment that once declared them fails loudly rather than silently, which is
 the better failure while the question is open.
+
+## Second amendment, 2026-09-21: the broker the first amendment described as unreachable is deleted
+
+The first amendment recorded that no transport exchanges a subject's token against a pool, leaving
+`WorkloadIdentity::assertion_matches_expectations` and the broker's claim check with nothing to
+guard. Both are now **deleted** with the exchanging broker itself (`docs/adr/0018`, eighth
+amendment), and the `sts::tests::a_source_with_expectations_*` cells this record cited as its venue
+went with them.
+
+**What still holds, and it is the half that mattered:** the BOOT refusal. A source declaring
+`expected_issuer`/`expected_audience` is refused at startup, in `sutura-config`, because there is no
+mechanism left to honour the declaration - which is the first amendment's own decision and is held by
+the config parse and the CLI boot cell, neither of which was in the deleted tree. Deleting the
+runtime half removes a check that could not fire; it does not widen what a deployment may declare.
+
+**Moves no row on `docs/where-identity-is-proven.md`,** in either direction, for the reason this
+record has always given: the twin-root question is answered by a live pool, and nothing here dials
+one.

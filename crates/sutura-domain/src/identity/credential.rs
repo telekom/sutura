@@ -876,10 +876,10 @@ pub trait CredentialBroker {
     /// For the first broker that exchanges a token it is **one authorization-server round trip per
     /// question**, and N audience-restricted exchanges inside it for a plan reading N sources -
     /// which is the reason the port takes the whole [`SourceSet`] in one call rather than one call
-    /// per leg. **`docs/adr/0031` is that architecture decision, taken by exactly one implementor:**
-    /// `sutura_exec_bigquery::WorkloadIdentityBroker` now caches what it exchanged, per chain,
-    /// entirely inside its own adapter - nothing at this port changed to let it, and every other
-    /// implementor still pays the round trip described below on every call.
+    /// per leg. **`docs/adr/0031` took that architecture decision and its own amendment spent it:**
+    /// the one implementor that cached what it exchanged was deleted with the exchanging broker, so
+    /// **no implementor in this tree caches anything at this port** - nothing here changed to let
+    /// one, and every implementor pays the round trip described below on every call.
     ///
     /// Two things follow, and they are stated here rather than left to be discovered by whoever
     /// deploys the first exchanging broker. **One:** a question this deployment declines does not

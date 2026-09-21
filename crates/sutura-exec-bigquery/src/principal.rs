@@ -1,17 +1,17 @@
 //! The broker a served `BigQuery` deployment impersonates through: a verified subject in, the
 //! principal a source declared for that subject out.
 //!
-//! **Why this exists beside [`crate::sts`] rather than inside it.** `WorkloadIdentityBroker`
-//! EXCHANGES - it hands the caller's own assertion to a token service and presents what comes back
-//! as the leg's bearer. Its two HTTP hops went away with the `wire` transport, and the ADBC driver
-//! cannot take a bearer anyway, so that broker has no implementor a composition root can reach. What
-//! the ADBC transport needs is narrower and different in kind: not a token to exchange, but the
-//! asking subject's OWN assertion for the driver to federate against the pool this source declares.
-//! No socket and no cache - Google's token service performs the exchange - but an EXPIRY, because
-//! what this presents is credential material and credential material ages out.
+//! **Why this is the only broker this crate carries.** It used to sit beside an EXCHANGING one -
+//! `sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
+//! presented what came back as the leg's bearer. Its two HTTP hops went away with the `wire`
+//! transport, leaving a 2,571-line tree no composition root could reach and whose every exchange
+//! was a test fake, so `docs/adr/0018`'s eighth amendment deleted it. What the ADBC transport needs
+//! is narrower and different in kind: not a token to exchange, but the asking subject's OWN
+//! assertion for the driver to federate against the pool this source declares. No socket and no
+//! cache - Google's token service performs the exchange - but an EXPIRY, because what this presents
+//! is credential material and credential material ages out.
 //!
-//! Forking the exchanging broker for that would have put two answers to *what does this leg present*
-//! inside one 800-line type. Two brokers, each with one answer, is the shape `docs/adr/0008` part 4
+//! One broker with one answer to *what does this leg present* is the shape `docs/adr/0008` part 4
 //! already assumes: a composition root picks one.
 //!
 //! # What it refuses, which is the half that matters
@@ -137,7 +137,7 @@ pub enum DeclaredPrincipalsUnusable {
 /// shared one.
 ///
 /// **Both maps, because one plan may read one of each and a broker is per answer rather than per
-/// source** - the same reason [`crate::WorkloadIdentityBroker`] holds two.
+/// source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
 #[derive(Debug, Clone, Default)]
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,

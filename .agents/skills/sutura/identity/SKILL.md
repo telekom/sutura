@@ -64,40 +64,30 @@ proof of impersonation.
   Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
   source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
   the only federating shape that ships.
-- **`Expiry` used to be read by nothing; the FLOOR now lands it in the broker.** The domain reads no
-  clock - `Expiry::passed_by` takes the instant as an argument and `Minted::agreeing_with` makes the
-  already-dead check there. The FLOOR (`docs/adr/0008` part 6) - *is there enough life left for what
-  this query may take* - lives in the broker adapter, the component that has the configured query
-  timeout: `WorkloadIdentityBroker::with_floor` refuses an exchanged credential already inside the
-  floor rather than presenting it. The `sutura serve` composition wires the floor from
-  `server.request_timeout_seconds`.
-- **The broker's clock is a port, not an ambient read**, and the reason is a measured one: while it
-  was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027 expiry against the
-  live clock and was therefore *scheduled* to go red in early 2027 - a failure nobody would have
-  been looking for. `UnixClock` makes the instant an input (`SystemClock` ships, `measured_against`
-  is how a test names one), so the floor's decision is asserted at instants decades out. Two of its
-  three arms are that a mint *does not ask the time*: a purely shared mint and a broker with no
-  floor. Those are held by a clock that always fails, plus a third test firing the same clock
-  through a floor that can, so the pair cannot pass vacuously. **The narrower shape this is not:**
-  every other time-dependent API here takes the instant as a *parameter*, which is better and is
-  unavailable while `CredentialBroker::mint` carries none - widening that domain port reaches ten
-  implementors across eight crates.
-- **The floor's absence is `None`, never a zero.** `Option<NonZeroU64>`, because the sentinel
-  version needed the same "is there a floor" test in `mint` *and* in `clears_floor`, each with a
-  paragraph promising the two would not drift. `with_floor` is the one place a zero is read, and the
-  served path cannot reach it: `RequestTimeout::parse` already refuses a zero timeout. With no floor
-  the adapter refuses nothing - not even an already-past expiry, which is the domain's
-  `Expiry::passed_by` at the leg.
-- **The floor asks `Expiry::passed_by` rather than comparing, and the boundary is why.** It once
-  wrote its own `unix >= now + floor`, a second deadline comparison beside the domain's - which
-  counts the boundary second as PASSED on purpose, since `not_after` is whole seconds. The two
-  disagreed the wrong way: a credential with *exactly* the floor left was granted here and then
-  called expired by the domain at the last instant of the budget it had just cleared. A second
-  comparison next to a documented one is the defect, not the off-by-one.
+- **`docs/adr/0008` part 6's expiry FLOOR is not implemented, and nothing replaces it.** *Is there
+  enough life left for what this query may take* lived in `WorkloadIdentityBroker::with_floor`, which
+  was deleted with that broker (`docs/adr/0018`, eighth amendment) - and it had **already been
+  unwired** since the `wire` removal took the composition that called it, so no served deployment
+  ever had a floor. What IS checked is narrower and is the domain's: `Expiry::passed_by` plus
+  `Minted::agreeing_with` refuse an **already-dead** credential, and `BoundToTheRequest::still_usable_at`
+  is the reader. So a credential with one second left is presented and a question that takes two
+  seconds fails at the source. `grep -rn with_floor crates` is empty - do not cite a floor.
+  **What the deleted floor is still worth reading for:** it asked `Expiry::passed_by` rather than
+  writing its own `unix >= now + floor`, because the two comparisons disagreed at the boundary
+  second, and its absence was `Option<NonZeroU64>` rather than a zero sentinel. A second deadline
+  comparison beside a documented one is the defect, not the off-by-one.
+- **The clock was a port there too, for a measured reason worth keeping if a broker ever needs one
+  again.** While it was `SystemTime::now()` inside `mint`, the broker suite minted a fixed 2027
+  expiry against the live clock and was therefore *scheduled* to go red in early 2027 - a failure
+  nobody would have been looking for. `UnixClock`/`SystemClock` made the instant an input; both are
+  deleted. `sutura_runtime::relative_range::WallClock` is the surviving instance of that shape, and
+  the reason `CredentialBroker::mint` never took the instant as a parameter is that widening that
+  domain port reaches ten implementors across eight crates.
 - **The caller's assertion is carried, and whether it is read depends on the broker.** `RequestContext`
-  holds it as an `Option<Secret>`; `WorkloadIdentityBroker` exchanges it (a subject with none at an
-  impersonating source is refused as `credential_unavailable`), while `StaticCredentialBroker` never
-  reads it. `docs/adr/0014` Decision 3 is still open about which document each inbound mode retains to
+  holds it as an `Option<(Secret, Expiry)>` - one field, because material with no lifetime is the
+  disagreement that matters; `DeclaredPrincipalBroker` presents it for the driver to federate (a
+  subject with none at an impersonating source is refused as `credential_unavailable`), while
+  `StaticCredentialBroker` never reads it. `docs/adr/0014` Decision 3 is still open about which document each inbound mode retains to
   fill it. That field is also why `RequestContext` drops `PartialEq`/`Eq`: `==` on credential material
   is a timing oracle.
 
@@ -148,26 +138,31 @@ mode; and scopes decide **operations**, not rows.
 uses** (and the `sutura` command's). It holds an entry only for a source declared shared, so an
 impersonating source gets nothing and the question is refused rather than answered as the process.
 
-`WorkloadIdentityBroker` is the first broker that **exchanges** (RFC 8693) rather than minting from
-configuration, and it is the reason `RequestContext` carries an assertion at all. Two maps by
-source, so one plan reading a shared source and an impersonating one is served by one broker; one
-`Expiry` for the whole answer, the earliest across everything minted, and a floor wired from the
-query timeout. `sutura serve`'s `bigquery` build composes it for a deployment with an impersonating
-source, carrying both shapes.
+`DeclaredPrincipalBroker` (`crates/sutura-exec-bigquery/src/principal.rs`) is what a served
+`bigquery` deployment attaches, and it is the reason `RequestContext` carries an assertion at all.
+Two maps by source, so one plan reading a shared source and an impersonating one is served by one
+broker. **It decides WHETHER, never WHO**: a declared per-source map keyed on the full verified
+[`SubjectKey`] says which callers this source may be asked as, and a caller absent from it is refused
+rather than widened to the deployment's identity; who they BECOME is the workload-identity pool's,
+resolved by Google's token service from the assertion the ADBC transport puts in front of the driver.
+It presents the asking assertion's OWN expiry - an earlier round minted `NothingExpires`, which was
+honest while it presented a service account's name and became a check that always answers yes the
+moment it started presenting credential material.
 
-**It also caches, off by default** (`docs/adr/0031`, `security.credential_cache.enabled`) - a
-private `sts::cache` module keyed on `(PrincipalChain, audience, scope)` with no path in from a
-caller, never populated on a refusal or an `Err`, and served only up to `min(not_after − the same
-floor, the operator's configured window)`. **The key is the whole chain, not a bare `Subject`** -
-review found the first version's own doc claiming an acting agent "is always absent today" while
-`sutura-http`'s inbound gate already builds one from an `act` claim; a subject-only key would have
-served a delegated caller the direct caller's credential. `sutura-domain` and `sutura-app` are
-untouched; the whole cache is inside the one broker that pays a round trip. **What it does not
-close**: per-process only, no bound on the caller's own assertion lifetime (the issue's own second
-of three TTL bounds - the first and third are enforced), a served entry (cached or freshly minted)
-can still expire mid-question if the floor a composition root wires does not cover the request's
-own deadline (nothing asserts that coverage anywhere), and a claim a provider maps from outside what
-the domain verifies (a group, a custom attribute) stays outside the key by construction.
+**The exchanging broker is gone.** `WorkloadIdentityBroker` was the first and only broker that
+EXCHANGED (RFC 8693), with an `ImpersonateAsAccount` second hop and a private credential cache
+(`docs/adr/0031`, `docs/adr/0032`). Its two HTTP implementors went with the BigQuery `wire`
+transport; after that every `StsExchange` in the tree was a test fake and no composition root could
+reach the broker, so `docs/adr/0018`'s eighth amendment deleted all 2,571 lines of it. **Nothing in
+this tree exchanges a token, and nothing caches a credential.** `security.credential_cache` is still
+parsed and still refuses a zero capacity or window - and **is read by nothing**, which is a settings
+surface with no mechanism behind it rather than a cache that is merely off.
+
+**What the deleted cache is still worth reading for** (`docs/adr/0031`'s second amendment): the key
+must be the whole `PrincipalChain` and never a bare `Subject`. Review found the first version's own
+doc claiming an acting agent "is always absent today" while `sutura-http`'s inbound gate already
+built one from an `act` claim; a subject-only key would have served a delegated caller the direct
+caller's credential.
 
 A broker that could not be **reached** is not a refusal: that is `SurfaceFailure::Broker` and
 `503 identity_unavailable`, which shares its status with a dead data system and not its code.
