@@ -38,6 +38,11 @@ server:
   # Loopback. See above: this is a security default, not a convenience one.
   host: "127.0.0.1"
   port: 8080
+  # Thirty seconds. `RequestTimeout::DEFAULT_SECONDS` is the same number and a test asserts the two
+  # agree, so this line cannot drift on its own - it used to be the only place the value existed,
+  # which is how two decision records carried `three minutes` against it. What the number is set
+  # against, and what that measurement does not cover, is on the constant and in ADR 0009's third
+  # amendment; `just bench` re-runs it.
   request_timeout_seconds: 30
   # A modelled question is a few hundred bytes. 64 KiB is generous by three orders of magnitude and
   # still refuses a body that exists to be large.

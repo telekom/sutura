@@ -291,8 +291,9 @@ them constrain the surface, and most of the constraints land on the step that is
   governed turn can exceed it, the surface has to become submit-and-poll - a design change, decided
   before the tools are written rather than after. Measure a real turn first; without push notifications
   the obvious asynchronous pattern is foreclosed. **And this is where two numbers in two records
-  disagreed by an order of magnitude** - worth settling before anybody measures: 0009's provisional
-  query deadline is three minutes, and a front door that cuts at tens of seconds means a turn allowed
+  disagreed by an order of magnitude** - settled when the deadline was measured: 0009's query
+  deadline was provisional at three minutes but ships at **30 seconds**, and a front door that cuts at
+  tens of seconds means a turn allowed
   180 seconds cannot complete on that route. 0009 now decides which yields - **the deadline does.** It
   is bounded by the front door on any route that has one, rather than a default that quietly outlives
   the connection it is supposed to bound. The measurement decides the second half: if a governed turn

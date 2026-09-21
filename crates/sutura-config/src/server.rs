@@ -163,6 +163,31 @@ impl RequestTimeout {
     /// short enough that a stuck request is not a leaked connection for the rest of the day.
     pub const MAX_SECONDS: u64 = 300;
 
+    /// The shipped default, in seconds - what `defaults.yaml` writes, and what a deployment that
+    /// sets no timeout is served by.
+    ///
+    /// **Left where it was by a measurement rather than kept as a round number.**
+    /// `docs/adr/0009-the-plan-from-one-source-to-many.md`'s third amendment records the run and
+    /// its host: the whole answer path - compile, mint, execute, materialise - over the committed
+    /// `examples/single-player` corpus on the in-process `DataFusion` engine, by `just bench`. It
+    /// costs a median under two milliseconds on a quiet host against the 29-second budget this
+    /// default opens - four orders of magnitude of headroom - so the measurement
+    /// argues for leaving the number alone rather than for a new one; the amendment says so
+    /// explicitly, which is what a later re-measurement needs in order to be a comparison.
+    ///
+    /// **What that measurement does not reach, stated where the number is read.** One local
+    /// corpus of hundreds of rows, one in-process adapter, one host, in a developer shell and not
+    /// in the nix sandbox. It says nothing about a networked source - where a deadline is the
+    /// bound that actually bites - and nothing about a production-scale corpus.
+    ///
+    /// Two places hold this number, here and `defaults.yaml`, and [`crate::settings`]'s own tests
+    /// assert they agree - the same holding
+    /// [`WorkingSetCeiling::DEFAULT_BYTES`](crate::runtime::WorkingSetCeiling::DEFAULT_BYTES) has.
+    /// It exists because nothing compared the two at all before: the value lived only in the YAML,
+    /// so two decision records could carry *three minutes* against a shipped thirty seconds for as
+    /// long as it took somebody to read both.
+    pub const DEFAULT_SECONDS: u64 = 30;
+
     /// What [`Self::budget`] reserves out of the configured timeout before handing the rest to the
     /// execution port, as one absolute [`Budget`].
     ///

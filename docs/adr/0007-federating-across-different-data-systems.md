@@ -5,12 +5,13 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended three times, in place, by the blocks below. *Nothing
+Status: accepted, and **partly built** - amended four times, in place, by the blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
 once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
-chain). What is still unbuilt is track 1 beyond the dialects that
+chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figures against the
+records that now carry them). What is still unbuilt is track 1 beyond the dialects that
 ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.
@@ -1169,3 +1170,30 @@ Two claims above narrow with this: *every join is exactly one hop* reads as *eve
 of a declared chain*, and the at-most-five-legs bound is unchanged because a remote dimension's
 lookup leg is reached through its chain's LAST hop's model, which is the same one remote model the
 bound counted.
+
+## Fourth amendment, 2026-09-21: *the value of the working-set ceiling, and of the deadline* is retired
+
+**The *what is explicitly not decided* bullet of that name is spent, and one half of it was stale
+rather than merely open.** It says `0009` carries *a provisional 1 GB and a provisional three
+minutes*. The shipped deadline has been **30 seconds** for as long as `defaults.yaml` has carried
+the key; three minutes was what the plan predicted and never what shipped, so this record has been
+asking for a measurement of a number nothing enforced. Left above as written, per the amendment
+convention; this is the correction.
+
+**Both halves are now measured, and both are recorded where the bound lives** - in
+[0009](0009-the-plan-from-one-source-to-many.md), whose first amendment carries the working-set
+envelope (largest operator-reservation peak 1.37% of the 1 GiB default, on a named host) and whose
+third carries the deadline (the whole answer path over the single-source example corpus, medians of
+755.9 microseconds and 1.453 milliseconds against a 29-second execution budget, by `just bench` on a
+host whose load was below its core count). Neither measurement moved its
+default, and both say so rather than leaving the reader to infer it.
+
+**What this record still wants back is narrower than the retired bullet, and it is unchanged by
+either run.** The measurement it asks for above - *how much of a distinct-key leg the engine's memory
+pool can actually see* - is answered only for the shape the small corpus produces: `0009`'s first
+amendment records that the distinct-key case is REFUSED before execution in two-source topology and
+therefore contributed a zero operator peak, so the pull-up's cost at the grain this record reasons
+about is still unobserved. And the deadline figure is from an in-process engine over local files: the
+federated and networked legs this record exists for are not measured, which is exactly where a
+deadline is the bound that binds. Those two remain open under *what is explicitly not decided*; the
+VALUES of the two bounds do not.
