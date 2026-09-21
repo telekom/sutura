@@ -4,10 +4,8 @@
 //! # THE HOLE THIS CLOSES
 //!
 //! `VENDOR.md`'s actionlint row states it in its own words - *"Temporary until the locked
-//! actionlint release contains this commit; nothing detects that release automatically"* - and
-//! `devco/arrow-majors-allow`'s duckdb row is the same shape: the fix merged upstream, the newest
-//! published release predates it, and the entry waits on a release nobody is watching. For a
-//! vendored crate that is structural rather than an oversight: it is a PATH dependency, so
+//! actionlint release contains this commit; nothing detects that release automatically"*. For a
+//! vendored crate the hole is structural rather than an oversight: it is a PATH dependency, so
 //! `cargo update` cannot see it and neither can a dependency bot, and the signal that normally
 //! arrives never does.
 //!
@@ -30,6 +28,11 @@
 //! recorded by rules ONE to THREE and watched for expiry by nothing. Closing it needs a second
 //! source kind - a GitHub release tag, which is also what `nix/actionlint.nix` would need - and
 //! that is not built. [`crate::vendor_expiry::Row`] is the slot it would be added to.
+//!
+//! **One subject, two crates, and that is why the rule counts CHILDREN rather than crates:**
+//! `vendor/mimalloc_rust` holds `mimalloc` and `libmimalloc-sys`, which version separately and so
+//! take a row each. Completeness here is *every child has at least one row*; that two rows share
+//! one child is the declaration's business, not this rule's.
 
 use std::path::Path;
 

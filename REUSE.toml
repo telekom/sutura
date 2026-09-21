@@ -91,16 +91,6 @@ SPDX-License-Identifier = "MIT"
 #
 # The tier's own `README.md` is first-party and is put back below, which is the same
 # last-one-wins mechanism the two blocks above use.
-# The vendored federation crate: upstream's published 0.5.6 artifact with two patched manifest
-# lines, recorded in `VENDOR.md`. Apache-2.0, per the package's own `license` field; upstream's
-# `LICENSE` carries the unfilled Apache boilerplate and names no holder, so the contributors are
-# who it can honestly be attributed to.
-[[annotations]]
-path = "vendor/datafusion-federation/**"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "the datafusion-federation contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
 [[annotations]]
 path = ".agents/skill-library/**"
 precedence = "aggregate"

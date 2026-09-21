@@ -12,9 +12,22 @@
 //!
 //! Three things this adapter deliberately does not offer:
 //!
-//! **No arbitrary SQL entry point.** Not merely absent: the `sql` feature is off, so this engine's
-//! parser is not compiled into the binary. There is nothing here that turns text into a plan, which
-//! is a stronger statement than not calling it.
+//! **No arbitrary SQL entry point.** There is nothing here that turns text into a plan: every plan
+//! is assembled with `LogicalPlanBuilder` from a [`QueryPlan`], and `SessionContext::sql` has no
+//! call site in this crate.
+//!
+//! **What this paragraph used to claim and no longer can.** It said the parser was *not compiled
+//! into the binary* because datafusion's `sql` feature was off - "not merely absent", a property of
+//! the build rather than a convention. That feature is ON now (`Cargo.toml`'s datafusion pin argues
+//! why: anything depending on the published `datafusion-federation` unifies it on regardless, so
+//! declaring it is honesty rather than expansion). **The parser is therefore present, and only the
+//! weaker half is still true** - this module does not reach it. Keeping the distinction is the
+//! point: *we do not use the parser* is a property of this code, *the parser is absent* was a
+//! property of the build, and conflating them would leave a false absence claim standing.
+//!
+//! The limit, since the strong version is gone: **no gate forbids a future caller adding
+//! `ctx.sql(..)` here.** What holds it is that the only way in is [`Warehouse::execute`], which
+//! takes a [`QueryPlan`] - plus this paragraph and review. There is no lint naming the method.
 //!
 //! **No entry point that takes a statement.** The only way in is a [`QueryPlan`], which carries its
 //! parameters as a typed list. A development affordance that ran something somebody typed would be

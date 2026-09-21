@@ -26,6 +26,18 @@
 //! upstream can abandon a fix, or ship it under a scheme [`Release`] refuses to compare. A
 //! prerelease or a build-metadata suffix is skipped rather than ordered, so a fix that exists only
 //! in `0.6.0-rc.1` reads as nothing published.
+//!
+//! # WHAT IT DOES NOT COVER
+//!
+//! Vendored CRATES only, because the subject is a registry release. The one known patched
+//! third-party thing that is not a crate stays outside this gate by construction:
+//! `nix/actionlint.nix` pins a commit and carries no version at all, so [`Release`] could not
+//! represent it even if it were given a row - and nothing else watches it either, which is the
+//! gap this gate does NOT close. A second source kind, a GitHub release tag, is where it would go,
+//! and it is not built. [`DECLARATION`]'s own "WHAT NEITHER COVERS" paragraph states the same
+//! exclusion; an earlier version of this note claimed it was *"said in both headers"* while
+//! neither header actually named it, which is the shape of overstatement this repo treats as the
+//! defect rather than the omission.
 
 use std::process::Command;
 
@@ -61,6 +73,13 @@ impl CrateName {
                     })
                 },
             )
+    }
+
+    /// The name as declared, so neither a report nor a test reaches into the newtype's field.
+    /// The anchor test asserts on the CRATE rather than the `vendor/` child, because two crates
+    /// share one child here and the child cannot witness both.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 
     /// Where the sparse index keeps this crate, per cargo's own bucketing rule: one directory for
@@ -267,7 +286,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
                 Some(published) if published > row.vendored => problems.push(format!(
                     "{DECLARATION}:{}: `{}` is vendored at {} and crates.io now publishes {} - re-read the row's reason and either retire vendor/{} or re-vendor on the new release",
                     row.line,
-                    row.krate.0,
+                    row.krate.as_str(),
                     row.vendored.render(),
                     published.render(),
                     row.child,
@@ -275,7 +294,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
                 Some(_) => checked += 1,
                 None => problems.push(format!(
                     "{DECLARATION}:{}: the index returned no orderable, non-yanked release for `{}` - that is an input this gate could not read, not a crate with nothing newer",
-                    row.line, row.krate.0
+                    row.line, row.krate.as_str()
                 )),
             },
             Err(error) => problems.push(format!("{DECLARATION}:{}: {error}", row.line)),
@@ -312,7 +331,7 @@ mod tests {
         assert_eq!(path("a"), "1/a");
         assert_eq!(path("ab"), "2/ab");
         assert_eq!(path("abc"), "3/a/abc");
-        assert_eq!(path("datafusion-federation"), "da/ta/datafusion-federation");
+        assert_eq!(path("libmimalloc-sys"), "li/bm/libmimalloc-sys");
         assert_eq!(path("Mimalloc"), "mi/ma/mimalloc", "the index is lowercase");
     }
 
@@ -393,13 +412,18 @@ mod tests {
         let text = std::fs::read_to_string(root.join(DECLARATION)).expect("the declaration");
         let read = rows(&text);
         assert_eq!(read.malformed, Vec::<String>::new());
+        // BOTH crates under the one vendored child, because they version separately: a row for
+        // the wrapper alone would miss a sys-only release, and asserting on the CHILD name only
+        // would not notice if one of the two rows were dropped.
+        for krate in ["mimalloc", "libmimalloc-sys"] {
+            assert!(
+                read.rows.iter().any(|row| row.krate.as_str() == krate),
+                "`{krate}` is not declared in {DECLARATION}"
+            );
+        }
         assert!(
-            read.rows.iter().any(|row| row.child == "datafusion-federation"),
-            "the vendored federation crate is not declared"
-        );
-        assert!(
-            read.rows.iter().any(|row| row.child == "mimalloc_rust"),
-            "the vendored allocator is not declared"
+            read.rows.iter().all(|row| row.child == "mimalloc_rust"),
+            "a row names a vendored child this repo no longer has"
         );
     }
 }

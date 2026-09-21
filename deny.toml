@@ -89,6 +89,31 @@ allow = [
   # is the Linux Foundation's permissive data licence: no copyleft, and no obligation attaching to
   # anything built with it.
   "CDLA-Permissive-2.0",
+  # `libbz2-rs-sys`, and it is the ONLY crate in the graph under this licence. Measured rather than
+  # assumed: turning datafusion's `compression` feature on added twelve packages and `cargo deny
+  # check` rejected exactly one licence, this one - the other eleven are `MIT OR Apache-2.0`.
+  #
+  # WHY IT IS ALLOWED, because adding a line here is the decision and this file is where it
+  # happens. Compressed CSV and JSON are wanted input formats, so `compression` is on in
+  # `Cargo.toml`; bzip2 is part of that feature and `libbz2-rs-sys` is how it arrives. **This
+  # reverses a previous decision in the opposite direction**, and the reversal is the point: the
+  # datafusion pin used to keep `compression` OFF *because* this licence was missing from this
+  # list, which made a supply-chain policy the reason a wanted capability was absent. A policy
+  # should price a capability, not silently veto one.
+  #
+  # WHAT THE LICENCE ACTUALLY OBLIGES: it is permissive and non-copyleft - retain the notice, mark
+  # altered sources as altered, do not misrepresent the origin, do not use the authors' names to
+  # endorse. No patent clause, no source-disclosure term, nothing that reaches a binary we ship
+  # beyond attribution, which `cargo xtask check-attribution` already generates for every package.
+  # **The limit, stated because the `Zlib` entry above does not carry over:** that one is called
+  # OSI-approved and this one is not claimed to be. `bzip2-1.0.6` is not on the OSI list; the
+  # assessment here is of the licence TEXT's obligations, not of a body's endorsement.
+  #
+  # WHAT IS NOT ACCEPTED: one licence id, not a category - the next crate with a novel licence
+  # still fails the audit. And `unused-allowed-license = "deny"` above applies to this entry like
+  # any other, so the day `compression` is turned back off this line fails the gate rather than
+  # lingering as pre-approval for a dependency nobody has reviewed.
+  "bzip2-1.0.6",
 ]
 
 # So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then

@@ -4,11 +4,10 @@
 #
 # WHY THIS FILE EXISTS. A vendored copy is a decision that expires, and nothing here could see it
 # expire. `VENDOR.md:11`'s actionlint row states the hole in its own words - *"Temporary until the
-# locked actionlint release contains this commit; nothing detects that release automatically"* - and
-# `devco/arrow-majors-allow`'s duckdb row is the same shape: the fix merged upstream, the newest
-# published release predates it, and the entry waits on a release nobody is watching. A vendored
-# crate is invisible to `cargo update` and to a dependency bot by construction, because it is a path
-# dependency, so the one signal that would normally arrive never does.
+# locked actionlint release contains this commit; nothing detects that release automatically"*. For
+# a vendored CRATE the hole is structural rather than an oversight: it is a path dependency, so
+# `cargo update` cannot see it and neither can a dependency bot, and the one signal that would
+# normally arrive never does.
 #
 # THE TWO MECHANISMS OVER IT, and neither does the other's job.
 #
@@ -29,13 +28,12 @@
 # is not proof the reason still holds, because an upstream project can abandon a fix or ship it
 # under a version scheme this file cannot compare. The DATE is not parsed by anything; the position
 # must be filled and a current-looking date from a year ago is on you. And this covers vendored
-# CRATES only: `nix/actionlint.nix` is a patch against a Go release rather than a registry crate,
-# and `devco/arrow-majors-allow` is an allowlist rather than a copy, so neither has a row here. A
-# second source kind - a GitHub release tag - is where actionlint would go, and it is not built.
+# CRATES only: `nix/actionlint.nix` is a patch against a Go release rather than a registry crate, so
+# it has no row here and nothing watches it. A second source kind - a GitHub release tag - is where
+# it would go, and it is not built.
 #
 # A version with a non-numeric component (a prerelease, a build metadata suffix) is refused rather
 # than guessed at, in this file and in what the index returns.
 
 mimalloc_rust mimalloc 0.1.52 2026-09-21 a newer wrapper release may bundle a different mimalloc C version than nix/mimalloc.nix pins, and may have moved code the modifications VENDOR.md enumerates are applied to; re-read that row before bumping rather than assuming the bump is mechanical
 mimalloc_rust libmimalloc-sys 0.1.49 2026-09-21 the sys half of the same entry, and the one that carries build.rs and the bundled C - it versions separately from the wrapper, so a row for the wrapper alone would miss a sys-only release
-datafusion-federation datafusion-federation 0.5.6 2026-09-21 retires the vendor outright IF the release contains datafusion-contrib/datafusion-federation#184: move to the registry crate, delete vendor/datafusion-federation and its REUSE.toml block, and drop the VENDOR.md row. If it does not contain #184, re-vendor on top of the new release and update this line

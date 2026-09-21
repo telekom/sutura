@@ -108,12 +108,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-#
-# `vendor/datafusion-federation` is excluded for the second half of that reasoning rather than the
-# first: it builds on every platform, but it is third-party source and `--workspace` clippy and
-# tests have no business judging it. Nothing depends on it yet - see `VENDOR.md` - so nothing
-# compiles it in this tree at all, which is the limit of what a green run here says about it.
-exclude = ["vendor/mimalloc_rust", "vendor/datafusion-federation"]
+exclude = ["vendor/mimalloc_rust"]
 
 [workspace.package]
 version = "0.5.1"
@@ -287,20 +282,31 @@ duckdb = "1.10505"
 # dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port
 # takes a plan rather than a statement.
 #
-# `default-features = false` is a supply-chain decision rather than tuning, and two of the omissions
-# were measured with `cargo deny` rather than reasoned about:
+# `default-features = false` stays, and it is still a supply-chain decision rather than tuning: the
+# features below are named one at a time, so a future default gaining a dependency is a diff here
+# rather than a surprise. What CHANGED is which of them are on, and both reversals are decisions
+# somebody made rather than drift.
 #
-#   * `compression` and `avro` are OFF because each one pulls `bzip2`, whose licence is not on the
-#     allowlist in `deny.toml` - and that allowlist is `unused-allowed-license = "deny"`, so
-#     accepting either would mean adding a licence at the moment a feature nobody asked for needed
-#     one. Each was enabled in turn to confirm which of them carries it.
-#   * `sql` is OFF on purpose, and it is the strongest statement in this manifest: that adapter
-#     never parses SQL, so the parser is not compiled into the binary at all. Not calling it would
-#     have been a convention; not having it is a property.
+#   * `compression` is ON because compressed CSV and JSON are wanted input formats. This paragraph
+#     used to say the opposite - that `compression` and `avro` were off because each pulls `bzip2`,
+#     whose licence was not on `deny.toml`'s allowlist - which made a supply-chain policy the
+#     reason a wanted capability was missing. The policy moved instead: `bzip2-1.0.6` is now an
+#     allowed licence, argued in `deny.toml` beside the entry. `flate2`, `zstd` and `liblzma` come
+#     with it and are the point rather than a cost.
+#   * `sql` is ON, and declaring it is the honest move rather than an expansion. Anything depending
+#     on the published `datafusion-federation` takes datafusion's DEFAULT features, so feature
+#     unification turns `sql` on for the whole build whether this line asks for it or not. Naming
+#     it here makes the parser's presence a stated decision instead of a side effect of a
+#     dependency's manifest. What it does NOT mean is that anything parses SQL: see
+#     `crates/sutura-exec-datafusion/src/lib.rs`, which draws that distinction explicitly.
+#   * `avro` stays OFF, and now for its own reason rather than a borrowed one: nobody has asked for
+#     Avro input. The licence argument that used to cover it is gone, so this is the only reason
+#     left, and it is the right shape - a feature is off because it is unwanted, not because a
+#     policy file made it inconvenient.
 #
-# What is ON: `parquet`, for the Parquet attach affordance, and `datetime_expressions`, for the date
+# Also ON: `parquet`, for the Parquet attach affordance, and `datetime_expressions`, for the date
 # truncation every plan needs for its time bucket. CSV needs no feature - it is unconditional.
-datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions"] }
+datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions", "compression", "sql"] }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`
