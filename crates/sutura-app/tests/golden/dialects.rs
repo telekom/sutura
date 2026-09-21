@@ -379,8 +379,10 @@ fn some_question_asks_for_every_grain_a_metric_declares() {
 ///
 /// **The parse is the mechanism, and it exists because a glob got this wrong.**
 /// `anchor_report@duckdb.snap` carries no `__` separator at all, so a `*__$family@$dialect.snap`
-/// pattern misses it and undercounts a dialect's execution goldens by one - the executing dialects
-/// hold 34 each, not 33 (measured 2026-09-21 over `tests/snapshots`). Every reader of the census
+/// pattern misses it and undercounts a dialect's execution goldens by exactly the one
+/// separator-less `anchor_report` per executing dialect - so a glob reads 34 where the census reads
+/// 35 (measured 2026-09-21 at `35c5289a` over `tests/snapshots`: rows=23, refused=10, error=1,
+/// anchor=1, per executing dialect). Every reader of the census
 /// goes through here, so there is one place that can be wrong about it instead of one per caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Family {
@@ -389,13 +391,13 @@ enum Family {
     Sql,
     /// The values bound to that statement. Render evidence, for the same reason.
     Params,
-    /// Rows a venue returned, from `crate::adapters::runs_the_corpus_and_pins_the_rows`.
+    /// Rows a venue returned, from `crate::data_systems::runs_the_corpus_and_pins_the_rows`.
     Rows,
     /// A refusal a venue's answer produced, from the same cell.
     Refused,
     /// An error a venue produced, from the same cell.
     Error,
-    /// `crate::adapters::reproduces_every_declared_anchor`'s report - the one family whose file
+    /// `crate::data_systems::reproduces_every_declared_anchor`'s report - the one family whose file
     /// name has no case prefix and therefore no `__`.
     AnchorReport,
 }
@@ -508,7 +510,7 @@ enum Evidence {
 /// `docs/where-identity-is-proven.md` has no row for, and that is why this is a second enum rather
 /// than a citation of that page's vocabulary.** Its venue column reads *in process, every run* /
 /// *a GitHub environment, on demand* / *nowhere yet*, because it grades venues a GATE reaches;
-/// [`Self::OnDemand`] is its second row exactly, and [`Self::ByHandOnly`] is a
+/// [`Self::OnDemand`] is its second run-site token exactly, and [`Self::ByHandOnly`] is a
 /// `compose.services.yaml` service no task in that page's `Reached by` column can invoke. That
 /// page's other axis - `unrun`/`wired`/`yes` - is deliberately not borrowed at all: it grades how
 /// strongly an EXISTING venue's claim has been observed, and borrowing it here would have graded
@@ -573,7 +575,8 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// 1. **Render goldens exist at all.** Without it a dialect with nothing whatsoever could declare a
 ///    limit and read as covered-but-honest.
 /// 2. **[`Evidence::Executed`] means every one of [`Family::EXECUTION`] is non-empty**, and a
-///    missing one is NAMED. The count it replaces was a floor: 33 of 34 goldens deleted passed it.
+///    missing one is NAMED. The count it replaces was a floor: 34 of the 35 execution goldens
+///    deleted still passed it.
 /// 3. **[`Evidence::RenderOnly`] means no execution family holds anything.** So the declaration
 ///    EXPIRES: a dialect that acquires a venue is red here until its arm moves.
 /// 4. **The adapter the declaration claims is there.**
