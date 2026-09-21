@@ -406,20 +406,11 @@ pub(crate) fn run() -> Result<(), String> {
     // beside `grace` above it and for the same reason: both are numbers about the process rather
     // than about a request, and this is the last place the settings are looked at before they move.
     let admission = Admission::from_settings(settings.runtime());
-    // The agent surface's transport, built here (while `settings` is still owned) ONLY when the
-    // deployment turned it on - a build with the `agent` feature still stays off by default, and a
-    // build without the feature refused above. `sutura_http::router` then refuses to assemble when
-    // this is attached and no leg 1 gate is, so "the agent surface is only served where a caller
-    // can be verified" cannot be un-paired in a later edit.
-    #[cfg(feature = "agent")]
-    let agent_mount = settings
-        .server()
-        .agent_surface_enabled()
-        .then(|| agent::mount(Arc::clone(&service), &settings, admission.clone()))
-        .transpose()?;
+    // Built first: the state owns this replica's spend gauge (#892), and the agent surface is handed a handle to it, so both surfaces drive one spend series.
     let mut state = ServiceState::new(service, Arc::new(settings), admission);
-    // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
-    // the state holds one and the watch needs to reach the same cache.
+    #[cfg(feature = "agent")]
+    let agent_mount = agent_mount(&state)?;
+    // Kept beside the state so the key-set watch, reached over the same `Arc`, can be armed once the runtime exists.
     let mut watching: Option<Arc<sutura_http::InboundGate>> = None;
     if let Some(gate) = inbound {
         let gate = Arc::new(gate);
@@ -443,6 +434,31 @@ pub(crate) fn run() -> Result<(), String> {
     let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
     stop(runtime, &stopping);
     served
+}
+
+/// The agent surface's transport, built AFTER the state exists - `github.com/telekom/sutura#892`.
+///
+/// **Why after, when `main`'s pre-#892 order built it before.** The state owns this replica's spend
+/// gauge, and the agent surface is handed a handle to the same one, so both surfaces drive ONE spend
+/// series rather than two that disagree. That handle only exists once the state does, which is what
+/// moves this call below `ServiceState::new` and costs the `settings`-still-owned convenience the
+/// previous order had.
+///
+/// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
+/// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
+/// attached, so "the agent surface is only served where a caller can be verified" cannot be
+/// un-paired by a later edit.
+#[cfg(feature = "agent")]
+fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
+    if !state.settings().server().agent_surface_enabled() {
+        return Ok(None);
+    }
+    Ok(Some(agent::mount(
+        state.surface(),
+        state.settings(),
+        state.admission().clone(),
+        state.spend_headroom_gauge(),
+    )?))
 }
 
 /// Leg 1, for a deployment that declared one.

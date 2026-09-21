@@ -1,0 +1,11 @@
+name: total-by-collation-sensitive-key-and-day
+metric: collation_total
+aggregate: sum
+column: amount_cents
+keys: collation_key
+order: not_asserted
+rows:
+text:Banana	text:2026-01-01	int:500
+text:Banana	text:2026-01-02	int:850
+text:apple	text:2026-01-01	int:300
+text:apple	text:2026-01-02	int:600

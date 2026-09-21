@@ -1616,6 +1616,20 @@ jobs:
       - name: Driver executes
         run: bash nix/bigquery-driver-check.sh
 
+  # THE BODY IS `.github/workflows/demo-container.yml`, the same split `cross-link.yml` uses and
+  # for the same reason: what moves is the body, and the gating - `needs: [ci]` and the event test
+  # - stays where the decision is reviewed. Event-gated rather than category-gated: `demo/**`
+  # carries no `xtask::affected` category of its own, and adding one would be a second axis kept
+  # for a single advisory leg. Runs on every ordinary-CI event, never required -
+  # `devco/required-contexts` records why - and becomes required only at the release boundary,
+  # where `release.yml`'s own call into the same file sits in `publish`'s `needs:`.
+  demo-container:
+    needs: [ci]
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
+    # omitting it leaves this workflow's own `contents: read`.
+    uses: ./.github/workflows/demo-container.yml
+
   ci-aggregate:
     runs-on: ubuntu-latest
     needs: [ci, keycloak-served-test, bigquery-driver-check]

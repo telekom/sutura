@@ -14,13 +14,21 @@
 //! them as a dev-dependency without acquiring a catalog adapter, `sutura-semantic` or
 //! `sutura-app`.
 //!
+//! # The cases are files, not code
+//!
+//! A case is a tracked data file under `corpus/cases/`, embedded at compile time by
+//! [`include_str!`] and parsed by the typed loader in `case_files`. Adding a case is a data edit - a
+//! new `.case` file plus one `include_str!` line - and no Rust function in this module changes.
+//! That is the half of `docs/adr/0012`'s *the corpus is files, not code* that was unbuilt when the
+//! cases were values in this module. The fixture table (`corpus/conformance_events.csv`) set the
+//! precedent: a tracked data file read at compile time, served from the file rather than from a
+//! copied constant.
+//!
 //! # What this corpus does NOT contain, stated so nobody reads it as the whole suite
 //!
 //! - **The three cases `docs/adr/0012` names** - a filter on a remote dimension over an orphan key,
 //!   a ratio whose denominator is zero for one subgroup, and a `CountDistinct` spanning two join
 //!   keys. Each needs a second table and a federated plan; none is here.
-//! - **Files.** `docs/adr/0012`'s *the corpus is files, not code* is unbuilt: a case is a value in
-//!   this module, so adding one is still a code change.
 //!
 //! # Null placement in a group key: decided, and what the null row does and does NOT detect
 //!
@@ -57,10 +65,10 @@
 //! must be a GROUP and not a row a join or a filter dropped, which is the failure class
 //! `crates/sutura-app/tests/golden/data_systems.rs` names for a fact key.
 //!
-//! # Collation: the opt-out this corpus used to lack, and what it does and does NOT decide
+//! # Collation: the opt-out this corpus used to lack, and what it does and does not decide
 //!
 //! Every key above is chosen so no bound engine's own collation can disagree with byte order -
-//! `docs/adr/0012` names this as the corpus's deliberate limit. [`total_by_collation_sensitive_key_and_day`]
+//! `docs/adr/0012` names this as the corpus's deliberate limit. `total-by-collation-sensitive-key-and-day`
 //! is the one case that does not have that property on purpose, and [`Case::order_is_asserted`] is
 //! what lets it exist without lying: `Behaviour::Order` skips exactly this case, so a source
 //! whose locale answers `"apple"` before `"Banana"` is not reported as a defect for disagreeing
@@ -78,32 +86,30 @@
 
 #![expect(
     clippy::expect_used,
-    clippy::float_arithmetic,
     clippy::panic,
-    reason = "every value below is a literal in this file, so one that does not parse is a broken \
-              fixture rather than an input to handle - and a `Result` per accessor would put that \
-              handling at every call site in every pack. The same argument covers the two \
-              filesystem calls in `materialise`: a corpus that cannot be written is a broken \
-              environment, and a pack that carried on would assert over an empty table. The \
-              float arithmetic is in the expected means and the expected fractional totals, \
-              written as the division and the addition an adapter performs rather than as a \
-              decimal literal transcribed to however many places somebody typed - the \
-              arithmetic IS the reference"
+    reason = "every value below is a literal in this file or in a tracked data file, so one that \
+              does not parse is a broken fixture rather than an input to handle - and a `Result` \
+              per accessor would put that handling at every call site in every pack. The same \
+              argument covers the two filesystem calls in `materialise`: a corpus that cannot be \
+              written is a broken environment, and a pack that carried on would assert over an \
+              empty table"
 )]
 
+mod case_files;
+
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
+    QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
+use sutura_domain::warehouse::{ParamValue, RowSet};
 
 /// The data system name every plan in this corpus resolves to.
 const SOURCE: &str = "conformance";
@@ -115,18 +121,19 @@ pub const TABLE: &str = "conformance_events";
 ///
 /// Private fields with accessors, which is what a library crate here owes: a caller cannot assemble
 /// a `Case` whose expected rows belong to a different plan.
+#[derive(Debug)]
 pub struct Case {
-    name: &'static str,
+    name: String,
     plan: QueryPlan,
     expected: RowSet,
     order_is_asserted: bool,
 }
 
 impl Case {
-    /// The name a failure reports. Static, so a fault carries it without allocating.
+    /// The name a failure reports.
     #[inline]
-    pub const fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The plan to execute.
@@ -282,8 +289,8 @@ pub const fn csv() -> &'static str {
 /// file. Those processes write identical bytes - which is the claim the old path could not make.
 #[must_use]
 pub fn on_disk() -> PathBuf {
-    static WRITTEN: OnceLock<PathBuf> = OnceLock::new();
-    WRITTEN.get_or_init(materialise).clone()
+    static WRITTEN: LazyLock<PathBuf> = LazyLock::new(materialise);
+    WRITTEN.clone()
 }
 
 /// Writes the corpus where an adapter can attach it.
@@ -341,26 +348,25 @@ fn state_dir() -> PathBuf {
 /// A `Vec` rather than a constant, because a [`QueryPlan`] owns its strings and none of these types
 /// is `const`-constructible. The count is what [`crate::census`] reports, so a corpus that lost its
 /// cases is a failure rather than a fast green.
+///
+/// The cases are parsed from tracked data files under `corpus/cases/` by the loader in `case_files`.
+/// The file list is `FILES`, embedded at compile time by
+/// `include_str!`, so a file removed from disk is a compile error and a file removed from the list
+/// is caught by `the_loader_reads_every_case_file` in that module's own tests.
 #[must_use]
 pub fn cases() -> Vec<Case> {
-    vec![
-        total_by_region_and_day(),
-        mean_by_day(),
-        total_wide_by_day(),
-        total_rate_by_day(),
-        wide_total_by_day(),
-        overflowing_integer_total_by_day(),
-        decimal_total_by_day(),
-        total_by_collation_sensitive_key_and_day(),
-    ]
+    case_files::load()
 }
 
 /// The one leg in the corpus.
 #[must_use]
 pub fn leg_case() -> LegCase {
-    // The same shape as `total_by_region_and_day`, expressed as one source's share of an answer
+    // The same shape as `total-by-region-and-day`, expressed as one source's share of an answer
     // rather than as a whole one - so the expected rows are that case's, unchanged.
-    let case = total_by_region_and_day();
+    let case = cases()
+        .into_iter()
+        .find(|c| c.name() == "total-by-region-and-day")
+        .expect("the corpus holds the total-by-region-and-day case");
     LegCase {
         name: "total-by-region-and-day-as-a-leg",
         leg: LegPlan::Fact {
@@ -381,263 +387,9 @@ pub fn leg_case() -> LegCase {
             )],
             bindings: range_bindings(),
             range: range(),
-            top: None,
         },
         expected: case.expected,
     }
-}
-
-/// `SUM` by region and day: the integer class, two keys, a filter that excludes a row - and the
-/// one NULL group key in the corpus.
-///
-/// **The null group is expected LAST.** Read the module header for what that detects and what it
-/// does not: it is NOT a check on our own statement of `ASC NULLS LAST` for `DuckDB`, Postgres or
-/// the `datafusion` engine, because the placement is their own default and deleting our statement
-/// of it changes neither their SQL nor their answer - `BigQuery` is the one bound adapter that is
-/// NOT true of, and its own binding does not exercise a real endpoint to show it either way. What
-/// the order assertion pins is those three engines' defaults - `datafusion`'s `sort_by` most of
-/// all, since a version bump could change it with no diff of ours - and what the CONTENT
-/// assertion pins is ours: a null key is a GROUP rather than a row a join or a filter dropped.
-fn total_by_region_and_day() -> Case {
-    let plan = QueryPlan::new(
-        source(),
-        metric("amount_total"),
-        StatementTables::only(table()),
-        bucket(),
-        vec![region_key()],
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column("amount_cents"),
-            },
-        },
-        ResultLabel::measure(&metric("amount_total")),
-        range_bindings(),
-        range(),
-    );
-    let expected = rows(
-        &plan,
-        vec![
-            vec![text("east"), text("2026-01-01"), Value::Integer(350)],
-            vec![text("east"), text("2026-01-02"), Value::Integer(150)],
-            vec![text("north"), text("2026-01-01"), Value::Integer(400)],
-            vec![text("north"), text("2026-01-02"), Value::Integer(1300)],
-            // LAST, because the plan claims `ASC NULLS LAST` - which for `DuckDB`, Postgres and
-            // the `datafusion` engine is their own default rather than something our rendering
-            // adds. See this function's doc.
-            vec![Value::Null, text("2026-01-01"), Value::Integer(50)],
-        ],
-    );
-    Case {
-        name: "total-by-region-and-day",
-        plan,
-        expected,
-        order_is_asserted: true,
-    }
-}
-
-/// `AVG` by day: the approximate class reached through a DIVISION, and the only case that needs
-/// [`sutura_domain::warehouse::agreement::RealTolerance`] to agree at all.
-///
-/// `total_rate_by_day` answers the same class from the data instead, and its totals are exact - so
-/// this is still the one case the tolerance is on the call FOR.
-///
-/// The expected values are written as the division rather than as a decimal literal, so the
-/// reference is the `f64` an adapter that summed exactly and divided once must land on - not a
-/// transcription of one to however many places somebody typed.
-fn mean_by_day() -> Case {
-    let plan = QueryPlan::new(
-        source(),
-        metric("amount_mean"),
-        StatementTables::only(table()),
-        bucket(),
-        Vec::new(),
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Avg,
-                column: column("amount_cents"),
-            },
-        },
-        ResultLabel::measure(&metric("amount_mean")),
-        range_bindings(),
-        range(),
-    );
-    let expected = rows(
-        &plan,
-        vec![
-            // The null-region row is one of the four: a null in a DIMENSION key is absent from the
-            // grouping this case does not do, and an adapter that filtered it out instead would
-            // answer a mean over three rows.
-            vec![text("2026-01-01"), real((100.0 + 250.0 + 400.0 + 50.0) / 4.0)],
-            vec![text("2026-01-02"), real((150.0 + 600.0 + 700.0) / 3.0)],
-        ],
-    );
-    Case {
-        name: "mean-by-day",
-        plan,
-        expected,
-        order_is_asserted: true,
-    }
-}
-
-/// `SUM` by day over a column whose total lands exactly on `i64::MAX`: the WIDE integer class.
-///
-/// **The whole point is which Rust type each adapter arrives through, and that all of them arrive
-/// at the same cell anyway.** `sum` over a 64-bit integer column is a different type in each
-/// bound adapter - `DuckDB` widens to a `HUGEINT`, Postgres to a `NUMERIC`, the engine reads the
-/// shared fixture as `Decimal256`, and `BigQuery`'s own `NUMERIC`/`BIGNUMERIC` field is the same
-/// shape by name - so before this case the only measure in the corpus was small enough that every
-/// one of those arms was interchangeable with a 32-bit read. Each adapter keeps a narrowing arm
-/// for its wide type ([`sutura_domain::warehouse::agreement`]'s header lists them), and this case
-/// is what exercises one over the pack - `BigQuery`'s through its own canned answer rather than a
-/// live endpoint, since its binding runs no real `SUM`; see `crates/sutura-exec-bigquery/tests/
-/// conformance.rs`.
-///
-/// **`i64::MAX` rather than a merely large number, and that is a falsifier rather than a flourish.**
-/// `i64::MAX` is `2^63 - 1`, which has 63 significant bits and therefore **no exact `f64`** - it
-/// rounds to `2^63`, one higher. So an adapter that routed this total through a 64-bit float on its
-/// way to a cell answers a different number here and this case reddens, where a round total like
-/// `9_000_000_000_000_000_000` has an exact `f64` and would not notice. That is the arm
-/// `sutura-exec-duckdb`'s own `cell` records as having been wrong once.
-///
-fn total_wide_by_day() -> Case {
-    total_by_day(
-        "total-wide-by-day",
-        "wide_total",
-        "wide_cents",
-        [Value::Integer(i64::MAX), Value::Integer(14)],
-    )
-}
-
-/// `SUM` by day over a fractional column: the approximate class, reached from the DATA.
-///
-/// Distinct from [`mean_by_day`], which is the only other case answering a [`Value::Real`]: that
-/// one's real number comes out of an aggregate's DIVISION - and for Postgres out of an explicit
-/// cast `sutura_sql` applies to an `AVG` - while this one's comes out of each adapter's type
-/// inference over a fractional literal on the load path. So the two fail for different reasons: an
-/// adapter that mapped its fixed-point type here, or an inference that answered one, reddens this
-/// cell and leaves `mean-by-day` green.
-///
-/// The expected values are exact binary fractions and their sum is exact in any order, so this
-/// case does not lean on [`sutura_domain::warehouse::agreement::RealTolerance`] - it is about which
-/// class the cell is, and `mean-by-day` is where the approximation is the subject.
-fn total_rate_by_day() -> Case {
-    total_by_day(
-        "total-rate-by-day",
-        "rate_total",
-        "rate",
-        [real(0.25 + 0.5 + 1.25 + 0.25), real(2.5 + 0.5 + 0.25)],
-    )
-}
-
-/// `SUM` over a fixed-point column whose values are past `i64`, held exact by every adapter.
-fn wide_total_by_day() -> Case {
-    total_by_day(
-        "wide-total-by-day",
-        "wide_amount_total",
-        "wide_amount",
-        [text("10000000000000000006"), Value::Integer(15)],
-    )
-}
-
-/// `SUM` over individually signed integers whose total crosses `i64`, without wrapping.
-fn overflowing_integer_total_by_day() -> Case {
-    total_by_day(
-        "overflowing-integer-total-by-day",
-        "overflow_amount_total",
-        "overflow_amount",
-        [text("9223372036854775808"), Value::Integer(6)],
-    )
-}
-
-/// `SUM` over a decimal column, held exact rather than widened to a binary float.
-fn decimal_total_by_day() -> Case {
-    total_by_day(
-        "decimal-total-by-day",
-        "decimal_amount_total",
-        "decimal_amount",
-        [text("11.50"), text("19.50")],
-    )
-}
-
-/// `SUM` by day and a text key whose byte order and a locale's alphabetic order disagree -
-/// `"Banana"` sorts before `"apple"` here (ASCII `'B'` is 66, `'a'` is 97), and after it under a
-/// case-insensitive collation.
-///
-/// **This is the case `Case::order_is_asserted` exists for.** Every other key in this corpus is
-/// chosen so no bound engine's own collation can disagree with byte order - see this module's
-/// header - and this is the one case that deliberately does not have that property, so
-/// `Behaviour::Order` must not assert one particular order over it. Content still is: which four
-/// totals came back is a claim about our own aggregation, not about anybody's locale.
-fn total_by_collation_sensitive_key_and_day() -> Case {
-    let plan = QueryPlan::new(
-        source(),
-        metric("collation_total"),
-        StatementTables::only(table()),
-        bucket(),
-        vec![collation_key()],
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column("amount_cents"),
-            },
-        },
-        ResultLabel::measure(&metric("collation_total")),
-        range_bindings(),
-        range(),
-    );
-    let expected = rows(
-        &plan,
-        vec![
-            vec![text("Banana"), text("2026-01-01"), Value::Integer(500)],
-            vec![text("Banana"), text("2026-01-02"), Value::Integer(850)],
-            vec![text("apple"), text("2026-01-01"), Value::Integer(300)],
-            vec![text("apple"), text("2026-01-02"), Value::Integer(600)],
-        ],
-    );
-    Case {
-        name: "total-by-collation-sensitive-key-and-day",
-        plan,
-        expected,
-        order_is_asserted: false,
-    }
-}
-
-fn total_by_day(case_name: &'static str, metric_name: &str, column_name: &str, totals: [Value; 2]) -> Case {
-    let [first, second] = totals;
-    let plan = QueryPlan::new(
-        source(),
-        metric(metric_name),
-        StatementTables::only(table()),
-        bucket(),
-        Vec::new(),
-        PlanMeasure::Simple {
-            term: PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column(column_name),
-            },
-        },
-        ResultLabel::measure(&metric(metric_name)),
-        range_bindings(),
-        range(),
-    );
-    let expected = rows(&plan, vec![vec![text("2026-01-01"), first], vec![text("2026-01-02"), second]]);
-    Case {
-        name: case_name,
-        plan,
-        expected,
-        order_is_asserted: true,
-    }
-}
-
-/// The expected answer, labelled by the plan itself.
-///
-/// The labels are NOT written out beside the rows, and that is deliberate: an expectation that
-/// spelled them again would be a second statement of what the plan projects, and the two would
-/// disagree eventually. [`crate::Behaviour::Labels`] is the assertion that the adapter agrees with
-/// the plan about them, and it is a separate one for that reason.
-fn rows(plan: &QueryPlan, cells: Vec<Vec<Value>>) -> RowSet {
-    RowSet::new(plan.result_labels(), cells).expect("the expected rows are rectangular")
 }
 
 fn metric(name: &str) -> MetricName {
@@ -646,14 +398,6 @@ fn metric(name: &str) -> MetricName {
 
 fn column(name: &str) -> PlanColumn {
     PlanColumn::new(table(), ColumnName::parse(name).expect("a corpus column name is a name"))
-}
-
-fn text(value: &str) -> Value {
-    Value::Text(String::from(value))
-}
-
-fn real(value: f64) -> Value {
-    Value::Real(Real::parse(value).expect("a corpus mean is finite"))
 }
 
 /// The time bucket every case groups by: one day.
@@ -666,15 +410,6 @@ fn region_key() -> PlanKey {
     PlanKey::new(
         ResultLabel::dimension(&DimensionName::parse("region").expect("a corpus dimension is a dimension")),
         column("region"),
-    )
-}
-
-/// The one dimension key in the corpus whose text order this corpus does not claim - see
-/// [`total_by_collation_sensitive_key_and_day`].
-fn collation_key() -> PlanKey {
-    PlanKey::new(
-        ResultLabel::dimension(&DimensionName::parse("collation_key").expect("a corpus dimension is a dimension")),
-        column("collation_key"),
     )
 }
 
@@ -720,8 +455,9 @@ fn range_bindings() -> PlanBindings {
 
 #[cfg(test)]
 mod tests {
-    use super::{TABLE, Value, cases, csv, leg_case, on_disk, range};
+    use super::{TABLE, cases, csv, leg_case, on_disk, range};
     use sutura_domain::plan::Executable;
+    use sutura_domain::warehouse::Value;
 
     /// The corpus is not empty, which is the state every behaviour would be vacuously green over.
     #[test]
@@ -773,7 +509,7 @@ mod tests {
                 .rows()
                 .iter()
                 .flatten()
-                .any(|cell| matches!(*cell, Value::Text(ref value) if *value == end));
+                .any(|cell| matches!(cell, Value::Text(value) if value == &end));
             assert!(
                 !answers_about_it,
                 "case `{}` answers about {end}, which its own range excludes",

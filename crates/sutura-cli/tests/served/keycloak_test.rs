@@ -12,7 +12,9 @@
 // `RECORD`, `RESOURCE`, `keycloak_settings`, `recurring_revenue_june`, `start_configured` and `v1`
 // are the same `pub(crate)` items `mod tests` imports from `crate::harness` - this module reaches
 // them the same way, as a sibling rather than a descendant.
-use crate::harness::{RECORD, RESOURCE, keycloak_settings, keycloak_subject_of, recurring_revenue_june, start_configured, v1};
+use crate::harness::{
+    RECORD, RESOURCE, keycloak_audience_of, keycloak_settings, keycloak_subject_of, recurring_revenue_june, start_configured, v1,
+};
 
 // The `subject` field of one bunyan record line - `RECORD`'s own shape, read rather than
 // assumed. The audit record masks each `sub` to its first character plus `***`, so the field
@@ -119,4 +121,34 @@ fn a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_a
         reply.body
     );
     assert_eq!(reply.json()["code"], "unauthorized", "{}", reply.body);
+}
+
+// #105 step 1: a real IdP will mint an ID token whose `aud` is a third party's. The tier's
+// `id-token-audience` mapper (an `oidc-audience-mapper` with `id.token.claim=true`, provisioned in
+// `nix/keycloak-tier.nix`'s `provision()`) puts `idTokenAudience` into the ID token's `aud` when the
+// password grant requests `scope=openid`. This cell asks for that token and asserts the `aud` it
+// carries is the value the tier declares - READ off the realm file the tier itself wrote, not a
+// literal the test restated.
+//
+// What this proves and what it does not, stated so the claim cannot outrun the mechanism:
+//   - It proves a REAL Keycloak mints an ID token carrying a THIRD PARTY's audience.
+//   - It does NOT prove a browser-delegated flow: this is a password grant against a hardcoded
+//     audience mapper, not a human consenting in a browser to a third-party client.
+//   - It does NOT make this Keycloak a substitute for a real enterprise provider (Azure AD) for
+//     any other row in `docs/where-identity-is-proven.md`.
+//   - The audience is an RFC 2606 `.example.com` placeholder, not a real host.
+#[test]
+#[ignore = "needs the keycloak tier; run via `just keycloak-served-test`, which brings it up first"]
+fn a_real_idp_mints_an_id_token_whose_aud_is_a_third_partys() {
+    let fixture = keycloak_settings("keycloak-id-token-aud");
+    // The `aud` the ID token actually carries, decoded from the token this fixture minted with
+    // `scope=openid` - the same `audience_of` the access-token cell above uses, so both read a
+    // minted document the same way.
+    let aud = keycloak_audience_of(&fixture.id_token);
+    assert_eq!(
+        aud, fixture.id_token_audience,
+        "the ID token's `aud` is not the third-party audience the tier declares:\n  \
+         token aud: {aud}\n  tier declares: {}",
+        fixture.id_token_audience,
+    );
 }

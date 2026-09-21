@@ -2461,41 +2461,6 @@ True for anything reaching a `Descent::AsGroupingKey`, which is `CountDistinct` 
 is the cost Decision 2 accepts rather than refuses, so it is a quantity to report and not a
 condition to fail on.
 
-```rust
-pub fn ranking(&self) -> Ranking
-```
-
-The order a `top` pushed all the way down to a fact leg ranks by - `github.com/telekom/sutura#777`'s
-case 1: every answer key on the fact leg, a LEFT join. The fact leg's own aggregate is then
-the answer's aggregate, so ranking it exactly ranks the answer, and this is the same divide
-tree `above` describes, restated over the leg's own term POSITIONS - the order
-`Self::carried` visits them in - rather than over `Carried` values, so the rendering side
-needs nothing from `Federation` beyond what the leg's own `crate::plan::leg::LegTerm` list
-already carries.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `enum Ranking`
-
-```rust
-pub enum Ranking
-```
-
-`Federation::ranking`'s tree: the same shape `Above` describes, over term positions.
-
-**Why a position and not a `Carried`.** A leg's own `crate::plan::leg::LegTerm` list is built
-by zipping `Federation::carried` with the labels a splitter names them under, in the same
-order this walks `Above` in - so a position here IS the leg's own term index, and a generator
-rendering the leg's already-built term expressions needs no second copy of the classification to
-know which one a leaf refers to.
-
-#### Variants
-
-- `Term` - The leg's own term at this position, unmodified.
-- `Quotient` - Two of those, divided once - the same guard `Above::Quotient` carries.
-
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
@@ -5719,6 +5684,27 @@ its own type rather than a `QueryPlan` with three fields made optional - `leg` s
 why. `Executable` is what the port takes, so an adapter's match over what it can be handed is
 exhaustive.
 
+### `enum ResolveTablesError`
+
+```rust
+pub enum ResolveTablesError<E>
+```
+
+Why `QueryPlan::resolve_tables` could not produce a valid plan.
+
+Either the `resolve` closure refused a table path, or the resolved tables - taken together -
+answer to one identifier, which is `AmbiguousTables`'s refusal re-validated through
+`StatementTables::parse`.
+
+#### Variants
+
+- `Resolve` - The `resolve` closure refused this table path.
+- `Ambiguous` - The resolved tables share an identifier, so the statement cannot tell them apart.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `struct RowCeiling`
 
 ```rust
@@ -6180,6 +6166,25 @@ pub fn params(&self) -> &[ParamValue]
 ```rust
 pub const fn range(&self) -> TimeRange
 ```
+
+```rust
+pub fn resolve_tables<E>(self, resolve: impl FnMut(&QualifiedTable) -> Result<QualifiedTable, E>) -> Result<Self, ResolveTablesError<E>>
+```
+
+This plan with every table path passed through `resolve`, and nothing else changed.
+
+**For an adapter that can close a gap in a path before the statement renders, and has to
+do it here rather than inside the renderer** - a path with less than its full qualifier is
+exactly what `sutura_sql::generate::table_path` renders as literal text, so what it
+resolves to is a decision about this plan, made once, not a rule every dialect's renderer
+would otherwise need. Runs over the `FROM` table and then every joined one; the first
+failure stops the walk.
+
+**Re-validates through `StatementTables::parse`** after resolving, so a `resolve` closure
+that rewrites a table name into one already in the statement is refused rather than shipped
+to the renderer. The invariant `QueryPlan::new` holds - that no plan holds two tables one
+statement could not tell apart - is preserved here rather than assumed: the resolved tables
+go back through the same parser that built the plan in the first place.
 
 ```rust
 pub fn result_labels(&self) -> Vec<String>
@@ -6760,26 +6765,6 @@ fn _dispatch(executable: Executable<'_>) -> &'static str {
 }
 ```
 
-### `use FactTop`
-
-A `top` pushed all the way down to a fact leg: `github.com/telekom/sutura#777`'s case 1.
-
-**Present only when it is exact.** Every answer key on the fact leg and a LEFT join together
-mean the fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop
-one, and no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own
-rows by `ranking` and keeping `top`'s own count is exactly the
-answer's own top rows, not an approximation of them. `sutura_semantic::plan::federated_plan` is
-the one place that decides the case and constructs this; nothing else may.
-
-`ranking` and not the `Federation` it came from, so a renderer
-needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
-position is enough.
-
-**The limit next to the claim: nothing constructs this outside a test.**
-`sutura_semantic::plan::case_1` is the one production caller, and it is measured unreachable
-from any question `sutura_semantic::plan::plan` actually dispatches to the federated path for -
-`github.com/telekom/sutura#890`.
-
 ### `use LegPlan`
 
 One source's share of a federated question.
@@ -6941,7 +6926,6 @@ fn _checked(
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range,
-        top: None,
     })
 }
 ```
@@ -7369,15 +7353,14 @@ Case 2's `top`, if this plan carries one. See `Self::with_top`.
 pub const fn with_top(self, top: Top) -> Self
 ```
 
-Attaches case 2's `top` - `github.com/telekom/sutura#777` - so
+Attaches the federated `top` - `github.com/telekom/sutura#777` - so
 `combine`'s caller knows the answer still needs ranking and truncating
 after the legs are joined.
 
 A builder rather than a constructor argument, for
 `QueryPlan::with_top`'s reason: every existing caller of
 `Self::new` keeps its argument list, and a plan built without it is byte-for-byte one
-built before this field existed. Case 1 never calls this: its `top` lives on the fact leg
-instead, because it is exact there and would only be redundant here.
+built before this field existed.
 
 ##### Implements
 
@@ -7965,7 +7948,6 @@ that 0009's Decision 2 forbids is exactly what it *would* express. `LegTerm` is 
 `ZeroDenominator` fits in, at any depth. That is the same
 argument `crate::federation::Carried` makes one level up, and the two are deliberately built
 the same way.
-
 **Two variants and not three.** There are three shapes a leg can be - an aggregate fact leg, a
 distinct-key fact leg, and a dimension lookup - and only one of the two axes they split along is
 worth a variant. Splitting by *which model is read* moves four fields together: a dimension
@@ -7975,54 +7957,9 @@ metric name; and a one-hop dimension join does not start from it, so no joins. S
 key list, group by the key list. So the distinct-key leg is a `LegPlan::Fact` whose `terms` are
 empty, and it needs no variant of its own.
 
-**No leg carries a row cap, with one exception.** A leg is not an answer, and
+**No leg carries a row cap.** A leg is not an answer, and
 `MAX_ROWS` caps one answer's rows; `sutura_sql::generate_leg` emits no
-`LIMIT` for a leg with no `FactTop`. The exception is `github.com/telekom/sutura#777`'s case
-1: when a `top` pushes all the way down to the fact leg (every answer key on it, a LEFT join),
-the leg's OWN limit is the answer's own bound - `top.n()`, never `MAX_ROWS` - because the
-fact leg's rows already are the answer's rows in that shape. See `FactTop`.
-
-#### `struct FactTop`
-
-```rust
-pub struct FactTop
-```
-
-A `top` pushed all the way down to a fact leg: `github.com/telekom/sutura#777`'s case 1.
-
-**Present only when it is exact.** Every answer key on the fact leg and a LEFT join together
-mean the fact leg's own re-aggregated groups ARE the answer's groups - a LEFT join cannot drop
-one, and no answer key reads the lookup leg to narrow or rename them - so ranking the leg's own
-rows by `ranking` and keeping `top`'s own count is exactly the
-answer's own top rows, not an approximation of them. `sutura_semantic::plan::federated_plan` is
-the one place that decides the case and constructs this; nothing else may.
-
-`ranking` and not the `Federation` it came from, so a renderer
-needs nothing beyond the leg's own `LegTerm` list - see `Ranking`'s own doc for why a
-position is enough.
-
-**The limit next to the claim: nothing constructs this outside a test.**
-`sutura_semantic::plan::case_1` is the one production caller, and it is measured unreachable
-from any question `sutura_semantic::plan::plan` actually dispatches to the federated path for -
-`github.com/telekom/sutura#890`.
-
-##### Methods
-
-```rust
-pub const fn new(top: Top, ranking: Ranking) -> Self
-```
-
-```rust
-pub const fn ranking(&self) -> &Ranking
-```
-
-```rust
-pub const fn top(&self) -> Top
-```
-
-##### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+`LIMIT` for a leg.
 
 #### `struct LegTerm`
 
@@ -8260,7 +8197,6 @@ fn _checked(
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range,
-        top: None,
     })
 }
 ```
@@ -8307,13 +8243,6 @@ fn _checked(
   splitter and is deliberately not a field here.
 
 ##### Methods
-
-```rust
-pub const fn fact_top(&self) -> Option<&FactTop>
-```
-
-The case-1 `top` pushed down to this leg, if any. `None` for a `Lookup` leg
-and for a `Fact` leg case 1 does not apply to.
 
 ```rust
 pub fn filters(&self) -> &[PlanFilter]
@@ -9075,10 +9004,7 @@ somebody else's input.
   transport to answer `Retry-After` with a fact rather than a guess.
 - `TopOverUncertifiedRows` - A federated `top` was ranked over a combined set the row ceiling had already cut, so the ranking is over an arbitrary slice rather than over the dimension.
 
-  **Case 2 only - `github.com/telekom/sutura#777`.** Every answer key on the fact leg with a
-  LEFT join (case 1) pushes the order and the limit all the way down to the fact leg, which
-  returns `top.n()` rows exactly and never reaches this refusal at all. This fires only when a
-  lookup-side key or an inner join forces the rank to be taken *after* the legs are combined -
+  **`github.com/telekom/sutura#777`'s case 2.** A federated `top` ranks above the combine,
   and the combined set, before that rank is applied, already hit `crate::plan::RowCeiling`.
   The top ten of an arbitrary ten thousand wears the shape of a right answer and is not one,
   which is the failure this repository refuses everywhere else it can be reached.

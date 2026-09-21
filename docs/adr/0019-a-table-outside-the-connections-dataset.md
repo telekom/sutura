@@ -322,3 +322,40 @@ record's own opening failure, one layer further out.
 into `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2); the engine's own refusal
 and the boot-time refusal are still two independent checks, and the second now runs once, in
 `sutura-cli`, for both the `serve` subcommand and the rest of the binary.
+
+## Second amendment, 2026-09-18: qualification is the requirement, not a second project
+
+*What is claimed, and what is not* named a second `BigQuery` project as the one thing missing to
+prove a cross-project read, and framed it as an IAM grant away. The owner decision recorded against
+`github.com/telekom/sutura#118` on 2026-09-18 is that this is the wrong thing to chase: **a
+cross-project read is not going to be proved here, and that is a decision rather than a gap waiting
+on infrastructure.** What is held instead is narrower and does not need a second project at all - a
+reference to a table outside the connection's own project must be fully qualified, including the
+project, because BigQuery resolving a partial path against the job's own default project is a
+*wrong-answer* class, not a missing-capability one: an under-qualified reference to a table living in
+another project does not fail, it reads a different table or none, silently, under a certified
+metric name. Proving BigQuery's own capacity to join across two projects would not have caught that -
+it is a documented platform property, not this codebase's claim to make.
+
+**The mechanism, and where it lives.** `crates/sutura-exec-bigquery/src/resolve.rs`'s own `resolve`
+is the one function that decides what a table's own path resolves to: a path naming a project already says
+everything there is to add and is left untouched; a bare path is already resolved, unambiguously, by
+the request's own `defaultDataset` field and is left untouched too; a path naming a **dataset and no
+project** - the one case a partial path is a real decision rather than a read - has the connection's
+own billing project written into it, explicitly, before anything renders. `preflight::addressed` and
+`BigQueryWarehouse::render_query` both call it, so the boot-time existence check and the statement a
+live question becomes cannot resolve a partial path two different ways. It runs on the **plan**,
+before `sutura_sql::generate` - never inside the renderer, which stays a pure rendering of whatever
+path a `QueryPlan` already carries and is shared by every dialect this workspace targets, not only
+`BigQuery`'s.
+
+**What this still does not cover, stated exactly rather than folded into the claim above.** A
+cross-project READ remains unproved against a real second project, for the reason this record
+already gave: the acceptance credential's IAM refuses `datasets.create` and there is no second
+project to read across. That gap is now deliberate rather than pending - closing it would prove a
+platform capability this record has never needed to claim, not close a hole in what this adapter
+decides. The `#[ignore]`d cross-project cell that was waiting on this decision - `cross_resource.rs`
+in this adapter's own integration tests - no longer exists: it went with the HTTP wire transport
+(`github.com/telekom/sutura#913`), so the gap is now carried by this paragraph and by nothing
+executable. It waits on the same infrastructure this record already named, and nothing about
+`resolve` changes that.

@@ -1,10 +1,11 @@
-//! The boot pre-flight: what the adapter concludes from a dataset's own table listing.
+//! The boot pre-flight, and the query/boot refusal predicates that share its fixtures.
 //!
-//! **Split out of `tests.rs` when the identity cells for the ADBC principal switch pushed that file
-//! past the unexemptable 1000-line cap.** A concept and not a half: every assertion here is about
-//! `BigQueryWarehouse::preflight` - which tables a bundle names, what a listing said about its own
-//! size, and which of those outcomes is a refusal rather than an absence. The identity, rendering
-//! and dry-run cells stay in the parent, next to the fake they are written against.
+//! **Split out of `tests.rs` at the unexemptable 1000-line cap.** A concept and not a half: every
+//! assertion here is about what the adapter concludes from a dataset's own table listing - which
+//! tables a bundle names, what a listing said about its own size, and which of those outcomes is a
+//! refusal rather than an absence. The identity, rendering and dry-run cells stay in the parent,
+//! next to the fake they are written against. This file carries its own `#[test]`s throughout, so
+//! it cannot be mistaken for an implementation-only module the causality gate would revert.
 
 use std::collections::BTreeSet;
 

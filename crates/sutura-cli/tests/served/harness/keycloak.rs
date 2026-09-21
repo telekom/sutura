@@ -59,6 +59,10 @@ struct Realm {
     /// explicitly: no public CA signed the leaf, and a default TLS config trusting only public
     /// roots would refuse it the same way it would refuse a network attacker's.
     tls_certificate_file: PathBuf,
+    /// The third-party audience the tier's `id-token-audience` mapper puts into the ID token's `aud`
+    /// when a password grant requests `scope=openid`. Read from the realm file rather than restated,
+    /// so the value the tier provisions and the value a cell asserts against are one document.
+    id_token_audience: String,
 }
 
 /// Reads `.sutura-dev/keycloak-realm.json` at the worktree root - the file `stop` removes and every
@@ -92,6 +96,10 @@ fn read_realm(root: &Path) -> Realm {
         .get("tls_certificate_file")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_else(|| panic!("{} carries no `tls_certificate_file`", path.display()));
+    let id_token_audience = value
+        .get("id_token_audience")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_else(|| panic!("{} carries no `id_token_audience`", path.display()));
     let subjects = value
         .get("subjects")
         .and_then(serde_json::Value::as_array)
@@ -118,6 +126,7 @@ fn read_realm(root: &Path) -> Realm {
         client_secret: String::from(client_secret),
         subjects: subjects.iter().map(read_subject).collect(),
         tls_certificate_file: PathBuf::from(tls_certificate_file),
+        id_token_audience: String::from(id_token_audience),
     }
 }
 
@@ -149,18 +158,31 @@ fn agent(tls_certificate_file: &Path) -> ureq::Agent {
     )
 }
 
-/// A password-grant token for one provisioned subject, against the tier's own confidential client.
-fn mint(agent: &ureq::Agent, token_url: &str, client_id: &str, client_secret: &str, username: &str, password: &str) -> String {
-    let form = [
+/// A password grant against the tier's own confidential client - the shared POST for the access
+/// token [`mint`] and the ID token [`mint_id_token`] both build on, differing only in `scope` and
+/// which response field they read back.
+fn grant(
+    agent: &ureq::Agent,
+    token_url: &str,
+    client_id: &str,
+    client_secret: &str,
+    username: &str,
+    password: &str,
+    scope: Option<&str>,
+) -> serde_json::Value {
+    let mut form = vec![
         ("grant_type", "password"),
         ("client_id", client_id),
         ("client_secret", client_secret),
         ("username", username),
         ("password", password),
     ];
+    if let Some(value) = scope {
+        form.push(("scope", value));
+    }
     let mut answer = agent
         .post(token_url)
-        .send_form(form)
+        .send_form(form.iter().copied())
         .unwrap_or_else(|cause| panic!("the tier's own token endpoint at {token_url} is unreachable: {cause}"));
     let status = answer.status();
     let body = answer
@@ -173,13 +195,38 @@ fn mint(agent: &ureq::Agent, token_url: &str, client_id: &str, client_secret: &s
         status.is_success(),
         "the tier's own token endpoint refused a subject it provisioned ({status}): {body}"
     );
-    let value: serde_json::Value =
-        serde_json::from_str(&body).unwrap_or_else(|cause| panic!("the token response is not JSON ({cause}): {body}"));
+    serde_json::from_str(&body).unwrap_or_else(|cause| panic!("the token response is not JSON ({cause}): {body}"))
+}
+
+/// A password-grant access token for one provisioned subject, against the tier's own confidential
+/// client - the token the served cell's bearer gate verifies.
+fn mint(agent: &ureq::Agent, token_url: &str, client_id: &str, client_secret: &str, username: &str, password: &str) -> String {
+    let value = grant(agent, token_url, client_id, client_secret, username, password, None);
     String::from(
         value
             .get("access_token")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_else(|| panic!("the token response carries no `access_token`: {body}")),
+            .unwrap_or_else(|| panic!("the token response carries no `access_token`: {value}")),
+    )
+}
+
+/// A password-grant ID token for one provisioned subject, obtained by requesting `scope=openid` -
+/// the token whose `aud` carries the tier's `id-token-audience` mapper value, which is the whole
+/// of issue #105's step-1 probe.
+fn mint_id_token(
+    agent: &ureq::Agent,
+    token_url: &str,
+    client_id: &str,
+    client_secret: &str,
+    username: &str,
+    password: &str,
+) -> String {
+    let value = grant(agent, token_url, client_id, client_secret, username, password, Some("openid"));
+    String::from(
+        value
+            .get("id_token")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("the token response carries no `id_token`: {value}")),
     )
 }
 
@@ -228,8 +275,11 @@ pub(crate) fn subject_of(token: &str) -> String {
     )
 }
 
-/// The `aud` a minted access token actually carries - a string if it is one, or the one ABSOLUTE
+/// The `aud` a minted token actually carries - a string if it is one, or the one ABSOLUTE
 /// `https://` entry if it is an array, and a panic if there is neither.
+///
+/// Shared by the access-token cell (which reads the resource audience) and the ID-token cell
+/// (which reads the third-party audience), so both decode the same minted document the same way.
 ///
 /// **Not the array's first entry**, and that is measured rather than a style choice:
 /// `nix/keycloak-tier.nix`'s client carries a hardcoded audience mapper naming
@@ -239,7 +289,7 @@ pub(crate) fn subject_of(token: &str) -> String {
 /// `security.inbound.resource` requires. Picking "first" happened to pass here because of that
 /// order, which is Keycloak's own mapper-application order and not a contract this fixture may
 /// rely on; selecting the `https://`-shaped entry is what actually makes the choice non-accidental.
-fn audience_of(token: &str) -> String {
+pub(crate) fn audience_of(token: &str) -> String {
     let claims = payload_claims(token);
     match claims.get("aud") {
         Some(serde_json::Value::String(single)) => single.clone(),
@@ -267,6 +317,13 @@ pub(crate) struct KeycloakFixture {
     pub(crate) key_set_file: PathBuf,
     pub(crate) subject_a_token: String,
     pub(crate) subject_b_token: String,
+    /// The ID token a password grant with `scope=openid` mints for the first subject - the token
+    /// whose `aud` carries the tier's `id-token-audience` mapper value, the whole of #105's
+    /// step-1 probe. Minted once per case, the same way the two access tokens above are.
+    pub(crate) id_token: String,
+    /// The third-party audience the tier declares, READ off the realm file rather than restated as
+    /// a literal - one document the tier provisions and a cell asserts against, never two.
+    pub(crate) id_token_audience: String,
 }
 
 impl KeycloakFixture {
@@ -338,6 +395,20 @@ pub(crate) fn settings(case: &str) -> KeycloakFixture {
     );
     let resource = audience_of(&subject_token_1);
 
+    // The ID token for #105's step-1 probe: a password grant with `scope=openid` against the same
+    // client and subject, so the `id-token-audience` mapper puts the third-party audience into its
+    // `aud`. `realm.id_token_audience` is the expected value, read off the realm file the tier
+    // itself wrote - not a literal, so the two cannot disagree.
+    let id_token = mint_id_token(
+        &client,
+        &token_url,
+        &realm.client_id,
+        &realm.client_secret,
+        username_1,
+        password_1,
+    );
+    let id_token_audience = realm.id_token_audience;
+
     let key_set_file = scratch.join("keycloak-jwks.json");
     std::fs::write(&key_set_file, fetch_key_set(&client, &jwks_url)).expect("the fetched key set is writable");
 
@@ -347,5 +418,7 @@ pub(crate) fn settings(case: &str) -> KeycloakFixture {
         key_set_file,
         subject_a_token: subject_token_1,
         subject_b_token: subject_token_2,
+        id_token,
+        id_token_audience,
     }
 }

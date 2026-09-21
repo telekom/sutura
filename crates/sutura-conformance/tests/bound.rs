@@ -146,15 +146,15 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
 
     /// Which named case this executable is, if any - what [`Distortion::ReversedOnlyForCase`]
     /// reads to decide whether to reverse.
-    fn case_name(executable: Executable<'_>) -> Option<&'static str> {
+    fn case_name(executable: Executable<'_>) -> Option<String> {
         match executable {
             Executable::Query(plan) => corpus::cases()
                 .into_iter()
                 .find(|case| case.plan() == plan)
-                .map(|case| case.name()),
+                .map(|case| case.name().to_owned()),
             Executable::Leg(leg) => {
                 let case = corpus::leg_case();
-                (case.leg() == leg).then(|| case.name())
+                (case.leg() == leg).then(|| case.name().to_owned())
             }
         }
     }
@@ -180,7 +180,7 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
             }
             Distortion::Reversed => rows.reverse(),
             Distortion::ReversedOnlyForCase(name) => {
-                if Self::case_name(executable) == Some(name) {
+                if Self::case_name(executable).as_deref() == Some(name) {
                     rows.reverse();
                 }
             }

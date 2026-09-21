@@ -42,8 +42,23 @@ pub use crate::plan::federated::{
     AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
 };
 pub use crate::plan::label::ResultLabel;
-pub use crate::plan::leg::{Executable, FactTop, LegPlan, LegTerm};
+pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
+
+/// Why [`QueryPlan::resolve_tables`] could not produce a valid plan.
+///
+/// Either the `resolve` closure refused a table path, or the resolved tables - taken together -
+/// answer to one identifier, which is [`AmbiguousTables`]'s refusal re-validated through
+/// [`StatementTables::parse`].
+#[derive(Debug, thiserror::Error)]
+pub enum ResolveTablesError<E> {
+    /// The `resolve` closure refused this table path.
+    #[error("a table path could not be resolved")]
+    Resolve(#[source] E),
+    /// The resolved tables share an identifier, so the statement cannot tell them apart.
+    #[error(transparent)]
+    Ambiguous(#[from] AmbiguousTables),
+}
 
 /// The most rows any plan may return.
 ///
@@ -634,6 +649,35 @@ impl QueryPlan {
         labels
     }
 
+    /// This plan with every table path passed through `resolve`, and nothing else changed.
+    ///
+    /// **For an adapter that can close a gap in a path before the statement renders, and has to
+    /// do it here rather than inside the renderer** - a path with less than its full qualifier is
+    /// exactly what `sutura_sql::generate::table_path` renders as literal text, so what it
+    /// resolves to is a decision about this plan, made once, not a rule every dialect's renderer
+    /// would otherwise need. Runs over the `FROM` table and then every joined one; the first
+    /// failure stops the walk.
+    ///
+    /// **Re-validates through [`StatementTables::parse`]** after resolving, so a `resolve` closure
+    /// that rewrites a table name into one already in the statement is refused rather than shipped
+    /// to the renderer. The invariant [`QueryPlan::new`] holds - that no plan holds two tables one
+    /// statement could not tell apart - is preserved here rather than assumed: the resolved tables
+    /// go back through the same parser that built the plan in the first place.
+    pub fn resolve_tables<E>(
+        mut self,
+        mut resolve: impl FnMut(&QualifiedTable) -> Result<QualifiedTable, E>,
+    ) -> Result<Self, ResolveTablesError<E>> {
+        self.table = resolve(&self.table).map_err(ResolveTablesError::Resolve)?;
+        for join in &mut self.joins {
+            join.table = resolve(&join.table).map_err(ResolveTablesError::Resolve)?;
+        }
+        let tables = StatementTables::parse(self.table, self.joins).map_err(ResolveTablesError::Ambiguous)?;
+        let (table, joins) = tables.into_parts();
+        self.table = table;
+        self.joins = joins;
+        Ok(self)
+    }
+
     /// Every parameter a definitional predicate binds.
     ///
     /// Used by the golden that asserts a required filter is bound rather than written into the
@@ -864,3 +908,6 @@ pub fn plan_required_filter(filter: &RequiredFilter, column: PlanColumn, bind: i
         RequiredFilter::IsNotNull { .. } => PlanPredicate::IsNotNull { column },
     }
 }
+
+#[cfg(test)]
+mod resolve_tests;

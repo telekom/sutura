@@ -6,11 +6,11 @@
 //! endpoint would never hand back on demand. `Conventions` asks for fakes and not mocked HTTP; this is
 //! why.
 //!
-//! What no test here can do is prove the WIRE. An implementor that speaks to the endpoint now exists,
-//! [`crate::wire`], behind the default-off `wire` feature, and its own suite proves that it builds the
-//! request it says it builds and reads the answer it says it reads, over documents that are not the
-//! service's. Nothing in this repository has sent a statement to a real project; `docs/adr/0017`
-//! records what a test could run against instead, and `docs/adr/0018` records that it has not been.
+//! What no test here can do is prove the WIRE. The implementor that speaks to the endpoint is
+//! [`crate::adbc`], behind the default-off `adbc` feature, and its own suite proves what it builds
+//! and reads over documents that are not the service's. Nothing in this repository has sent a
+//! statement to a real project; `docs/adr/0017` records what a test could run against instead, and
+//! `docs/adr/0018` records that it has not been.
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::identity::Presented;
@@ -30,7 +30,7 @@ mod results;
 
 use fakes::{
     Broken, Case, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
-    one_cell, open, other_posture, plan, shared_posture, source, test_deadline,
+    one_cell, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -77,6 +77,31 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
     // exists to close) would read as `execute` still working, since `submit` opens a fresh window
     // from the configured bound either way, and only this assertion would catch it.
     assert_eq!(asked.deadline, JobDeadline::Port(deadline));
+}
+
+#[test]
+fn a_table_naming_its_dataset_and_no_project_still_names_a_project_on_the_wire() {
+    // **What `crate::resolve::resolve` closes, at the boundary that actually reaches the wire.**
+    // Rendered as-is, `sales.fct_subscription_monthly` would leave BigQuery's own request-level
+    // default to fill the missing project in - silently, and not necessarily where the model
+    // actually lives. Resolving the plan before it renders means the STATEMENT says which
+    // project, so a reviewer of the SQL text does not have to trust a request field beside it.
+    let warehouse = open(Recording::empty(), shared_posture());
+    let plan = plan_in_dataset();
+    drop(
+        warehouse
+            .execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+            .expect("the fake answers"),
+    );
+    let seen = warehouse.transport.seen.borrow();
+    let asked = seen.first().expect("the transport was asked once");
+    assert!(
+        asked
+            .statement
+            .contains("`acme-analytics`.`sales`.`fct_subscription_monthly`"),
+        "the connection's own project was not filled in:\n{}",
+        asked.statement
+    );
 }
 
 #[test]
@@ -454,6 +479,5 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         terms: Vec::new(),
         bindings: PlanBindings::none(),
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
-        top: None,
     }
 }

@@ -1,16 +1,10 @@
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
-use sutura_domain::federation::Ranking;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
-use sutura_domain::plan::{
-    FactTop, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables,
-};
-use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
+use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
 use polyglot_sql::builder;
 
-use super::{
-    DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate_key_probe, generate_leg, ordered_nulls_last, render,
-};
+use super::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL, bucket_expression, generate_key_probe, ordered_nulls_last, render};
 use crate::dialect::{ALL, Dialect};
 
 fn bucket(grain: Grain) -> PlanBucket {
@@ -311,83 +305,4 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
             parsed.err()
         );
     }
-}
-
-/// A case-1 `top` on a fact leg - `github.com/telekom/sutura#777`. Its own fixture rather than
-/// one added to `crates/sutura-app/tests/golden/legs.rs`, because that corpus's own header
-/// declares "no leg golden may carry a `LIMIT`" and a `check-guidance`-counted literal
-/// (`LIMIT 10001`) reads off it; a leg WITH a pushdown limit belongs beside the mechanism instead
-/// of inside a corpus built on that declaration.
-fn fact_with_pushed_down_top() -> LegPlan {
-    let table = TableName::parse("orders").expect("a test table is a table");
-    let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a test column is a column"));
-    LegPlan::Fact {
-        source: SourceName::parse("local").expect("a test source is a source"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
-        tables: StatementTables::only(table.clone()),
-        bucket: bucket(Grain::Month),
-        keys: vec![PlanKey::new(
-            ResultLabel::dimension(&sutura_domain::model::DimensionName::parse("product_family").expect("a test dimension")),
-            column("product_family"),
-        )],
-        terms: vec![LegTerm::new(
-            PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: column("revenue_cents"),
-            },
-            ResultLabel::internal(sutura_domain::plan::InternalLabel::Leaf(0)),
-        )],
-        bindings: PlanBindings::none(),
-        range: sutura_domain::calendar::TimeRange::new(
-            sutura_domain::calendar::Date::parse("2026-06-01").expect("a test date is a date"),
-            sutura_domain::calendar::Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("a test range is a range"),
-        top: Some(FactTop::new(
-            Top::new(
-                TopN::parse(3).expect("three is a row count"),
-                TopBy::Metric,
-                TopDirection::Desc,
-            ),
-            Ranking::Term(0),
-        )),
-    }
-}
-
-#[test]
-fn a_case_1_fact_leg_carries_the_pushed_down_order_and_limit() {
-    for &dialect in ALL {
-        let query = generate_leg(&fact_with_pushed_down_top(), dialect)
-            .unwrap_or_else(|e| panic!("{dialect} would not render a case-1 leg: {e}"));
-        let sql = query.sql();
-        assert!(sql.contains("ORDER BY"), "{dialect}: {sql}");
-        assert!(sql.contains("LIMIT 3"), "{dialect}: {sql}");
-        // The ranking column, not the tie-break key, leads the ORDER BY - the same claim
-        // `by_metric_ranks_the_measure_first_and_keeps_the_tiebreak_after_it` makes for the
-        // mono path.
-        let order_by = sql.split("ORDER BY").nth(1).expect("an ORDER BY clause is present");
-        let revenue_at = order_by.find("revenue_cents").expect("the ranking leads");
-        let family_at = order_by.find("product_family").expect("the tie-break follows");
-        assert!(revenue_at < family_at, "{dialect}: {sql}");
-        assert!(order_by.contains("DESC"), "{dialect}: {sql}");
-        let parsed = polyglot_sql::parse(sql, super::dialect_type(dialect));
-        assert!(
-            parsed.is_ok(),
-            "{dialect} did not parse its own case-1 leg: {:?}\n{sql}",
-            parsed.err()
-        );
-    }
-}
-
-/// The negative control for the leg corpus's own row-limit assertion: a leg with NO `top` still
-/// carries no `LIMIT`, so the pushdown above is additive rather than a change to every leg.
-#[test]
-fn a_fact_leg_with_no_top_still_carries_no_limit() {
-    let mut leg = fact_with_pushed_down_top();
-    let LegPlan::Fact { ref mut top, .. } = leg else {
-        panic!("this fixture is a fact leg");
-    };
-    *top = None;
-    let query = generate_leg(&leg, Dialect::DuckDb).expect("a leg with no top still renders");
-    assert!(!query.sql().contains("LIMIT"), "{}", query.sql());
 }

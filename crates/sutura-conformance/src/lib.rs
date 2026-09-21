@@ -394,14 +394,14 @@ where
     /// The data system did not answer at all.
     #[error("case `{case}`: the data system did not answer")]
     NotAnswered {
-        case: &'static str,
+        case: String,
         #[source]
         cause: E,
     },
     /// The answer is not labelled the way the plan projects it.
     #[error("case `{case}`: the plan projects {projected:?} and the answer is labelled {answered:?}")]
     Labels {
-        case: &'static str,
+        case: String,
         projected: Vec<String>,
         answered: Vec<String>,
     },
@@ -411,40 +411,40 @@ where
     // failure, which read `... <- ...` with both halves identical.
     #[error("case `{case}`: the rows are not the reference's, compared as a multiset")]
     Content {
-        case: &'static str,
+        case: String,
         #[source]
         disagreement: Box<ContentDisagreement>,
     },
     /// The rows are not in the order the plan claims.
     #[error("case `{case}`: the rows agree and the order does not, and the plan's ORDER BY claims one")]
     Order {
-        case: &'static str,
+        case: String,
         #[source]
         disagreement: Box<OrderDisagreement>,
     },
     /// The pre-flight refused a plan the adapter is expected to be able to execute.
     #[error("case `{case}`: the pre-flight refused a plan this adapter is held to answer")]
     PreFlightRefused {
-        case: &'static str,
+        case: String,
         #[source]
         cause: E,
     },
     /// The pre-flight accepted the plan and the execution then failed.
     #[error("case `{case}`: the pre-flight accepted this plan and the execution did not answer")]
     AcceptedThenDidNotAnswer {
-        case: &'static str,
+        case: String,
         #[source]
         cause: E,
     },
     /// An adapter that declares it does not execute a leg executed one.
     #[error("case `{case}`: the adapter declares it does not execute a leg and answered one with {rows} row(s)")]
-    ALegWasAnswered { case: &'static str, rows: usize },
+    ALegWasAnswered { case: String, rows: usize },
     /// The pre-flight's estimate disagreed with what `Warehouse::PRICES_DRY_RUN` declares.
     #[error(
         "case `{case}`: PRICES_DRY_RUN is {prices_dry_run} and the pre-flight answered estimated_bytes = {estimated_bytes:?}"
     )]
     EstimateDisagreesWithCapability {
-        case: &'static str,
+        case: String,
         prices_dry_run: bool,
         estimated_bytes: Option<sutura_domain::warehouse::estimate::EstimatedBytes>,
     },

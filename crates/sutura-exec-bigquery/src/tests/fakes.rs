@@ -20,7 +20,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DatasetName, Grain, MetricName, QualifiedTable, SourceName, TableName, TableQualifier,
+};
 use sutura_domain::plan::{
     PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
     ResultLabel, StatementTables,
@@ -374,13 +376,16 @@ where
 /// plan carries them, and the generator refuses a plan with no predicate at all - which is what a
 /// first version of this fixture ran into. Carrying them here is also what gives the no-injection
 /// assertion something to look for.
-pub(super) fn plan() -> QueryPlan {
-    let table = TableName::parse("fct_subscription_monthly").expect("a test table is a table");
-    let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a test column is a column"));
+/// One plan over `table`, wherever `table` says it lives - the shape [`plan`] and
+/// [`plan_in_dataset`] share, so what differs between them is the PATH and nothing else.
+fn plan_over(table: impl Into<QualifiedTable>) -> QueryPlan {
+    let table: QualifiedTable = table.into();
+    let name = table.name().clone();
+    let column = |col_name: &str| PlanColumn::new(name.clone(), ColumnName::parse(col_name).expect("a test column is a column"));
     QueryPlan::new(
         source(),
         MetricName::parse("mrr").expect("a test metric is a metric"),
-        StatementTables::only(table.clone()),
+        StatementTables::only(table),
         PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
@@ -412,6 +417,22 @@ pub(super) fn plan() -> QueryPlan {
         .expect("a fixture plan binds its two range bounds in placeholder order"),
         TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     )
+}
+
+pub(super) fn plan() -> QueryPlan {
+    plan_over(TableName::parse("fct_subscription_monthly").expect("a test table is a table"))
+}
+
+/// The same plan, over a table naming its own dataset and no project - the shape [`crate::resolve::resolve`]
+/// has to fill a project into before it reaches the wire, rather than leaving `BigQuery`'s own
+/// request-level default to decide it silently.
+pub(super) fn plan_in_dataset() -> QueryPlan {
+    plan_over(QualifiedTable::new(
+        Some(TableQualifier::in_dataset(
+            DatasetName::parse("sales").expect("a test dataset is a dataset"),
+        )),
+        TableName::parse("fct_subscription_monthly").expect("a test table is a table"),
+    ))
 }
 
 /// One row of the shared value-mapping table: what the endpoint declared, what it sent, and the

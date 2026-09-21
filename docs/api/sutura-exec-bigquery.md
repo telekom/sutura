@@ -124,6 +124,11 @@ an owned `#[source]`.
 
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
+- `UnresolvableConnection` - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.
+
+  **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
+  typed variant rather than a panic for the same reason every other "unreachable" case in
+  this workspace is one - the input reaching it is not bounded by the type system alone.
 - `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
 
   **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
@@ -327,6 +332,17 @@ Nothing here quotes what came back: see that variant.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use UnresolvableConnection`
+
+Why this connection's own billing project could not be read as the domain's project vocabulary.
+
+**Unreachable in practice, and a typed branch rather than an `.expect()` because a panic here
+would be reachable from a live query, not just a catalog file.**
+`sutura_config::sources::placement::BillingProject::parse` accepts 6 to 30 characters of
+`[a-z0-9-]`, starting with a letter and never ending in a hyphen - a strict subset of what
+`ProjectName::parse` accepts, so a billing project that reached this adapter at all already
+satisfies it.
 
 ## `use SessionUser`
 
