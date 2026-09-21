@@ -7,7 +7,19 @@
 
 #![cfg(test)]
 
-use std::path::Path;
+// The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the
+// module holds are the two halves #938's leftover trap had - rather than a hand-rolled exclusive
+// `create_dir` on a pid-keyed path, which is what this file did until #938. `seal` and `Fixture`
+// are the module's own tests' items; this integration test does not use them, so the include
+// expects `dead_code` on it rather than weakening the module for everyone.
+#[path = "scratch_tree/mod.rs"]
+#[expect(
+    dead_code,
+    reason = "the module's own tests use `seal` and `Fixture`; this integration test does not"
+)]
+#[cfg(test)]
+mod scratch_tree;
+
 use std::process::Command;
 
 /// A crate name no real target imports and no hook surface will ever list.
@@ -30,27 +42,25 @@ fn probe_source(crate_name: &str) -> String {
     )
 }
 
-#[expect(clippy::create_dir, reason = "the PID-keyed fixture must be newly allocated, never reused")]
 fn observe(case: &str, target_crate: &str) -> std::process::Output {
-    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("hook-paths-{case}-{}", std::process::id()));
-    std::fs::create_dir_all(Path::new(env!("CARGO_TARGET_TMPDIR"))).expect("the integration scratch parent");
-    std::fs::create_dir(&root).expect("an exclusive fixture directory");
-    std::fs::create_dir_all(root.join(".github/workflows")).expect("workflow directory");
-    std::fs::create_dir_all(root.join("fuzz/fuzz_targets")).expect("fuzz targets directory");
-    std::fs::create_dir_all(root.join("fuzz/seeds/probe")).expect("seed directory");
-    std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("workspace marker");
-    std::fs::write(root.join("flake.nix"), "{}\n").expect("flake marker");
-    std::fs::write(root.join(".pre-commit-config.yaml"), precommit("^(fuzz/)")).expect("hook config");
-    std::fs::write(
-        root.join("fuzz/Cargo.toml"),
-        "[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"probe\"\npath = \"fuzz_targets/probe.rs\"\n\n[profile.release]\npanic = \"abort\"\n",
-    )
-    .expect("fuzz manifest");
-    std::fs::write(root.join("fuzz/Cargo.lock"), "").expect("fuzz lock");
-    std::fs::write(root.join("fuzz/fuzz_targets/probe.rs"), probe_source(target_crate)).expect("fuzz target source");
-    std::fs::write(root.join("fuzz/seeds/probe/seed"), "seed").expect("seed file");
-    std::fs::write(root.join(".github/workflows/fuzz.yml"), FUZZ_YAML).expect("fuzz workflow");
-    std::fs::write(root.join(".github/workflows/release.yml"), RELEASE_YAML).expect("release workflow");
+    let tree = scratch_tree::Tree::of(
+        &format!("hook-paths-{case}"),
+        &[
+            ("Cargo.toml", b"[workspace]\n" as &[u8]),
+            ("flake.nix", b"{}\n"),
+            (".pre-commit-config.yaml", precommit("^(fuzz/)").as_bytes()),
+            (
+                "fuzz/Cargo.toml",
+                b"[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"probe\"\npath = \"fuzz_targets/probe.rs\"\n\n[profile.release]\npanic = \"abort\"\n",
+            ),
+            ("fuzz/Cargo.lock", b""),
+            ("fuzz/fuzz_targets/probe.rs", probe_source(target_crate).as_bytes()),
+            ("fuzz/seeds/probe/seed", b"seed"),
+            (".github/workflows/fuzz.yml", FUZZ_YAML.as_bytes()),
+            (".github/workflows/release.yml", RELEASE_YAML.as_bytes()),
+        ],
+    );
+    let root = tree.root().to_path_buf();
 
     let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .arg("check-fuzz")
@@ -58,8 +68,7 @@ fn observe(case: &str, target_crate: &str) -> std::process::Output {
         .env_remove("CARGO_TARGET_DIR")
         .output()
         .expect("execute the real xtask binary");
-    let cleanup = std::fs::remove_dir_all(&root);
-    cleanup.expect("remove the owned fixture before verdict assertions");
+    drop(tree);
     output
 }
 

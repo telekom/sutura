@@ -290,6 +290,10 @@ expired.
 The bound address is read back from the socket rather than assumed, so a port of zero - a test
 asking the kernel to choose - is reported as the port it actually got.
 
+## `use ServiceState`
+
+The request state.
+
 ## `use AgentMount`
 
 The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
@@ -302,9 +306,52 @@ rather than tower's `BoxCloneService` for the reason `Self::new` states) so the 
 two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
 than the one the transport actually answers on.
 
-## `use ServiceState`
+## `use ReplicaSpendGauge`
 
-The request state.
+This replica's `sutura_spend_headroom_bytes` gauge, obtainable only from the `ServiceState`
+that registered it.
+
+**Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
+A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
+`RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
+while pushing onto a series no scrape of this deployment renders. A private field closes it. The
+fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+`compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
+syntax error - would itself fail to compile:
+
+```compile_fail,E0423
+fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
+    sutura_http::ReplicaSpendGauge(gauge)
+}
+```
+
+The compiling twin, so the failure above is the privacy error it claims to be and not an
+unresolved path: the same path, in the same crate, named rather than constructed.
+
+```
+fn _reachable(_: sutura_http::ReplicaSpendGauge) {}
+```
+
+The limit: this holds that the gauge came from *a* `ServiceState`, not from the one the mount
+is attached to. Two states in one process could cross their gauges, and what catches that is the
+assembly refusal `crate::router::agent_subtree` raises on a declaration whose presence
+disagrees with the attaching state's own registration - a presence check, not gauge identity.
+
+## `use SpendHeadroomPush`
+
+Where the served agent surface pushes this replica's spend headroom.
+
+**A two-variant declaration rather than an `Option<Gauge>`, because at a call site an `Option`
+makes forgetting and deciding look identical.** The same shape
+`sutura_domain::source::ImpersonationCapability` uses for the same reason: the absence is a
+variant with a name, so a deployment that genuinely has no ceiling says so and a caller that
+simply did not think about it cannot compile.
+
+**And the gauge is the state's own, held by the type rather than by the caller's care.**
+`Self::ThisReplicasGauge` carries a `ReplicaSpendGauge`, whose only constructor is
+`Self::of` - so "this is the series `POST /v1/query` writes" is what an instance means, not
+merely "someone chose a gauge". `Self::gauge` hands an `Option` back out, which is not the
+`Option` this type replaces: the push site must branch, and that is the one place that should.
 
 ## `use ErasedCause`
 
@@ -3146,6 +3193,20 @@ Why the router could not be assembled.
   mounted transport with no declaration at all. The composition root builds one `AgentMount`
   from `sutura_mcp::http::service` and attaches it with `ServiceState::with_agent_surface` only
   when it also armed leg 1; this refusal is what a root that forgets the pairing gets.
+- `AgentSurfaceSpendPushMismatched` - The mounted agent surface's spend-headroom declaration disagrees with the state it is attached to.
+
+  **The half `SpendHeadroomPush` cannot hold by itself.** That type makes the handle
+  unforgeable - the only way to a `state::ReplicaSpendGauge`
+  is `SpendHeadroomPush::of(&state)` - and it makes the absence a name a caller has to write.
+  What it cannot do is check that the name is TRUE: `NoCeilingConfigured` typechecks on a
+  deployment that configured a ceiling, and the deployment would then serve `/mcp` with
+  `sutura_spend_headroom_bytes` frozen at its boot reading while the agent surface drained the
+  ledger - exactly the stale-gauge lie `telekom/sutura#892` closed for the composition root and
+  nothing held anywhere else. This refuses to assemble instead.
+
+  A presence comparison rather than gauge identity, and that is the limit: two states in one
+  process could still cross their gauges if both configured a ceiling. Nothing in the shipped
+  composition root builds a second state.
 - `UngovernedRouteNotAllowlisted` - A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
 
   **The mechanism that makes an ungoverned route auditable rather than invisible.**
@@ -3433,20 +3494,6 @@ pub fn settings(&self) -> &Settings
 ```
 
 ```rust
-pub fn spend_headroom_gauge(&self) -> Option<Gauge>
-```
-
-The shared handle to this replica's spend-headroom gauge, so a second transport can push
-the same `sutura_spend_headroom_bytes` series a query route pushes.
-
-`sutura-http`'s own `/v1/query` route calls `Self::record_spend_headroom` instead; this is
-for the composition root, which holds the served surface and needs to hand the MCP
-transport a handle to the SAME gauge the HTTP route writes. `None` exactly when the
-deployment has no spend ceiling (see the `spend_headroom` field doc for the absent-rather-
-than-zero discipline). Cloned because `Gauge` shares its storage by `Arc`, so the caller
-and this state observe one series.
-
-```rust
 pub fn surface(&self) -> Arc<dyn Surface>
 ```
 
@@ -3496,10 +3543,20 @@ than the one the transport actually answers on.
 #### Methods
 
 ```rust
-pub fn new<S>(service: S) -> Self
+pub fn new<S>(service: S, spend: SpendHeadroomPush) -> Self
 ```
 
 Wraps any service `nest_service` can mount, so `sutura-http` never names its concrete type.
+
+**`spend` is required, and that is the mechanism rather than a parameter.** The mounted
+transport answers through the same `Surface` and charges the same ledger as `POST /v1/query`,
+so a mount attached with no handle to this replica's `sutura_spend_headroom_bytes` gauge
+leaves that series frozen while the ledger drains. `ServiceState::with_agent_surface`
+cannot ask for it - it takes a mount that is already built - so the requirement sits here,
+where the mount is made, and rides inside it from there. Build it with
+`SpendHeadroomPush::of`; `SpendHeadroomPush::NoCeilingConfigured` is the deployment
+declaring it genuinely has no ceiling, and `crate::router::agent_subtree` refuses to
+assemble that against a state which registered the series.
 
 The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder lives in
 `sutura-http`, so it may name it) - `axum::Router::nest_service` panics on the root path and
@@ -3513,6 +3570,99 @@ transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
 #### Implements
 
 `Clone`
+
+### `enum SpendHeadroomPush`
+
+```rust
+pub enum SpendHeadroomPush
+```
+
+Where the served agent surface pushes this replica's spend headroom.
+
+**A two-variant declaration rather than an `Option<Gauge>`, because at a call site an `Option`
+makes forgetting and deciding look identical.** The same shape
+`sutura_domain::source::ImpersonationCapability` uses for the same reason: the absence is a
+variant with a name, so a deployment that genuinely has no ceiling says so and a caller that
+simply did not think about it cannot compile.
+
+**And the gauge is the state's own, held by the type rather than by the caller's care.**
+`Self::ThisReplicasGauge` carries a `ReplicaSpendGauge`, whose only constructor is
+`Self::of` - so "this is the series `POST /v1/query` writes" is what an instance means, not
+merely "someone chose a gauge". `Self::gauge` hands an `Option` back out, which is not the
+`Option` this type replaces: the push site must branch, and that is the one place that should.
+
+#### Variants
+
+- `ThisReplicasGauge` - The `sutura_spend_headroom_bytes` gauge `ServiceState::new` registered for this replica.
+- `NoCeilingConfigured` - There is no such series, because `governance.per_replica_spend_ceiling` is not configured.
+
+  Saying so explicitly is the point of the declaration - an unconfigured ceiling is unlimited
+  rather than zero (see `ServiceState`'s `spend_headroom` field), so "nobody pushed
+  anything" and "there is nothing to push" have to be different values or the second one is
+  indistinguishable from the first.
+
+#### Methods
+
+```rust
+pub const fn gauge(&self) -> Option<&Gauge>
+```
+
+The gauge to push onto, or `None` where this deployment has no ceiling at all.
+
+For the push site, which has to branch: a `None` reading leaves the gauge untouched rather
+than fabricating zero, and where there is no gauge there is nothing to leave untouched.
+
+```rust
+pub fn of(state: &ServiceState) -> Self
+```
+
+This state's own declaration, whichever of the two it is.
+
+The only route to `Self::ThisReplicasGauge`. `Gauge` shares its storage by `Arc`, so the
+state and every holder of the returned declaration observe one series.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct ReplicaSpendGauge`
+
+```rust
+pub struct ReplicaSpendGauge
+```
+
+This replica's `sutura_spend_headroom_bytes` gauge, obtainable only from the `ServiceState`
+that registered it.
+
+**Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
+A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
+`RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
+while pushing onto a series no scrape of this deployment renders. A private field closes it. The
+fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+`compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
+syntax error - would itself fail to compile:
+
+```compile_fail,E0423
+fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
+    sutura_http::ReplicaSpendGauge(gauge)
+}
+```
+
+The compiling twin, so the failure above is the privacy error it claims to be and not an
+unresolved path: the same path, in the same crate, named rather than constructed.
+
+```
+fn _reachable(_: sutura_http::ReplicaSpendGauge) {}
+```
+
+The limit: this holds that the gauge came from *a* `ServiceState`, not from the one the mount
+is attached to. Two states in one process could cross their gauges, and what catches that is the
+assembly refusal `crate::router::agent_subtree` raises on a declaration whose presence
+disagrees with the attaching state's own registration - a presence check, not gauge identity.
+
+#### Implements
+
+`Clone`, `Debug`
 
 ## Module `surface`
 

@@ -1,0 +1,13 @@
+--- a/xtask/src/causality/plan.rs
++++ b/xtask/src/causality/plan.rs
+@@ -82,9 +82,7 @@
+     /// TEST one counts - so the test files must reach that question or a crate carrying a provable
+     /// test would be withdrawn under a tree that then cannot run it.
+     pub(super) fn at_head_first_attempt(&self) -> Vec<String> {
+-        let mut at_head = self.held();
+-        at_head.extend(self.test_files.iter().cloned());
+-        at_head
++        self.held()
+     }
+ 
+     /// Which build inputs the named attempt does NOT put at base - the held-at-HEAD remainder the

@@ -400,6 +400,13 @@ fn declared_at(text: &str, inner: &str) -> Option<Ident> {
 /// `super::scoped` needed to answer a question the sentence it PRINTED had been asserting: is the
 /// declared module's own file in this diff at all?
 ///
+/// A `#[path = "../x.rs"]` is ordinary Rust - a test binary that compiles a module kept beside the
+/// crate's sources. The attribute is resolved against the declaring file's directory, so the raw
+/// join carries `..` segments ("tests/../src/x.rs") that name the same file as "src/x.rs" does.
+/// The candidates are compared against the diff's own file list by STRING, so the segments are
+/// collapsed lexically first: a path with `..` in it never equals any diff path, and a correct
+/// include of an in-diff file would refuse forever.
+///
 /// LATENT, recorded so it is not rediscovered: a `mod child;` nested INSIDE an inline `mod a {}`
 /// of `lib.rs` resolves here to `child.rs` rather than to Rust's `a/child.rs`. Unreachable through
 /// the current call graph - [`accounted_for`] answers [`Declares::Inline`] on the parent `mod a {`
@@ -408,13 +415,31 @@ fn declared_at(text: &str, inner: &str) -> Option<Ident> {
 pub(super) fn declared_module_files(path: &str, name: &str, relocated: Option<&str>) -> Vec<String> {
     let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
     if let Some(rel) = relocated {
-        return vec![in_dir(dir, rel)];
+        return vec![collapse(&in_dir(dir, rel))];
     }
     let base = match file {
         "lib.rs" | "main.rs" | "mod.rs" => String::from(dir),
         stem => in_dir(dir, stem.strip_suffix(".rs").unwrap_or(stem)),
     };
-    vec![in_dir(&base, &format!("{name}.rs")), in_dir(&base, &format!("{name}/mod.rs"))]
+    vec![
+        collapse(&in_dir(&base, &format!("{name}.rs"))),
+        collapse(&in_dir(&base, &format!("{name}/mod.rs"))),
+    ]
+}
+
+/// Lexically collapse `.` and `..` segments of a joined path - `a/b/../c` becomes `a/c`.
+fn collapse(path: &str) -> String {
+    let mut out: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            "." => {}
+            ".." => match out.pop() {
+                Some(_) | None => {}
+            },
+            other => out.push(other),
+        }
+    }
+    out.join("/")
 }
 
 /// `rel` under `dir`, where an empty `dir` is the repo root.
@@ -533,6 +558,18 @@ mod tests {
         assert_eq!(
             declared_module_files("crates/x/tests/golden.rs", "catalogs", Some("golden/catalogs.rs")),
             vec![String::from("crates/x/tests/golden/catalogs.rs")]
+        );
+    }
+    #[test]
+    fn a_path_attribute_through_a_parent_segment_names_the_file_the_diff_lists() {
+        // `xtask/tests/*.rs` includes `xtask/src/scratch_tree.rs` with
+        // `#[path = "../src/scratch_tree.rs"]`. The raw join is `tests/../src/...`, which names the
+        // same file as `src/...` but never EQUALS it, and `super::scoped` compares candidates to
+        // the diff's file list by string - so without the collapse below, a test binary that
+        // compiles an in-diff module refuses with "its own file is not in this diff" forever.
+        assert_eq!(
+            declared_module_files("xtask/tests/api_docs.rs", "scratch_tree", Some("../src/scratch_tree.rs")),
+            vec![String::from("xtask/src/scratch_tree.rs")]
         );
     }
     #[test]
