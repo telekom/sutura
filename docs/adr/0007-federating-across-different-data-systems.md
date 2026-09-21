@@ -5,11 +5,12 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended twice, in place, by the two blocks below. *Nothing
+Status: accepted, and **partly built** - amended three times, in place, by the blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
-once (*Second amendment, 2026-09-16*). What is still unbuilt is track 1 beyond the dialects that
+once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
+chain). What is still unbuilt is track 1 beyond the dialects that
 ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.
@@ -1152,7 +1153,24 @@ as still type-level (`EXECUTES_AUTHORED_SQL`, `ACCEPTS_RAW_STATEMENTS`, `PRICES_
 serve the raw-SQL tool against a `Postgres` source it holds, nor read a real dry-run byte estimate
 off a `BigQuery` one, until each gets the same instance-method escape `executes_legs` did.
 
-## Third amendment, 2026-09-21: *the value of the working-set ceiling, and of the deadline* is retired
+## Third amendment, 2026-09-19: a dimension may reach its model through a chain
+
+`Dimension.via` held exactly one relationship, and "exactly one hop" in *The shape* above was that
+fact restated. It now holds an ordered chain of relationships: hop 1 starts at the metric's model,
+and hop N's origin must be hop N-1's target, so a chain is a single path rather than a set.
+`Definitions::assemble` refuses every hop that could duplicate rows and every hop from the second on
+that crosses a data system boundary - so the statement above keeps its shape, with one widening: a
+chain's joins are planned **in declared chain order** rather than alphabetically, and the plan
+carries one join per hop. The single-hop case is unchanged, and a hop 1 that crosses a source
+boundary remains the federated case the splitter serves - the cross-source refusal exists for what a
+chain would do past its first hop.
+
+Two claims above narrow with this: *every join is exactly one hop* reads as *every join is one hop
+of a declared chain*, and the at-most-five-legs bound is unchanged because a remote dimension's
+lookup leg is reached through its chain's LAST hop's model, which is the same one remote model the
+bound counted.
+
+## Fourth amendment, 2026-09-21: *the value of the working-set ceiling, and of the deadline* is retired
 
 **The *what is explicitly not decided* bullet of that name is spent, and one half of it was stale
 rather than merely open.** It says `0009` carries *a provisional 1 GB and a provisional three

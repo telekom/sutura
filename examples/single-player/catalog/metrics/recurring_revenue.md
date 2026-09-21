@@ -29,6 +29,13 @@ dimensions:
     via: subscription_product
     description: >
       Declared without a value list, so it can be grouped by and not filtered on.
+  - name: sales_area
+    column: sales_area
+    via: [subscription_customer, customer_region]
+    values: [central, north_east, south_west]
+    description: >
+      Which sales area the customer's region rolls up into. The one dimension here
+      reached through a chain of two relationships rather than one.
   - name: contract_term
     column: contract_term
     values: [annual, monthly]
@@ -62,6 +69,14 @@ dimension on this metric is reached `via` a many-to-one join, so a catalog holdi
 those would never render the case where a group-by key is read straight off the fact
 table and contributes no join of its own. It is declared on
 `subscription_months_billed` too, so the case survives either metric being rewritten.
+
+`sales_area` is the opposite end of the same axis: the one dimension in this catalog
+reached through a chain of TWO relationships, `subscription_customer` then
+`customer_region`. A catalog of single-hop dimensions renders only `ON <fact>.<key> =
+<dim>.<key>`, so it cannot tell a planner that qualifies each hop by the fact table from
+one that walks the path - both produce the same statement for one hop. `examples/okf`
+and the other corpora here are single-hop, which is why this dimension lives on the
+metric the whole golden suite and the executed corpus read.
 
 The anchor is what this metric produced for June 2026 when it was certified. It is
 re-executed on every run and at startup, so a definition that has stopped meaning what it
