@@ -685,17 +685,26 @@ told where they declare it.
 
 How many rows this transport will materialise from one result stream before refusing.
 
-**A ceiling on THIS PROCESS's memory, not a cap on an answer**, and that distinction decides the
-value. `sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own
-`LIMIT`; a federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says
-so, because a leg is not an answer - so for a leg there is nothing in the statement bounding
-what the source may stream back, and the only thing between a driver that streams without end
-and this process is a number here. The refusal fires WHILE reading, in
-`Decoding::push`, so it cannot be reached by first materialising the whole stream.
+**A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
+was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+memory bound, and what decides the width is the plan's projection - a property of the plans a
+deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+unending driver is refused, a million very wide rows are not.
+
+It is not a cap on an answer either, and that distinction decides the value.
+`sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
+federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
+leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+may stream back, and the only thing between a driver that streams without end and this process is
+a number here. The refusal fires WHILE reading, in `Decoding::push`, so it cannot be reached by
+first materialising the whole stream.
 
 Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
 have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
-keeps.
+keeps. **The VALUE is held rather than commented** - review measured that raising it to
+`usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
+the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+`tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
 
 ### `use Reported`
 
@@ -738,12 +747,20 @@ holds a `Vec<RecordBatch>` beside the rows decoded from it. The cast to text is 
 `arrow_cast::cast` per COLUMN per batch - it used to run inside the row loop, which cast every
 column once per row.
 
-Completeness is decided here. The wire refused a first page by comparing the
-delivered count to the endpoint's `totalRows`; an ADBC read streams the whole
-result, so completeness is the stream draining fully. `Decoding::finish` takes a
-`Reported` total (the driver attaches job statistics to the schema metadata,
-measured in the provisioned leg) and refuses a delivered count that does not reach
-what was reported.
+# Completeness is the full drain, and nothing reads a reported total
+
+The wire refused a first page by comparing the delivered count to the endpoint's `totalRows`; an
+ADBC read streams the whole result, so completeness here is the stream draining fully -
+`AdbcBigQuery`'s `JobTransport::run` consumes the reader to exhaustion and any error on the way is
+an `Err`, so a truncated stream is a failure rather than a short answer.
+
+**`Reported::Total` is not wired, and the sentence that said it was conditional is gone.**
+`Decoding::finish` refuses a delivered count that does not reach a total it is GIVEN, and the
+only production call passes `Reported::Unreported` - so `Decode::Incomplete` is reachable
+from this module's own tests and from nowhere else. The claim it replaced said the total was
+checked *when the driver reports one*, citing schema-metadata keys measured in a provisioned leg;
+nothing in this crate reads schema metadata, and the leg cited never ran. Reading the driver's
+metadata keys is a change with a provisioned run behind it, not a comment.
 
 #### `enum Decode`
 
@@ -842,17 +859,26 @@ cast to text.
 
 How many rows this transport will materialise from one result stream before refusing.
 
-**A ceiling on THIS PROCESS's memory, not a cap on an answer**, and that distinction decides the
-value. `sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own
-`LIMIT`; a federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says
-so, because a leg is not an answer - so for a leg there is nothing in the statement bounding
-what the source may stream back, and the only thing between a driver that streams without end
-and this process is a number here. The refusal fires WHILE reading, in
-`Decoding::push`, so it cannot be reached by first materialising the whole stream.
+**A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
+was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+memory bound, and what decides the width is the plan's projection - a property of the plans a
+deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+unending driver is refused, a million very wide rows are not.
+
+It is not a cap on an answer either, and that distinction decides the value.
+`sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
+federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
+leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+may stream back, and the only thing between a driver that streams without end and this process is
+a number here. The refusal fires WHILE reading, in `Decoding::push`, so it cannot be reached by
+first materialising the whole stream.
 
 Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
 have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
-keeps.
+keeps. **The VALUE is held rather than commented** - review measured that raising it to
+`usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
+the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+`tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
 
 ## Module `transport`
 

@@ -116,11 +116,15 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
                 source: Some(source),
             })
         }
-        // **A subject at a source that declares no pool.** Unreachable through the domain port -
-        // `Presented::agrees_with` refuses a subject shape at a source declared shared, one layer
-        // up - but reachable through `JobTransport` itself, which is public. So it is a refusal and
-        // not an `unreachable!`: there is no pool to exchange the assertion against, and a
-        // connection opened here would answer the question as this deployment.
+        // **A subject at a source that declares no pool: IN-CRATE misuse insurance, and no caller
+        // outside this crate can reach it.** The sentence here claimed `JobTransport` being public
+        // made the pairing reachable, which is false - `JobRequest::new` is `pub(crate)` and no
+        // public API hands one out, so a foreign caller cannot build the request that carries this
+        // identity. One layer up, `Presented::agrees_with` refuses a subject shape at a source
+        // declared shared, so the pairing has no route through the domain port either. It stays a
+        // refusal rather than an `unreachable!` because the cost is one arm and the alternative is a
+        // panic in a library: there is no pool to exchange the assertion against, and a connection
+        // opened here would answer the question as this deployment.
         (JobIdentity::AsSubject(..), Impersonation::Disabled) => {
             Err(AdbcError::Uncovered("federate a subject at a source that declares no pool"))
         }
@@ -158,7 +162,7 @@ fn credential_options(source: &SubjectSource, pool: &WorkloadPool) -> DatabaseOp
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::identity::{PrincipalName, Secret};
+    use sutura_domain::identity::Secret;
 
     use super::{AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, Impersonation, authenticate};
     use crate::adbc::AdbcError;
@@ -245,11 +249,10 @@ mod tests {
             authenticate(JobIdentity::AsSubject(&assertion), &Impersonation::Disabled).is_err(),
             "a subject's leg fell back to the deployment's identity"
         );
-        // And a principal switch has no spelling at all any more - `PrincipalName` cannot be put
-        // into a `JobIdentity`, which is what makes the weaker mechanism unrepresentable rather
-        // than refused. This line is the compile-time half of that, kept as a value nothing can
-        // hand to `authenticate`.
-        let role = PrincipalName::parse("analyst_role").expect("a role is a domain principal name");
-        assert_eq!(role.as_str(), "analyst_role");
+        // And a principal switch has no spelling at all any more: `JobIdentity` declares two arms
+        // and neither carries a `PrincipalName`, so the weaker mechanism is unrepresentable rather
+        // than refused. **That half is held by the enum and by this function's exhaustive match, not
+        // by this cell** - a `PrincipalName::parse` round trip used to sit here commented as "the
+        // compile-time half", and it asserted nothing about `JobIdentity` at all.
     }
 }

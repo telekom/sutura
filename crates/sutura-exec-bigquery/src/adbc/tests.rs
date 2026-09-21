@@ -161,8 +161,10 @@ fn a_path_that_names_no_driver_is_a_load_failure_and_not_a_silent_pass() {
 
 #[test]
 fn the_listing_this_transport_cannot_do_is_not_an_authorization_refusal() {
-    // **BOTH directions, because the default answered this and no cell read it** - review measured
-    // that flipping `listing_was_refused` left the whole suite green.
+    // **NOT both directions - a constant `false` has no second direction to pin**, which is review's
+    // correction to what this cell used to open with. What it holds is the value being READ at all:
+    // the trait default answered this question and no cell looked, so flipping the override left the
+    // whole suite green. Flip it now and this line dies.
     //
     // `list_tables` needs no driver: it refuses before anything is opened, which is what makes this
     // the one port method assertable here at all. What the pair holds is the SPLIT: the listing

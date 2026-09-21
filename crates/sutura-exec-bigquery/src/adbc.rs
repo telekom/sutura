@@ -286,9 +286,12 @@ impl JobTransport for AdbcBigQuery {
         for batch in reader {
             decoding.push(&batch.map_err(AdbcError::Batch)?).map_err(AdbcError::Decode)?;
         }
-        // A full drain IS completeness for ADBC: the Storage Read API streams the
-        // whole result. The `reported` total is only checked when the driver
-        // reports one (schema-metadata keys measured in the provisioned leg).
+        // **A full drain IS completeness for ADBC**, and this passes `Unreported` unconditionally
+        // rather than *when the driver reports one*, which is what the comment here used to claim.
+        // Nothing reads the driver's schema metadata, so there is no total to hand in and
+        // `Decode::Incomplete` is reachable only from `decode`'s own tests; the loop above is what
+        // completeness rests on, because it consumes the reader to exhaustion and turns any error on
+        // the way into an `Err` instead of a short answer. `decode`'s header carries the limit.
         decoding.finish(Reported::Unreported).map_err(AdbcError::Decode)
     }
 
@@ -352,7 +355,8 @@ impl JobTransport for AdbcBigQuery {
     /// `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal` reads the value here
     /// and dies if it flips - which is what the trait default left unheld, measured as a green
     /// suite - and `a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal` in
-    /// `crate::tests` reads the OUTCOME one layer up, where `sutura_app::preflight` turns this
+    /// `crate::adbc::tests` (which is where nextest reports it, and this said `crate::tests`) reads
+    /// the OUTCOME one layer up, where `sutura_app::preflight` turns this
     /// answer into the verdict `serve::boot` acts on. The second is the direction that matters to a
     /// deployment: it is the one that would change if this constant were ever right to be `true`.
     fn listing_was_refused(&self, _error: &Self::Error) -> bool {

@@ -455,4 +455,103 @@ mod tests {
 
         drop(std::fs::remove_dir_all(&dir));
     }
+
+    /// A configuration directory declaring one `bigquery` source over a dataset nothing reaches.
+    ///
+    /// Every key `sutura_config` requires of a `bigquery` entry, and not one of them is read by the
+    /// refusals below: the credential file names nothing deliberately (the ADBC driver authenticates
+    /// itself, so a boot that read this path would be reading a file no transport in this build
+    /// wants), and no question is ever asked of the dataset - `crate::sources::open_engine` refuses
+    /// while composing, before `commands::query` reaches an anchor.
+    #[cfg(feature = "bigquery")]
+    fn config_declaring_bigquery(source: &str, into: &Path) -> PathBuf {
+        let dir = into.join("conf");
+        std::fs::create_dir_all(&dir).expect("a configuration directory is creatable");
+        std::fs::write(
+            dir.join("base.yaml"),
+            format!(
+                "security:\n  identity: single-user\n  single_user_because: \"one developer, one \
+                 laptop, one dataset\"\nsources:\n  {source}:\n    kind: bigquery\n    \
+                 billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+                 credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
+                 max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
+            ),
+        )
+        .expect("a settings file is writable");
+        dir
+    }
+
+    /// One `sutura query` invocation over a `bigquery` catalog, with the driver variable as given.
+    #[cfg(feature = "bigquery")]
+    fn asked_over_bigquery(case: &str, driver: Option<&str>) -> Ran {
+        let dir = scratch(case);
+        let catalog = catalog_naming("warehouse", &dir);
+        let conf = config_declaring_bigquery("warehouse", &dir);
+        let question = question(&dir);
+
+        let mut command = command(Some(&conf));
+        if let Some(path) = driver {
+            command.env("SUTURA_BIGQUERY_ADBC_DRIVER", path);
+        }
+        let output = command
+            .args(["query", &catalog.to_string_lossy(), &question.to_string_lossy()])
+            .output()
+            .expect("the composed binary runs");
+        Ran {
+            code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    }
+
+    #[cfg(feature = "bigquery")]
+    #[test]
+    fn a_driver_path_naming_no_driver_stops_this_command_rather_than_its_one_question() {
+        // **THE CELL THE ONE-SHOT ROOT'S PROBE IS HELD BY, and it exists because review measured
+        // that nothing held it.** `crates/sutura-cli/tests/served/bigquery.rs` holds the probe at
+        // `serve/bigquery.rs`; deleting the same `AdbcBigQuery::probe` call at
+        // `src/sources/bigquery.rs` - this command's composition root - left all 141 of
+        // `-p sutura-cli` green, because every cell that reached that code path stopped at the
+        // *variable is unset* refusal one line above it.
+        //
+        // A SPAWNED binary for the reason `tests/served.rs` and two cells above give: `set_var` is
+        // `unsafe` in this edition and the workspace forbids it, so what a test can decide is what a
+        // child sees - and `command` strips this shell's own `SUTURA_*` variables first, so the one
+        // set here is the only one the command reads.
+        let ran = asked_over_bigquery(
+            "declared-source-bigquery-driver-unloadable",
+            Some("/nonexistent/libadbc_driver_bigquery.so"),
+        );
+        assert_eq!(ran.code, Some(1), "{}", ran.output());
+        assert!(
+            ran.stderr.contains("cannot load"),
+            "the refusal must say the driver could not be LOADED, not that a variable is unset: {}",
+            ran.output()
+        );
+        assert!(
+            !ran.stderr.contains("is not set"),
+            "a command that only read the variable cannot have opened the file: {}",
+            ran.output()
+        );
+    }
+
+    #[cfg(feature = "bigquery")]
+    #[test]
+    fn this_command_with_no_driver_named_at_all_is_a_different_refusal() {
+        // **THE CONTROL**, and the same one the served pair carries: without it the cell above
+        // passes over a command that refuses every `bigquery` catalog for any reason at all, since
+        // both cases exit 1 and the only thing separating them is WHICH sentence.
+        let ran = asked_over_bigquery("declared-source-bigquery-driver-unset", None);
+        assert_eq!(ran.code, Some(1), "{}", ran.output());
+        assert!(
+            ran.stderr.contains("SUTURA_BIGQUERY_ADBC_DRIVER") && ran.stderr.contains("is not set"),
+            "an unnamed driver is refused by the variable check: {}",
+            ran.output()
+        );
+        assert!(
+            !ran.stderr.contains("cannot load"),
+            "nothing was opened, so nothing can have failed to load: {}",
+            ran.output()
+        );
+    }
 }

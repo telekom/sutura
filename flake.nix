@@ -513,6 +513,13 @@
           # which is the right amount of friction for a release-artefact set.
           # `attrValues` rather than four hand-written attribute names so this gate
           # cannot name a driver the driver file no longer builds.
+          #
+          # **The limit, beside the claim: this LOADS nothing.** It is a file-existence
+          # test plus a literal count, so it establishes that the four `.so` files
+          # build and no more - a driver that builds and cannot be dlopen'd passes
+          # here. The venue that RUNS one is `ci.yml`'s `bigquery-driver-check` job
+          # (`bash nix/bigquery-driver-check.sh`, `sutura doctor` through the driver
+          # manager), and it is `x86_64-linux` only.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
             buildInputs = builtins.attrValues adbcDrivers;
           } ''

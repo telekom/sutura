@@ -18,9 +18,19 @@
 //!
 //! Gated on BOTH `agent` and `bigquery`, because that is what the two halves need: the `agent`
 //! feature links `sutura_mcp::http` (and `sutura-http`'s `agent`), and the `bigquery` feature links
-//! the shipped `WorkloadIdentityBroker` a `bigquery` deployment serves under. `just test` runs
-//! `--all-features`, so this cell runs there; a default build has no `/mcp` and no exchanging
-//! broker to join.
+//! the `WorkloadIdentityBroker` TYPE this cell drives over a fake exchange. `just test` runs
+//! `--all-features`, so this cell runs there; a default build has no `/mcp` and no exchanging broker
+//! to join.
+//!
+//! **What that sentence used to claim, corrected: no served deployment attaches this broker.** It
+//! said the feature links the broker *a `bigquery` deployment serves under*, and the change that
+//! adopted ADBC deleted `StsOverHttp`/`IamCredentialsOverHttp` with the `wire` transport - so
+//! `WorkloadIdentityBroker` has no implementor a composition root can reach, `crate::serve` attaches
+//! `DeclaredPrincipalBroker` instead (`serve.rs`'s own comment and `serve/broker.rs` say so), and
+//! `docs/adr/0018`'s fifth amendment records it as no longer what a served deployment attaches.
+//! `rg WorkloadIdentityBroker crates/` finds it in tests only. So what this cell holds is the BYTE
+//! JOIN between leg 1 and an exchange that is handed a subject token - which is worth holding, and
+//! is not evidence about a deployment.
 
 use std::sync::Arc;
 

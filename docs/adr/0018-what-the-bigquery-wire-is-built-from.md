@@ -14,6 +14,13 @@ below is why every wrapper crate was refused and still holds as reasoning; the t
 does not ship. Read the fifth amendment first, then *What is claimed, and what is not* - the two
 hosted runs this line used to open on are runs of code that is no longer in the tree.
 
+**And so are the CELLS the wire-era sections cite, which those sections state in the present tense.**
+A cell named in a section above the fifth amendment lived under `src/wire/**` or in an integration
+target that went with it - `exchanged_identity.rs` and the `#[ignore]`d dataset legs beside it are
+gone, and `src/tests.rs` still exists but holds the ADBC transport's cells rather than the wire's - so
+a reader who greps one of those names finds nothing. It is a record of what was built, not a map of
+the tree; the amendments name what survived.
+
 **Corrected:** this status block read *one hand-built `SUM` was accepted, not the corpus* while the
 correction in *What is claimed, and what is not* records the corpus leg as built and run. A record
 with two answers to one question is worse than one answer, and a status line is the half a reader
@@ -1078,7 +1085,11 @@ unconditional `ADBC driver` step as well.
   `serve::boot` takes the WARN arm. The consequence, stated where it is: on a `bigquery` source a
   mistyped `table:` is not caught at boot; it fails the first question against that model, which a
   `files` deployment does not do. `the_listing_this_transport_cannot_do_is_not_an_authorization_refusal`
-  pins both directions, because review measured that flipping the predicate left the suite green.
+  pins that the override is READ - review measured that flipping it left the suite green - and **not
+  "both directions", which this line claimed and a constant `false` does not have.** The second
+  direction is a different cell one layer up:
+  `adbc::tests::a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal` reads the
+  outcome `serve::boot` acts on.
 
 ## Sixth amendment, 2026-09-20: the principal switch is deleted, and WIF replaces it
 

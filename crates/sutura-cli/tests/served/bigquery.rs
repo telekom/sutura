@@ -6,6 +6,11 @@
 //! the whole suite green at exit 0 with clippy clean, because every cell that reaches that code
 //! path stops at the *variable is unset* refusal one line above it.
 //!
+//! **This file holds ONE of those two roots**, and a later round measured that too: `sutura serve`
+//! is what it spawns, so the one-shot `sutura query` root in `src/sources/bigquery.rs` was still
+//! unheld after this file existed. `tests/declared_source.rs` carries the pair for that root, on the
+//! same spawned-binary argument and for the same reason.
+//!
 //! **A spawned binary and not an in-process cell, and that is forced rather than preferred.**
 //! `std::env::set_var` is `unsafe` on edition 2024 and `unsafe_code` is `forbid` here, so a test
 //! cannot put `SUTURA_BIGQUERY_ADBC_DRIVER` into its own process. A child takes it through
@@ -87,10 +92,17 @@ mod tests {
 
     #[test]
     fn a_driver_path_naming_no_driver_stops_the_process_rather_than_the_first_question() {
-        // **THE CELL THE PROBE IS HELD BY.** `SUTURA_BIGQUERY_ADBC_DRIVER` is set, so the variable
-        // check one line above the probe passes and the boot has to open the file to fail. Delete
-        // the `AdbcBigQuery::probe` call at either composition root and this reads the *variable is
-        // unset* refusal instead - which is the mutation review found nothing catching.
+        // **THE CELL THE SERVING ROOT'S PROBE IS HELD BY - that root, and not "either" of them.**
+        // `SUTURA_BIGQUERY_ADBC_DRIVER` is set, so the variable check one line above the probe
+        // passes and the boot has to open the file to fail. Delete the `AdbcBigQuery::probe` call in
+        // `src/serve/bigquery.rs` and this reads the *variable is unset* refusal instead - which is
+        // the mutation review found nothing catching.
+        //
+        // **What it does NOT hold, measured: the other root.** This comment claimed both; deleting
+        // the same call in `src/sources/bigquery.rs` left all 141 cells of `-p sutura-cli` green,
+        // because nothing spawned the one-shot command with the variable set. That half is
+        // `tests/declared_source.rs`'s
+        // `a_driver_path_naming_no_driver_stops_this_command_rather_than_its_one_question`.
         let said = refusal(
             "bigquery-driver-unloadable",
             &[("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")],

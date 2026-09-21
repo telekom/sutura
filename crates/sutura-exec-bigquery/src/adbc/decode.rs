@@ -31,12 +31,20 @@
 //! `arrow_cast::cast` per COLUMN per batch - it used to run inside the row loop, which cast every
 //! column once per row.
 //!
-//! Completeness is decided here. The wire refused a first page by comparing the
-//! delivered count to the endpoint's `totalRows`; an ADBC read streams the whole
-//! result, so completeness is the stream draining fully. [`Decoding::finish`] takes a
-//! [`Reported`] total (the driver attaches job statistics to the schema metadata,
-//! measured in the provisioned leg) and refuses a delivered count that does not reach
-//! what was reported.
+//! # Completeness is the full drain, and nothing reads a reported total
+//!
+//! The wire refused a first page by comparing the delivered count to the endpoint's `totalRows`; an
+//! ADBC read streams the whole result, so completeness here is the stream draining fully -
+//! `AdbcBigQuery`'s `JobTransport::run` consumes the reader to exhaustion and any error on the way is
+//! an `Err`, so a truncated stream is a failure rather than a short answer.
+//!
+//! **[`Reported::Total`] is not wired, and the sentence that said it was conditional is gone.**
+//! [`Decoding::finish`] refuses a delivered count that does not reach a total it is GIVEN, and the
+//! only production call passes [`Reported::Unreported`] - so [`Decode::Incomplete`] is reachable
+//! from this module's own tests and from nowhere else. The claim it replaced said the total was
+//! checked *when the driver reports one*, citing schema-metadata keys measured in a provisioned leg;
+//! nothing in this crate reads schema metadata, and the leg cited never ran. Reading the driver's
+//! metadata keys is a change with a provisioned run behind it, not a comment.
 
 use std::error::Error;
 
@@ -49,17 +57,26 @@ use crate::transport::{Cell, Field, FieldType, JobRows};
 
 /// How many rows this transport will materialise from one result stream before refusing.
 ///
-/// **A ceiling on THIS PROCESS's memory, not a cap on an answer**, and that distinction decides the
-/// value. `sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own
-/// `LIMIT`; a federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says
-/// so, because a leg is not an answer - so for a leg there is nothing in the statement bounding
-/// what the source may stream back, and the only thing between a driver that streams without end
-/// and this process is a number here. The refusal fires WHILE reading, in
-/// [`Decoding::push`], so it cannot be reached by first materialising the whole stream.
+/// **A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
+/// was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+/// memory bound, and what decides the width is the plan's projection - a property of the plans a
+/// deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+/// unending driver is refused, a million very wide rows are not.
+///
+/// It is not a cap on an answer either, and that distinction decides the value.
+/// `sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
+/// federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
+/// leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+/// may stream back, and the only thing between a driver that streams without end and this process is
+/// a number here. The refusal fires WHILE reading, in [`Decoding::push`], so it cannot be reached by
+/// first materialising the whole stream.
 ///
 /// Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
 /// have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
-/// keeps.
+/// keeps. **The VALUE is held rather than commented** - review measured that raising it to
+/// `usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
+/// the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+/// `tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
 pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
 /// Why a result set could not be decoded.
@@ -465,13 +482,29 @@ mod tests {
     }
 
     #[test]
-    fn the_transports_own_ceiling_is_above_the_answer_cap() {
-        // **The ceiling has to sit ABOVE the answer cap or it refuses legitimate results.** Read from
-        // the constant rather than restated: a test that spelled the number again would pass with the
-        // production value changed underneath it.
+    fn the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap() {
+        // **BOTH bounds, because only one of them was held and the other is the one that matters.**
+        // Review raised `MOST_RESULT_ROWS` to `usize::MAX` and the whole suite stayed green at exit
+        // 0: `delivered + n > usize::MAX` is never true, `a_stream_past_the_ceiling_...` passes its
+        // own ceiling of 3 in, and this cell asserted the floor alone - so the number no gate and no
+        // cell read was free to become no ceiling at all.
+        //
+        // Read off `MAX_ROWS` rather than restated, so a test that spelled either number again
+        // cannot pass with the production value changed underneath it. The factor is the constant's
+        // own documented rule - two orders of magnitude above the answer cap - which is what makes
+        // this an assertion about the value rather than about arithmetic.
+        let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the answer cap fits a usize");
+        assert!(
+            MOST_RESULT_ROWS > cap,
+            "a ceiling at or under the answer cap refuses legitimate results"
+        );
+        assert!(
+            MOST_RESULT_ROWS <= cap.saturating_mul(100),
+            "a ceiling further than two orders of magnitude above the answer cap is not the bound this \
+             constant documents - {MOST_RESULT_ROWS} rows is what a stream would have to reach to be refused"
+        );
         let schema = Schema::new(vec![arrow_schema::Field::new("id", DataType::Int64, false)]);
         let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![ints(&[1])]).unwrap();
-        assert!(MOST_RESULT_ROWS > usize::try_from(sutura_domain::plan::MAX_ROWS).unwrap_or(usize::MAX));
         decoded(&schema, &[batch], Reported::Unreported).expect("an ordinary result is under the ceiling");
     }
 }
