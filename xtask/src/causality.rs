@@ -185,21 +185,12 @@ fn prove(
     // failing an empty filterset is a red about this partition rather than about the change.
     let inputs = &separable.build_inputs;
     let membership = membership::Membership::of(root, base, inputs);
-    let mut at_head = separable.held();
-    at_head.extend(separable.test_files.iter().cloned());
+    let at_head = separable.at_head_first_attempt();
     let reverting = membership.reverting(&separable.revert, inputs, &at_head);
     let holding = membership.reverting(&separable.held(), inputs, &separable.test_files);
     let first = base_state(root, base, &reverting);
     let held = base_state(root, base, &holding);
-    // Named as unreverted only while it IS: a withdrawn manifest goes to base on the first
-    // attempt, and printing it as held at HEAD would be this gate describing a tree it did not
-    // build. The retry prints the rest by name where it applies them.
-    let unreverted: Vec<String> = separable
-        .build_inputs
-        .iter()
-        .filter(|path| !reverting.contains(path))
-        .cloned()
-        .collect();
+    let unreverted = separable.unreverted_from(&reverting);
 
     if first.restore.is_empty() {
         return report_no_base_behaviour(base.short(), &first.remove, coverage, &unreverted);

@@ -79,25 +79,42 @@ struct Obligation {
     step: &'static str,
     /// The `if:` expression, with `${{ }}` and surplus whitespace already removed.
     condition: &'static str,
+    /// Why the `if:` is held - see [`Kind`]. The None-arm's refusal text is written per kind, so
+    /// an event-kind step whose `if:` goes missing is not told to make itself reachable.
+    kind: Kind,
 }
 
-/// The steps whose `if:` this rule holds, and the form each needs - three for reachability after a
-/// red, one for the event it has to run on ([`Obligation`]).
+/// What the held condition is FOR. Two kinds, and they are not interchangeable:
 ///
-/// A table rather than two hand-written arms so that adding a third is one line, and so the
-/// verdict can print how many it held - a rule over an empty table would pass by finding nothing.
+/// - [`Kind::Reachability`] - the condition keeps the step REPORTING after a red above it. The
+///   refusal for a missing `if:` names what reachability costs, and `always()` is the right fix.
+/// - [`Kind::Event`] - the condition decides the EVENT the step runs on. `PR title`'s condition
+///   is the example: the title expression expands to the empty string on anything but a
+///   `pull_request`, and its own gate refuses an empty title rather than passing, so a dropped
+///   `if:` does not expose an unchecked pass - it starts the run that carries the subject. The
+///   refusal therefore says where the condition belongs, and NEVER reaches for `always()`, which
+///   would put the gate on every event where there is nothing to judge.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Reachability,
+    Event,
+}
+
 const REQUIRED: &[Obligation] = &[
     Obligation {
         step: "Secrets",
         condition: "always()",
+        kind: Kind::Reachability,
     },
     Obligation {
         step: "Licensing",
         condition: "!cancelled()",
+        kind: Kind::Reachability,
     },
     Obligation {
         step: "Chart",
         condition: "!cancelled()",
+        kind: Kind::Reachability,
     },
     Obligation {
         // #935. The landed subject is composed from the pull-request title, so the gate holding the
@@ -106,6 +123,7 @@ const REQUIRED: &[Obligation] = &[
         // step has nothing to judge.
         step: "PR title",
         condition: "github.event_name == 'pull_request'",
+        kind: Kind::Event,
     },
 ];
 
@@ -176,10 +194,16 @@ fn check(text: &str) -> Vec<String> {
             continue;
         };
         match step.gate() {
-            None => out.push(format!(
-                "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
-                step.line, want.step, want.condition
-            )),
+            None => out.push(match want.kind {
+                Kind::Reachability => format!(
+                    "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
+                    step.line, want.step, want.condition
+                ),
+                Kind::Event => format!(
+                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: `{}` is empty on every other event, and the gate it runs refuses an empty subject rather than passing, so the step would start and fail closed where there is nothing to judge - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
+                    step.line, want.step, want.condition, want.condition
+                ),
+            }),
             Some(gate) if gate != want.condition => out.push(format!(
                 "ci.yml:{} `{}` is gated on `{gate}`, but its obligation needs `{}` - see the header of xtask/src/workflows/obligations.rs for which case each form survives",
                 step.line, want.step, want.condition
@@ -240,6 +264,34 @@ mod tests {
             "every unconditioned step should be named: {found:?}"
         );
         assert!(found.iter().all(|problem| problem.contains("carries no `if:`")), "{found:?}");
+    }
+
+    /// The two kinds refuse DIFFERENTLY. An event-kind step whose `if:` goes missing must not be
+    /// told to buy reachability - `always()` would put its gate on every event, where the subject
+    /// it judges does not exist - so the reachability sentence must never appear in its refusal.
+    #[test]
+    fn the_event_kind_refusal_does_not_suggest_reachability() {
+        let gates: Vec<Option<&str>> = REQUIRED.iter().map(|_| None).collect();
+        let found = check(&tree(&gates));
+        let title = found
+            .iter()
+            .find(|problem| problem.contains("`PR title`"))
+            .expect("the unconditioned PR title step is reported");
+        assert!(
+            title.contains("decides the EVENT it runs on"),
+            "the event-kind refusal must name what its condition is for: {title}"
+        );
+        assert!(
+            !title.contains("reachable regardless"),
+            "reachability is the other kind's reason, not this one's: {title}"
+        );
+        assert!(
+            found
+                .iter()
+                .filter(|problem| !problem.contains("`PR title`"))
+                .all(|problem| problem.contains("reachable regardless")),
+            "the reachability kind keeps its own sentence: {found:?}"
+        );
     }
 
     /// The mutation the real finding was: a condition that exists but is the wrong form.

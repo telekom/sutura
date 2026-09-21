@@ -1,11 +1,26 @@
 //! Exercise the real API-doc gate with fake Cargo and renderer process boundaries.
 
+// The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the
+// module holds are the two halves #938's leftover trap had - rather than the exclusive
+// `create_dir` on a pid-keyed path this file carried until #938. The module carries `seal` and
+// `Fixture` for the in-tree unit tests; this file does not use them, so the include expects
+// `dead_code` on it rather than weakening the module for everyone.
+#[path = "scratch_tree/mod.rs"]
+#[expect(
+    dead_code,
+    reason = "the module's own tests use `seal` and `Fixture`; this integration test does not"
+)]
+#[cfg(test)]
+mod scratch_tree;
+
 #[cfg(test)]
 #[cfg(unix)]
 mod tests {
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::Path;
     use std::process::{Command, Output};
+
+    use super::scratch_tree::Tree;
 
     const PAGE: &str = "<!-- GENERATED FILE - do not edit. -->\nfixture\n";
     const METADATA_CALL: &str = "<metadata><--format-version><1><--locked><--no-deps>\n";
@@ -88,10 +103,6 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make the fake executable");
     }
 
-    #[expect(
-        clippy::create_dir,
-        reason = "a PID-and-case-keyed fixture must be newly allocated, never reused"
-    )]
     fn observe(case: &str) -> Observed {
         let shell = Command::new("bash")
             .args(["--noprofile", "--norc", "-c", "command -v bash"])
@@ -100,17 +111,28 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             .expect("resolve the interpreter before replacing PATH");
         assert!(shell.status.success());
         let shell = String::from_utf8(shell.stdout).expect("interpreter path");
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("api-docs-{case}-{}", std::process::id()));
-        std::fs::create_dir_all(Path::new(env!("CARGO_TARGET_TMPDIR"))).expect("scratch parent");
-        std::fs::create_dir(&root).expect("exclusive fixture root");
-        for directory in ["bin", "docs/.tools", "docs/api", "nix", "target/doc"] {
+        let tree = Tree::of(
+            &format!("api-docs-{case}"),
+            &[
+                ("flake.nix", b"{}\n" as &[u8]),
+                ("nix/api-docs.nix", WRITER.as_bytes()),
+                (
+                    "Cargo.toml",
+                    b"[workspace]\nmembers = [\n\"crates/doc-library\",\n\"crates/bin-one\",\n\"crates/bin-two\",\n\"crates/macro-only\",\n]\n[workspace.lints.rustdoc]\nbroken_intra_doc_links = \"forbid\"\n",
+                ),
+                ("docs/.tools/rustdoc_to_markdown.py", b"# fake renderer input\n"),
+                ("docs/api/doc-library.md", PAGE.as_bytes()),
+            ],
+        );
+        // macOS resolves `/var` through a symlink, and the gate's renderer compares its
+        // arguments against `$PWD` - which bash takes from `getcwd()` and therefore canonical.
+        // A fixture root built from `temp_dir()` is the symlinked form, so the fake renderer's
+        // equality checks would compare a symlinked argument against a canonical `$PWD` and fail
+        // before rendering. Canonicalizing the root once makes the two agree on every host.
+        let root = tree.root().canonicalize().expect("canonical fixture root");
+        for directory in ["bin", "target/doc"] {
             std::fs::create_dir_all(root.join(directory)).expect("fixture directories");
         }
-        std::fs::write(root.join("flake.nix"), "{}\n").expect("root marker");
-        std::fs::write(root.join("nix/api-docs.nix"), WRITER).expect("the writer the gate must agree with");
-        std::fs::write(root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\n\"crates/doc-library\",\n\"crates/bin-one\",\n\"crates/bin-two\",\n\"crates/macro-only\",\n]\n[workspace.lints.rustdoc]\nbroken_intra_doc_links = \"forbid\"\n"
-        ).expect("armed workspace manifest");
         let mut packages = Vec::new();
         for (name, targets) in [
             (
@@ -140,8 +162,6 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             packages.push(serde_json::json!({"name":name,"manifest_path":manifest,"targets":targets}));
         }
         let metadata = serde_json::json!({"packages":packages,"target_directory":root.join("target")});
-        std::fs::write(root.join("docs/.tools/rustdoc_to_markdown.py"), "# fake renderer input\n").expect("generator marker");
-        std::fs::write(root.join("docs/api/doc-library.md"), PAGE).expect("committed library page");
         let cargo = root.join("bin/cargo");
         let renderer = root.join("bin/renderer");
         executable(&cargo, shell.trim(), CARGO);
@@ -164,8 +184,7 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             .env_remove("BASH_ENV")
             .output();
         let calls = std::fs::read_to_string(ledger);
-        let cleanup = std::fs::remove_dir_all(&root);
-        cleanup.expect("remove the fixture before verdict assertions");
+        drop(tree);
         Observed {
             output: output.expect("run the real gate"),
             ledger: calls.expect("read the invocation ledger"),

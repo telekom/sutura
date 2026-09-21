@@ -1,0 +1,24 @@
+--- a/xtask/src/workflows/obligations.rs
++++ b/xtask/src/workflows/obligations.rs
+@@ -194,16 +194,13 @@
+             continue;
+         };
+         match step.gate() {
+-            None => out.push(match want.kind {
+-                Kind::Reachability => format!(
++            None => {
++                let _ = want.kind;
++                out.push(format!(
+                     "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
+                     step.line, want.step, want.condition
+-                ),
+-                Kind::Event => format!(
+-                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: `{}` is empty on every other event, and the gate it runs refuses an empty subject rather than passing, so the step would start and fail closed where there is nothing to judge - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
+-                    step.line, want.step, want.condition, want.condition
+-                ),
+-            }),
++                ));
++            }
+             Some(gate) if gate != want.condition => out.push(format!(
+                 "ci.yml:{} `{}` is gated on `{gate}`, but its obligation needs `{}` - see the header of xtask/src/workflows/obligations.rs for which case each form survives",
+                 step.line, want.step, want.condition

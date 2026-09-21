@@ -229,4 +229,110 @@ mod tests {
         let inputs = paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-domain/Cargo.toml"]);
         assert_eq!(withdrawn(&[], &inputs, &[]), Vec::<String>::new());
     }
+
+    /// [`Membership::reverting`]'s own half, over the real git answer `Membership::of` gives:
+    /// which changed build inputs exist at base is asked of git (`worktree::base_has` runs
+    /// `git cat-file -e`), not asserted by a test double. The composition the attempt list needs
+    /// is then held end to end - the reverted files come first, the withdrawn membership is
+    /// appended once each, and a file already reverting is NOT named twice - because the caller
+    /// (`causality::run`) hands this list straight to the checkout, and a duplicate path there
+    /// would describe a tree this module never built.
+    #[test]
+    fn reverting_concatenates_the_membership_once_each_and_keeps_the_diffs_own_files_first() {
+        use super::super::provenance::Commit;
+        use super::super::worktree::base_has;
+
+        let dir = std::env::temp_dir().join(format!("sutura-membership-reverting-{}", std::process::id()));
+        let _swept = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch tree");
+        // `strip_git_env` is not optional - see `causality::tests`' own note on the pre-commit
+        // hook's `GIT_DIR` pointing at the outer repo.
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            crate::repo::strip_git_env(&mut command);
+            command.current_dir(dir).args(args).output().expect("git runs")
+        };
+        // The base commit must HAVE a root manifest (so `Cargo.toml` reads as held, not added) and
+        // must NOT have the oracle crate's manifest (so `Membership::of` reads it as added).
+        std::fs::write(dir.join("Cargo.toml"), "[workspace]\nmembers = []\n").expect("root manifest");
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "--local", "user.email", "test@example.com"][..],
+            &["config", "--local", "user.name", "test"][..],
+            &["add", "--all", "."][..],
+            &["commit", "-q", "--allow-empty", "-m", "base"][..],
+        ] {
+            let out = git(&dir, args);
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        }
+        let out = git(&dir, &["rev-parse", "HEAD"]);
+        // Re-resolved after the amend below; the first parse only proves the fixture commits.
+        let _base = Commit::parse(&String::from_utf8_lossy(&out.stdout)).expect("one commit");
+
+        // The branch ADDED the oracle crate's manifest, so `Membership::of` reads it as new - the
+        // base commit's tree has no `crates/sutura-exec-oracle/Cargo.toml` to `cat-file -e`. The
+        // app manifest is the CONTRAST: the base HAS it, so it must not read as added - otherwise
+        // its file at HEAD would hold the withdrawal and the crate's absence would not resolve.
+        let added_manifest = String::from("crates/sutura-exec-oracle/Cargo.toml");
+        std::fs::create_dir_all(dir.join("crates/sutura-app")).expect("app directory");
+        std::fs::write(dir.join("crates/sutura-app/Cargo.toml"), "[package]\nname = \"sutura-app\"\n").expect("app manifest");
+        let staged = git(&dir, &["add", "--all", "."]);
+        assert!(
+            staged.status.success(),
+            "git add: {}",
+            String::from_utf8_lossy(&staged.stderr)
+        );
+        let amend = git(&dir, &["commit", "-q", "--amend", "--allow-empty", "-m", "base"]);
+        assert!(
+            amend.status.success(),
+            "git commit --amend: {}",
+            String::from_utf8_lossy(&amend.stderr)
+        );
+        // Re-resolve: the amend replaced the object the first commit named.
+        let out = git(&dir, &["rev-parse", "HEAD"]);
+        let base = Commit::parse(&String::from_utf8_lossy(&out.stdout)).expect("one commit");
+        let inputs = paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-app/Cargo.toml", &added_manifest]);
+        assert!(base_has(&dir, &base, "Cargo.toml"), "the fixture committed a root manifest");
+        assert!(
+            base_has(&dir, &base, "crates/sutura-app/Cargo.toml"),
+            "the app manifest exists at base"
+        );
+        assert!(
+            !base_has(&dir, &base, &added_manifest),
+            "the added manifest must be absent at base"
+        );
+        let membership = super::Membership::of(&dir, &base, &inputs);
+
+        // The attempt already reverts the lockfile; the membership must not name it twice.
+        let reverting = paths(&["Cargo.lock", "crates/sutura-app/src/lib.rs"]);
+        // `at_head` is what the attempt keeps at HEAD - the compiled paths, held plus test files.
+        let at_head = paths(&["crates/sutura-app/src/lib.rs", "crates/sutura-app/tests/it.rs"]);
+        let mut expected = paths(&["Cargo.lock", "crates/sutura-app/src/lib.rs"]);
+        for path in [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/sutura-app/Cargo.toml",
+            "crates/sutura-exec-oracle/Cargo.toml",
+        ] {
+            let path = String::from(path);
+            if !expected.contains(&path) {
+                expected.push(path);
+            }
+        }
+
+        assert!(
+            membership
+                .reverting(&reverting, &inputs, &at_head)
+                .contains(&String::from("Cargo.toml")),
+            "the membership must still name the ROOT manifest: it resolves the added crate even \
+             though the base has the file, which is the distinction `Membership::of`'s git question \
+             draws - an input the base HAS is not 'added', but the withdrawal takes every file \
+             that resolves membership anyway"
+        );
+        assert_eq!(
+            membership.reverting(&reverting, &inputs, &at_head),
+            expected,
+            "the attempt list is the diff's own files first, the membership after, each once"
+        );
+    }
 }
