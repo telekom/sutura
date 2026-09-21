@@ -175,6 +175,10 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         DataFusionError::Runtime { .. }
         | DataFusionError::Environment { .. }
         | DataFusionError::Attach { .. }
+        // A codec suffix this build cannot read is refused while the file is being registered, so
+        // there is no plan and nothing reserved.
+        | DataFusionError::UnknownCodec { .. }
+        | DataFusionError::UnknownFormat { .. }
         | DataFusionError::Build { .. }
         | DataFusionError::Analyze { .. }
         | DataFusionError::UnsupportedType { .. }

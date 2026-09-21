@@ -923,20 +923,21 @@ fn build_engine(
     DataFusionWarehouse::with_worker_threads(source.clone(), identity.posture().clone(), width, working_set).map_err(flatten)
 }
 
-/// Registers one model's file, preferring Parquet.
+/// Registers one model's file: Parquet first, then CSV or NDJSON, plain or compressed.
+///
+/// The candidate names come from the engine, for the reason `sources::files`'s twin gives.
 fn attach(engine: &DataFusionWarehouse, table: &TableName, data: &std::path::Path) -> Result<(), String> {
-    let parquet = data.join(format!("{table}.parquet"));
-    if parquet.is_file() {
-        return engine.attach_parquet(table, &parquet).map_err(flatten);
-    }
-    let csv = data.join(format!("{table}.csv"));
-    if csv.is_file() {
-        return engine.attach_csv(table, &csv).map_err(flatten);
+    let mut tried = Vec::new();
+    for name in sutura_exec_datafusion::candidates(table) {
+        let candidate = data.join(name);
+        if candidate.is_file() {
+            return engine.attach_file(table, &candidate).map_err(flatten);
+        }
+        tried.push(candidate.display().to_string());
     }
     Err(format!(
-        "the model behind table {table} needs {} or {}, and neither is there",
-        csv.display(),
-        parquet.display()
+        "the model behind table {table} needs one of {}, and none is there",
+        tried.join(", ")
     ))
 }
 

@@ -169,15 +169,16 @@ against.
 The adapters below exist. Which ones a binary can open is chosen at compile time in its composition
 root; within that set, a deployment selects a data system by writing `sources.<alias>.kind`.
 
-| Port              | Adapter                  | What it is                                                                                                            | In the shipped binary?                                         |
-| ----------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                | **Yes.** The only catalogue adapter there is                   |
-| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL                 | **Yes**, and it is what `sutura query` runs                    |
-| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                       | **No.** A development dependency of `sutura-app`               |
-| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify | **No.** A default-off `postgres` feature on the shipped binary |
+| Port              | Adapter                  | What it is                                                                                                                                 | In the shipped binary?                                         |
+| ----------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| `SemanticCatalog` | `sutura-catalog-local`   | A directory of markdown documents with YAML frontmatter, read off disk                                                                     | **Yes.** The only catalogue adapter there is                   |
+| `Warehouse`       | `sutura-exec-datafusion` | THE ENGINE. Reads the Parquet, CSV and NDJSON files itself - text plain or compressed - and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs                    |
+| `Warehouse`       | `sutura-exec-duckdb`     | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down                                                            | **No.** A development dependency of `sutura-app`               |
+| `Warehouse`       | `sutura-exec-postgres`   | A DATA SOURCE. Renders the plan into the Postgres dialect and pushes it down, over a per-source channel it can verify                      | **No.** A default-off `postgres` feature on the shipped binary |
 
 So the combination a PUBLISHED binary supports is **local markdown with YAML frontmatter for the
-metadata, and the in-process engine over the CSV or Parquet files in a directory**. `sutura query
+metadata, and the in-process engine over the Parquet, CSV or NDJSON files in a directory** - each
+text format plain or compressed, per `docs/adr/0039`. `sutura query
 <catalog-dir> <question.yaml> [data-dir]` is the whole of it there, and `sutura doctor` says the same
 thing in one line: `data systems : none - this build reads files, and pushes down to nothing`. A
 source build carrying `--features bigquery` supports one more, and the paragraph below says what that
@@ -733,8 +734,8 @@ holds the repo gates and `sutura-dev` the local development CLI.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to a plan; the plan renders as one statement in `DuckDB`, Postgres or `ClickHouse`
-dialect when somebody asks for SQL, and it **executes through the engine, over the CSV or Parquet
-files in the directory the caller named**. A measure is a single term or a ratio of two, where a term
+dialect when somebody asks for SQL, and it **executes through the engine, over the Parquet, CSV or
+NDJSON files in the directory the caller named**, each text format plain or compressed. A measure is a single term or a ratio of two, where a term
 is an aggregate over a column or a conditional count - so a conditional count can be either a whole
 measure or half of a ratio - and a metric may carry required filters that every question about
 it is answered under. Every metric that declares a certified number re-executes and reproduces it

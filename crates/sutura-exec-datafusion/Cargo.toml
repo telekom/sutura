@@ -38,6 +38,11 @@ futures-util = { workspace = true }
 # stays CI's own strict number everywhere else. Already in the graph via `sutura-exec-postgres`'s
 # own dev-dependencies, so this is a new edge, not a new crate.
 sutura-dev = { workspace = true }
+# Writing the compressed CSVs `src/attach/tests.rs` reads back through the `compression` feature. A
+# test WRITES compressed bytes and this crate never does, which is why these are dev-only; the
+# workspace declaration records that both were already in `Cargo.lock`.
+flate2 = { workspace = true }
+bzip2 = { workspace = true }
 
 [features]
 fixtures = ["sutura-domain/fixtures"]

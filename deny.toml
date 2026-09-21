@@ -89,6 +89,14 @@ allow = [
   # is the Linux Foundation's permissive data licence: no copyleft, and no obligation attaching to
   # anything built with it.
   "CDLA-Permissive-2.0",
+  # `libbz2-rs-sys`, reached through `bzip2` <- `compression-codecs` <- `async-compression` <-
+  # `datafusion-datasource`, which is what the engine's `compression` feature turns on. Accepted
+  # deliberately rather than by unification: `docs/adr/0039` decides that a compressed CSV or JSON
+  # source is a capability this runtime states, and `crates/sutura-exec-datafusion/src/attach.rs`
+  # is where the extension is parsed into a codec. The bzip2/libbzip2 licence is the original
+  # BSD-style one - permissive, no copyleft, attribution only - and it is the ONLY licence the
+  # feature adds: `liblzma-sys`, the other C-building arrival, is already-allowed `0BSD`.
+  "bzip2-1.0.6",
 ]
 
 # So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then

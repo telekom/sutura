@@ -202,6 +202,7 @@ exclude_docs: |
   adr/0035-bigquery-accepts-agent-identity-as-iam-principal.md
   adr/0036-a-knowledge-only-source-speaks-through-a-metric.md
   adr/0038-an-rdf-source-declines-rather-than-maps-a-part.md
+  adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md
   crap.md
   what-a-bpmn-file-actually-carries.md
   what-an-rdf-graph-can-carry.md

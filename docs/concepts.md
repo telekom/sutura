@@ -272,7 +272,8 @@ an absence enforced are not the same thing:
 
 **A governed single-player semantic compiler and executor over local files.** That is what is here:
 `sutura compile` renders the statement for a question and `sutura query` answers it, over a
-catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
+catalogue of documents in git and the Parquet, CSV or NDJSON files in a directory you name - each
+text format plain or compressed - with every
 certified number re-executed before the bundle may be served.
 
 Everything marked *design target* above is unbuilt. The identity path is no longer one of them and is

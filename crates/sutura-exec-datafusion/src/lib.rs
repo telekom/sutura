@@ -37,12 +37,10 @@
 //! **No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
 //! separate recorder; ordinary adapter construction exports no live reservation reading. The
 //! `check-guidance` absence rule rejects a production `.memory_pool()` call.
-use std::path::Path;
-
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
-use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
+use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{QualifiedTable, SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -77,6 +75,24 @@ pub enum DataFusionError {
         #[source]
         cause: datafusion::error::DataFusionError,
     },
+    /// A path's outermost extension spells a compression codec this build cannot read.
+    ///
+    /// **A parse rather than a fallback, and the failure it replaces is silent.** Handing a
+    /// compressed file to the engine as plain text does not fail: the schema is inferred from the
+    /// codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+    /// that certainly names a codec and is not one this build compiled is refused by name.
+    ///
+    /// `crate::attach`'s `NEAR_MISSES` carries why this is a closed list rather than "anything
+    /// unrecognised": `orders.txt` is a CSV and must keep reading.
+    #[error("{path} names the compression suffix `{suffix}`, which this build does not read")]
+    UnknownCodec { path: String, suffix: String },
+    /// A path's extension names no format this engine reads.
+    ///
+    /// Raised by `attach_file`'s dispatch and by nothing else, so a composition root that offered a
+    /// candidate name outside `crate::attach::candidates` gets a refusal rather than a CSV read of
+    /// a file that is not one.
+    #[error("{path} names the format `{extension}`, and this engine reads Parquet, CSV and NDJSON")]
+    UnknownFormat { path: String, extension: String },
     #[error("could not register {path} as table {table}")]
     Attach {
         table: String,
@@ -241,6 +257,11 @@ mod translate;
 /// A result becomes domain rows here. The mirror half, which never reads a plan except for its
 /// labels.
 mod collect;
+
+/// A file becomes a table here: which formats this engine reads, and the codec parse that decides
+/// whether a `.csv.gz` is text or a refusal. `docs/adr/0039` is the record.
+mod attach;
+pub use crate::attach::{Codec, candidates};
 #[cfg(feature = "fixtures")]
 mod fixture;
 
@@ -465,54 +486,6 @@ impl DataFusionWarehouse {
     #[must_use]
     pub const fn working_set(&self) -> WorkingSet {
         self.working_set
-    }
-
-    /// Exposes a CSV file as a table. `DataFusion` handles inference.
-    pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let located = path.display().to_string();
-        self.register_csv(table, located, CsvReadOptions::new())
-    }
-
-    /// Exposes a deliberately simple conformance fixture CSV with exact shared types.
-    ///
-    /// Available only with the default-off `fixtures` feature.
-    #[cfg(feature = "fixtures")]
-    pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let schema = fixture::schema(path).map_err(|cause| DataFusionError::Attach {
-            table: String::from(table.as_str()),
-            path: path.display().to_string(),
-            cause: datafusion::error::DataFusionError::External(Box::new(cause)),
-        })?;
-        self.register_csv(table, path.display().to_string(), CsvReadOptions::new().schema(&schema))
-    }
-
-    fn register_csv(&self, table: &TableName, located: String, options: CsvReadOptions<'_>) -> Result<(), DataFusionError> {
-        self.runtime()?
-            .block_on(self.context.register_csv(table_reference(table), located.as_str(), options))
-            .map_err(|cause| DataFusionError::Attach {
-                table: String::from(table.as_str()),
-                path: located,
-                cause,
-            })
-    }
-
-    /// Exposes a Parquet file as a table.
-    ///
-    /// The CSV affordance's twin, and why the `parquet` feature is on. Neither `compression` nor
-    /// `avro` is: each reintroduces a licence the supply-chain gate does not allow, and the
-    /// manifest's comment records which.
-    pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let located = path.display().to_string();
-        self.runtime()?
-            .block_on(
-                self.context
-                    .register_parquet(table_reference(table), located.as_str(), ParquetReadOptions::default()),
-            )
-            .map_err(|cause| DataFusionError::Attach {
-                table: String::from(table.as_str()),
-                path: located,
-                cause,
-            })
     }
 
     /// The plan, as a logical plan.
@@ -861,7 +834,7 @@ pub(crate) use test_fixtures::{test_deadline, test_leg, test_posture};
 #[cfg(test)]
 use sutura_domain::calendar::{Date, TimeRange};
 #[cfg(test)]
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, TableName};
 #[cfg(test)]
 use sutura_domain::plan::{
     PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,

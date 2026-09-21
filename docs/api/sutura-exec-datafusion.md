@@ -71,6 +71,20 @@ map" send a reader to three different places.
   Separate from `Self::Runtime`, which is the *tokio* runtime: one is a thread pool and one is
   the memory bound, and a deployment that cannot start needs to know which. Like `Runtime` it
   happens once at construction or not at all.
+- `UnknownCodec` - A path's outermost extension spells a compression codec this build cannot read.
+
+  **A parse rather than a fallback, and the failure it replaces is silent.** Handing a
+  compressed file to the engine as plain text does not fail: the schema is inferred from the
+  codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+  that certainly names a codec and is not one this build compiled is refused by name.
+
+  `crate::attach`'s `NEAR_MISSES` carries why this is a closed list rather than "anything
+  unrecognised": `orders.txt` is a CSV and must keep reading.
+- `UnknownFormat` - A path's extension names no format this engine reads.
+
+  Raised by `attach_file`'s dispatch and by nothing else, so a composition root that offered a
+  candidate name outside `crate::attach::candidates` gets a refusal rather than a CSV read of
+  a file that is not one.
 - `Attach`
 - `QualifiedTableUnreachable` - A model names a table this engine has nowhere to look for.
 
@@ -178,7 +192,22 @@ An in-process engine, behind the `Warehouse` port.
 pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
 ```
 
-Exposes a CSV file as a table. `DataFusion` handles inference.
+Exposes a CSV file as a table, compressed or not. `DataFusion` handles inference.
+
+The codec comes from the path - see `Codec::of_path` - so `orders.csv` and `orders.csv.gz`
+are one call.
+
+```rust
+pub fn attach_file(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Exposes whichever format a path's extensions name, compressed or not.
+
+The one entry point a composition root needs: it pairs with `candidates`, so the set of
+names a deployment looks for and the set this dispatch accepts are the same list. An
+extension naming no format this engine reads is `DataFusionError::UnknownFormat` rather
+than a guess at CSV - inferring a schema from a file of the wrong shape is how a table
+resolves to columns nobody declared.
 
 ```rust
 pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
@@ -189,14 +218,27 @@ Exposes a deliberately simple conformance fixture CSV with exact shared types.
 Available only with the default-off `fixtures` feature.
 
 ```rust
+pub fn attach_json(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
+```
+
+Exposes a newline-delimited JSON file as a table, compressed or not.
+
+The CSV affordance's twin for the other plain-text format, and the second half of what
+`datafusion/compression` buys. NDJSON rather than a JSON array: the engine reads one record
+per line, which is what streams and what a schema can be inferred from without holding the
+document.
+
+```rust
 pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError>
 ```
 
 Exposes a Parquet file as a table.
 
-The CSV affordance's twin, and why the `parquet` feature is on. Neither `compression` nor
-`avro` is: each reintroduces a licence the supply-chain gate does not allow, and the
-manifest's comment records which.
+**No codec argument, and that is the point rather than an omission.** A Parquet file records
+its own compression per column chunk and the `parquet` feature's codecs read it, so there is
+nothing for `Codec` to decide - and an outer `.gz` around a Parquet file is
+`DataFusionError::UnknownCodec` through `Codec::of_path`, which is the honest answer to a
+file that should not have been written that way. The module header carries the distinction.
 
 ```rust
 pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError>
@@ -258,6 +300,26 @@ The configured pool ceiling; `MemoryPool::memory_limit` can report `Unknown` ins
 ### Implements
 
 `Debug`, `Drop`, `Warehouse`
+
+## `use Codec`
+
+The outer codec a text file is wrapped in.
+
+A closed enum over what `datafusion/compression` compiles rather than a re-export of
+`FileCompressionType`: that type also has variants for codecs this build does not have, so
+matching on it would mean an arm nothing can produce. Converted at the one call site.
+
+## `use candidates`
+
+Every file name one model's table could arrive under, in the order to prefer them.
+
+**The engine owns this list, not a composition root**, and that is what stops a deployment
+offering a candidate `DataFusionWarehouse::attach_file` then refuses - or missing one it
+reads. Parquet first, because it carries its own schema and its own codecs; then the two
+plain-text formats, each uncompressed and then once per codec.
+
+The names are relative: a caller joins each onto its data directory and takes the first that is
+a file. `sutura_cli`'s two file-source searches are the callers.
 
 ## `use WorkingSet`
 

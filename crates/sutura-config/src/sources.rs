@@ -74,7 +74,8 @@ pub mod workload_identity;
 /// legitimate one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
-    /// A directory of CSV or Parquet files, read by the in-process engine.
+    /// A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read
+    /// by the in-process engine.
     Files,
     /// A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
     ///
