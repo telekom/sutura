@@ -1,0 +1,16 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - central
+  - 2026-06-01
+  - "51739"
+- - north_east
+  - 2026-06-01
+  - "74755"
+- - south_west
+  - 2026-06-01
+  - "70628"
+- - "null"
+  - 2026-06-01
+  - "4999"

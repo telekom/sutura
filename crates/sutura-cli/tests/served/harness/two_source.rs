@@ -31,6 +31,7 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
     let example = example_root();
     let data = example.join("data");
     let catalog = derived_catalog(case, &example.join("catalog"), "customers.md", LOOKUP_SOURCE);
+    without_the_chained_dimension(&catalog);
     let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), files_source(LOOKUP_SOURCE, &data));
     settings_over(
         &catalog,
@@ -40,6 +41,37 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
         &sources,
     )
 }
+
+/// Drops the one dimension the example reaches through a CHAIN, which this topology cannot carry.
+///
+/// **Not a convenience: a federated plan carries one link and one lookup TABLE.** `sales_area` is
+/// reached `subscription_customer` then `customer_region`; hop 1 is the link into the second data
+/// system and there is nowhere for hop 2 to be planned. With `customers` moved onto
+/// [`LOOKUP_SOURCE`] the chain would cross at hop 1 and come back at hop 2 -
+/// `sutura_domain::catalog` refuses that bundle by name, so `sutura serve` would stop at boot
+/// rather than answer, which is exactly what it did before this call existed.
+///
+/// Applied only here, and not inside [`derived_catalog`]: `two_kind`'s deployment moves
+/// `daily_usage`, which is on no chain, so its catalog keeps the dimension and its boot check
+/// still reads it.
+///
+/// A block that no longer matches PANICS, for [`derived_catalog`]'s reason: a strip that silently
+/// stopped applying would leave this deployment refusing to start and the diagnosis somewhere else.
+fn without_the_chained_dimension(root: &Path) {
+    let metric = root.join("metrics").join("recurring_revenue.md");
+    let text = std::fs::read_to_string(&metric).expect("the derived catalog carries the metric this case edits");
+    let stripped = text.replace(CHAINED_DIMENSION, "");
+    assert_ne!(
+        stripped,
+        text,
+        "{} no longer declares the chained dimension this fixture strips, so a corpus edit has          left this deployment describing something else",
+        metric.display()
+    );
+    std::fs::write(&metric, stripped).expect("the derived metric document is writable");
+}
+
+/// The block [`without_the_chained_dimension`] removes, as `examples/single-player` writes it.
+const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n    via: [subscription_customer, customer_region]\n    values: [central, north_east, south_west]\n    description: >\n      Which sales area the customer's region rolls up into. The one dimension here\n      reached through a chain of two relationships rather than one.\n";
 
 /// The example catalog, copied, with one model moved off [`LOCAL_SOURCE`] onto `moved_to`.
 ///

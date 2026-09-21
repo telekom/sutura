@@ -30,17 +30,21 @@ use std::collections::BTreeSet;
 
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{MetricName, SourceName, TableName};
+use sutura_domain::model::{DimensionName, MetricName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
-    PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
+    PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels, plan_measure,
     plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter};
+use crate::resolve::{Resolution, ResolvedFilter};
+
+mod chain;
+
+use chain::{chain_joins, chain_leaving_its_source, column_of, every_remote_dimension, is_remote};
 
 /// What the plan stage decided to execute.
 ///
@@ -112,6 +116,31 @@ pub(crate) enum PlanError {
     /// wiring, which is why this is not a [`RefusalReason`] at all.
     #[error("the federated splitter found no remote dimension to join the fact leg through")]
     NoRemoteJoin,
+    /// A resolved chain that leaves the metric's data system anywhere but at its first hop.
+    ///
+    /// **The plan-time half of a refusal that used to exist only at load, and the reason for two is
+    /// that the load one was wrong in a way nothing downstream could see.** It compared each hop's
+    /// TARGET against the metric's source, so a chain crossing at hop 1 and returning at hop 2 was
+    /// accepted; [`is_remote`] then read that chain off its last hop, called it local, and
+    /// [`mono_plan`] rendered the other system's table into one statement under a certified metric
+    /// name. `sutura_domain::catalog::Definitions::assemble` compares both ends of every later hop
+    /// now, which is the mechanism - and this is what holds if a bundle ever reaches the plan stage
+    /// without having been through it.
+    ///
+    /// A [`PlanError`] rather than a [`RefusalReason`], for [`NoRemoteJoin`](Self::NoRemoteJoin)'s
+    /// reason: a caller cannot narrow their question out of a catalog this workspace admitted, so
+    /// telling them to ask differently would be telling them to retry our defect. `hop` is 1-based,
+    /// matching the number the load-time report gives a catalog author.
+    ///
+    /// **Unlike the three arms above it, this one is provoked** - `a_chain_that_leaves_its_source`
+    /// in this module's tests builds the resolution by hand, which is the only way past the load
+    /// check, and that is also the negative control for the load check being the real mechanism.
+    #[error("dimension {dimension} of metric {metric} leaves its data system at hop {hop} of its chain")]
+    ChainLeavesItsSource {
+        metric: MetricName,
+        dimension: DimensionName,
+        hop: usize,
+    },
 }
 
 impl From<RefusalReason> for PlanError {
@@ -130,17 +159,28 @@ impl From<RefusalReason> for PlanError {
 /// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
+///
+/// **A third thing is checked before either, and it is not a refusal:** a chain that leaves the
+/// metric's data system after its first hop cannot be rendered by either plan shape, and neither
+/// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
             metric: resolution.metric.name().clone(),
         });
     };
-    // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
-    // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
-    // drop a source here.
+    if let Some((dimension, hop)) = chain_leaving_its_source(resolution) {
+        return Err(PlanError::ChainLeavesItsSource {
+            metric: resolution.metric.name().clone(),
+            dimension: dimension.clone(),
+            hop,
+        });
+    }
+    // Every source besides the metric's own that a chain reaches. The LAST hop decides which source
+    // a dimension reads from (`is_remote`'s note), so the filter cannot drop a source here: a remote
+    // dimension's last hop sits on that source by construction.
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
-        .filter_map(|dim| dim.join.as_ref().map(|join| join.model.source()))
+        .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
 
     match remote.len() {
@@ -154,17 +194,6 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     }
 }
 
-/// Every dimension that sits on a data system other than the metric's own.
-fn every_remote_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterator<Item = &'r ResolvedDimension<'a>> {
-    let own = resolution.model.source();
-    every_dimension(resolution).filter(move |dim| is_remote(dim, own))
-}
-
-/// Whether a dimension sits on a data system other than `own`.
-fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
-    dimension.join.as_ref().is_some_and(|join| join.model.source() != own)
-}
-
 /// A question confined to one data system: exactly the plan this module already built.
 fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan, PlanError> {
     let metric = resolution.metric;
@@ -176,30 +205,9 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
     let own_path = model.table();
     let own_table = model.table_name();
 
-    // Deduplicated by relationship and then sorted, so two dimensions reached through one
-    // relationship produce one join, and the join order is a function of the plan rather than of the
-    // order the caller happened to list their dimensions in. A statement whose text depends on
-    // argument order has no stable golden.
-    let mut joins: Vec<PlanJoin> = Vec::new();
-    for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            let name = join.relationship.name().clone();
-            if joins.iter().any(|existing| *existing.relationship() == name) {
-                continue;
-            }
-            joins.push(PlanJoin::new(
-                name,
-                // The joined model's own path: a dimension table in another dataset is still one
-                // statement. Its columns are qualified by the bare name beside it, for the reason
-                // `own_table` above gives.
-                join.model.table().clone(),
-                join.relationship.join_type(),
-                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
-            ));
-        }
-    }
-    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
+    // Every hop of every chain the question reaches - see `chain_joins`. `mono_plan` is dispatched
+    // only for a question with no remote dimension at all, so no chain stops short here.
+    let joins = chain_joins(resolution, own_table, model.source());
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
 
@@ -272,17 +280,21 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         }));
     }
 
-    // One remote data system (more are refused upstream); its dimensions must all join through one
-    // relationship, because the combiner links the legs on a single column. The two guards below are
-    // unreachable - `plan` calls this only for exactly one remote source, and a remote dimension has
-    // a join by construction - but a panic here would be reachable from a catalog plus a question, so
-    // they refuse instead.
+    // One remote data system (more are refused upstream); its dimensions must all be reached through
+    // one first hop, because the combiner links the legs on a single column - and a remote
+    // dimension's HOP 1 is what the link is: it is the hop that crosses into the remote system, and
+    // from the second hop on a chain is same-source by the consistency check, so a remote chain's
+    // hops 2..n would live ON the lookup leg, which the splitter does not plan (see below). The
+    // guards below are unreachable - `plan` calls this only for exactly one remote source, and a
+    // remote dimension has a chain by construction - but a panic here would be reachable from a
+    // catalog plus a question, so they refuse instead.
     //
     // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
         return Err(PlanError::NoRemoteJoin);
     };
-    let Some(first_join) = first_remote.join.as_ref() else {
+    // `.first`: the link into the remote leg is the chain's first hop.
+    let Some(first_join) = first_remote.join.as_ref().and_then(|hops| hops.first()) else {
         return Err(PlanError::NoRemoteJoin);
     };
     let relationship = first_join.relationship;
@@ -290,7 +302,7 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
     let remote_table = first_join.model.table_name();
     let remote_source = first_join.model.source();
     for dim in every_remote_dimension(resolution) {
-        let Some(join) = dim.join.as_ref() else {
+        let Some(join) = dim.join.as_ref().and_then(|hops| hops.first()) else {
             continue;
         };
         if join.relationship.name() != relationship.name() {
@@ -376,28 +388,13 @@ fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<Feder
         terms.push(LegTerm::new(plan_term, ResultLabel::internal(label)));
     }
 
-    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
-    let mut joins: Vec<PlanJoin> = Vec::new();
-    for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            if join.model.source() != model.source() {
-                continue;
-            }
-            let name = join.relationship.name().clone();
-            if joins.iter().any(|existing| *existing.relationship() == name) {
-                continue;
-            }
-            joins.push(PlanJoin::new(
-                name,
-                // The joined model's own path, for the reason `mono_plan`'s loop gives.
-                join.model.table().clone(),
-                join.relationship.join_type(),
-                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
-            ));
-        }
-    }
-    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
+    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg. Each
+    // chain stops at its crossing hop, which is the link the lookup leg above carries rather than a
+    // `JOIN` on this leg's statement - and no hop may follow it, which `plan` refuses before
+    // dispatching here. Same builder as the whole-answer path: two copies of "one join per hop,
+    // qualified by the previous hop's target" is how one of them came to be qualified by the
+    // metric's table instead.
+    let joins = chain_joins(resolution, own_table, model.source());
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
 
@@ -559,24 +556,248 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     PlanBindings::parse(filters, params)
 }
 
-/// Every dimension the question mentions, grouped by or filtered on.
+/// The three properties of a chain a plan is a function of: which table qualifies hop N's origin
+/// column, that a chain which left its data system is refused here as well as at load, and that the
+/// join order does not depend on the order the caller listed their dimensions.
 ///
-/// One iterator, so the source check and the join collection walk the same set. They read it for
-/// different reasons, and a dimension missing from one of them would be a join that is planned and
-/// not counted, or counted and not planned.
-fn every_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterator<Item = &'r ResolvedDimension<'a>> {
-    resolution
-        .keys
-        .iter()
-        .chain(resolution.filters.iter().map(|filter| &filter.dimension))
-}
+/// Inline rather than a `plan/tests.rs`, and the reason is the causality gate rather than taste: it
+/// reconstructs a base tree by reverting every changed file that added no test, so a `mod tests;`
+/// line in a reverted `plan.rs` would orphan the file it declares and the base run would have no
+/// test to be red.
+///
+/// A [`Resolution`] is built by hand here, and that is the ONLY venue two of these can be measured
+/// in. `sutura_domain::catalog::Definitions::assemble` refuses a cross-source chain at load, so no
+/// pinned bundle can carry one this far, and a question has no field that names a join - so the
+/// plan-time refusal is provokable from a hand-built resolution and from nothing else. Reaching
+/// past the load check is what makes that cell honest about being the SECOND reader of one rule.
+/// The end-to-end evidence for the first property is the two-hop dimension in
+/// `examples/single-player`, which every rendering golden and the executed corpus read.
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
 
-/// Which table a dimension's column is read from: the joined one when there is a join, the metric's
-/// own otherwise.
-fn column_of(resolved: &ResolvedDimension<'_>, own_table: &TableName) -> PlanColumn {
-    let table = resolved
-        .join
-        .as_ref()
-        .map_or_else(|| own_table.clone(), |join| join.model.table_name().clone());
-    PlanColumn::new(table, resolved.dimension.column().clone())
+    use sutura_domain::calendar::{Date, TimeRange};
+    use sutura_domain::catalog::{Audience, Description, Dimension, Metric, Model, Relationship, ViaChain};
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::{
+        Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    };
+    use sutura_domain::plan::QueryPlan;
+
+    use super::{DimensionName, Plan, PlanError, plan};
+    use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
+
+    fn column(raw: &str) -> ColumnName {
+        ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn dimension_name(raw: &str) -> DimensionName {
+        DimensionName::parse(raw).expect("a test dimension is a dimension")
+    }
+
+    /// A model whose physical table is `dim_{name}`, so no `ON` clause below can pass by naming a
+    /// model where it should name a table.
+    fn model(name: &str, on: &str, columns: &[&str]) -> Model {
+        Model::new(
+            ModelName::parse(name).expect("a test model is a model"),
+            SourceName::parse(on).expect("a test source is a source"),
+            TableName::parse(format!("dim_{name}")).expect("a test table is a table"),
+            columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+            Description::default(),
+        )
+    }
+
+    fn relationship(name: &str, from: (&str, &str), to: (&str, &str)) -> Relationship {
+        Relationship::new(
+            RelationshipName::parse(name).expect("a test relationship is a relationship"),
+            ModelName::parse(from.0).expect("a test model is a model"),
+            column(from.1),
+            ModelName::parse(to.0).expect("a test model is a model"),
+            column(to.1),
+            JoinType::ManyToOne,
+        )
+    }
+
+    /// `facts -> customers -> regions` beside `facts -> products`, with `customers` placed on the
+    /// source given.
+    ///
+    /// Two chains that share NO hop, which is what the order cell needs: two chains sharing hop 1
+    /// dedup to the same list in either order, so a corpus built that way passes with the sort
+    /// removed - measured, and it is why `family` is reached through a relationship of its own.
+    ///
+    /// `region_code` is hop 2's origin column and sits on `customers` only: `dim_facts` does not
+    /// declare it, which is what turns the hop-qualification defect into a binder error rather than
+    /// a silent regrouping in this venue.
+    struct Corpus {
+        facts: Model,
+        /// Every declared hop beside the model on its far side, which is what a resolution holds.
+        reached: Vec<(Relationship, Model)>,
+        held: Metric,
+    }
+
+    impl Corpus {
+        fn with_customers_on(customers: &str) -> Self {
+            Self {
+                facts: model("facts", "local", &["amount_cents", "day", "customer_key", "product_key"]),
+                reached: vec![
+                    (
+                        relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key")),
+                        model("customers", customers, &["customer_key", "region_code"]),
+                    ),
+                    (
+                        relationship("customers_region", ("customers", "region_code"), ("regions", "code")),
+                        model("regions", "local", &["code", "label"]),
+                    ),
+                    (
+                        relationship("facts_product", ("facts", "product_key"), ("products", "product_key")),
+                        model("products", "local", &["product_key", "family"]),
+                    ),
+                ],
+                held: Metric::new(
+                    MetricName::parse("revenue").expect("a test metric is a metric"),
+                    ModelName::parse("facts").expect("a test model is a model"),
+                    Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                    Vec::new(),
+                    column("day"),
+                    BTreeSet::from([Grain::Month]),
+                    vec![
+                        declared("region", "label", &["facts_customer", "customers_region"]),
+                        declared("family", "family", &["facts_product"]),
+                    ],
+                    None,
+                    Description::default(),
+                    Audience::Open,
+                )
+                .expect("these dimensions are distinct"),
+            }
+        }
+
+        /// The dimension named, with each hop of its declared chain resolved by name.
+        fn key(&self, name: &str) -> ResolvedDimension<'_> {
+            let held = self
+                .held
+                .dimension(&dimension_name(name))
+                .expect("the metric declares this dimension");
+            ResolvedDimension {
+                dimension: held,
+                join: Some(
+                    held.via()
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|hop| {
+                            let (relationship, model) = self
+                                .reached
+                                .iter()
+                                .find(|(declared_hop, _)| declared_hop.name() == hop)
+                                .expect("the corpus declares this hop");
+                            ResolvedJoin { relationship, model }
+                        })
+                        .collect(),
+                ),
+            }
+        }
+
+        fn asking<'a>(&'a self, keys: Vec<ResolvedDimension<'a>>) -> Resolution<'a> {
+            Resolution {
+                metric: &self.held,
+                model: &self.facts,
+                grain: Grain::Month,
+                range: TimeRange::new(
+                    Date::parse("2026-06-01").expect("a test date is a date"),
+                    Date::parse("2026-07-01").expect("a test date is a date"),
+                )
+                .expect("June is a range"),
+                keys,
+                filters: Vec::new(),
+                top: None,
+            }
+        }
+    }
+
+    fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
+        Dimension::new(
+            dimension_name(name),
+            column(col),
+            Some(
+                ViaChain::of(
+                    via.iter()
+                        .map(|hop| RelationshipName::parse(hop).expect("a test relationship is a relationship"))
+                        .collect(),
+                )
+                .expect("a test chain has hops"),
+            ),
+            None,
+            Description::default(),
+        )
+    }
+
+    fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
+        match plan(resolution).expect("this resolution plans") {
+            Plan::Mono(query) => query,
+            Plan::Federated(_) => panic!("every model here is local, so the plan is one statement"),
+        }
+    }
+
+    /// One `ON` clause per hop, each qualified by the table the hop actually starts at.
+    ///
+    /// THE BUG THIS EXISTS FOR: every hop's origin was qualified by the metric's own table, so hop 2
+    /// rendered `ON dim_facts.region_code = dim_regions.code`. `region_code` is a column of
+    /// `dim_customers`; against `DuckDB` that is `Binder Error: Table "dim_facts" does not have
+    /// a column named "region_code"`, and on a fact table that happens to carry a column of the same
+    /// name it is not an error at all - it is a different grouping under a certified metric name.
+    #[test]
+    fn a_later_hop_joins_from_the_previous_hops_table() {
+        let corpus = Corpus::with_customers_on("local");
+        let planned = mono(&corpus.asking(vec![corpus.key("region")]));
+        let clauses: Vec<(String, String)> = planned
+            .joins()
+            .iter()
+            .map(|join| (join.origin().table().to_string(), join.target().table().to_string()))
+            .collect();
+        assert_eq!(
+            clauses,
+            vec![
+                (String::from("dim_facts"), String::from("dim_customers")),
+                (String::from("dim_customers"), String::from("dim_regions")),
+            ],
+            "hop 2 must join FROM the table hop 1 arrived at"
+        );
+    }
+
+    /// The join order is a function of the plan, not of the order the caller listed dimensions.
+    ///
+    /// Two chains sharing no hop, asked in both orders. LEFT joins commute, so a reordering costs no
+    /// wrong number - what it costs is the rendered text every golden in `sutura-app` pins.
+    #[test]
+    fn the_join_order_does_not_depend_on_the_order_the_dimensions_arrive() {
+        let corpus = Corpus::with_customers_on("local");
+        let order =
+            |planned: &QueryPlan| -> Vec<String> { planned.joins().iter().map(|join| join.relationship().to_string()).collect() };
+        assert_eq!(
+            order(&mono(&corpus.asking(vec![corpus.key("region"), corpus.key("family")]))),
+            order(&mono(&corpus.asking(vec![corpus.key("family"), corpus.key("region")]))),
+            "the same two chains asked in two orders rendered two join orders"
+        );
+    }
+
+    /// A chain that left its data system is refused HERE, not only at load.
+    ///
+    /// `customers` on `elsewhere` with `regions` back on `local` is the shape the load check used to
+    /// accept: the last hop is local, so `is_remote` calls the whole chain local and the whole-answer
+    /// plan renders `elsewhere`'s table into one `local` statement. No bundle can be assembled that
+    /// way any more, which is why this resolution is built by hand.
+    #[test]
+    fn a_chain_that_leaves_its_source_is_refused_at_plan_time() {
+        let corpus = Corpus::with_customers_on("elsewhere");
+        let Err(refused) = plan(&corpus.asking(vec![corpus.key("region")])) else {
+            panic!("a chain that crossed and came back must be refused");
+        };
+        assert!(
+            matches!(
+                refused,
+                PlanError::ChainLeavesItsSource { ref dimension, hop: 2, .. } if *dimension == dimension_name("region")
+            ),
+            "expected the chain refusal naming hop 2, got {refused:?}"
+        );
+    }
 }

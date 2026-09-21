@@ -56,7 +56,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship,
+    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -101,24 +101,34 @@ fn anchor(value: &str) -> Anchor {
     Anchor::new(june(), AnchorValue::parse(value).expect("a corpus anchor value is a value"))
 }
 
-fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> Dimension {
+/// A dimension, with its hops given in declared order - one name is a one-hop chain.
+fn dimension(name: &str, col: &str, via: Option<&[&str]>, allowed: Option<&[&str]>) -> Dimension {
     Dimension::new(
         DimensionName::parse(name).expect("a corpus dimension is a dimension"),
         column(col),
-        via.map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship")),
+        via.map(|hops| {
+            ViaChain::of(
+                hops.iter()
+                    .map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship"))
+                    .collect(),
+            )
+            .expect("a corpus chain has hops")
+        }),
         allowed.map(values),
         Description::default(),
     )
 }
 
-// -------------------------------------------------------------------------- the five dimensions ---
+// --------------------------------------------------------------------------- the dimensions ---
 
-// **Each written once, and that is a claim about the catalog rather than a shortcut.** Five
-// dimensions appear across the metric documents and every document that declares one declares it
-// the same way: same column, same relationship or none, same value list. A document that started
-// naming a sixth region or reaching `segment` through another relationship would disagree with the
-// function below, and `agrees_with_the_oracle` is where that surfaces - so writing them once loses
-// no coverage and keeps the metrics readable as definitions rather than as walls of literals.
+// **Each written once, and that is a claim about the catalog rather than a shortcut.** Every
+// dimension below appears across the metric documents, and every document that declares one
+// declares it the same way: same column, same chain or none, same value list. A document that
+// started naming a sixth region or reaching `segment` through another relationship would disagree
+// with the function below, and `agrees_with_the_oracle` is where that surfaces - so writing them
+// once loses no coverage and keeps the metrics readable as definitions rather than as walls of
+// literals. Not counted here: a number in this comment is a second thing to keep true, and the
+// functions below are the list.
 //
 // One function each rather than one table, because the metrics take different SUBSETS and naming
 // the members a metric declares is what a catalog document does too. Each returns a `Dimension` and
@@ -130,7 +140,7 @@ fn segment() -> Dimension {
     dimension(
         "segment",
         "segment",
-        Some("subscription_customer"),
+        Some(&["subscription_customer"]),
         Some(&["business", "consumer", "wholesale"]),
     )
 }
@@ -140,7 +150,7 @@ fn region() -> Dimension {
     dimension(
         "region",
         "region",
-        Some("subscription_customer"),
+        Some(&["subscription_customer"]),
         Some(&["central", "east", "north", "south", "west"]),
     )
 }
@@ -150,7 +160,7 @@ fn product_family() -> Dimension {
     dimension(
         "product_family",
         "product_family",
-        Some("subscription_product"),
+        Some(&["subscription_product"]),
         Some(&["convergent", "fixed_internet", "mobile", "tv"]),
     )
 }
@@ -158,7 +168,25 @@ fn product_family() -> Dimension {
 /// The individual tariff. **No value list, so it can be grouped by and not filtered on** - which is
 /// what `refused-dimension-not-filterable.yaml` exists to reach.
 fn product_name() -> Dimension {
-    dimension("product_name", "product_name", Some("subscription_product"), None)
+    dimension("product_name", "product_name", Some(&["subscription_product"]), None)
+}
+
+/// **The one dimension in this catalog reached through a CHAIN of two relationships.**
+///
+/// `subscription_customer` then `customer_region`: the sales area is an attribute of the region,
+/// which is an attribute of the customer, and the fact table carries neither. A catalog of
+/// single-hop dimensions renders only `ON <fact>.<key> = <dim>.<key>`, which cannot tell a planner
+/// that qualifies every hop by the fact table apart from one that walks the path - so hop 2's
+/// origin being `dim_customer` rather than `fct_subscription_monthly` is a claim only this
+/// dimension puts in a statement. Declared on `recurring_revenue`, which the whole golden suite
+/// and the executed corpus read.
+fn sales_area() -> Dimension {
+    dimension(
+        "sales_area",
+        "sales_area",
+        Some(&["subscription_customer", "customer_region"]),
+        Some(&["central", "north_east", "south_west"]),
+    )
 }
 
 /// **The one dimension in this catalog that names no relationship.**
@@ -178,13 +206,13 @@ fn segment_region_and_family() -> Vec<Dimension> {
 
 type ModelsAndJoins = (Vec<Model>, Vec<Relationship>);
 
-/// The four models and the two relationships between them.
+/// The models and the relationships between them.
 ///
 /// Split out of `load` because a catalog is a list of literals, and one function holding all of
 /// them grows with every shape the vocabulary gains. Three functions that each build one kind of
 /// thing stay readable where one does not.
 ///
-/// **Two relationships and not three, and the absent one is a decision rather than an omission.**
+/// **One relationship that could be declared is deliberately absent.**
 /// `daily_usage` carries `subscription_key` and nothing reaches from there to the monthly snapshot:
 /// the snapshot has one row per subscription per MONTH, so a join on that key alone would match
 /// every month the subscription existed and multiply each day of usage by that count. A
@@ -227,6 +255,13 @@ fn tables() -> ModelsAndJoins {
         BTreeSet::from([column("product_key"), column("product_name"), column("product_family")]),
         Description::default(),
     );
+    let regions = Model::new(
+        ModelName::parse("regions").expect("a name"),
+        source(),
+        TableName::parse("dim_region").expect("a name"),
+        BTreeSet::from([column("region"), column("sales_area")]),
+        Description::default(),
+    );
     let daily_usage = Model::new(
         ModelName::parse("daily_usage").expect("a name"),
         source(),
@@ -260,9 +295,20 @@ fn tables() -> ModelsAndJoins {
             column("product_key"),
             JoinType::ManyToOne,
         ),
+        // Hop 2 of the one chained dimension, and the only relationship here whose origin is NOT
+        // the fact model. Many customers to one region, for the same reason the two above are
+        // many-to-one.
+        Relationship::new(
+            RelationshipName::parse("customer_region").expect("a name"),
+            ModelName::parse("customers").expect("a name"),
+            column("region"),
+            ModelName::parse("regions").expect("a name"),
+            column("region"),
+            JoinType::ManyToOne,
+        ),
     ];
 
-    (vec![subscriptions, customers, products, daily_usage], joins)
+    (vec![subscriptions, customers, products, regions, daily_usage], joins)
 }
 
 /// Every metric the catalog declares.
@@ -381,7 +427,14 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
-        vec![segment(), region(), product_family(), product_name(), contract_term()],
+        vec![
+            segment(),
+            region(),
+            product_family(),
+            product_name(),
+            sales_area(),
+            contract_term(),
+        ],
         Some(anchor("202121")),
         Description::default(),
         Audience::Open,
@@ -682,7 +735,8 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                     Dimension::new(
                         d.name().clone(),
                         d.column().clone(),
-                        d.via().cloned(),
+                        d.via()
+                            .map(|hops| ViaChain::of(hops.to_vec()).expect("a parsed chain has hops")),
                         d.allowed_values().cloned(),
                         Description::default(),
                     )

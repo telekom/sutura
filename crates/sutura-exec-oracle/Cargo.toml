@@ -1,0 +1,40 @@
+[package]
+name = "sutura-exec-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter over Oracle Database, rendered through the compiled Oracle dialect."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# Rendering, shared with every other SQL adapter: this adapter asks `sutura-sql` to render the plan
+# for `Dialect::Oracle` rather than growing a second set of quoting and placeholder decisions. NOT
+# `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter never
+# compiles anything.
+sutura-sql = { workspace = true }
+# Oracle's own pure-Rust driver - see the workspace manifest's own entry for what compiling against
+# it measured. Synchronous, so unlike `sutura-exec-postgres` this crate owns no `tokio` runtime.
+oracledb = { workspace = true }
+thiserror = { workspace = true }
+# Serializes every call on the one connection - `clippy.toml` disallows `std::sync::Mutex`
+# regardless of whether the surrounding code is async, and this crate has no `tokio` runtime to
+# reach for `tokio::sync::Mutex` instead. Already in `Cargo.lock` via other paths.
+parking_lot = { workspace = true }
+
+[features]
+# THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own
+# `fixtures` feature, one size smaller: this adapter has no TLS or CSV-import module to gate
+# alongside it, only a credential reader and `OracleWarehouse::local_config`. Default-off for the
+# same reason - nothing a release publishes links this crate at all (see the workspace manifest's
+# member-list comment), so the feature is about keeping a `pub fn` that reads `std::env::var` out
+# of the DEFAULT cargo feature set `nix/shipped.nix` builds, not about an artefact that does not
+# exist. Both callers are integration tests - `crates/sutura-app/tests/adapters/adapters.rs` is the
+# only one today.
+fixtures = []
+
+[lints]
+workspace = true

@@ -710,6 +710,12 @@ dev-up-identity:
 dev-up-datahub:
     cargo run -q -p xtask -- dev-up --with datahub
 
+# Off by default because it is a full database server and nothing here reads it in `just validate` -
+# `compose.services.yaml`'s own `oracle` row says why there is no nix-native tier to converge to.
+# The same, plus Oracle Database - `github.com/telekom/sutura#127`.
+dev-up-oracle:
+    cargo run -q -p xtask -- dev-up --with oracle
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived

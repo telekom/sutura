@@ -66,6 +66,11 @@ members = [
   # ClickHouse, reached over the columnar source's HTTP interface (`compose.services.yaml`'s
   # `clickhouse` service). No composition root links it yet - `github.com/telekom/sutura#920`.
   "crates/sutura-exec-clickhouse",
+  # A network data system over an existing `Dialect::Oracle` rendering (`github.com/telekom/
+  # sutura#127` PR 2). THE DATA SOURCE, not an engine, and not shipped for the same reason
+  # `sutura-exec-postgres` is not: nothing here links it into `sutura-cli`, so producing goldens
+  # against a real Oracle is what it exists to prove, not a servable source.
+  "crates/sutura-exec-oracle",
   # The one place any outbound TLS adapter reads a declared bundle or the host store: no
   # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
   # folds in. `sutura-exec-postgres` depends on it today; the `BigQuery` wire's own reader
@@ -133,10 +138,14 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
-# NOT in this table: nothing else in the workspace depends on it yet (see the crate's own `lib.rs`
-# header for the limit - no composition root and no differential/golden suite reaches it), and
-# `cargo::unused_workspace_dependencies` fails an entry here that nothing inherits from. It is a
-# `[workspace] members` entry above, which is what gets it built, linted and tested on every run.
+# `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
+# (`crates/sutura-app/Cargo.toml`), which is what `cargo::unused_workspace_dependencies` asks for.
+sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
+# `sutura-exec-clickhouse` is NOT in this table: nothing else in the workspace depends on it yet
+# (see the crate's own `lib.rs` header for the limit - no composition root and no
+# differential/golden suite reaches it), and `cargo::unused_workspace_dependencies` fails an entry
+# here that nothing inherits from. It is a `[workspace] members` entry above, which is what gets it
+# built, linted and tested on every run.
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
@@ -209,6 +218,19 @@ rustls-pki-types = { version = "1", default-features = false, features = ["std"]
 # certificate APIs. The dependency is therefore target-specific at its edge and keeps the Linux
 # musl builds free of a native TLS library.
 rustls-native-certs = "0.8.4"
+
+# The Oracle driver (`github.com/telekom/sutura#127`). Pure Rust and `#![forbid(unsafe_code)]` -
+# measured by compiling against it, not by reading its manifest: no `build.rs`, no `links` key, no
+# `cc`/`bindgen` build-dependency, so there is nothing here that could `dlopen` an Instant Client the
+# way an ODPI-C wrapper would. Oracle's own organisation publishes it as a "thin mode" driver that
+# speaks the wire protocol itself. Synchronous - `Connection::execute` is a plain blocking `fn` over a
+# `std::net::TcpStream` - so `sutura-exec-oracle` needs no `tokio` runtime of its own, unlike
+# `tokio-postgres`. It pulls `rustls` with ITS OWN default features (`aws_lc_rs`), which this
+# workspace cannot narrow from the downstream side - Cargo feature unification is additive across the
+# whole resolve graph - so depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys`
+# into any build that also links this adapter; both are already in `Cargo.lock` via other paths, so
+# this adds no new package, only a new feature activation on the one already there.
+oracledb = "26.0.0-beta.3"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly

@@ -129,7 +129,7 @@ impl SemanticCatalog for TwoSourceCatalog {
             column("month"),
             BTreeSet::from([Grain::Month]),
             vec![
-                dimension("region", "region", Some("subscription_customer"), None),
+                dimension("region", "region", Some(&["subscription_customer"]), None),
                 dimension("customer_key", "subscription_key", None, None),
             ],
             None,
@@ -242,7 +242,7 @@ impl SemanticCatalog for SameNameTablesCatalog {
             // Two dimensions on purpose: one needs the colliding join and one does not, so the test
             // can show that the refusal is about the QUESTION rather than about the metric.
             vec![
-                dimension("region", "region", Some("order_crm"), None),
+                dimension("region", "region", Some(&["order_crm"]), None),
                 dimension("customer", "customer_id", None, None),
             ],
             None,
@@ -367,8 +367,8 @@ impl SemanticCatalog for FederatedSameNameTablesCatalog {
             // system, and `customer` reaches neither - so one question can federate WITH the
             // collision, and another can federate without it.
             vec![
-                dimension("segment", "segment", Some("order_crm"), None),
-                dimension("region", "region", Some("order_geo"), None),
+                dimension("segment", "segment", Some(&["order_crm"]), None),
+                dimension("region", "region", Some(&["order_geo"]), None),
                 dimension("customer", "customer_id", None, None),
             ],
             None,

@@ -227,6 +227,13 @@ where
         "recurring-revenue-by-region.yaml",
         "recurring-revenue-by-segment.yaml",
         "recurring-revenue-by-region-and-family.yaml",
+        // The TWO-hop chain, and the only entry here whose join is not a single hop off the fact
+        // table. `sales_area` partitions `region`, so it has to reconcile with the same total -
+        // and hop 2's `ON` clause has to name `dim_customer`, which is what a planner qualifying
+        // every hop by the fact table gets wrong. It fails loudly here - `region` is hop 2's
+        // origin column and the fact table does not declare it - and would be a silently
+        // different grouping on a fact table that happened to carry a column of that name.
+        "recurring-revenue-by-sales-area.yaml",
     ] {
         assert_eq!(
             format!("{:.12e}", total_of(grouped_by)),
