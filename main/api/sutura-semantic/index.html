@@ -1083,6 +1083,8 @@
       
         
       
+        
+      
     
     
     
@@ -1740,6 +1742,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../sutura-exec-oracle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-oracle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sutura-tls/" class="md-nav__link">
         
   
@@ -2269,16 +2299,20 @@ call.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CompileFailure</span>
 </span></code></pre></div>
 <p>Why compiling failed, which is never why a question was refused.</p>
-<p><strong>Four arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question
+<p><strong>Several arms rather than one bundle error, and <code>telekom/sutura#338</code> is the report.</strong> A question
 the deployment declines comes back as <code>Compiled::Refused</code>; what reaches this type is our own
-side being wrong. Those are the four ways that can happen: the pinned bundle names something it
+side being wrong. Each arm below is one way that can happen: the pinned bundle names something it
 does not hold, the bundle reaches this compiler with authored SQL its plan cannot carry, the
 splitter built a two-source plan that
-<code>FederatedPlan::new</code> then rejected, and a producer
-built a plan whose predicates and parameters did not resolve each other. The third used to
+<code>FederatedPlan::new</code> then rejected, a producer
+built a plan whose predicates and parameters did not resolve each other, the splitter ran with no
+remote dimension, and a chain reached the plan stage having left the metric's data system.
+<code>NotAssembled</code> used to
 be flattened into <code>RefusalReason::FederationNotExecutable</code>, which is what a build whose adapter
 type does not declare <code>Warehouse::EXECUTES_LEGS</code> is told - so a wiring defect and a statement
 about the build's own capability arrived as one value, and a caller could not tell which it had.</p>
+<p>The arms are deliberately NOT counted in this prose: a number here is a second thing to keep
+true, and it had already stopped being true once - it said four while the enum held five.</p>
 <p><strong>The limit, next to the claim:</strong> nothing provokes <code>NotAssembled</code>
 or <code>NotBound</code> today. Every <code>FederatedPlanError</code> variant is
 structurally unreachable from the splitter as it stands, and every
@@ -2298,7 +2332,13 @@ as a refusal a caller would retry.</p>
 <p>Same limit as <code>NotAssembled</code> and <code>NotBound</code>: <code>plan</code> calls the splitter only when exactly one
   remote source exists and a remote dimension has a join by construction, so nothing provokes
   this either. It replaces a fabricated <code>RefusalReason::PlanSpansTooManySources { sources: 1,
-  limit: 2 }</code> a caller could not have narrowed their way out of.</p>
+  limit: 2 }</code> a caller could not have narrowed their way out of.
+- <code>ChainLeavesItsSource</code> - A chain that leaves the metric's data system after its first hop reached the plan stage.</p>
+<p>The bundle should not have assembled: <code>sutura_domain::catalog</code> refuses such a chain at load,
+  naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
+  buys is the thing the load check alone did not have - a second reader of the same rule, on
+  the path where getting it wrong renders another data system's table into one statement under
+  a certified metric name. <code>crate::plan::PlanError::ChainLeavesItsSource</code> carries the report.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>
