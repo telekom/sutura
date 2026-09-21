@@ -34,11 +34,52 @@ fn load_average_1m() -> Option<f64> {
         return text.split_whitespace().next()?.parse().ok();
     }
     let output = std::process::Command::new("uptime").output().ok()?;
-    let text = String::from_utf8(output.stdout).ok()?;
-    let (_, after) = text.rsplit_once("load average")?;
-    let first = after
-        .trim_start_matches(|c: char| !c.is_ascii_digit())
-        .split([',', ' '])
-        .next()?;
-    first.parse().ok()
+    first_load_average(&String::from_utf8(output.stdout).ok()?)
+}
+
+/// `uptime`'s first average, under either decimal separator.
+///
+/// **Measured at cost, `github.com/telekom/sutura#140`.** `uptime` formats the three averages in
+/// the invoking shell's locale, and a locale that writes a decimal comma - the one this was found
+/// on - prints `load average: 23,66, 30,98, 26,01`, where the field separator and the decimal
+/// point are the same character. Splitting on the comma therefore read `23` and silently dropped
+/// the fraction, so a host at 5,90 announced itself as `5.00`: the probe understated exactly the
+/// number that decides whether a measurement is quotable, in the direction that makes a busy host
+/// look quiet.
+///
+/// The field is cut at the first `", "` instead, which is the separator in both formats, and any
+/// comma left inside it is then the decimal point. **The limit:** a locale that writes a decimal
+/// comma AND no space after the separator leaves this unable to parse, and [`print`] then says the
+/// average could not be read - fail-closed to the honest message rather than to a low number.
+fn first_load_average(uptime: &str) -> Option<f64> {
+    let (_, after) = uptime.rsplit_once("load average")?;
+    let averages = after.trim_start_matches(|c: char| !c.is_ascii_digit());
+    let first = averages.split_once(", ").map_or(averages, |(first, _)| first);
+    first.trim().replace(',', ".").parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_load_average;
+
+    /// The defect this parse exists for: the same host, printed by the same `uptime`, under the
+    /// two locales this repository's developers and its Linux runners actually run in.
+    #[test]
+    fn a_decimal_comma_keeps_its_fraction_and_a_decimal_point_is_unchanged() {
+        for line in [
+            " 9:50  up 21 days, 9 users, load average: 5,90, 30,98, 26,01\n",
+            " 9:50  up 21 days, 9 users, load average: 5.90, 30.98, 26.01\n",
+        ] {
+            assert_eq!(first_load_average(line), Some(5.90), "{line}");
+        }
+    }
+
+    /// A single average with nothing after it - no separator to cut at - and text with no average
+    /// at all, which has to be `None` rather than a low number a reader would take for quiet.
+    #[test]
+    fn a_lone_average_is_read_and_an_absent_one_is_not_invented() {
+        assert_eq!(first_load_average("load average: 0,25"), Some(0.25));
+        assert_eq!(first_load_average("load average: 0.25\n"), Some(0.25));
+        assert_eq!(first_load_average(" 9:50  up 21 days, 9 users"), None);
+    }
 }

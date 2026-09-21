@@ -1151,3 +1151,29 @@ as still type-level (`EXECUTES_AUTHORED_SQL`, `ACCEPTS_RAW_STATEMENTS`, `PRICES_
 `IMPERSONATION` itself) take the conservative default when erased behind it - a mixed build cannot
 serve the raw-SQL tool against a `Postgres` source it holds, nor read a real dry-run byte estimate
 off a `BigQuery` one, until each gets the same instance-method escape `executes_legs` did.
+
+## Third amendment, 2026-09-21: *the value of the working-set ceiling, and of the deadline* is retired
+
+**The *what is explicitly not decided* bullet of that name is spent, and one half of it was stale
+rather than merely open.** It says `0009` carries *a provisional 1 GB and a provisional three
+minutes*. The shipped deadline has been **30 seconds** for as long as `defaults.yaml` has carried
+the key; three minutes was what the plan predicted and never what shipped, so this record has been
+asking for a measurement of a number nothing enforced. Left above as written, per the amendment
+convention; this is the correction.
+
+**Both halves are now measured, and both are recorded where the bound lives** - in
+[0009](0009-the-plan-from-one-source-to-many.md), whose first amendment carries the working-set
+envelope (largest operator-reservation peak 1.37% of the 1 GiB default, on a named host) and whose
+third carries the deadline (the whole answer path over the single-source example corpus, single-digit
+milliseconds against a 29-second execution budget, by `just bench`). Neither measurement moved its
+default, and both say so rather than leaving the reader to infer it.
+
+**What this record still wants back is narrower than the retired bullet, and it is unchanged by
+either run.** The measurement it asks for above - *how much of a distinct-key leg the engine's memory
+pool can actually see* - is answered only for the shape the small corpus produces: `0009`'s first
+amendment records that the distinct-key case is REFUSED before execution in two-source topology and
+therefore contributed a zero operator peak, so the pull-up's cost at the grain this record reasons
+about is still unobserved. And the deadline figure is from an in-process engine over local files: the
+federated and networked legs this record exists for are not measured, which is exactly where a
+deadline is the bound that binds. Those two remain open under *what is explicitly not decided*; the
+VALUES of the two bounds do not.

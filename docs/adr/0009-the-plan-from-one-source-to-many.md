@@ -745,3 +745,78 @@ file, a relative path, the shared-identity acknowledgement, the per-adapter post
 unaffected - every one of those checks still runs once per source, against that source's own
 concrete adapter constant, whichever of the now-larger set of shapes `open_engine` reaches it
 through.
+
+## Third amendment, 2026-09-21: the deadline half is measured, and the measurement leaves the number alone
+
+The working-set half was measured by the first amendment above. **The deadline half had no
+measurement at all until this one, and no capability to take one**: there was no benchmark harness
+in this workspace, which is why this record's own *provisional 30-second deadline* stood unexamined
+while `0007`'s *what is explicitly not decided* still said *provisional three minutes* against it.
+The harness landed first (a `divan` bench per path, run by `just bench`); this is the run.
+
+**Method.** `crates/sutura-app/benches/answer_path.rs`, through `just bench`. It calls
+`sutura_app::answer` end to end - compile, mint, execute, materialise - against the committed
+`examples/single-player` catalog and CSVs on the in-process `DataFusion` engine, 100 samples of 100
+iterations per case, release profile. The corpus is the tree's own at `d5d0448e`. Host: Apple M5 Pro,
+15 cores, 48 GiB, macOS 26.6.2 arm64, the pinned `nightly-2026-09-08` toolchain. Venue: the
+developer shell that `just bench` runs in. **Not the nix sandbox** - no derivation runs a benchmark
+here, deliberately, because a benchmark that reddens a build on noise is worse than none - so the
+sandbox's own figure for this path is unmeasured and the two cannot be compared.
+
+**Conditions, stated before the numbers.** The host was carrying several other build lanes
+throughout. The quoted run began at a 1-minute load average of **46.70 over 15 cores**; two earlier
+runs of the same harness began at 28 and 59. **None of the three is a clean measurement of what the
+answer path costs.** An idle host was waited for and did not arrive - the 1-minute average was
+sampled every 30 seconds for half an hour and never fell below 12 - and that is recorded rather than
+worked around, because a number taken under conditions nobody wrote down is the defect this
+amendment exists to end.
+
+| Case (`examples/single-player`)          | fastest  | median   | mean     | slowest  |
+| ---------------------------------------- | -------- | -------- | -------- | -------- |
+| `recurring_revenue_by_month`             | 809.1 µs | 1.191 ms | 1.368 ms | 2.767 ms |
+| `subscription_months_by_region_and_term` | 1.641 ms | 2.344 ms | 2.543 ms | 3.967 ms |
+
+**Why a contended number still decides this, and the reasoning that did NOT survive contact with the
+data.** The tempting argument is that contention only inflates a latency, so a busy host gives an
+upper bound. The three runs refuse it: the medians were 1.191/2.344 ms at load 46.70, 1.232/2.285 ms
+at load 28 and 1.852/3.419 ms at load 59, which is **not monotonic in load** - a single-threaded
+bench on a 15-core host is affected by scheduling noise rather than by pure queueing. What the three
+runs do establish is the SIZE of that noise: across a load range of 28 to 59 every median stayed
+inside a factor of two, and the worst single sample anywhere was about 11.5 ms. The conclusion below
+needs three orders of magnitude, so it survives a factor of two with room to spare - and that, not an
+upper-bound argument, is why these numbers are usable. **A clean figure remains unmeasured.**
+
+**Found by taking the measurement, and fixed in the same change.** The two earlier load figures are
+whole numbers because the harness's own probe was dropping the fraction: `uptime` formats its
+averages in the invoking shell's locale, and under a decimal comma the field separator and the
+decimal point are the same character, so a host at 5,90 announced itself as `5.00`. The probe
+understated the one number that decides whether a benchmark is quotable, in the direction that makes
+a busy host look quiet. `sutura_dev::bench_venue` now cuts the field on the separator both formats
+share - the `46.70` above is the first reading that kept its fraction.
+
+**What it decides.** The shipped default is 30 seconds, of which `0029`'s reply margin reserves one,
+so the execution port opens a 29-second budget. The worst single sample observed across three
+oversubscribed runs is about 11.5 ms, which is roughly 0.04% of that budget: **on this corpus and
+this adapter the deadline is nowhere near binding, and nothing here argues for a different number.** So the default stays at 30 seconds and stops being provisional in the sense this
+record used the word - it is a number with a run behind it and a stated reason for being where it
+is, rather than one nobody had looked at. `RequestTimeout::DEFAULT_SECONDS` now carries that reason
+where the value is read, and a test holds it against `defaults.yaml` so the two shipped copies
+cannot drift; the 300-second ceiling is untouched and remains a bound on typos rather than a sized
+one.
+
+**What it does not decide, and this is the larger half.**
+
+- **One adapter, and the wrong one for this question.** The measurement is of an in-process engine
+  over local CSVs. A deadline exists for a source that is slow because it is far away; the BigQuery
+  legs, where the network dominates, are still unmeasured, and this record's plan asked for them.
+  Nothing here may be quoted as a bound on a federated or networked answer.
+- **One corpus, hundreds of rows.** The same limit the working-set amendment states. This is a floor
+  on a real deployment's cost, not a ceiling on it.
+- **One venue, and no cross-venue comparison.** Developer shell only, for the reason above.
+- **A contended host, and no idea which way that moved the figures.** Recorded as measured rather
+  than re-run until it looked better. The direction is genuinely unknown - see the three runs above -
+  so nothing here is an upper bound on anything; a clean figure on an idle host is a cheap follow-up
+  and the only way to get one.
+- **The prose is held by a reader.** The two shipped copies of the value are held against each other
+  by a test. A number restated in a record - here, or in `0007` - is held by nobody, which is the
+  defect this amendment is correcting rather than one it closes.
