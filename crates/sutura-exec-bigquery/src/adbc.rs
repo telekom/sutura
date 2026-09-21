@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! adbc_core + adbc_driver_manager → C ABI → libadbc_driver_bigquery.so
-//!   → BigQuery → Arrow RecordBatchReader → decode::job_rows → RowSet
+//!   → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
 //! ```
 //!
 //! Behind the crate's default-off `adbc` feature, like the `wire`: the native
@@ -53,7 +53,7 @@ use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 
 use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobRows, JobTransport};
-pub use decode::{Reported, job_rows};
+pub use decode::{MOST_RESULT_ROWS, Reported};
 
 /// Why the ADBC transport could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -73,6 +73,15 @@ pub enum AdbcError {
     /// ADBC does not yet cover a port method this transport was asked for.
     #[error("ADBC transport cannot yet {0}")]
     Uncovered(&'static str),
+    /// There is no ADBC call that prices a statement without running it.
+    ///
+    /// **Its own variant rather than an [`Self::Uncovered`], because one caller has to be able to
+    /// tell it apart and a `&'static str` is not something to match on.**
+    /// [`JobTransport::declined_to_dry_run`] reads this variant and nothing else, which is what
+    /// lets the adapter answer `PreFlight::NotAsked` for a dry run nobody made while a dry run that
+    /// was made and failed stays a failure.
+    #[error("ADBC has no call that prices a statement without running it")]
+    NoDryRun,
     /// The plan's values could not be assembled as the batch this driver binds them from.
     ///
     /// Its own variant rather than an [`Self::Adbc`], because the failure is on THIS side of the C
@@ -262,20 +271,49 @@ impl JobTransport for AdbcBigQuery {
         let (_driver, mut stmt, _source) = self.connect(request)?;
         let reader = stmt.execute().map_err(AdbcError::Adbc)?;
         let schema = reader.schema();
-        let mut batches = Vec::new();
+        // **Decoded as each batch arrives, under a ceiling, and nothing collects the stream first.**
+        // This used to push every `RecordBatch` into a `Vec` and then decode every row beside it -
+        // two materialisations of the same result, neither bounded, both before anything downstream
+        // could look at the working set. Review round 4 of `telekom/sutura#929` named exactly that.
+        // Now a batch whose own schema is not the announced one is refused before its values are
+        // read, and a stream past [`MOST_RESULT_ROWS`] is refused at the batch that crosses the
+        // line - so the rows past the ceiling are never held at all.
+        //
+        // **The limit beside it:** the ceiling is a bound on THIS PROCESS, not the working-set
+        // check `sutura_app` makes above. A leg carries no `LIMIT`, so this is the only number
+        // standing between a driver that streams without end and this process's memory.
+        let mut decoding = decode::Decoding::of(&schema, MOST_RESULT_ROWS).map_err(AdbcError::Decode)?;
         for batch in reader {
-            batches.push(batch.map_err(AdbcError::Batch)?);
+            decoding.push(&batch.map_err(AdbcError::Batch)?).map_err(AdbcError::Decode)?;
         }
         // A full drain IS completeness for ADBC: the Storage Read API streams the
         // whole result. The `reported` total is only checked when the driver
         // reports one (schema-metadata keys measured in the provisioned leg).
-        decode::job_rows(&schema, &batches, Reported::Unreported).map_err(AdbcError::Decode)
+        decoding.finish(Reported::Unreported).map_err(AdbcError::Decode)
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
-        // No ADBC call maps onto BigQuery's free `dryRun`; the port keeps this
-        // honest rather than billing a guess.
-        Err(AdbcError::Uncovered("dry-run a statement"))
+        // No ADBC call maps onto BigQuery's free `dryRun`; the port keeps this honest rather than
+        // billing a guess. `Ok(None)` was the other option and is refused: it would mean *the
+        // endpoint accepted this statement*, which nobody asked, and the conformance pack's
+        // `estimated_bytes.is_some() == PRICES_DRY_RUN` comparison would fail on it too.
+        Err(AdbcError::NoDryRun)
+    }
+
+    /// `true` for [`AdbcError::NoDryRun`] alone, which is what makes a question answerable here.
+    ///
+    /// **Until this existed a configured ADBC source could not answer ANYTHING**, and the path is
+    /// worth naming because nothing in this crate showed it: `sutura_app::answer` calls
+    /// `Warehouse::dry_run` before `execute`, and an `Err` that is neither a spent deadline nor a
+    /// source refusal becomes `ServiceError::Warehouse` - a service error, on every question.
+    /// Round 4 of `telekom/sutura#929`'s review measured it as *adoption scaffolding, not an
+    /// adopted transport*.
+    ///
+    /// Matched on the VARIANT and never on [`AdbcError::Uncovered`]'s text: `list_tables` also
+    /// answers `Uncovered`, and a predicate keyed on a `&'static str` would read a listing this
+    /// transport cannot do as a dry run it declined.
+    fn declined_to_dry_run(&self, error: &Self::Error) -> bool {
+        matches!(*error, AdbcError::NoDryRun)
     }
 
     fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {

@@ -184,6 +184,37 @@ fn the_listing_this_transport_cannot_do_is_not_an_authorization_refusal() {
     assert!(!endpoint.deadline_exceeded(&refused), "{refused:?}");
 }
 
+#[test]
+fn only_a_declined_dry_run_reads_as_one_and_the_listing_it_cannot_do_does_not() {
+    // **The refusal `declined_to_dry_run` turns into an answer, and its control.** Until that
+    // predicate existed, `validate`'s `Err` made every question against a configured ADBC source a
+    // service error - `sutura_app::answer` calls `Warehouse::dry_run` before `execute` and turns
+    // anything that is neither a spent deadline nor a source refusal into `ServiceError::Warehouse`.
+    // The adapter's own half is `crate::tests`'s
+    // `a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question`.
+    //
+    // Neither call needs a driver: both refuse before the `.so` is named, which is what makes them
+    // assertable here at all.
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, JobDeadline::Boot);
+    let endpoint = endpoint(Impersonation::Disabled);
+    let declined = endpoint.validate(&request).expect_err("this transport prices nothing");
+    assert!(matches!(declined, AdbcError::NoDryRun), "{declined:?}");
+    assert!(endpoint.declined_to_dry_run(&declined));
+    // **THE CONTROL, and the reason the predicate matches a VARIANT and not `Uncovered`'s text.**
+    // `list_tables` answers `Uncovered` too, so a predicate keyed on a string would read a listing
+    // this transport cannot do as a dry run it declined - which would turn a boot WARNING into a
+    // pre-flight nobody made, and report `PreFlight::NotAsked` for a call that was not a dry run.
+    let at = DatasetAddress::of(project.clone(), project.clone(), dataset.clone());
+    let listing = endpoint.list_tables(&at).expect_err("this transport cannot list a dataset");
+    assert!(!endpoint.declined_to_dry_run(&listing), "{listing:?}");
+    // And the other direction on the declined value, so a cell over a predicate answering `true` to
+    // everything cannot pass: neither of the two other predicates this error reaches may claim it.
+    assert!(!endpoint.deadline_exceeded(&declined), "{declined:?}");
+    assert!(!endpoint.result_did_not_fit(&declined), "{declined:?}");
+}
+
 /// One bind call, as much of it as an assertion needs: the batch's shape and its column types.
 ///
 /// Named because `Vec<(usize, usize, Vec<DataType>)>` is over this workspace's `type_complexity`

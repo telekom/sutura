@@ -1182,3 +1182,85 @@ which is exactly what this mechanism produces. Rewritten as
 `each_subject_executes_as_its_own_principal_at_the_declared_pool`: two subjects, two DISTINCT
 principals, neither of them the deployment's own. Nothing predicts either string, because the pool
 resolves it.
+
+## Seventh amendment, 2026-09-21: the transport can answer at all, the Arrow read is bounded and checked, and execution does not move to DataFusion
+
+**A configured ADBC source could not answer ANY question, and nothing in this crate showed it.**
+`crate::adbc::AdbcBigQuery::validate` returned an error because ADBC has no call that prices a
+statement without running it - which read as honest here and was fatal one crate up:
+`sutura_app::answer` calls `Warehouse::dry_run` before `execute` and turns any `Err` that is neither
+a spent deadline nor a source refusal into `ServiceError::Warehouse`. So every question against a
+`bigquery` source over this transport was a service error, on a deployment that booted clean. Review
+round 4 of `github.com/telekom/sutura#929` called the PR *adoption scaffolding, not an adopted
+transport*; this is the half of that which was a live defect rather than a missing feature.
+
+The fix is the shape this trait already uses for the same problem - `listing_was_refused`,
+`job_was_refused`, `deadline_exceeded` are all predicates the adapter asks its transport about a
+failure it already holds. `JobTransport::declined_to_dry_run` is the fourth, ADBC answers `true` for
+its own `AdbcError::NoDryRun` variant and nothing else, and `BigQueryWarehouse::dry_run` answers
+`PreFlight::NotAsked` for it. **`NotAsked` and never `Accepted { estimated_bytes: None }`**: the
+port's own documentation is that a defaulted pre-flight reads as *this subject may run this plan*,
+and `sutura_conformance::execute`'s pack compares `estimated_bytes.is_some()` against
+`PRICES_DRY_RUN` on an accepted one. The variant is matched rather than `Uncovered`'s `&'static str`,
+because `list_tables` answers `Uncovered` too and a predicate keyed on text would read a listing this
+transport cannot do as a dry run it declined.
+
+**The limit, and it is a control that got weaker rather than a gap that was always there.** Nothing
+prices a statement on a shipped path now, so `sutura_app`'s spend ledger charges a `bigquery` source
+nothing and `governance.per_replica_spend_ceiling` bounds no source at all - `docs/adr/0030`'s
+counter is live code with no adapter feeding it. `BigQueryWarehouse::PRICES_DRY_RUN` stays `true`
+because it declares what the ENDPOINT can do (a free, slotless `dryRun`, which is still true) and
+because it cannot vary with the transport type; the correction is written at that constant and in
+`.agents/skills/sutura/invariants/SKILL.md`'s spend row, whose *every adapter but BigQuery* is now
+*every adapter including BigQuery*. Binding an ADBC call that prices, or reading the job statistics
+the driver attaches after a run, is what would restore it - neither is built here.
+
+**On DataFusion, the review asked for one of two things and this amendment takes the second
+explicitly, so the absence is named rather than inferred.** The options were *move
+execution and federation to a bounded DataFusion Arrow path*, or *scope this as a transport-only
+change and do not claim the federation goal here*. This is the transport-only scope: the ADBC driver
+replaces the wire and nothing else moves. A `RecordBatch` the driver hands back never enters a
+DataFusion `SessionContext` or a `TableProvider`; it is decoded into `crate::transport::JobRows` and
+a federation leg's rows are re-aggregated by `sutura_app` in memory, exactly as they were under the
+wire. Whether execution belongs on a DataFusion Arrow path is a separate decision with its own
+owner, and building it here would be that work done twice.
+
+**What the same review did measure is a real defect, and it is fixed rather than scoped away.** The
+read was an unbounded double materialisation: every `RecordBatch` was collected into a `Vec` and
+then every row decoded beside it, so a result was held twice before anything downstream could look
+at a working set - and a federation leg carries no `LIMIT` at all (`sutura_domain::plan::leg`'s own
+header says so, because a leg is not an answer), so nothing in the statement bounded what a driver
+could stream back. `crate::adbc::decode::Decoding` now takes one batch at a time off the driver's
+reader, so there is one materialisation; `crate::adbc::decode::MOST_RESULT_ROWS` is a ceiling
+enforced at the batch that crosses it, so the rows past it are never held; and the cast to text is
+one vectorised `arrow_cast::cast` per COLUMN per batch, where it used to sit inside the row loop and
+cast each column's whole array once per row of it.
+
+**A width check is not a schema check, and this one was a wrong answer rather than a failure.** The
+decode compared `batch.num_columns()` against the announced field count and nothing else, so a
+driver handing back two columns of the SAME type in the wrong order produced a transposed answer
+under a certified metric name, silently. Nothing in the pinned graph would have caught it, measured
+rather than assumed:
+
+- `arrow_array::RecordBatch::try_new` validates **positionally** - it zips columns against fields
+  and compares type and nullability. Field names are never compared, which is why a
+  differently-typed swap errors and a same-typed swap does not.
+- DataFusion's name-based mechanism is **opt-in and on the datasource path**. `SchemaAdapter` and
+  `SchemaMapper` are deprecated and their default implementation answers `not_impl_err!`; the live
+  `PhysicalExprAdapter` does resolve by name, and only for a datasource.
+- **Nothing validates that a custom plan's stream matches its declared schema.** The plan contract
+  assumes it and consumers index positionally.
+
+So for a foreign driver behind this transport the obligation is ours and it was unenforced.
+`Decoding::push` now refuses a batch whose field at a position is not the field the schema announced
+there - **name and type** - as a typed `Decode::Mislabelled` carrying the position and both
+descriptors, before a single value is read. The comparison is not a bare `zip`: the width refusal
+runs first and is what makes the pairing total, because a `zip` alone silently matches the shorter
+prefix, which is both halves of the same defect.
+
+**The limit beside it.** This makes the transport stricter than it was: if the pinned driver ever
+emits a batch whose schema differs from the one its own reader announced, a question that used to
+answer now refuses. That is the direction to fail in - a refusal an operator can read beats a
+transposed aggregate nobody can see - but it is a behaviour change and not only a check. And the
+ceiling is a bound on this process's memory, never a cap on an answer: `sutura_domain::plan::MAX_ROWS`
+is the answer cap and travels in the statement's own `LIMIT`.

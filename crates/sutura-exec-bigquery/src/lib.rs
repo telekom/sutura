@@ -675,9 +675,25 @@ where
     /// run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
 
-    /// **This is the one adapter that prices a dry run.** [`Self::dry_run`] decodes
-    /// `totalBytesProcessed` off the wire rather than defaulting the field, so `Some` on an
-    /// accepted pre-flight is a real answer here rather than a value nothing computed.
+    /// **This declares what this adapter's DATA SYSTEM can do, and the shipped transport has no
+    /// call that does it.** Both halves are load-bearing and the second one is new. `BigQuery`'s
+    /// `dryRun` uses no slots and is not charged, which is the property `docs/adr/0030` built the
+    /// spend ledger on, and it is still true of the endpoint. What the ADBC adoption changed is the
+    /// TRANSPORT: there is no ADBC call that prices a statement without running it, so
+    /// `crate::adbc::AdbcBigQuery::validate` declines and [`Self::dry_run`] answers
+    /// `PreFlight::NotAsked` - never `Accepted` carrying a number nothing computed.
+    ///
+    /// **So the limit belongs here: on a served deployment nothing prices a statement today.**
+    /// `sutura_app`'s spend ledger charges a `NotAsked` pre-flight nothing - *not counted*, never
+    /// *free* - so `governance.per_replica_spend_ceiling` does not bound a `BigQuery` source over
+    /// ADBC at all. The prose that said *every adapter but `BigQuery`* answers `None` is corrected in
+    /// `.agents/skills/sutura/invariants/SKILL.md` rather than left to be inferred from here.
+    ///
+    /// **Why it stays `true` rather than flipping with the transport.** It is a `Warehouse`
+    /// associated constant, so it cannot vary with `T`, and `false` would declare that `BigQuery`
+    /// cannot price a dry run - which is not true, and which would refuse
+    /// `sutura_conformance::execute`'s own accepted-with-an-estimate case, the pack this adapter is
+    /// bound to over a transport that does price (`tests/conformance.rs`'s `Canned`).
     const PRICES_DRY_RUN: bool = true;
 
     fn source(&self) -> &SourceName {
@@ -705,14 +721,27 @@ where
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
-        let estimated_bytes = self
-            .transport
-            .validate(&self.request(
-                &query,
-                Self::job_identity(presented, &self.source)?,
-                JobDeadline::Port(deadline),
-            ))
-            .map_err(|cause| BigQueryError::Endpoint { cause })?;
+        let asked = self.transport.validate(&self.request(
+            &query,
+            Self::job_identity(presented, &self.source)?,
+            JobDeadline::Port(deadline),
+        ));
+        let estimated_bytes = match asked {
+            Ok(estimate) => estimate,
+            // **A transport with no dry run did not ask, and that is not a question that failed.**
+            // `sutura_app::answer` turns any other `Err` here into a service error on every
+            // question, so before this arm existed an ADBC-backed source could answer nothing at
+            // all - `JobTransport::declined_to_dry_run` carries the measurement.
+            //
+            // `NotAsked` and never `Accepted { estimated_bytes: None }`: the port's own
+            // documentation is that a defaulted pre-flight reads as *this subject may run this
+            // plan*, and the conformance pack compares `estimated_bytes.is_some()` against
+            // `PRICES_DRY_RUN` on an accepted one. **The limit, where the claim is:** nothing
+            // prices such a statement, so `sutura_app`'s spend ledger charges this source nothing
+            // and the per-subject byte ceiling does not bound it.
+            Err(ref cause) if self.transport.declined_to_dry_run(cause) => return Ok(PreFlight::NotAsked),
+            Err(cause) => return Err(BigQueryError::Endpoint { cause }),
+        };
         Ok(PreFlight::Accepted { estimated_bytes })
     }
 

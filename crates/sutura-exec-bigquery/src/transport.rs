@@ -795,12 +795,15 @@ pub type DryRunEstimate = Option<EstimatedBytes>;
 /// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
 /// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
 ///
-/// **Three more members are not that, and the count is spelled out because it has been wrong
-/// twice.** `result_did_not_fit` asks the implementor about a failure it already has and sends
-/// nothing; `list_tables` sends a metadata read rather than a statement, which is what makes it
-/// cheap enough for a boot check; and `apply`, behind the `fixtures` feature, is the second
+/// **The rest send nothing, and they are listed BY KIND rather than counted.** The count was wrong
+/// twice, and then a third time: the sentence said *three more members* while five predicates had
+/// been added under it, because a number in prose is a second thing to keep true and no gate reads
+/// this one. So: `list_tables` sends a metadata read rather than a statement, which is what makes
+/// it cheap enough for a boot check; `apply`, behind the `fixtures` feature, is the second
 /// statement-issuing method - present only in a build that loads fixtures, so no deployment can
-/// reach it.
+/// reach it; and every remaining member is a PREDICATE that sends nothing and asks the implementor
+/// about a failure it already holds, because [`Self::Error`] is the implementor's own type and the
+/// adapter above it cannot read one.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
@@ -930,6 +933,27 @@ pub trait JobTransport {
     ///
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
     fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Was this failure the transport DECLINING to dry-run at all, rather than asking and failing?
+    ///
+    /// **The difference decides whether a source can answer a question at all**, which is why it is
+    /// a predicate here and not a comment somewhere. `sutura_app`'s answer path calls
+    /// `Warehouse::dry_run` before it calls `execute` and turns anything that is neither a spent
+    /// deadline nor a source refusal into a service ERROR - so a transport with no dry-run at all,
+    /// returning `Err` from [`Self::validate`], makes every question against its source fail. Round
+    /// 4 of `telekom/sutura#929`'s review measured exactly that on the ADBC transport.
+    ///
+    /// `true` here lets `crate::BigQueryWarehouse`'s `Warehouse::dry_run` answer
+    /// `PreFlight::NotAsked` - the port's own word for *this adapter did not ask* - instead of a
+    /// failure. **`NotAsked` is not `Accepted` and no caller may read it as one**, which is what
+    /// keeps this from becoming a defaulted yes: the port's own documentation says so, and nothing
+    /// is priced, so `sutura_app`'s spend ledger charges nothing for such a source.
+    ///
+    /// Defaulted to `false`: a transport that HAS a dry run and failed one has failed, and that is
+    /// the direction a fake gives unless a test is about this split.
+    fn declined_to_dry_run(&self, _error: &Self::Error) -> bool {
         false
     }
 

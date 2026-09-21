@@ -481,3 +481,33 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     }
 }
+
+#[cfg(feature = "adbc")]
+#[test]
+fn a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question() {
+    // **THE CELL FOR "a configured ADBC source can answer a question at all".** `sutura_app::answer`
+    // calls `Warehouse::dry_run` before `execute` and turns an `Err` that is neither a spent
+    // deadline nor a source refusal into `ServiceError::Warehouse` - so while this adapter mapped a
+    // declined dry run to a failure, an ADBC-backed source answered NOTHING. Round 4 of
+    // `telekom/sutura#929`'s review called that *adoption scaffolding, not an adopted transport*.
+    //
+    // `NotAsked` and never `Accepted`, which is the half a weaker fix would have got wrong: the
+    // port's own documentation says a defaulted pre-flight reads as *this subject may run this
+    // plan*. Asserted by VALUE, so an `Accepted { estimated_bytes: None }` fails here.
+    //
+    // The real `AdbcBigQuery` over a path naming no `.so`, deliberately: `validate` refuses before
+    // the driver is loaded, so this exercises the shipped transport rather than a fake that would
+    // have to restate the decision under test.
+    let warehouse = open(
+        crate::adbc::AdbcBigQuery::new(
+            "/nonexistent/libadbc_driver_bigquery.so",
+            crate::adbc::Impersonation::Disabled,
+        ),
+        shared_posture(),
+    );
+    let plan = plan();
+    let answered = warehouse
+        .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+        .expect("a dry run the transport declined is not a question that failed");
+    assert_eq!(answered, PreFlight::NotAsked);
+}
