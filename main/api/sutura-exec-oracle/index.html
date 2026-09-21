@@ -2412,6 +2412,14 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
   golden matrix's <code>oracle</code> cells (<code>crates/sutura-app/tests/adapters/adapters.rs</code>) skip rather
   than run wherever that is still true - that file's own <code>DataSystemUnderTest::available</code>
   decides which venues those are.</li>
+<li><strong>No venue that runs <code>just validate</code> can reach a live Oracle.</strong> <code>compose.services.yaml</code>'s
+  <code>oracle</code> service is a docker-compose tier brought up by hand (<code>just dev-up-oracle</code>); the nix
+  sandbox has no docker socket and no <code>oracle-tier.nix</code> exists, so a gate leg cannot
+  provision one - and Oracle Database is proprietary, so no nix-native tier could take
+  <code>nix/postgres-tier.nix</code>'s shape even in principle. The render goldens this suite pins for
+  Oracle therefore assert what <code>sutura-sql</code> emitted and nothing a data system said back; that
+  is what <code>crates/sutura-app/tests/golden/dialects.rs</code>'s <code>Venue::ByHandOnly</code> arm declares. The
+  check there holds this path, never this prose - a header that stops arguing this stays green.</li>
 <li><strong>One <code>parking_lot::Mutex</code> serializes every call</strong>, the same shape
   <code>PostgresWarehouse::execution_lock</code> holds and for a matching reason: <code>Connection</code>'s own methods
   take <code>&amp;self</code>, so the port's shared reference alone does not prove the driver tolerates two
