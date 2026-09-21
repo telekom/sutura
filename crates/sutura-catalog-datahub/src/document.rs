@@ -498,10 +498,15 @@ impl SuturaContent {
 /// `Definitions::assemble` to be refused rather than silently collapsing.
 ///
 /// **`via` is the same scalar-or-seq shape the markdown document spells, in and out.** The custom
-/// `Serialize` writes a scalar when the chain has one hop and a sequence otherwise, which is what
-/// keeps a recorded property byte-stable across a re-serialize: a deployment that stored a scalar
-/// does not come back as a one-element array. The input side accepts both, so a stored chain reads
-/// the same as a stored hop.
+/// `Serialize` writes a scalar when the chain has one hop and a sequence otherwise, and the input
+/// side accepts both, so a stored chain reads the same as a stored hop.
+///
+/// **The byte-stability that buys holds in ONE direction.** A deployment that stored a scalar gets a
+/// scalar back, which is the case that matters because it is what every document in the field already
+/// holds. A deployment that stored a one-element SEQUENCE gets a scalar back instead - same meaning,
+/// different bytes - because the writer is keyed on the chain's length rather than on what was read.
+/// Round-tripping is therefore idempotent but not byte-preserving, and nothing here records the
+/// original spelling to make it so.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SuturaDimension {

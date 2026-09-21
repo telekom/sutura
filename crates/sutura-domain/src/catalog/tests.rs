@@ -753,6 +753,37 @@ fn a_dimension_through_a_chain_assembles_and_resolves_on_the_last_hops_model() {
     );
 }
 
+/// The resolution above is only observable through a refusal, so this is the arm that proves it.
+///
+/// `region_code` is a column of `customers` - hop 1's target - and NOT of `regions`, hop 2's
+/// target. So a chain dimension naming it must be refused, and the refusal must name `regions`:
+/// that is what distinguishes "resolved on the LAST hop's model" from "resolved on the first
+/// hop's". The passing cell above asserts `column()` and `via()`, which are the values the
+/// constructor was handed, so it would stay green if resolution moved to the wrong hop.
+#[test]
+fn a_chain_dimension_naming_an_earlier_hops_column_is_refused_naming_the_last_hops_model() {
+    let (models, relationships) = three_models();
+    let m = metric(
+        "revenue",
+        vec![dimension(
+            "region",
+            "region_code",
+            Some(&["orders_customer", "customers_regions"]),
+            None,
+        )],
+    );
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![m]).unwrap_err(),
+        InconsistentDefinitions::UnknownDimensionColumn {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            model: model_name("regions"),
+            column: column("region_code"),
+        },
+        "a chain resolves its column on the LAST hop's model, so an earlier hop's column is unknown"
+    );
+}
+
 #[test]
 fn a_chain_hop_that_could_duplicate_rows_is_refused_naming_the_hop() {
     let (models, mut relationships) = three_models();
