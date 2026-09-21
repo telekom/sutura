@@ -1508,8 +1508,9 @@ rather than a missing required one** - it selects the reader's own recommended d
 (`sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`),
 which this crate does not depend on that adapter crate to name. The composition root is
 where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::parse` is the
-single owner of that range, the same split `BytesBilledCeiling::parse` holds for `BigQuery`'s
-ceiling.
+single owner of that range. This used to cite `BytesBilledCeiling::parse` as the same split
+for `BigQuery`'s ceiling; that type is deleted and its range is now owned by nobody, so the
+`DataHub` bounds are the only live example of the split.
 
 ```rust
 pub fn with_datahub_reader(self, endpoint: String, token_file: PathBuf, metric_property: String) -> Result<Self, InvalidCatalogSettings>

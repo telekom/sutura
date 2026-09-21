@@ -708,11 +708,14 @@ where
     /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
     /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
     ///
-    /// **The deadline is now what `timeoutMs`/`jobTimeoutMs` derive from; `docs/adr/0029`.** This
-    /// call's `CallDeadline` opens from what the port's own `Deadline` says is left, read at the
-    /// instant this call reaches the wire - not from this adapter's own configured job bounds, which
-    /// stay only for the boot path and the socket's own backstop ceiling. See
-    /// (the `wire` transport that used to do this was removed with the ADBC adoption).
+    /// **The port's `Deadline` is CARRIED and nothing sends it anywhere; `docs/adr/0029`'s second
+    /// amendment.** This paragraph used to say the deadline was what `timeoutMs`/`jobTimeoutMs`
+    /// derived from, and it contradicted itself two lines later: those were `jobs.query` request
+    /// parameters on the HTTP wire, and the wire is deleted. `JobDeadline::Port(deadline)` below
+    /// still reaches [`transport::JobRequest`], and the ADBC transport's `run` never reads it - the
+    /// driver is given no bound by this process. **So what bounds a `BigQuery` call is in-process
+    /// only:** `sutura_app` refuses a question whose deadline is already spent, and the answer is
+    /// whatever the driver takes as long as it likes to produce. Nothing cancels a running job.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;

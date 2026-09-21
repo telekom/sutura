@@ -17,12 +17,21 @@
 //! order was "a convention this line keeps", after review had disproved TWO earlier claims that a type
 //! held it - `Warehouses::of` is `pub`, and a `BigQueryWarehouse` is generic in its transport
 //! (`sutura-serve` folded into `sutura-cli`'s `serve` module at `github.com/telekom/sutura#685` step
-//! 2, and the sentence moved with it). What
-//! survives of the type argument is one half: the `BigQuerySource` alias names a credential whose only
-//! public constructor reads a file, so no arrangement of that root can ask a dataset about a table
-//! before a credential was read. **Nothing at all held the second half**, and `AGENTS.md` is
+//! 2, and the sentence moved with it). **Nothing at all held the second half**, and `AGENTS.md` is
 //! unambiguous about a sentence in that position: an invariant is held by a type, a lint, a hook or a
 //! gate, never by recall.
+//!
+//! **Nothing holds the first half either, since the HTTP wire was deleted.** This header used to
+//! close that paragraph by keeping one half of the type argument: the `BigQuerySource` alias named a
+//! credential whose only public constructor read a file, so no arrangement of that root could ask a
+//! dataset about a table before a credential was read. That alias is
+//! `BigQueryWarehouse<adbc::AdbcBigQuery>` now, and `AdbcBigQuery`'s two public constructors are
+//! `new(driver_path, impersonation)` and `probe(driver_path)` - **neither reads a credential**,
+//! because the driver authenticates itself. So both halves of the order rest on the line-position
+//! scan below and on nothing else, which is **weaker than the two-mechanism claim this replaces**:
+//! the surviving type argument used to make the first half true of every arrangement of the root,
+//! where the scan only compares where three calls appear in one file. The three limits stated below
+//! now apply to the whole order rather than to its second half.
 //!
 //! # What it reads
 //!

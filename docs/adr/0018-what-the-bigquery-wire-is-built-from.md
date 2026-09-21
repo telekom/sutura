@@ -1319,3 +1319,35 @@ a misconfiguration can select back onto an exchange this tree cannot make.
 `docs/where-identity-is-proven.md` reads exactly as it did: leg 2's venue stays `wired`, because
 deleting evidence that was only ever a fake-port cell proves nothing. Leg 1's evidence is untouched -
 the Keycloak cells are not in this diff.
+
+## Ninth amendment, 2026-09-21: what is actually pinned, and how the Go module version was read
+
+**This record says *the pinned `cloud.google.com/go/auth v0.23.2`* three times, and that phrasing
+overstates what this repository pins.** Round 7's review went looking for the pin and found none:
+there is no `go/` directory here and no Go module version anywhere in the tree. The only in-tree
+occurrence of the version string is an illustrative `# e.g.` inside a shell comment in
+`nix/bigquery-adbc.nix`, which is a sample of the `<path>@<version>` shape the install phase walks -
+not a declaration.
+
+**What is pinned is the driver SOURCE and its module closure's hash**, two values, both in-tree:
+
+| Value                                             | Where                                                             |
+| ------------------------------------------------- | ----------------------------------------------------------------- |
+| flake input `bigquery-adbc-src`, ref `go/v1.13.0` | `flake.nix`, locked to one rev with its `narHash` in `flake.lock` |
+| `vendorHash` over the whole resolved module set   | `nix/bigquery-adbc-drivers.nix`, shared by all four triples       |
+
+The `cloud.google.com/go/auth` version is therefore *resolved*, not declared: that rev's own
+`go.mod`/`go.sum` chooses it, and the `vendorHash` refuses a build in which anything about that
+choice changed. The pair is as tight as a version literal would be - a different `go/auth` is a
+different `vendorHash` - but it is a different claim, and *pinned* invited a reader to grep for
+something that is not there.
+
+**How the version was read, since a resolved value still has to be readable.** The install phase
+writes every module in the build's own import closure, with its licence file name, to
+`lib/DRIVER-MODULES.txt` beside the built `.so`. Reading that file out of a driver this tree built
+gives `cloud.google.com/go/auth@v0.23.2` on its second line - so `v0.23.2` is correct as a
+measurement of the current pin, and the three facts the sixth amendment took from those sources
+stand. It is not correct as a description of what this repository declares. **The limit:** nothing
+compares that file against a number written down anywhere, so a driver bump moves the resolved
+version silently, and any prose naming `v0.23.2` - here, or in the two doc comments that cite
+`credsfile::ExternalAccountFile` - is a measurement with a date on it rather than a checked fact.

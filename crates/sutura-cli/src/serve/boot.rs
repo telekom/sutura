@@ -55,22 +55,18 @@ use super::flatten;
 /// so before this the same mistyped table name produced a green startup, a healthy liveness probe,
 /// and a `SurfaceFailure` for whoever asked that metric first. The operator found out from a user.
 ///
-/// **Ordered after the credential and before the listener, and a type pins the first half - though
-/// not the type this comment used to name.** It said *this takes an OPEN registry, and only
-/// `open_engine` can produce one*, and review disproved that in one line: `Warehouses::of` and
-/// `::and` are both `pub`, and this file's own tests build a registry from a fake two hundred lines
-/// below. What actually holds the order is `main.rs`'s
-/// `type BigQuerySource = BigQueryWarehouse<BigQueryWire<Credential>>`, whose credential-shaped
-/// parameter has one implementor - `sutura_exec_bigquery::wire::credential::Credential`, whose only
-/// public constructor is `Credential::read`. **The ALIAS and not the warehouse, which is review
-/// correcting this same sentence a second time:** `BigQueryWarehouse<T>` is generic in its transport
-/// and that adapter's own suite builds twenty-four of them over fakes with no credential in sight -
-/// `grep -c '= open(' crates/sutura-exec-bigquery/src/tests.rs`, measured 2026-09-02 - so *a
-/// `BigQueryWarehouse` cannot exist without a credential read off disk* was false of the type it
-/// named. **Naming the right type matters more than the property:** a later
-/// `Credential::from_token` would spend the guarantee while a sentence about registries still read
-/// true, which is the third time this repository has caught a doc crediting a type with a property
-/// something else holds.
+/// **Ordered after the adapters are opened and before the listener, and `check-boot-order` is the
+/// only thing holding either half.** Two type arguments for the first half have died here. The
+/// first said *this takes an OPEN registry, and only `open_engine` can produce one*, which review
+/// disproved in one line: `Warehouses::of` and `::and` are both `pub`, and this file's own tests
+/// build a registry from a fake two hundred lines below. The second named the `BigQuerySource`
+/// alias's credential-shaped transport parameter, whose one public constructor read a file - and
+/// that died with the HTTP wire: the alias is `BigQueryWarehouse<adbc::AdbcBigQuery>` now and the
+/// driver authenticates itself, so nothing on the way to this function reads a credential at all.
+/// What `open_bigquery` still reads at boot is a driver path and the declared scope. **So take the
+/// gate's limit with the order:** it compares where three calls appear in this root's text, which
+/// catches a line moved during a restructure and not a pre-flight moved behind a condition the
+/// serving path does not take. `xtask::boot_order`'s header carries the other two limits.
 ///
 /// **A data system whose own listing did not account for itself is a REFUSAL, and it is the third
 /// one rather than a shade of the second.** A listing that reports a total and then names fewer

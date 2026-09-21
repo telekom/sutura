@@ -1682,3 +1682,30 @@ gate does NOT hold**: `Allowed to claim` is free prose, read only far enough to 
 parseable - like `What it costs`, no verdict vocabulary applies to it, and nothing checks that its
 wording agrees with the *Which venue answers which claim* matrix below it. That agreement is
 review's, the same limit this page's own foot already states for `Where it runs`.
+
+## Nineteenth amendment, 2026-09-21: the two required BigQuery source keys reach nothing
+
+*The three keys a served source needs* says `max_bytes_billed` is **"the only bound on bytes SCANNED
+anywhere in this repository and the only number in the settings tree that spends money"**, and that
+its range stays the adapter's - `BytesBilledCeiling::parse` - "so there is one parse of it and a value
+outside the range is a startup refusal naming the key". **None of that is true at HEAD, and the
+number is now the weakest thing in the settings tree rather than the most consequential.**
+
+`BytesBilledCeiling` went with the HTTP transport, and so did the `jobs.query` parameter it fed. It
+was not replaced: the ADBC driver is given no ceiling at all, the value is carried to no data system,
+and - the part worth stating on its own - **there is no parse of it anywhere now**, so a declared
+zero and a declared `u64::MAX` are both accepted at boot. The same bullet's `credential_file` is in
+the same position: required, checked absolute, and passed nowhere, because the driver authenticates
+itself (`crates/sutura-cli/src/sources/bigquery.rs` records that at its own boot line, which is where
+this was found).
+
+**Why they are still required rather than removed here.** Dropping a required key is a settings-schema
+break, and a deployment that stops declaring a spend ceiling because this repository stopped reading
+one is the worse outcome: the bound belongs at the source system either way. So they stay, declared,
+with the limit written where it is read - `crates/sutura-config/src/sources/placement.rs`'s two field
+docs and `docs/serving.md`'s sources section - and removing them is its own decision.
+
+**What still bounds spend.** `governance.per_replica_spend_ceiling`, charged from the dry run's
+estimate, per subject, inside one replica's window (`sutura_app::SpendLedger`). It is a bound on what
+this process ADMITS, never on what BigQuery bills, and it is per replica - so N replicas are N
+ceilings.

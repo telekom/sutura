@@ -193,8 +193,9 @@ impl CatalogSettings {
     /// (`sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`),
     /// which this crate does not depend on that adapter crate to name. The composition root is
     /// where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::parse` is the
-    /// single owner of that range, the same split `BytesBilledCeiling::parse` holds for `BigQuery`'s
-    /// ceiling.
+    /// single owner of that range. This used to cite `BytesBilledCeiling::parse` as the same split
+    /// for `BigQuery`'s ceiling; that type is deleted and its range is now owned by nobody, so the
+    /// `DataHub` bounds are the only live example of the split.
     #[must_use]
     pub const fn with_datahub_bounds(mut self, deadline_seconds: Option<u64>, max_response_bytes: Option<u64>) -> Self {
         self.deadline_seconds = deadline_seconds;

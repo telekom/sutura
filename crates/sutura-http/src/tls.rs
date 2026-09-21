@@ -307,8 +307,11 @@ impl Pem {
 ///
 /// `take` rather than a `metadata` length check, so the bound is on what was actually read: a file
 /// that grows between the two calls is not a case this has to reason about. One byte past the cap is
-/// read on purpose - that is what distinguishes "too large" from "exactly the cap". The same shape
-/// `sutura_exec_bigquery::wire::credential::Credential::read` uses, for the same reason.
+/// read on purpose - that is what distinguishes "too large" from "exactly the cap". This used to
+/// cite the `BigQuery` wire's credential read for both, and that file is deleted; the two live
+/// readers on the same shape are `sutura_tls::rotate::read_bounded`, which already cites this
+/// function back, and this crate's own `inbound::keys::source`. **Nothing compares the three** -
+/// each carries its own cap and its own error type, so the shape is a convention, not an invariant.
 ///
 /// Why printing the path in [`TlsNotUsable`] is safe is stated on that type, not here - this
 /// helper only builds the variant, called from [`Termination::prepare`] (before the socket is

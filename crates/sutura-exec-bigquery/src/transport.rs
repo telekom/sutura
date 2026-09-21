@@ -52,13 +52,15 @@ pub enum ParameterMode {
 /// reads as exactly the regression it would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobDeadline {
-    /// A request-time call's own `Deadline`, opened by the transport at the answer's arrival.
-    /// `Warehouse::dry_run`/`execute` build this arm, and only this arm - see
-    /// [`JobRequest::new`]'s own doc.
+    /// A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and
+    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the transport
+    /// that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
-    /// the identity read build this arm; the ADBC driver opens a fresh window under its own
-    /// configured bounds instead.
+    /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
+    /// under its own configured bounds instead*, and this process configures no bound at all: the
+    /// only database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, so
+    /// whatever window exists is the driver's own default and is not ours to state.
     Boot,
 }
 
@@ -119,14 +121,16 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg
-    /// `Warehouse::dry_run`/`execute` builds carries `JobDeadline::Port`, opened by the transport at
-    /// the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really left rather
-    /// than from this adapter's own configured job bounds. `verify_anchor`, a fixture load or drop,
-    /// and the identity read have no caller and no request timeout to read one from - `docs/adr/0029`
-    /// calls that the boot path - so they pass `JobDeadline::Boot`, and `submit` opens a fresh window
-    /// from this transport's own configured job bounds instead, exactly as every call did before
-    /// this parameter existed.
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`] - and no
+    /// implementor reads it.** A leg `Warehouse::dry_run`/`execute` builds carries
+    /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no
+    /// caller and no request timeout to read one from - `docs/adr/0029` calls that the boot path -
+    /// so they pass `JobDeadline::Boot`. **What used to consume the distinction is gone**: the HTTP
+    /// wire derived `timeoutMs`/`jobTimeoutMs` from the `Port` arm, and the one transport left
+    /// ignores the field, so the two arms are a record of provenance rather than a bound. Kept
+    /// because a call site that wrote `Boot` for a request-time leg is still the regression
+    /// [`JobDeadline`]'s own doc describes, and [`JobRequest::deadline`] is how a cell reads it -
+    /// which is the only reader there is.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],

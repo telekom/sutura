@@ -187,7 +187,7 @@ fn wif_with(extra: &str) -> String {
 }
 
 /// Two declared subjects, each mapped to its own account - the shape a served impersonating source
-/// is answerable through.
+/// is ADMITTED on. Whether either subject is answered is not a question this module asks.
 #[cfg(feature = "bigquery")]
 fn two_declared_subjects() -> &'static str {
     "      impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n        \
@@ -196,11 +196,18 @@ fn two_declared_subjects() -> &'static str {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_served_impersonating_source_is_answerable_through_the_declared_principal_broker() {
+fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
     // **THE NEGATIVE CONTROL for the two boot refusals below**, and it is the cell that says the
     // composition works at all: without it both of those pass over a `build_broker` that refused
     // every registry. A declared two-subject map builds a broker holding this source, so the
     // refusals beneath are about what they name rather than about anything impersonating.
+    //
+    // **Named for admission, because admission is all it asserts.** It used to be named for the
+    // source being *answerable*, and review broke that name: a broker that admits this registry and
+    // then refuses to mint for every subject keeps this cell green, because what is read is
+    // `count()` and not an answer. Nothing in this module mints or asks - the per-subject mint on a
+    // request is held in `sutura_http::identity_e2e` over a fake broker, and no cell anywhere asks a
+    // real BigQuery as a declared subject.
     let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",
