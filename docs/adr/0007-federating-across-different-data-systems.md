@@ -5,12 +5,13 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended three times, in place, by the blocks below. *Nothing
+Status: accepted, and **partly built** - amended four times, in place, by the blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
 once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
-chain). What is still unbuilt is track 1 beyond the dialects that
+chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figures against the
+records that now carry them). What is still unbuilt is track 1 beyond the dialects that
 ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.

@@ -757,7 +757,10 @@ The harness landed first (a `divan` bench per path, run by `just bench`); this i
 **Method.** `crates/sutura-app/benches/answer_path.rs`, through `just bench`. It calls
 `sutura_app::answer` end to end - compile, mint, execute, materialise - against the committed
 `examples/single-player` catalog and CSVs on the in-process `DataFusion` engine, 100 samples of 100
-iterations per case, release profile. The corpus is the tree's own at `d5d0448e`. Host: Apple M5 Pro,
+iterations per case, release profile. The corpus is the tree's own as of `d5d0448e`; the merge-forward
+this branch landed later has since gained it a model, a relationship and a question, and the medians
+are not re-taken - four orders of magnitude of headroom mean the conclusion is insensitive to that
+drift. Host: Apple M5 Pro,
 15 cores, 48 GiB, macOS 26.6.2 arm64, the pinned `nightly-2026-09-08` toolchain. Venue: the
 developer shell that `just bench` runs in. **Not the nix sandbox** - no derivation runs a benchmark
 here, deliberately, because a benchmark that reddens a build on noise is worse than none - so the
