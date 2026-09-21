@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-exec-bigquery/src/sts.rs b/crates/sutura-exec-bigquery/src/sts.rs
-index 8e127659..6f20f1b0 100644
+index 2cba3f7a..195dec59 100644
 --- a/crates/sutura-exec-bigquery/src/sts.rs
 +++ b/crates/sutura-exec-bigquery/src/sts.rs
-@@ -111,6 +111,8 @@ impl WorkloadIdentity {
+@@ -147,7 +147,9 @@ impl WorkloadIdentity {
      #[inline]
      #[must_use]
      pub fn target_for(&self, subject: &SubjectKey) -> Option<&str> {
@@ -11,4 +11,5 @@ index 8e127659..6f20f1b0 100644
 +            .get(subject)
 +            .map(|_| "wrong-sa@example.iam.gserviceaccount.com")
      }
- }
+ 
+     /// Does the subject token carry the issuer and audience this pool declared it trusts?
