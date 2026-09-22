@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides only WHETHER a caller may be served there; the source executes as whatever principal the declared pool resolves that subject to, through workload-identity federation of the subject's own assertion. The port, the broker and the serve composition are built; the hosted venue that would show a pool resolving one is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Built, and unproven** | On BigQuery a source's declared per-source map decides WHETHER a caller may be served there AND which account their questions execute as: the subject's own assertion is federated to the declared pool, and the pool's principal then impersonates the account declared beside that subject (`telekom/sutura#929` F3). The port, the broker and the serve composition are built; the hosted venue that would show either hop is `wired` and **nobody has dispatched it**. The run this row used to cite was of an HTTP exchange the ADBC adoption deleted. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -176,11 +176,17 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   token service federates the assertion against the pool the source declares. Which of
   [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented, and a
   transport that cannot serve the arm it is handed refuses.
-- **`service_account_impersonation_url` is deliberately absent from that document**, asserted null
-  by `adbc/subject/tests.rs`. So nothing impersonates a declared account, the federated credential
-  IS the pool principal, and the grant that matters is `roles/iam.workloadIdentityUser` on the pool
-  - **not** `roles/iam.serviceAccountTokenCreator`, which is what stopped applying. A reader who
-  provisions from the older wording grants the wrong thing.
+- **`service_account_impersonation_url` names the account declared for the asking subject**, which
+  is `telekom/sutura#929` F3 and reverses a round of this row that had it asserted NULL. So the
+  chain is two links - federate the assertion at STS, then `generateAccessToken` on the declared
+  account with that federated credential - and the grant that matters is
+  `roles/iam.workloadIdentityUser` **on the target account**, whose member is the pool's
+  `principal://.../subject/<id>`, because that role carries `iam.serviceAccounts.getAccessToken`.
+  Still **not** `roles/iam.serviceAccountTokenCreator`, which is what the deleted deployment-side
+  switch needed. **Two limits, both stated in the code beside the claim:** nothing here sees a live
+  IAM policy, so a declared account the pool principal may not impersonate fails as
+  `AdbcError::Adbc` on the FIRST QUESTION BY THAT SUBJECT and never at boot; and no run has shown
+  Google accepting either hop.
 - **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
   a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no
   longer refused by name - it is opened. The `sutura` command (`mcp`/`query`) still refuses by name,
@@ -212,10 +218,24 @@ from this repository shows Google ACCEPTING an assertion.
 `bigquery.impersonate.target_principal` per job with the caller's credential nowhere in the chain,
 which was true for two rounds and was rejected; `JobIdentity` has no spelling for it now.
 
-**One consequence for what the declared map buys.** Its KEYS decide which subjects a source may be
-asked as; its VALUES - the account addresses - are read by nothing, because the pool resolves a
-subject to its own principal and no `service_account_impersonation_url` is sent. Two subjects
-therefore need two pool bindings, not two entries in a map.
+**What the declared map buys, both halves.** Its KEYS decide which subjects a source may be asked
+as; its VALUES name the account each of those subjects executes as, carried on
+`Presented::SubjectToken`'s `impersonate` and sent as the credential document's
+`service_account_impersonation_url`. So changing a declared target principal changes which account
+a caller's question runs as - which it did NOT for three rounds, and
+`telekom/sutura#929`'s re-review called out a security-critical setting accepted and then ignored.
+Two subjects need two pool bindings AND two map entries.
+
+**Two things about carrying that value that are not obvious and are both load-bearing.** It may
+only ride on `PrincipalName`, which is declared by hand: every other principal newtype in
+`sutura-domain` comes out of `principal_newtype!`, which stores the masked form and drops the raw,
+so on one of those an account address would reach Google as `s***-a@a***.i***.g***` and be refused.
+And `PrincipalName::parse` is far WIDER than an email - it accepts `/`, `:`, `?`, `#`, quotes and
+spaces, because it is the parser every principal identifier shares - while the value is
+interpolated into one path segment of a URL that selects which account a question runs as, and the
+Go library POSTs that URL verbatim with no shape check. The narrowing is the sending crate's, at
+both ends: `DeclaredPrincipals::parse` (a startup refusal) and `adbc::identity::authenticate`
+(`AdbcError::UnusableTarget`, because `Presented` is a public port).
 
 **The limit on all of the above, stated where the claim is:** `check-guidance`'s leg-2 rule
 (`xtask/src/guidance/leg_two.rs`) holds this page to the venue cell, but its scope is

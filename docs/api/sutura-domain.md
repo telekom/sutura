@@ -3004,15 +3004,27 @@ invite a client to retry a deployment bug until something works.
 
 ### `use PrincipalName`
 
-A name a data system knows a principal by, for the posture where a session is switched to it.
+A name a data system knows a principal by.
+
+Two roles: the one a session is switched to, and the one a source is asked to execute as after
+the asker's own credential authenticated (`Presented::SubjectToken`'s `impersonate`).
 
 **Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.
 
+**Declared here by hand rather than by `principal_newtype!`, and that is load-bearing rather
+than historical.** That macro stores `mask_principal_into`'s
+output and drops the raw, which is right for a value that only ever reaches a record and wrong
+for one that is SENT: masked, an account address arrives at whatever is asked to become it as
+`s***-a@a***.i***.g***` and is refused. Every value of this type keeps its full string.
+
 Parsed by the same parser every principal identifier in this module goes through, so a name that
-could forge a line in the record a call is written to does not exist. Construct it with
+could forge a line in the record a call is written to does not exist. **What that parser does
+NOT do is narrow this to one data system's shape** - it accepts `/`, `:`, `?`, `#`, quotes and
+spaces, so a crate that interpolates this value into a path or a URL narrows it again at the
+point of sending. Construct it with
 `parse`: the field is private, there is no `Deserialize`, and `TryFrom<String>`
 delegates to the same constructor.
 

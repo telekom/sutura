@@ -4759,9 +4759,9 @@ convenience, and nothing needs to clone a startup refusal.
   document shape has no `scopes` member and the driver's own scope option means
   service-account impersonation, so `scope` is declared and sent by nothing - measured against
   the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
-  `impersonate`'s KEYS decide which callers may be served at all, and `scope` plus
-  `impersonate`'s VALUES are read by nothing - see
-  `sutura_exec_bigquery::DeclaredPrincipals::names` for the second of those.
+  `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
+  each caller's questions execute as, and `scope` alone is read by nothing - see
+  `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -5359,11 +5359,13 @@ executes as the asking subject has to say *which* pool receives that assertion, 
 source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
 sixth amendment.
 
-**What each declared value actually reaches, because three of the four reach nothing.**
-`audience` is sent. `scope` is parsed and sent nowhere: the credential document has no `scopes`
-member, and the driver's own scope option means service-account impersonation, which this
-transport does not do. `impersonate`'s KEYS decide which subjects a source may be served for and
-its VALUES are read by nothing, because the pool resolves each subject to its own principal.
+**What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
+nowhere: the credential document has no `scopes` member, and the driver's own scope option
+selects the DELETED principal-switch mechanism rather than this one. `impersonate`'s KEYS decide
+which subjects a source may be served for, and since `telekom/sutura#929` F3 its VALUES name the
+account each of those subjects executes as - sent as the credential document's
+`service_account_impersonation_url`, so changing one changes which account a caller's questions
+run as.
 `expected_issuer`/`expected_audience` are REFUSED at boot by
 `sutura_cli::serve::broker` - the RFC 8693 hop that checked them is deleted
 (`docs/adr/0034`, both amendments), and a declaration nothing reads is a control that reads as
@@ -5447,10 +5449,12 @@ The Workload Identity Federation setup a `impersonation-at-source` source needs.
 **`impersonate` decides WHO MAY BE SERVED, and nothing else.** A subject present as a key is the
 only caller a source may be asked as; a caller absent from it is refused by
 `sutura_exec_bigquery::DeclaredPrincipalBroker` before any network call rather than answered as
-the process. **The declared account beside each key is read by nothing**: the credential document
-this feeds carries no `service_account_impersonation_url`, so the federated credential IS the
-pool principal and the pool resolves each subject to its own account. An empty map is refused
-where it can become a startup failure, by `DeclaredPrincipals::parse`.
+the process. **And the declared account beside each key decides WHO that caller becomes**: it
+is sent as the credential document's `service_account_impersonation_url`, so the pool resolves
+the subject to its own principal and that principal then impersonates this account
+(`telekom/sutura#929` F3 - a round of this adapter read the keys and ignored the values). An
+empty map, and an account this adapter cannot name in a request, are both refused where they
+can become a startup failure, by `DeclaredPrincipals::parse`.
 
 **`expected_issuer` and `expected_audience` are refused at boot.** They named what the pool
 itself trusts, so that a document leg 1 accepts could not be one the pool declines -
@@ -5550,12 +5554,13 @@ pub struct WorkloadIdentitySa
 
 The service account an operator declares beside a subject in `impersonate`.
 
-**Parsed, and sent nowhere.** No consumer interpolates it: the credential document the shipped
-transport builds carries no `service_account_impersonation_url`, so the pool resolves each
-subject to its own principal and this value decides nothing -
-`sutura_exec_bigquery::DeclaredPrincipals::names` reads the KEY beside it and not this. The
-format is still checked at declaration, so a value that was always malformed does not become a
-surprise on the day something reads it.
+**Parsed here and parsed AGAIN by the crate that sends it.** It is interpolated into one path
+segment of the credential document's `service_account_impersonation_url`, which decides which
+account the question runs as, so the check belongs where the risk is as well as where the value
+is declared - `sutura_exec_bigquery::principal::names_a_service_account` applies the same rule at
+parse and at send. That is deliberate duplication, not drift: the domain's
+`PrincipalName::parse` between them accepts `/`, `:` and `?`, because it is the parser every
+principal identifier shares.
 
 ##### Methods
 

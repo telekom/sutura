@@ -60,6 +60,7 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
     // is the fallback the owner rejected. `Uncovered` over a path naming no `.so` is how the
     // ordering is observable without a driver: the identity is decided first.
     let assertion = Secret::new("a.caller.assertion");
+    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -67,7 +68,10 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject(&assertion),
+        JobIdentity::AsSubject {
+            assertion: &assertion,
+            target: &account,
+        },
         JobDeadline::Boot,
     );
     let refused = endpoint(Impersonation::Disabled)
@@ -83,6 +87,7 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
     // only thing left to fail is the LOAD. Without this cell the refusal above passes over a
     // transport that refused every subject for any reason.
     let assertion = Secret::new("a.caller.assertion");
+    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -90,7 +95,10 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject(&assertion),
+        JobIdentity::AsSubject {
+            assertion: &assertion,
+            target: &account,
+        },
         JobDeadline::Boot,
     );
     let failed = endpoint(impersonating())

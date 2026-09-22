@@ -195,8 +195,9 @@ pub(crate) struct RawWorkloadIdentity {
     pub(crate) scope: String,
     /// The declared subject -> service-account map. Its KEYS decide which subjects a source may be
     /// asked as - a subject with no entry here is refused rather than granted a fallback identity -
-    /// and its VALUES are read by nothing, because the pool resolves each subject to its own
-    /// principal. See `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
+    /// and its VALUES name the account each of those subjects executes as, sent as the credential
+    /// document's `service_account_impersonation_url`. See
+    /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
     #[serde(default)]
     pub(crate) impersonate: std::collections::BTreeMap<String, String>,
     /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Present is

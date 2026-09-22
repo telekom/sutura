@@ -65,15 +65,27 @@ use crate::source::{SharedIdentityDeclared, SourcePosture};
 mod assertion_digest;
 pub use assertion_digest::AssertionDigest;
 
-/// A name a data system knows a principal by, for the posture where a session is switched to it.
+/// A name a data system knows a principal by.
+///
+/// Two roles: the one a session is switched to, and the one a source is asked to execute as after
+/// the asker's own credential authenticated ([`Presented::SubjectToken`]'s `impersonate`).
 ///
 /// **Not a [`Secret`], and that is a statement rather than an omission.** A role or service-account
 /// name is not secret: the trust on that leg belongs to the connection the deployment
 /// authenticated, and the name is what the data system evaluates its policies against. A type that
 /// redacted it would hide the one value an operator has to be able to read back in a log.
 ///
+/// **Declared here by hand rather than by `principal_newtype!`, and that is load-bearing rather
+/// than historical.** That macro stores `mask_principal_into`'s
+/// output and drops the raw, which is right for a value that only ever reaches a record and wrong
+/// for one that is SENT: masked, an account address arrives at whatever is asked to become it as
+/// `s***-a@a***.i***.g***` and is refused. Every value of this type keeps its full string.
+///
 /// Parsed by the same parser every principal identifier in this module goes through, so a name that
-/// could forge a line in the record a call is written to does not exist. Construct it with
+/// could forge a line in the record a call is written to does not exist. **What that parser does
+/// NOT do is narrow this to one data system's shape** - it accepts `/`, `:`, `?`, `#`, quotes and
+/// spaces, so a crate that interpolates this value into a path or a URL narrows it again at the
+/// point of sending. Construct it with
 /// [`parse`](Self::parse): the field is private, there is no `Deserialize`, and `TryFrom<String>`
 /// delegates to the same constructor.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -238,11 +250,30 @@ impl Expiry {
 /// leg as impersonated that ran shared.
 #[derive(Debug)]
 pub enum Presented {
-    /// The asker's own bearer credential, minted for this source.
+    /// The asker's own bearer credential, minted for this source, and the account the source is to
+    /// execute the question as once that credential has authenticated.
     ///
     /// For a source declared [`crate::source::SourcePosture::ImpersonationAtSource`], where the
     /// data system authenticates the subject itself.
-    SubjectToken { material: Secret },
+    ///
+    /// **`impersonate` is an `Option` and not a fourth variant**, because its absence is *no second
+    /// hop* rather than a fourth posture: the credential itself is what the data system evaluates,
+    /// and a variant would put a new exhaustive arm in every adapter that matches this enum to say
+    /// the same thing the `None` says here. Which of the two an adapter can deliver is the
+    /// adapter's own fact - one that carries a subject's credential but has nowhere to name a
+    /// second hop refuses a `Some`, and one that can only reach an account through a second hop
+    /// refuses a `None`.
+    ///
+    /// **It is a [`PrincipalName`] and may never be a macro-declared newtype of this module.** The
+    /// value is sent to a data system, so it has to survive whole:
+    /// [`crate::identity::principal`]'s `principal_newtype!` stores the MASKED form and drops the
+    /// raw, which would reduce an account address to `s***-a@a***.i***.g***` and be refused by
+    /// whatever is asked to become it. `PrincipalName` retains the full string deliberately, and
+    /// says why at its own declaration.
+    SubjectToken {
+        material: Secret,
+        impersonate: Option<PrincipalName>,
+    },
     /// A principal the data system switches to, on a connection the DEPLOYMENT authenticated, so
     /// that the query evaluates as the asker.
     ///

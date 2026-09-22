@@ -21,7 +21,7 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
@@ -85,19 +85,31 @@ pub enum JobIdentity<'job> {
     /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
     /// "no caller" means to a request.
     Transport,
-    /// The asking subject's own verified assertion, for the data system to authenticate itself.
+    /// The asking subject's own verified assertion, and the account this deployment declared that
+    /// subject's questions should execute as.
     ///
     /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
-    /// [`crate::adbc`] puts this behind a workload-identity credential document, so Google's own
-    /// token service verifies it and the source executes as whatever principal the pool resolves
-    /// the subject to. Nothing on that path runs the question under the deployment's identity.
+    /// [`crate::adbc`] puts the assertion behind a workload-identity credential document, so
+    /// Google's own token service verifies it and resolves the subject to the declared pool's
+    /// principal. Nothing on that path runs the question under the deployment's identity.
     ///
-    /// **One subject arm and not two, which is the deletion that makes the claim true.** There used
-    /// to be a second - a PRINCIPAL the deployment asked the data system to become on the subject's
-    /// behalf, on a connection the deployment authenticated - and a transport could serve that one
-    /// while provenance reported the answer as impersonated. It has no spelling here any more, so
-    /// the weaker mechanism is unrepresentable rather than refused.
-    AsSubject(&'job Secret),
+    /// **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
+    /// second mechanism: the credential the driver ends up holding is still derived from the
+    /// caller's own assertion, and the pool principal impersonating a declared account is one chain
+    /// with two links. It is not the deleted principal switch, which ran from the deployment's own
+    /// application default credentials with the caller's credential nowhere in the chain - that has
+    /// no spelling here and a broker presenting it is refused by
+    /// `BigQueryError::NoPrincipalSwitch`.
+    ///
+    /// **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
+    /// run every declared caller as one pool principal while a deployment's `impersonate` map said
+    /// otherwise.
+    AsSubject {
+        /// What the pool verifies.
+        assertion: &'job Secret,
+        /// What the pool's principal then impersonates.
+        target: &'job PrincipalName,
+    },
 }
 
 /// One query job, as this adapter asks for it.
@@ -173,8 +185,9 @@ impl<'job> JobRequest<'job> {
     /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
     /// ignored it would answer as itself while provenance reported the asker. It does not make the
     /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
-    /// assertion and the declared pool is what resolves it to a principal - unproven against a live
-    /// pool, per `docs/where-identity-is-proven.md`.
+    /// assertion and the account declared for that subject, and the declared pool is what resolves
+    /// the assertion to a principal able to impersonate it - unproven against a live pool, per
+    /// `docs/where-identity-is-proven.md`.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {

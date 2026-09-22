@@ -157,6 +157,16 @@ jobs:
           printenv SUTURA_BQ_PRINCIPAL_B_KEY > "$RUNNER_TEMP/principal-b-key.json"
           bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-a-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-a.txt"
           bash nix/bigquery-mint-assertion.sh "$RUNNER_TEMP/principal-b-key.json" "$SUTURA_BQ_WORKLOAD_AUDIENCE" "$RUNNER_TEMP/assertion-b.txt"
+          # The two ACCOUNT ADDRESSES, read out of the same keys and not from a new secret:
+          # `telekom/sutura#929` F3 carries a declared impersonation target per subject, and the
+          # stack binds `roles/iam.workloadIdentityUser` on each principal's OWN account for its own
+          # pool subject - so the account each subject is declared to execute as is that key's
+          # `client_email`. Derived here rather than configured, because a second source for one
+          # value is a second thing to keep true.
+          python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' \
+            "$RUNNER_TEMP/principal-a-key.json" > "$RUNNER_TEMP/account-a.txt"
+          python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' \
+            "$RUNNER_TEMP/principal-b-key.json" > "$RUNNER_TEMP/account-b.txt"
           # The raw keys are spent once minted; removed promptly rather than held for the rest of
           # the job, narrowing the window either sits in cleartext on this runner.
           rm -f "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
@@ -165,11 +175,14 @@ jobs:
       # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
       # than from an environment variable.
       #
-      # **What the leg asserts is that the two answers DIFFER**, not what either one is: the
-      # credential document names no service-account impersonation URL, so the pool resolves each
-      # subject to its own principal and no address this job holds predicts the string
-      # `SESSION_USER()` returns. The two declared account addresses were what an earlier round
-      # compared against, under the deleted principal switch; they are not passed any more.
+      # **What the leg asserts is still that the two answers DIFFER**, not what either one is -
+      # and since `telekom/sutura#929` F3 that is a deliberate under-assertion rather than the only
+      # thing available. The credential document now names the declared account as its
+      # `service_account_impersonation_url`, so `SESSION_USER()` is expected to read that exact
+      # address; the leg does not compare against it because nobody has dispatched this workflow,
+      # and an equality that has never executed would read as a proven binding. The two addresses
+      # ARE passed, so each subject's document names a different account - a single address for
+      # both would make the two answers agree whatever the mechanism did.
       #
       # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
       # dispatch against a pool with no binding for these subjects is the run most likely to reach
@@ -184,6 +197,8 @@ jobs:
           SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
           SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
           SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
+          SUTURA_BQ_ACCOUNT_A_FILE: ${{ runner.temp }}/account-a.txt
+          SUTURA_BQ_ACCOUNT_B_FILE: ${{ runner.temp }}/account-b.txt
         run: |
           set -eu
           if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
@@ -198,11 +213,17 @@ jobs:
             echo "one of the two minted assertions is missing or empty - one subject cannot show two" >&2
             exit 1
           fi
+          if [ ! -s "$SUTURA_BQ_ACCOUNT_A_FILE" ] || [ ! -s "$SUTURA_BQ_ACCOUNT_B_FILE" ]; then
+            echo "one of the two declared account addresses is missing - the step that reads them from the keys runs before this one" >&2
+            exit 1
+          fi
           # The assertions reach the leg as VALUES rather than paths, because the credential source
           # this transport builds is a loopback URL and the assertion never touches a file on the
           # far side either. Read here, in one step, from files this job placed and removes.
           SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
           SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
+          SUTURA_BQ_ACCOUNT_A="$(cat "$SUTURA_BQ_ACCOUNT_A_FILE")" \
+          SUTURA_BQ_ACCOUNT_B="$(cat "$SUTURA_BQ_ACCOUNT_B_FILE")" \
             nix run .#bigquery-declared-principal -- --no-capture
 
       - name: Remove the credentials

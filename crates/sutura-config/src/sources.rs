@@ -364,9 +364,9 @@ pub enum InvalidSourceRegistry {
     /// document shape has no `scopes` member and the driver's own scope option means
     /// service-account impersonation, so `scope` is declared and sent by nothing - measured against
     /// the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
-    /// `impersonate`'s KEYS decide which callers may be served at all, and `scope` plus
-    /// `impersonate`'s VALUES are read by nothing - see
-    /// `sutura_exec_bigquery::DeclaredPrincipals::names` for the second of those.
+    /// `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
+    /// each caller's questions execute as, and `scope` alone is read by nothing - see
+    /// `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the `audience` of the identity pool the asker's own assertion is exchanged against, the `scope` (declared for a future transport, and sent by none in this build - the driver applies its own), and the `impersonate` map naming which subjects may be served here"
     )]

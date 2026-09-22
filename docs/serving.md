@@ -212,6 +212,32 @@ filing: whether the *linked adapter* can carry a per-subject credential at all i
 build, and whether the *bundle* declares an anchor is a property of the catalog. Neither is visible to
 a file, so neither is checked where files are parsed.
 
+### One boot check that is a SIGNAL rather than a refusal, and the limit it leaves
+
+Before it opens a transport, a deployment asks each data system whether it holds the tables the
+catalog names. Three of the four answers are startup refusals - a table the data system says it does
+not have, a listing an identity was not allowed to read (fix it by granting that identity
+`bigquery.tables.list` on the dataset), and a listing that reported a total and then named fewer
+tables than the total claims. The fourth is a `WARN` and the deployment **serves anyway**: a data
+system that could not be ASKED - unreachable, undecodable, or a dataset that is not there.
+
+**The limit, stated here because it is the one an operator has to plan around.** After that `WARN`
+nothing has been verified: a mistyped `table:` fails on the first question against that source, not
+at boot. That is deliberate rather than a gap being worked on. The catalog is **trusted for
+metadata** - a deployment cannot ask a data system about fifty thousand tables at startup, and the
+alternative to the `WARN` is either refusing to start whenever a data system is briefly unreachable
+or a `skip_preflight` key set in exactly the deployment that most needs the check. Read the startup
+log: the `WARN` names the source and the tables it could not account for.
+
+**Two further limits on the three refusing answers.** What a pre-flight establishes is that a table
+EXISTS - not that the model's columns are on it, and not that a question's identity may read it; an
+anchor is what covers both, for the metrics that have one. And exactly one adapter asks at all -
+`bigquery`. Every other source takes the port's default, which reports *not asked* and is never a
+refusal: a `files` deployment is still covered, because attaching a model whose file is missing
+fails the boot on its own, while on a `postgres` source a table the catalog names is neither
+attached against nor asked about unless it is the target of a declared join key or carries an
+anchored metric.
+
 ## Who is asking
 
 Leg 1, and it is **opt-in**: a deployment with no `security.inbound` block has no per-caller identity

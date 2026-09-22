@@ -32,19 +32,21 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   principal's own account id (`unique_id`) - the `sub` its minted id_token carries and hence the
   pool subject it resolves to - so a principal can impersonate only itself.
 
-  **These bindings were sized for a mechanism that is gone, and what they still buy is open.**
-  They authorized an `iamcredentials.generateAccessToken` hop, so that `SESSION_USER()` would read
-  a service account's email rather than a federated `principal://.../subject/...` string. The
-  shipped credential document carries no `service_account_impersonation_url`, so no such hop
-  happens and `SESSION_USER()` reads whatever the pool resolves each subject to. Whether STS
-  federates for a pool subject holding no binding is a property of Google's service that nothing
-  here has exercised - the venue is `wired` in `docs/where-identity-is-proven.md` and nobody has
-  dispatched it;
-- **and the row grants have not caught up.** The two row access policies name
-  `serviceAccount:<email>` grantees, which is not the identity the shipped mechanism executes as.
-  The account half of leg 2 needs no row grant - the cells compare `SESSION_USER()` answers - but
-  the row half, two subjects reading two different row sets, is not provisioned for by this stack
-  as it stands.
+  **These bindings are load-bearing again, and no resource change was needed to make them so.**
+  They authorize an `iamcredentials.generateAccessToken` hop, which is exactly what
+  `telekom/sutura#929` F3 restored: the shipped credential document now carries
+  `service_account_impersonation_url` naming the account declared for the asking subject, and
+  `roles/iam.workloadIdentityUser` on that account carries `iam.serviceAccounts.getAccessToken`. So
+  the grant that stopped applying and came back is this one, and
+  `roles/iam.serviceAccountTokenCreator` - which the deleted deployment-side switch would have
+  needed - is still not declared anywhere. What remains unexercised is the RUN: the venue is
+  `wired` in `docs/where-identity-is-proven.md` and nobody has dispatched it, so nothing here shows
+  Google accepting either hop;
+- **and the row grants are in play again too.** The two row access policies name
+  `serviceAccount:<email>` grantees, which - since each subject now executes AS its declared
+  account - is the identity the mechanism becomes. The row half of leg 2, two subjects reading two
+  different row sets, is therefore provisioned for by this stack; what is missing is a dispatch and
+  a served surface to ask through, not a resource.
 
 `workload_audience` carries the project **number**, not the project id: STS's own `audience`
 request parameter refuses the id with `invalid_target`. `workload_allowed_audiences` defaults to

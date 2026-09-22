@@ -155,3 +155,28 @@ pool, and the venue that would is `wired`.
 exemption list, so a page here stating a registered *leg 2 is proven* wording is refused; nothing
 refuses the two sentences this amendment corrects, because they overstate a NEGATIVE. No gate reads
 them, and none reads a Rust comment at all.
+
+## Fourth amendment, 2026-09-22: the declared map's VALUES decide something again
+
+The third amendment corrected the first two about the ASSERTION and left one clause of its own
+overstated. It reads *the declared map's KEYS decide whether a caller may be served; its VALUES are
+read by nothing*, and that half was true of the tree it described and is false now.
+`telekom/sutura#929` F3 carries the account declared beside each subject onto
+`Presented::SubjectToken` and renders it as the credential document's
+`service_account_impersonation_url`, so the chain is *leg 1 verifies the caller, the deployment
+decides whether that caller may be served at this source, the declared pool resolves that subject to
+a principal of its own, and that principal impersonates the account the deployment declared for
+them.* Changing a configured target principal therefore changes which account a caller's question
+executes as - which it did not for three rounds, and which the re-review called a security-critical
+setting accepted and then ignored.
+
+`roles/iam.serviceAccountTokenCreator` on the DEPLOYMENT's own identity is still the grant that
+stopped applying: the second hop is authorized by `roles/iam.workloadIdentityUser` on the target
+account, whose member is the pool's `principal://.../subject/<id>`. `docs/adr/0018`'s eleventh
+amendment is the fuller record.
+
+**What this does NOT change: the decision, and the refusal that survived it.** The problem this
+record names is still reopened rather than closed - the pool sees the document leg 1 verified, and
+nothing in this process compares its own expectations against the pool's. `expected_issuer` and
+`expected_audience` are still refused at boot, and F3 narrows the arm next to them rather than
+relaxing either.

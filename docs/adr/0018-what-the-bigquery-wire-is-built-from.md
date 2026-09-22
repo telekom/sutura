@@ -1399,3 +1399,59 @@ and reads no credential, and nothing in `just validate` links the static path at
 `cross` jobs and `bigquery-driver-check` do. `x86_64-unknown-linux-musl` is the one triple whose
 link was measured by hand for this amendment (`static-pie linked`, with a Go BuildID in the ELF
 header); the other three are CI's to report.
+
+## Eleventh amendment, 2026-09-22: the declared account is carried, so the second hop is on
+
+The sixth amendment above got the mechanism right and the DECLARATION wrong. It recorded that
+omitting `service_account_impersonation_url` "leaves the credential as the pool principal the
+subject resolved to - two subjects, two principals, with no declared map in the middle", and that
+was a correct reading of the Go library and a wrong conclusion about the product: a deployment
+declaring `sources.<alias>.workload_identity.impersonate` had its subject-to-account map ACCEPTED
+and then ignored, so changing a configured target principal had no effect on anything.
+`telekom/sutura#929`'s re-review named it a security-critical setting accepted and then ignored, and
+chose enforcement over deleting the contract.
+
+**What changed, and it is one field.** `sutura_domain::identity::Presented::SubjectToken` carries
+`impersonate: Option<PrincipalName>` beside its material; `DeclaredPrincipalBroker` mints the
+account declared beside the asking subject into it; `JobIdentity::AsSubject` carries both; and
+`adbc::subject::SubjectSource::document` renders
+`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/<account>:generateAccessToken`
+as the document's `service_account_impersonation_url`. So the chain is two links: federate the
+caller's own assertion at STS, then `generateAccessToken` on the declared account with that
+federated credential. Measured off the pinned `cloud.google.com/go/auth v0.23.2`:
+`credentials/internal/externalaccount/externalaccount.go` wraps the federated provider in
+`credentials/internal/impersonate` when and only when that member is non-empty, and that provider
+POSTs the value as a URL verbatim.
+
+**An `Option` and not a fourth `Presented` variant.** A variant means a new exhaustive arm in every
+adapter that matches the enum, to say what the `None` already says; the absence is *no second hop*,
+not a fourth posture. Which of the two an adapter can deliver is the adapter's own fact, so
+`BigQueryWarehouse::job_identity` refuses a `None` as `BigQueryError::NoImpersonationTarget` rather
+than running the question as the pool's own principal - the half-configured deployment being the
+state worth keeping off a dataset.
+
+**Two security properties that are not plumbing.** The value may ride only on `PrincipalName`, which
+is declared by hand: every other principal newtype in `sutura-domain` comes out of
+`principal_newtype!`, which stores the masked form and drops the raw, so on one of those the account
+would reach Google as `s***-a@a***.i***.g***`. And `PrincipalName::parse` is far wider than an
+email (it accepts `/`, `:`, `?`, `#`, quotes and spaces, because it is the parser every principal
+identifier shares) while the value becomes one path segment of the URL that selects which account
+the question runs as. The narrowing is the sending crate's, at both ends:
+`DeclaredPrincipals::parse` refuses a non-account shape as a STARTUP failure, and
+`adbc::identity::authenticate` refuses it again as `AdbcError::UnusableTarget`, because `Presented`
+is a public port any broker can construct.
+
+**No Pulumi resource changed.** `roles/iam.workloadIdentityUser` on each target account carries
+`iam.serviceAccounts.getAccessToken`, so the binding `test-infra/pulumi/google` already declares is
+exactly what the second hop needs; `roles/iam.serviceAccountTokenCreator`, which the deleted
+deployment-side switch would have needed, is still declared nowhere.
+
+**What this amendment does not claim, and the sixth amendment's own exclusion still stands.**
+Nothing reachable from this repository shows Google accepting either hop; the venue stays `wired`
+and **leg 2 is not proven.** And nothing here - no type, lint, hook or gate - checks that the pool's
+principal may actually impersonate a declared account: no boot-time probe is available, since the
+driver's token fetch is lazy, `AdbcBigQuery::probe` opens no connection and reads no credential, and
+a boot-time mint would need a caller's assertion that boot does not have. An account that is
+declared, well-formed and not reachable surfaces as `AdbcError::Adbc` on the first question by that
+subject, never at boot. `scope` still reaches nothing: the document has no `scopes` member, and the
+library sends `cloud-platform` to the STS leg and the caller's own scopes to the impersonation call.

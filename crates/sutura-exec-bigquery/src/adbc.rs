@@ -150,6 +150,21 @@ pub enum AdbcError {
         #[source]
         cause: std::io::Error,
     },
+    /// A declared impersonation target is not one this transport will name in a request.
+    ///
+    /// **Its own variant rather than an [`Self::Uncovered`], because it is a refusal about a
+    /// VALUE and the string in that one is a missing capability.** The account rides into one path
+    /// segment of `service_account_impersonation_url`, which decides which account the question
+    /// runs as, and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim
+    /// with no shape check at all. `sutura_domain::identity::PrincipalName`'s parser is the
+    /// domain's shared one and accepts `/`, so the narrowing is this crate's.
+    ///
+    /// **It carries nothing**, deliberately: the shipped broker parses the same rule at boot and
+    /// names the value there, where an operator can act on it, and this arm is reachable only from
+    /// a broker that built a `Presented` by hand. A refusal at the send boundary that echoed the
+    /// value would put a caller-influenced string into an error that reaches a log.
+    #[error("the account declared for this subject is not one this transport will name in an impersonation request")]
+    UnusableTarget,
     /// The operating system would not supply the randomness this request's two secrets need.
     ///
     /// **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
@@ -434,6 +449,7 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::NoDryRun
             | AdbcError::Parameters { .. }
             | AdbcError::SubjectSource { .. }
+            | AdbcError::UnusableTarget
             | AdbcError::NoRandomness { .. } => false,
         }
     }
@@ -486,6 +502,18 @@ impl JobTransport for AdbcBigQuery {
     fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(AdbcError::Uncovered("bulk-load fixtures"))
     }
+}
+
+/// The account every cell in this module tree declares for its subject.
+///
+/// **One definition for three suites** (`adbc::tests`, `adbc::identity::tests`,
+/// `adbc::subject::tests`), because three copies of the same fixture address is what
+/// `check-jscpd` is for. A real service-account address rather than a placeholder, so a cell
+/// asserting the URL asserts the shape an operator actually declares.
+#[cfg(test)]
+pub(crate) fn a_declared_account() -> sutura_domain::identity::PrincipalName {
+    sutura_domain::identity::PrincipalName::parse("bq-analyst@acme.iam.gserviceaccount.com")
+        .expect("a fixture account is an account")
 }
 
 #[cfg(test)]

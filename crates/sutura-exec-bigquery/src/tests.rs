@@ -34,8 +34,8 @@ mod preflight;
 mod results;
 
 use fakes::{
-    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
-    one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
+    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, a_subject_token_naming_no_account, day,
+    impersonating_posture, leg_of, one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -510,4 +510,49 @@ fn a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question()
         .dry_run(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
         .expect("a dry run the transport declined is not a question that failed");
     assert_eq!(answered, PreFlight::NotAsked);
+}
+
+#[test]
+fn a_subject_token_with_no_declared_target_is_refused_rather_than_run_as_the_pool_principal() {
+    // **The half-configured deployment, refused at the adapter seam.** A subject's own credential
+    // with no account declared beside it has no `service_account_impersonation_url` to become, so
+    // the only two things this adapter could do are refuse or let the question run as whatever
+    // principal the declared pool resolves the subject to - and the second is a deployment whose
+    // `impersonate` map says one thing while every caller executes as another. `telekom/sutura#929`
+    // review: a security-critical setting must not be accepted and then ignored; silently widened
+    // is the same defect from the other side.
+    //
+    // Not reachable from the broker this crate ships - that one mints the account off the map it
+    // parsed - so this is the refusal for `Presented` being a public port, and the transport is
+    // never asked at all.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let plan = plan();
+    let refused = warehouse
+        .execute(
+            Executable::Query(&plan),
+            &a_subject_token_naming_no_account("an-assertion-with-no-account"),
+            test_deadline(),
+        )
+        .expect_err("a subject's credential with no declared account is not a leg this adapter runs");
+    assert!(
+        matches!(refused, BigQueryError::NoImpersonationTarget { ref at } if at == "warehouse"),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "the job reached the transport, so the question ran as somebody"
+    );
+    // The refusal reaches a log and may not carry the caller's assertion.
+    assert!(!refused.to_string().contains("an-assertion-with-no-account"), "{refused}");
+    // And the DECLARED direction is served by the same adapter, so this is not passing against a
+    // path that refuses every subject.
+    drop(
+        warehouse
+            .execute(
+                Executable::Query(&plan),
+                &a_subject_token("an-assertion-with-an-account"),
+                test_deadline(),
+            )
+            .expect("a subject's credential with a declared account is a leg this adapter runs"),
+    );
 }

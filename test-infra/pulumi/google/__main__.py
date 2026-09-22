@@ -526,33 +526,28 @@ workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
 )
 
-# THE BINDING LEG 2 ACTUALLY RESTS ON, and its purpose is narrower than an earlier round of this
-# comment claimed. That round described an `iamcredentials.generateAccessToken` hop turning the
-# federated credential into the ACCOUNT, so that `SESSION_USER()` would read an account email, and
-# cited a comparison (`each_principal_is_who_this_source_says_it_is_executing_as`) that exists in no
-# tree. Both went with the HTTP transport: the shipped credential document carries no
-# `service_account_impersonation_url`, so the federated credential IS the pool principal and
-# `SESSION_USER()` reads whatever the pool resolves each subject to. The cells that read it -
+# THE BINDING LEG 2 ACTUALLY RESTS ON, and it is load-bearing for BOTH hops again.
+# `telekom/sutura#929` F3 put `service_account_impersonation_url` back on the shipped credential
+# document, naming the account a deployment declared for the asking subject - so the chain is
+# federate the assertion at STS, then `iamcredentials.generateAccessToken` on that account with the
+# federated credential. `roles/iam.workloadIdentityUser` on the account authorizes exactly that
+# (it carries `iam.serviceAccounts.getAccessToken`), which is why F3 needed NO resource change
+# here: `roles/iam.serviceAccountTokenCreator` is what the deleted DEPLOYMENT-side switch would
+# have needed and is still declared nowhere.
+#
+# WHAT IS STILL UNEXERCISED IS THE RUN, and saying so is the honest state. Nothing in this
+# repository has seen Google accept either hop: the venue is `wired` in
+# `docs/where-identity-is-proven.md` and nobody has dispatched it.
 # `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control
-# `the_deployments_own_identity_is_neither_subjects_principal` - compare the two answers against
-# each other and against the deployment's own, never against an address, precisely because nothing
-# predicts that string.
+# `the_deployments_own_identity_is_neither_subjects_principal` still compare the two `SESSION_USER()`
+# answers against each other and against the deployment's own, never against an address - equality
+# with the declared address is available now and is deliberately not asserted, because an assertion
+# that has never executed would read as a proven binding.
 #
-# WHAT THESE BINDINGS STILL BUY IS OPEN, and saying so is the honest state. `workloadIdentityUser`
-# authorizes an external identity to impersonate the account it is bound on - which is the step the
-# shipped document no longer asks for. Whether STS will federate an assertion for a pool subject
-# that holds no such binding is a property of Google's service that nothing in this repository has
-# exercised: the venue is `wired` in `docs/where-identity-is-proven.md` and nobody has dispatched
-# it. Kept as provisioned, because a binding removed on a guess costs a dispatch to discover.
-#
-# A SECOND CONSEQUENCE THE ROW GRANTS HAVE NOT CAUGHT UP WITH. `grantees` above is
-# `serviceAccount:<email>` for each account, and the shipped mechanism executes as the POOL SUBJECT
-# rather than as either account. So the two row access policies grant rows to identities this
-# mechanism never becomes, and the row half of leg 2 - two subjects reading two different row sets -
-# is not provisioned for by this stack as it stands. The account half is:
-# `each_subject_executes_as_its_own_principal_at_the_declared_pool` compares `SESSION_USER()`
-# answers and needs no row grant. Named here rather than repaired, because the repair is a
-# `principal://` grantee shape nobody has applied to a live project.
+# AND THE ROW GRANTS ARE IN PLAY AGAIN. `grantees` above is `serviceAccount:<email>` for each
+# account, which since F3 IS the identity each subject's question executes as - so the row half of
+# leg 2, two subjects reading two different row sets, is provisioned for by this stack. What it
+# needs is a dispatch and a served surface to ask through, not a `principal://` grantee shape.
 #
 # Authorized by `roles/iam.workloadIdentityUser`, bound to the pool SUBJECT of that account - the
 # member the account's minted id_token `sub` (its numeric `unique_id`, via

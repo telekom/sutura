@@ -169,7 +169,7 @@ impl Recording {
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
-                JobIdentity::AsSubject(assertion) => Some(String::from(assertion.expose_secret())),
+                JobIdentity::AsSubject { assertion, .. } => Some(String::from(assertion.expose_secret())),
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
@@ -334,10 +334,30 @@ pub(super) fn impersonating_posture() -> SourcePosture {
     SourcePosture::ImpersonationAtSource
 }
 
-/// A token presented as the asker's own, for the impersonating posture.
+/// The account every fixture leg below declares for its subject.
+///
+/// One value, because what these cells are about is the ASSERTION crossing the seam; the cells
+/// about which account crosses name their own (`principal::tests` for the mint,
+/// `adbc::subject::tests` for the document).
+pub(super) const A_DECLARED_ACCOUNT: &str = "bq-analyst@acme.iam.gserviceaccount.com";
+
+/// A token presented as the asker's own, for the impersonating posture, with the account a
+/// deployment declared that asker's questions run as.
 pub(super) fn a_subject_token(raw: &str) -> Presented {
     Presented::SubjectToken {
         material: sutura_domain::identity::Secret::new(raw),
+        impersonate: Some(
+            sutura_domain::identity::PrincipalName::parse(A_DECLARED_ACCOUNT).expect("a fixture account is an account"),
+        ),
+    }
+}
+
+/// The same token with NO account declared beside it - the half-configured leg this adapter
+/// refuses rather than running as the pool's own principal.
+pub(super) fn a_subject_token_naming_no_account(raw: &str) -> Presented {
+    Presented::SubjectToken {
+        material: sutura_domain::identity::Secret::new(raw),
+        impersonate: None,
     }
 }
 
