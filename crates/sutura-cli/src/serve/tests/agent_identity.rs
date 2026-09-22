@@ -413,9 +413,16 @@ fn priced_state(key_set_id: &str) -> PricedState {
         .expect("the priced agent-route overlay loads");
     let budget = settings.spend_budget().expect("the priced overlay configured a ceiling");
 
-    // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as.
-    // A caller this map does not name is refused rather than widened, so the spend the cells below
-    // measure is spend a broker admitted for THAT subject.
+    // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as -
+    // so the spend the cells below measure is spend a broker admitted for that subject.
+    //
+    // **What these cells do NOT hold, stated because the composition reads as if they did:** the
+    // refusal of a caller this map does not name. Their `ASKING_SUBJECT` IS the map's one declared
+    // key, so widening that refusal to serve any caller leaves every cell here green - it is
+    // structurally unreachable from them, not merely untested. The cell that holds it is
+    // `sutura_exec_bigquery::principal::tests`'
+    // `a_verified_caller_this_source_does_not_name_is_refused_and_never_widened`, beside the
+    // `let … else` it kills.
     let broker = DeclaredPrincipalBroker::empty().impersonating(
         source(),
         DeclaredPrincipals::parse(std::collections::BTreeMap::from([(

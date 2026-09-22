@@ -1306,12 +1306,16 @@ the Keycloak cells are not in this diff.
 
 ## Ninth amendment, 2026-09-21: what is actually pinned, and how the Go module version was read
 
-**This record says *the pinned `cloud.google.com/go/auth v0.23.2`* three times, and that phrasing
-overstates what this repository pins.** Round 7's review went looking for the pin and found none:
-there is no `go/` directory here and no Go module version anywhere in the tree. The only in-tree
-occurrence of the version string is an illustrative `# e.g.` inside a shell comment in
-`nix/bigquery-adbc.nix`, which is a sample of the `<path>@<version>` shape the install phase walks -
-not a declaration.
+**This record calls `cloud.google.com/go/auth v0.23.2` *pinned*, and that phrasing overstates what
+this repository pins.** Round 7's review went looking for the pin and found none: there is no `go/`
+directory here and no Go module version DECLARED anywhere in the tree. The version string does occur
+in the tree, in this page and in the doc comments and generated pages that cite
+`credsfile::ExternalAccountFile`; all of those are prose. The one occurrence outside prose is an
+illustrative `# e.g.` inside a shell comment in `nix/bigquery-adbc.nix`, a sample of the
+`<path>@<version>` shape the install phase walks rather than a declaration. **No count is written
+down here on purpose:** the earlier wording counted both the *pinned* phrasings and the in-tree
+occurrences, and each number was already wrong by the round that read it, because nothing compares
+either against the tree.
 
 **What is pinned is the driver SOURCE and its module closure's hash**, two values, both in-tree:
 
