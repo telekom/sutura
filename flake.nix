@@ -600,7 +600,11 @@
             pnameSuffix = "-hygiene";
             doCheck = false;
             # `check-jscpd` shells to `jscpd`; same expression as `apps.jscpd` (issue #474).
-            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd ];
+            # `check-claim-mutations` shells to `git apply --check` (issue #950) - every OTHER
+            # git-touching gate here degrades to a filesystem walk when git is unavailable
+            # (`repo::all_files`'s own fallback), but a patch's applicability has no such
+            # substitute, so this is the one hygiene gate that needs the real binary.
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd pkgs.git ];
             # `fuzzVendorDir`'s own comment carries the reason: `check-boundaries` reads
             # `fuzz/Cargo.toml`'s graph here, and only here among the ten checks, because only
             # `hygiene` runs against `wholeTree` rather than the root-only filtered source.
