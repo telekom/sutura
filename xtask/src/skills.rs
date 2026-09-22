@@ -232,14 +232,22 @@ const LINK_TARGET: &str = "../.agents/skills";
 /// `release.yml`, `cachix-push.yml`) runs exactly there - so the index-based check held only in a
 /// real checkout, never in CI, whichever way an agent directory drifted.
 ///
-/// **The limit.** This repo's checkouts - Linux and macOS via `nix develop`, and Windows through
-/// the Docker dev container - all materialise a tracked symlink as a real symlink. A checkout
-/// with `core.symlinks=false` writes a pointer FILE to the working tree even for a correctly
-/// tracked link, and reading the working tree cannot tell that apart from a genuinely broken one
-/// the way the index (which still records mode `120000`) could on a checkout that HAS `.git`.
-/// None of this repo's supported platforms take that path, so trading it for a check that also
-/// runs where `.git` does not exist is the right side of the trade - but it is a trade, not a
-/// strict improvement, and `cargo xtask check-skills` still cannot see it on one it would.
+/// **The limit - two trades, not one.** This repo's checkouts - Linux and macOS via `nix
+/// develop`, and Windows through the Docker dev container - all materialise a tracked symlink as
+/// a real symlink. A checkout with `core.symlinks=false` writes a pointer FILE to the working
+/// tree even for a correctly tracked link, and reading the working tree cannot tell that apart
+/// from a genuinely broken one the way the index (which still records mode `120000`) could on a
+/// checkout that HAS `.git`. None of this repo's supported platforms take that path, so trading
+/// it for a check that also runs where `.git` does not exist is the right side of that trade.
+///
+/// The second trade is clone-visible: a link that is present and correct in the working tree but
+/// no longer TRACKED - `git rm --cached` on one of these three, with the working-tree symlink
+/// left in place - now passes here, where the old index read named it missing. That is drift a
+/// fresh clone would feel, and nothing else in this tree refuses it; `.gitignore`'s own comment
+/// on `/.claude/worktrees/` records that it stays narrow precisely because three paths under
+/// `.claude/` are tracked on purpose, so a future widening of that pattern would untrack a link
+/// and this gate would stay green. Neither trade has a mechanism closing it; both are recall
+/// until one does.
 fn link_problems(root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
     for link in AGENT_SKILL_LINKS {
@@ -257,6 +265,12 @@ fn link_problems(root: &Path) -> Vec<String> {
                     .unwrap_or_default();
                 if target.trim() != LINK_TARGET {
                     problems.push(format!("`{link}` points at `{}`, not `{LINK_TARGET}`", target.trim()));
+                } else if std::fs::metadata(&path).is_err() {
+                    // Right text, but nothing there to resolve to - `.agents/skills` deleted or
+                    // moved without updating the three links that point at it. `symlink_metadata`
+                    // above does not follow the link, so this dangling shape passed silently
+                    // until now; `metadata` follows it and is one extra read, not a new fallback.
+                    problems.push(format!("`{link}` points at `{LINK_TARGET}`, which does not exist"));
                 }
             }
         }
@@ -325,13 +339,15 @@ mod link_tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_broken_link_is_caught_with_no_dot_git_anywhere() {
+    fn a_regular_file_among_correct_links_is_the_only_problem_with_no_dot_git_anywhere() {
         // THE hole `github.com/telekom/sutura#952` measured: with `.git` absent, the OLD
         // git-index read exited non-zero and every arm read that as "no findings" -
         // `ok - 17 routed, 20 in the library, 3 agent link(s)` was byte-identical whether one of
         // these three was a regular file or a symlink. Two links correct, one replaced by a
         // regular file, and nothing here shells to git any more - so there is no `.git`-less
-        // blind spot left to fall into.
+        // blind spot left to fall into. This plants the SAME defect as
+        // `a_regular_file_is_named_as_such_rather_than_missing`, mixed in among correct links
+        // rather than in isolation - it does not name a broken symlink and never asserted one.
         let root = tree("broken-in-sandbox");
         for (index, link) in super::AGENT_SKILL_LINKS.iter().enumerate() {
             let path = root.join(link);
@@ -347,6 +363,44 @@ mod link_tests {
         let _swept = std::fs::remove_dir_all(&root);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems.first().is_some_and(|p| p.contains("not a symlink")), "{problems:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_pointing_somewhere_else_is_named() {
+        // The wrong-target arm: right symlink SHAPE, wrong text. Held by no cell before this one -
+        // `target.trim() != LINK_TARGET` neutralised with `&& false` still passed the whole suite.
+        let root = tree("wrong-target");
+        for link in super::AGENT_SKILL_LINKS {
+            let path = root.join(link);
+            std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
+            std::os::unix::fs::symlink("/etc", &path).expect("a symlink pointing elsewhere");
+        }
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len(), "{problems:?}");
+        assert!(problems.iter().all(|p| p.contains("points at `/etc`")), "{problems:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_with_the_right_text_is_caught() {
+        // Right text, nothing there to resolve to - `.agents/skills` deleted or moved without
+        // updating the links. `symlink_metadata` alone cannot see this: it does not follow the
+        // link, so a correct-looking pointer to nothing passed silently before the `metadata`
+        // read was added.
+        let root = tree("dangling");
+        let target_dir = root.join(super::LINK_TARGET.trim_start_matches("../"));
+        std::fs::remove_dir_all(&target_dir).expect("removing the target to make the links dangle");
+        for link in super::AGENT_SKILL_LINKS {
+            let path = root.join(link);
+            std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
+            std::os::unix::fs::symlink(super::LINK_TARGET, &path).expect("a dangling symlink with the right text");
+        }
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len(), "{problems:?}");
+        assert!(problems.iter().all(|p| p.contains("does not exist")), "{problems:?}");
     }
 }
 

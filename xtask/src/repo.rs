@@ -328,6 +328,23 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
         })
         .collect();
 
+    // The one direction the walk fallback is WEAKER in: `SKIP_DIRS` is applied by `walk`'s own
+    // recursion and never by a git listing, so a TRACKED path under one of these names would be
+    // judged on every checkout that has `.git` and silently dropped in the nix sandbox. Refusing
+    // here makes the divergence unrepresentable; `git ls-files` names zero such paths today.
+    //
+    // Scoped to `files` BEFORE the untracked listing below is folded in: an untracked file here is
+    // a local accident the walk and the git listing already agree to skip, and refusing it too
+    // bricked every gate for anyone with a stray `node_modules/` (`#953`).
+    for path in &files {
+        if let Some(dir) = skip_dir_crossed(path) {
+            unreachable.push(format!(
+                "{path}: tracked under `{dir}`, which the walk fallback always skips - the git \
+                 listing and the walk would disagree about whether this file exists"
+            ));
+        }
+    }
+
     if untracked.ok {
         files.extend(
             untracked
@@ -346,21 +363,6 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
             "git ls-files --others could not answer, so every untracked-but-not-ignored file is \
              missing from this listing and no gate's read can reach it",
         ));
-    }
-
-    // The one direction the walk fallback is WEAKER in: `SKIP_DIRS` is applied by `walk`'s own
-    // recursion and never by a git listing, so a tracked path under one of these names would be
-    // judged on every checkout that has `.git` and silently dropped in the nix sandbox, where
-    // `all_files` falls back to the walk. Refusing here makes the divergence unrepresentable
-    // rather than merely absent - `git ls-files` names zero tracked paths under `SKIP_DIRS` today,
-    // so this guards a shape that does not exist yet, not one that does.
-    for path in &files {
-        if let Some(dir) = skip_dir_crossed(path) {
-            unreachable.push(format!(
-                "{path}: tracked under `{dir}`, which the walk fallback always skips - the git \
-                 listing and the walk would disagree about whether this file exists"
-            ));
-        }
     }
 
     files.sort_unstable();
@@ -664,34 +666,68 @@ mod tests {
         }
     }
 
+    /// A scratch root holding one tracked `src/lib.rs`, for the two `SKIP_DIRS` cells that `inspect`
+    /// must actually READ rather than merely name.
+    fn skip_dirs_root(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("sutura-skip-dirs-{name}-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("a scratch tree");
+        std::fs::write(root.join("src/lib.rs"), "// fine\n").expect("the one tracked file");
+        root
+    }
+
     #[test]
     fn a_tracked_path_under_a_skip_dir_refuses_rather_than_disagreeing_with_the_walk() {
         // THE one direction the fallback is weaker in: `SKIP_DIRS` is applied by the WALK's own
-        // recursion and never by a git listing, so a tracked file under one of these names would
-        // be judged wherever `.git` is present and silently dropped in the nix sandbox. Zero
-        // tracked paths cross today - this guards a shape that does not exist yet.
+        // recursion and never by a git listing, so a tracked file here would be judged wherever
+        // `.git` is present and silently dropped in the nix sandbox. `inspect`'s `unreachable`
+        // check runs BEFORE any read, so `/nowhere` never needs to exist.
         let root = std::path::Path::new("/nowhere");
         let census = super::from_git(root, &listed(&staged(&["target/generated.rs"]), ""), &listed("", ""))
             .expect("a listing was still produced");
-        match census.into_listing(super::Unmigrated::WarmStart) {
+        match census.inspect(&[], every_subject, |_, _| {}) {
             Err(super::Refusal::Unreachable(subjects)) => assert!(
                 subjects.first().is_some_and(|why| why.starts_with("target/generated.rs: ")),
                 "{subjects:?}"
             ),
             Err(other) => panic!("wrong arm: {}", other.describe()),
-            Ok(listing) => panic!("a path under a SKIP_DIRS name produced {} subject(s)", listing.1.len()),
+            Ok(inspected) => panic!("a path under a SKIP_DIRS name produced a verdict: {}", inspected.verdict()),
         }
     }
 
     #[test]
     fn a_tracked_path_elsewhere_is_unaffected() {
-        let root = std::path::Path::new("/nowhere");
+        let root = skip_dirs_root("elsewhere");
         let census =
-            super::from_git(root, &listed(&staged(&["src/lib.rs"]), ""), &listed("", "")).expect("a listing was still produced");
-        let listing = census
-            .into_listing(super::Unmigrated::WarmStart)
+            super::from_git(&root, &listed(&staged(&["src/lib.rs"]), ""), &listed("", "")).expect("a listing was still produced");
+        let mut seen = Vec::new();
+        let inspected = census
+            .inspect(&[], every_subject, |rel, _| seen.push(String::from(rel)))
             .expect("an ordinary path is not caught by the SKIP_DIRS guard");
-        assert_eq!(listing.1, [String::from("src/lib.rs")]);
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(seen, [String::from("src/lib.rs")]);
+        assert_eq!(inspected.judged(), 1, "opened and judged, not merely named");
+    }
+
+    #[test]
+    fn an_untracked_path_under_a_skip_dir_is_left_to_the_walk_not_refused() {
+        // A local `node_modules/` is what the walk and the tracked listing already agree to skip -
+        // refusing it too bricked every gate. Only a TRACKED path under SKIP_DIRS is unrepresentable.
+        let root = skip_dirs_root("untracked");
+        let tracked = listed(&staged(&["src/lib.rs"]), "");
+        let untracked = listed("node_modules/x.js\0", "");
+        let census = super::from_git(&root, &tracked, &untracked).expect("a listing was still produced");
+        let mut seen = Vec::new();
+        let inspected = census
+            .inspect(&[], every_subject, |rel, _| seen.push(String::from(rel)))
+            .expect("an untracked path under SKIP_DIRS is not caught by the guard");
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(
+            seen,
+            [String::from("src/lib.rs")],
+            "the untracked node_modules entry is unopened, not judged"
+        );
+        assert_eq!(inspected.judged(), 1);
     }
 
     #[test]
