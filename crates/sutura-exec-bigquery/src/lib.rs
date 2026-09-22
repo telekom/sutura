@@ -735,8 +735,15 @@ where
         Ok(PreFlight::Accepted { estimated_bytes })
     }
 
-    /// Derives the job's own bounds from the port's `Deadline`; see [`Self::dry_run`]'s note and
-    /// `docs/adr/0029`.
+    /// Carries the port's `Deadline` into the job request, which sends it nowhere.
+    ///
+    /// `JobDeadline::Port(deadline)` reaches [`transport::JobRequest`] and [`Self::dry_run`]'s own
+    /// note above is what holds for this call too: the ADBC transport's `run` never reads the field,
+    /// so the driver is given no bound by this process and nothing cancels a running job. The
+    /// summary this replaces said the call *derived the job's own bounds* from the deadline, which
+    /// was the deleted HTTP wire's behaviour - `docs/adr/0029`'s second amendment is the record. What
+    /// does bound this call is in-process: `sutura_app` refuses a question whose deadline is already
+    /// spent before reaching here.
     fn execute(
         &self,
         executable: Executable<'_>,

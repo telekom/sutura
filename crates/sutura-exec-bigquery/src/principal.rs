@@ -308,6 +308,24 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // verified subject, and a verified caller this source does not name, are told the same
             // thing: this source cannot be asked as you. Neither is widened, and the refusal names
             // the SOURCE and never the subject - `Minted::Refused` carries one field for that reason.
+            //
+            // **Held HERE and nowhere else, which is the asymmetry worth writing down.** Cells in
+            // two other crates read as if they held it - `sutura_config`'s broker suite and
+            // `sutura-cli`'s agent-route cells both assert on `Minted::Refused` - and neither can:
+            // the first exercises `StaticCredentialBroker`'s own refusal sites, and the second asks
+            // as the one subject its map declares, so widening this line is invisible to both.
+            //
+            // **The probe is not `&& false`**: a `let … else` has no predicate to negate, so the
+            // way to break it is to give the `else` arm something other than a refusal. Replacing
+            // it with `continue` keeps both `key` and `principals` read, and MEASURED against the
+            // whole workspace it reddens three cells, all in this crate's own `tests` below and
+            // none anywhere else: the two shapes that reach this line
+            // (`a_verified_caller_this_source_does_not_name_is_refused_and_never_widened` for a
+            // subject the map omits, `a_request_with_no_verified_caller_cannot_be_served_by_an_impersonating_source`
+            // for no subject at all) and
+            // `one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`,
+            // which is a whole federated answer refused because one of its two sources does not
+            // name the asker.
             let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };

@@ -7,7 +7,9 @@ description: One absolute deadline per answer, opened by the transport and carri
 
 Status: **accepted; the record, port signature and refusal have landed. The engine returns at a
 cooperative yield after its deadline and drops the rows future; Postgres stops its certified path
-with `statement_timeout`; BigQuery derives `timeoutMs`/`jobTimeoutMs` from the port deadline. The
+with `statement_timeout`; BigQuery sends the port deadline NOWHERE - the second amendment below
+retracts this line's earlier `timeoutMs`/`jobTimeoutMs` claim, which was the deleted HTTP wire's.
+The
 table states each mechanism and its limits. Postgres's raw SQL path has no per-request deadline and
 remains bounded by its connect-time ceiling.** Four accepted
 records lean on this being decided - [0007](0007-federating-across-different-data-systems.md),

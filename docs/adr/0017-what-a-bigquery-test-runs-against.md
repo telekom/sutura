@@ -942,9 +942,11 @@ than how long a REQUEST may - one number both roots read - and that is a setting
 than this record's.
 
 **Superseded by `docs/adr/0029`.** `QueryDeadline::within_request_timeout` and `CALLS_PER_ANSWER` are
-deleted: a request-time job now derives `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`,
-opened once per answer and shared by every call it makes, rather than from a share of this adapter's
-own configured job bounds divided in advance. This composition root now fills `JobBounds` from
+deleted: a request-time job is handed the port's own `Deadline`, opened once per answer and shared
+by every call it makes, rather than a share of this adapter's own configured job bounds divided in
+advance. It is handed it and nothing sends it on - `timeoutMs`/`jobTimeoutMs` were `jobs.query`
+request parameters and went with the HTTP transport, so this sentence's earlier *derives* is
+retracted by `docs/adr/0029`'s second amendment. This composition root now fills `JobBounds` from
 `server.request_timeout_seconds` directly - the number this paragraph's limit measured against the
 old arithmetic no longer applies, because there is no longer an arithmetic here to measure.
 
