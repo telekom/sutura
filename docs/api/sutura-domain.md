@@ -11282,10 +11282,10 @@ assert_eq!(
 
 One result stream, checked against its announced schema batch by batch.
 
-**The accumulator exists so the schema check and the row ceiling fire WHILE the stream is read.**
-A driver's reader is driven straight into `Self::push`, so a stream that will be refused is
-refused at the batch that crosses the line - not after every batch has been collected, which is
-the point at which the memory a ceiling protects has already been spent.
+**The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+stream is read.** A driver's reader is driven straight into `Self::push`, so a stream that will
+be refused is refused at the batch that crosses the line - not after every batch has been
+collected, which is the point at which the memory a ceiling protects has already been spent.
 
 ### `use ResultBatches`
 
@@ -11296,6 +11296,22 @@ batch carried the announced fields by name and type. There is no public construc
 batches directly - `Accumulating` is the only way in - because a constructor that took a
 `Vec<RecordBatch>` and checked afterwards would let a caller hold an unchecked one for a line,
 and the check has to happen while the stream is read or a bound on it is not a bound.
+
+### `use ResultBudget`
+
+How many bytes one result may cost to hold and to convert, together.
+
+**A newtype for the unit, beside a `usize` row count that means something else entirely.**
+`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+budget refuses the empty result too, and an empty result is an answer.
+
+**It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+the process can actually reach; this type is the unit that number travels in once an adapter has
+converted it. So there is no *unset* state to default: a call site that has no budget has no
+value of this type and does not compile.
 
 ### `use UnannouncedBatch`
 
@@ -12967,6 +12983,10 @@ pub fn none_under(schema: SchemaRef) -> Self
 
 A result with no rows, under a schema - what an adapter answers for an empty stream.
 
+The budget is the smallest one that exists and nothing is charged against it: no batch is
+pushed, so no byte is spent. A caller-supplied budget here would be a parameter with nothing
+to bound.
+
 ```rust
 pub const fn rows(&self) -> usize
 ```
@@ -13018,6 +13038,16 @@ metadata - and never a cell, so a refusal an operator reads discloses no data.
 
   The ceiling is passed in rather than fixed here: what is a sane bound depends on whether the
   caller is reading an answer or a federation leg, and only the caller knows which.
+- `OverBudget` - The stream would cost more memory to hold and convert than the caller's budget allows.
+
+  **The sibling of `Self::OverBound` counting what is actually scarce**, which round 7 of
+  `telekom/sutura#929`'s review is the report for: a row ceiling is not a memory bound when the
+  caller controls row WIDTH, so a million narrow rows and a thousand very wide ones are the
+  same number under `Self::OverBound` and orders of magnitude apart here.
+
+  Carries the BUDGET and never the demand, for `ResultBudget`'s stated reason: the budget is
+  a number an operator configured and can act on, while what the question wanted is an
+  observation about one caller's data.
 
 ##### Implements
 
@@ -13050,6 +13080,44 @@ Why an Arrow array could not become a domain value.
 
 `Debug`, `Display`, `Error`, `PartialEq`
 
+#### `struct ResultBudget`
+
+```rust
+pub struct ResultBudget
+```
+
+How many bytes one result may cost to hold and to convert, together.
+
+**A newtype for the unit, beside a `usize` row count that means something else entirely.**
+`Accumulating::announcing` takes both, and `docs/adr/0009`'s whole argument for retiring the
+per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+budget refuses the empty result too, and an empty result is an answer.
+
+**It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+the process can actually reach; this type is the unit that number travels in once an adapter has
+converted it. So there is no *unset* state to default: a call site that has no budget has no
+value of this type and does not compile.
+
+##### Methods
+
+```rust
+pub const fn bytes(self) -> usize
+```
+
+The budget as a plain count, for the arithmetic that spends it.
+
+```rust
+pub const fn of_bytes(bytes: core::num::NonZeroUsize) -> Self
+```
+
+The budget, in bytes.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 #### `struct Accumulating`
 
 ```rust
@@ -13058,18 +13126,19 @@ pub struct Accumulating
 
 One result stream, checked against its announced schema batch by batch.
 
-**The accumulator exists so the schema check and the row ceiling fire WHILE the stream is read.**
-A driver's reader is driven straight into `Self::push`, so a stream that will be refused is
-refused at the batch that crosses the line - not after every batch has been collected, which is
-the point at which the memory a ceiling protects has already been spent.
+**The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+stream is read.** A driver's reader is driven straight into `Self::push`, so a stream that will
+be refused is refused at the batch that crosses the line - not after every batch has been
+collected, which is the point at which the memory a ceiling protects has already been spent.
 
 ##### Methods
 
 ```rust
-pub const fn announcing(schema: SchemaRef, most: usize) -> Self
+pub const fn announcing(schema: SchemaRef, most: usize, budget: ResultBudget) -> Self
 ```
 
-Starts reading a stream announced under `schema`, refusing past `most` rows.
+Starts reading a stream announced under `schema`, refusing past `most` rows or `budget`
+bytes of materialisation.
 
 ```rust
 pub const fn delivered(&self) -> usize
@@ -13094,6 +13163,13 @@ Checks one batch against the announced schema and keeps it.
 `UnannouncedBatch::Width` for a batch of the wrong width, `UnannouncedBatch::Mislabelled`
 for one whose field at a position is not the announced one, and
 `UnannouncedBatch::OverBound` where this batch would take the stream past the ceiling.
+
+```rust
+pub const fn spent_bytes(&self) -> usize
+```
+
+What the accepted batches have already spent of the budget, which is what they cost to hold
+and will cost to convert.
 
 ##### Implements
 
@@ -13177,6 +13253,12 @@ invariant makes the ragged case unreachable.
 `MalformedRowSet::RowWidth` for a ragged input, refused here rather than at the Arrow layer -
 `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
 would be the one nobody had read.
+**It charges nothing against a `ResultBudget`, and that is a limit rather than an oversight.**
+Its input is rows the caller already holds, so every byte this bound would refuse has been
+allocated before the call - a budget here would be a check after the spend, which is the exact
+shape `Accumulating::push` exists to avoid. The three adapters that reach here decode their own
+driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
+bounding them means bounding their own decode loops, which is a change to each of them.
 
 ### Module `raw`
 

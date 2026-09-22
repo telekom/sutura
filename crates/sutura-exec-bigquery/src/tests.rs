@@ -170,7 +170,7 @@ fn labelled(label: &str, rows: Vec<Option<&str>>) -> ResultBatches {
     let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(label, DataType::Utf8, true)]));
     let count = rows.len();
     let array: ArrayRef = Arc::new(StringArray::from(rows));
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), count.max(1));
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), count.max(1), roomy());
     accumulating
         .push(RecordBatch::try_new(schema, vec![array]).expect("a one-column fixture batch is rectangular"))
         .expect("a fixture batch carries its own schema");
@@ -260,7 +260,7 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
             Field::new("session_user", DataType::Utf8, true),
             Field::new("extra", DataType::Utf8, true),
         ]));
-        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1);
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1, roomy());
         let batch = RecordBatch::try_new(
             schema,
             vec![
@@ -594,4 +594,12 @@ fn a_subject_token_with_no_declared_target_is_refused_rather_than_run_as_the_poo
             )
             .expect("a subject's credential with a declared account is a leg this adapter runs"),
     );
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }

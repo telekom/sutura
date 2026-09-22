@@ -398,3 +398,28 @@ is that a deployment may point a source at one.
 - ADR 0006's federation probe paragraph said the bzip2 licence was one *the allowlist does not
   carry*, with `cargo deny` not run over the probe. That is corrected in place: the licence is
   carried now, deliberately, and `cargo deny check licenses` was run.
+
+## Amendment, 2026-09-22: the residual gap is closed by the counted conversion this record named
+
+Step 3's limit paragraph ends *if the residual gap is not acceptable the answer is a counted
+conversion beside the pool, not a wider claim*. Round 7 of `telekom/sutura#929`'s review found it was
+not acceptable and measured why: the engine called `DataFrame::collect`, retained every batch, passed
+`usize::MAX` as its row ceiling, and then `ResultBatches::to_rows` built a second full copy. So the
+counted conversion is built, and this record's own prescription is what it is.
+
+**Where the count lives.** In `sutura_domain::warehouse::Accumulating::push` rather than beside the
+pool - the guard that already applied the row ceiling and the schema check, which means every
+`ResultBatches` in the workspace goes through it and no adapter has an unbudgeted door.
+`RecordBatch::get_array_memory_size()` is charged twice, once for holding the batch and once for the
+owned `Vec<Vec<Value>>` `to_rows` will build, plus that copy's own per-row and per-cell structure.
+`collect()` is gone from both call sites in `sutura-exec-datafusion`; `execute_stream` plus
+`StreamExt::next` is what makes the refusal land before the next batch is asked for.
+
+**What the sentences in Step 3 and at line 173 now mean.** *It does not count `collect()`
+materialising the answer* is spent: nothing calls `collect()`. *The engine passes `usize::MAX`* still
+holds and is still deliberate - `docs/adr/0009` retired the row cap because a row count is not a
+memory bound - but it is no longer the whole of the engine's own bound, because the byte budget beside
+it is. **Neither bound is a superset of the other remains true**, and for the same reason: the pool
+sees operators and not results, the budget sees the result and not operators. What is still not
+counted is the `MemTable`s the legs are registered as, which are the caller's own already-budgeted
+batches.

@@ -24,14 +24,30 @@
 //! nowhere to spill.
 //!
 //! **What it does NOT count, stated here rather than left to be discovered.** `crate::pool`'s own
-//! header is the full list; the two that matter for a combine are that the in-memory tables the
+//! header is the full list; the two that mattered for a combine were that the in-memory tables the
 //! legs are registered as are NOT a reservation (they are batches the caller already holds, and
-//! registering them copies no buffer), and that `collect()` materialising the answer is not one
+//! registering them copies no buffer), and that `collect()` materialising the answer was not one
 //! either. So this is a bound on the combine's OPERATORS and on nothing else. The hand-written
 //! combine counted the answer's own cells and not the operators; the two bounds cover different
 //! things, and the honest summary is that the reach moved rather than widened. What still bounds
 //! the answer's own size is `sutura_domain::plan::MAX_ROWS` and the response bound, both applied
 //! by `sutura_app::federated` over the combined result.
+//!
+//! **One of those two gaps is now closed, and by a different mechanism rather than by the pool
+//! widening.** `docs/adr/0009`'s fourth amendment builds the byte budget at the execution boundary,
+//! and this module spends it: `collected` streams the combined answer into
+//! `sutura_domain::warehouse::Accumulating` under `WorkingSet::result_budget`, charging both what
+//! the batches cost to hold and what `to_rows` will cost to build. So *`collect()` materialising the
+//! answer is not counted* is spent - nothing here calls `collect()` any more, and an over-budget
+//! answer leaves as [`CombineError::Exhausted`] so the caller is told the configured number refused
+//! it.
+//!
+//! **The other gap is unchanged, and so is the shape of the claim.** The `MemTable`s the legs are
+//! registered as are still not a reservation and are still not charged here: they are the CALLER's
+//! batches, already accumulated under the budget of whichever adapter produced them, and this module
+//! never allocates a second copy of them. Neither bound is a superset of the other - the pool sees
+//! operators and not results, this budget sees the result and not operators - and the two are sized
+//! from the same configured number, so a combine's worst case is twice it rather than once.
 //!
 //! # Every refusal the hand-written combine made, and where each one went
 //!
@@ -56,6 +72,8 @@ use datafusion::functions::expr_fn::nullif;
 use datafusion::functions_aggregate::expr_fn::{count, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
+// `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
+use futures_util::StreamExt as _;
 use sutura_domain::federation::{Above, Carried};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::Aggregate;
@@ -329,7 +347,7 @@ impl DataFusionCombiner {
         register(&context, FACT_TABLE, FACT, legs.fact())?;
         register(&context, LOOKUP_TABLE, LOOKUP, legs.lookup())?;
 
-        refuse_ambiguous_link(&context, &link, ceiling_bytes).await?;
+        refuse_ambiguous_link(&context, &link, ceiling_bytes, working_set).await?;
 
         let logical = combine_plan(plan, &context, &link, &leaves).await?;
         let frame = context
@@ -349,7 +367,7 @@ impl DataFusionCombiner {
                 actual,
             });
         }
-        let answered = collected(frame, ceiling_bytes).await?;
+        let answered = collected(frame, ceiling_bytes, working_set).await?;
         refuse_non_finite(&answered)?;
         Ok(answered)
     }
@@ -641,7 +659,12 @@ fn leaf_sum(column: Expr, kind: LeafKind) -> Expr {
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
 /// separable from the number.
-async fn refuse_ambiguous_link(context: &SessionContext, link: &str, ceiling_bytes: u64) -> Result<(), CombineError> {
+async fn refuse_ambiguous_link(
+    context: &SessionContext,
+    link: &str,
+    ceiling_bytes: u64,
+    working_set: WorkingSet,
+) -> Result<(), CombineError> {
     let probe = probe_label();
     let scanned = scan(context, LOOKUP_TABLE).await?;
     let column = qualified(LOOKUP_TABLE, link);
@@ -659,36 +682,55 @@ async fn refuse_ambiguous_link(context: &SessionContext, link: &str, ceiling_byt
         .execute_logical_plan(logical)
         .await
         .map_err(|cause| CombineError::Analyze { cause })?;
-    let found = collected(frame, ceiling_bytes).await?;
+    let found = collected(frame, ceiling_bytes, working_set).await?;
     if found.rows() > 0 {
         return Err(CombineError::AmbiguousLink);
     }
     Ok(())
 }
 
-/// A frame's batches, checked against the frame's own announced schema, with the ceiling recognised.
+/// A frame's batches, streamed into the guard, checked against the frame's own announced schema and
+/// charged against the byte budget as they arrive.
 ///
-/// The row ceiling is `usize::MAX` for `crate::collected`'s own reason: what protects this process
-/// from a wide result is the pool, and a second row-count bound here would refuse an answer the pool
-/// had already granted.
-async fn collected(frame: datafusion::prelude::DataFrame, ceiling_bytes: u64) -> Result<ResultBatches, CombineError> {
+/// The row ceiling is `usize::MAX` for `crate::collected`'s own reason - `docs/adr/0009` retired the
+/// row cap because a row count is not a memory bound - and the byte budget is what replaced it.
+/// Nothing calls `DataFrame::collect` here any more: a combine that retained every batch before
+/// charging anything would refuse after the memory was spent.
+///
+/// **An over-budget combined answer leaves as [`CombineError::Exhausted`] and not as
+/// [`CombineError::Unannounced`]**, which is a classification decision rather than a convenience.
+/// The budget is the working-set ceiling (`WorkingSet::result_budget`), so what the caller needs to
+/// be told is that this question wanted more memory than the configured number - the same thing a
+/// refused operator reservation means, from the same number, and `working_set_exhausted` is the one
+/// predicate the combiner port has to say it with. Routing it through `Unannounced` instead would
+/// reach the caller as a data-system failure inviting a retry.
+async fn collected(
+    frame: datafusion::prelude::DataFrame,
+    ceiling_bytes: u64,
+    working_set: WorkingSet,
+) -> Result<ResultBatches, CombineError> {
+    let budget = working_set.result_budget();
     let announced = Arc::clone(frame.schema().inner());
-    let batches = frame.collect().await.map_err(|cause| {
-        // `pool::exhausted` uses `find_root`, because a reservation is refused deep inside an
-        // operator and the engine wraps the error on the way out. Matching the outermost variant
-        // would report almost every real exhaustion as a transport failure, which is the direction
-        // that tells a caller to retry a bound that fires again in the same place.
+    // `pool::exhausted` uses `find_root`, because a reservation is refused deep inside an operator
+    // and the engine wraps the error on the way out. Matching the outermost variant would report
+    // almost every real exhaustion as a transport failure, which is the direction that tells a
+    // caller to retry a bound that fires again in the same place.
+    let exhaustion = |cause: datafusion::error::DataFusionError| {
         if pool::exhausted(&cause) {
             CombineError::Exhausted { ceiling_bytes }
         } else {
             CombineError::Execute { cause }
         }
-    })?;
-    let mut accumulating = Accumulating::announcing(announced, usize::MAX);
-    for batch in batches {
-        accumulating
-            .push(batch)
-            .map_err(|cause| CombineError::Unannounced { cause })?;
+    };
+    let mut stream = frame.execute_stream().await.map_err(exhaustion)?;
+    let mut accumulating = Accumulating::announcing(announced, usize::MAX, budget);
+    while let Some(batch) = stream.next().await {
+        accumulating.push(batch.map_err(exhaustion)?).map_err(|cause| match cause {
+            UnannouncedBatch::OverBudget { .. } => CombineError::Exhausted { ceiling_bytes },
+            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
+                CombineError::Unannounced { cause }
+            }
+        })?;
     }
     Ok(accumulating.finish())
 }

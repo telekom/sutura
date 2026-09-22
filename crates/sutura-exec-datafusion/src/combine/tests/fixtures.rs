@@ -249,7 +249,7 @@ pub(super) fn typed(fields: Vec<(&str, DataType)>, columns: Vec<ArrayRef>, rows:
             .map(|(name, kind)| Field::new(name, kind, true))
             .collect::<Vec<Field>>(),
     ));
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), rows);
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), rows, roomy());
     if rows > 0 {
         let batch = RecordBatch::try_new(schema, columns).expect("a test batch is well formed");
         accumulating.push(batch).expect("a test batch agrees with its own schema");
@@ -300,4 +300,12 @@ pub(super) fn refusal(
     combiner()
         .answer_not_well_formed(&error)
         .unwrap_or_else(|| panic!("expected a caller-facing refusal, got {error:?}"))
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }
