@@ -7,7 +7,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
 
 use super::{AdapterFailure, DriverFailure};
 
@@ -63,7 +63,12 @@ impl Warehouse for RawCapableWarehouse {
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }

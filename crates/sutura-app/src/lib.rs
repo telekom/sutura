@@ -38,7 +38,7 @@ use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::{Executable, FederatedFailure, RowCeiling};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{PreFlight, Warehouse};
+use sutura_domain::warehouse::{PreFlight, UnreadableCell, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
 pub(crate) use crate::bounds::{exceeds_response_bound, exceeds_row_cap};
@@ -213,6 +213,26 @@ pub enum ServiceError<E, M> {
     Credentials {
         #[source]
         cause: CredentialsDoNotFitTheRequest,
+    },
+    /// A result came back as Arrow and one of its columns could not become a domain value.
+    ///
+    /// **This variant is where the Arrow port's decode moved to, not a new failure mode.**
+    /// `docs/adr/0039` step 2 puts the one Arrow-to-[`Value`](sutura_domain::warehouse::Value)
+    /// decode in the interior and step 2's second half moves the CALL to the presentation edge, so
+    /// the failure that used to arrive wrapped in an adapter's own error - `BigQueryError::
+    /// Unreadable`, the engine's `DataFusionError::Unreadable` - arrives here instead, for every
+    /// adapter at once.
+    ///
+    /// **An internal failure rather than a refusal, and that is today's classification kept rather
+    /// than chosen afresh:** both adapters mapped it into their own error type, which reaches a
+    /// transport as [`Self::Warehouse`] does. What it means is that a data system returned a column
+    /// of a type this workspace does not map, or a value no domain cell can hold - a non-finite
+    /// double, a day number that is not a date. No caller caused it and narrowing the question does
+    /// not avoid it, which is why it is not a refusal a caller is told to act on.
+    #[error("a result column could not be read")]
+    Unreadable {
+        #[source]
+        cause: UnreadableCell,
     },
 }
 
@@ -626,6 +646,11 @@ where
             return Err(ServiceError::Warehouse { cause });
         }
     };
+    // **The presentation edge, and `docs/adr/0039` step 2 put it here.** The port hands back Arrow;
+    // this is the one call that turns it into the rows a caller reads, and it is above every adapter
+    // rather than inside each one. The two bounds below count rows and bytes, so they read the
+    // decoded set - an Arrow row count would not see the width a caller's cells add up to.
+    let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
     // `plan.max_rows()`, so more than that many coming back means the result was cut short - and a
     // truncated result is a wrong total under a certified name, with provenance attached and nothing

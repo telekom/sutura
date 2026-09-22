@@ -13,7 +13,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, RowSet, Value, Warehouse};
 
 // ---------------------------------------------------------------------------
 // The federated answer orchestration
@@ -815,8 +815,13 @@ impl Warehouse for AsymmetricLegWarehouse {
         self.can_execute_legs
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(crate::tests_support::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

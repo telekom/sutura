@@ -314,6 +314,7 @@ mod deadline {
         // `[bucket, measure]` per row - no keys on this plan - so the `timeout_ms` aggregate is the
         // SECOND cell, not the first: that one is the `day` bucket every case in this corpus
         // projects ahead of its measure (`mean_by_day`'s own expected rows show the same order).
+        let rows = rows.to_rows().expect("the probe's own two columns decode");
         let seen_ms = match rows.rows().first().and_then(|row| row.get(1)) {
             Some(Value::Integer(ms)) => *ms,
             other => panic!("expected exactly one integer cell at index 1, got {other:?}"),

@@ -48,7 +48,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::preflight::TablesPresent;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, ResultBatches, Warehouse};
 use sutura_exec_datafusion::DataFusionWarehouse;
 
 /// One adapter, of whichever kind this build linked - see the module header for the two things it
@@ -164,7 +164,12 @@ impl Warehouse for AnyWarehouse {
         any_fallible!(self, dry_run, executable, presented, deadline)
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         any_fallible!(self, execute, executable, presented, deadline)
     }
 

@@ -683,7 +683,12 @@ where
 
     /// Derives the job's own bounds from the port's `Deadline`; see [`Self::dry_run`]'s note and
     /// `docs/adr/0029`.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
         let answered = self
@@ -694,7 +699,9 @@ where
                 JobDeadline::Port(deadline),
             ))
             .map_err(|cause| BigQueryError::Endpoint { cause })?;
-        Self::rows(&answered)
+        // Nothing to convert: the ADBC driver's own typed Arrow arrays ARE the port's currency since
+        // `docs/adr/0039` step 2, so this adapter is the one that stopped paying rather than started.
+        Ok(answered)
     }
 
     /// Re-runs an anchor's plan, under the one identity this adapter was configured with.

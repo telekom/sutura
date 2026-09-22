@@ -223,6 +223,11 @@ where
         .map_err(|cause| Fault::NotAnswered {
             case: case.name().to_owned(),
             cause,
+        })?
+        .to_rows()
+        .map_err(|cause| Fault::Unreadable {
+            case: case.name().to_owned(),
+            cause,
         })?;
     agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
         case: case.name().to_owned(),
@@ -276,7 +281,7 @@ where
     if let Ok(answered) = warehouse.execute(Executable::Leg(leg.leg()), &corpus::presented(), corpus::deadline()) {
         return Err(Fault::ALegWasAnswered {
             case: leg.name().to_owned(),
-            rows: answered.rows().len(),
+            rows: answered.rows(),
         });
     }
     Ok(Outcome::Held)
@@ -290,6 +295,16 @@ where
     warehouse
         .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
         .map_err(|cause| Fault::NotAnswered {
+            case: case.name().to_owned(),
+            cause,
+        })?
+        // **The decode is the pack's, because the port's currency is Arrow** - `docs/adr/0039`
+        // step 2. Every comparison in this pack is over domain rows, so this is where a result stops
+        // being batches, and a column whose Arrow type this workspace does not map is its own fault
+        // rather than a content disagreement: the number was never read, so reporting it as a wrong
+        // number would name the wrong defect.
+        .to_rows()
+        .map_err(|cause| Fault::Unreadable {
             case: case.name().to_owned(),
             cause,
         })

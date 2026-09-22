@@ -433,14 +433,36 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableC
 
 /// One column's Arrow array, built from domain values.
 ///
-/// Behind the `fixtures` feature, because only a fake and an adapter whose source speaks rows need
-/// it: an adapter reading Arrow from its driver has nothing to build.
+/// **No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
+/// With [`Warehouse::execute`](crate::warehouse::Warehouse::execute) returning [`ResultBatches`],
+/// the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
+/// this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
 ///
-/// **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`, all-`Real` is `Float64`, anything else is `Utf8` with each value
-/// rendered - so a MIXED column round-trips as text rather than as the types it went in as. That is
-/// the honest limit of a per-cell union meeting a per-column format, and no source produces a mixed
-/// column: a data system declares a column's type.
-#[cfg(feature = "fixtures")]
+/// **The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
+/// all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
+/// `Decimal128(38, 0)`, and anything else is `Utf8` with each value rendered. An all-null column,
+/// and every column of a result with no rows at all, reads as `Int64` - which no cell can be read
+/// from, so the type is arbitrary rather than wrong.
+///
+/// **The `Decimal128` arm exists because the "no source produces a mixed column" argument is
+/// FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
+/// column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
+/// `sutura-exec-postgres` both answer a whole number that fits an `i64` as [`Value::Integer`] and
+/// one that does not as an exact [`Value::Text`], so one `DECIMAL`/`HUGEINT` column arrives mixed.
+/// The conformance corpus has two such cases (`wide-total-by-day`,
+/// `overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
+/// `Text("15")` - a conformance failure against the reference rows, on the production path, for
+/// two of the four adapters the Arrow port makes convert.
+///
+/// `Decimal128(38, 0)` round-trips both halves exactly, because [`ResultBatches::to_rows`]'s
+/// zero-scale arm widens a
+/// value that fits an `i64` back to [`Value::Integer`] and leaves one that does not as its exact
+/// text. That is the same pairing `sutura-exec-bigquery`'s conformance fake declares by hand.
+///
+/// **The limit that survives:** a column mixing [`Value::Integer`] or [`Value::Real`] with text
+/// that is NOT an exact integer still renders to `Utf8`, so a number in it comes back as text. An
+/// all-text column is never promoted, deliberately - a postal code column of `"01234"` would lose
+/// its leading zero, and text a source declared as text is not a number this may decide about.
 #[must_use]
 pub fn arrow_column(values: &[Value]) -> (DataType, arrow_array::ArrayRef) {
     use std::sync::Arc;
@@ -466,6 +488,9 @@ pub fn arrow_column(values: &[Value]) -> (DataType, arrow_array::ArrayRef) {
             .collect();
         return (DataType::Float64, Arc::new(arrow_array::Float64Array::from(reals)));
     }
+    if let Some(exact) = exact_integers(values) {
+        return exact;
+    }
     let texts: Vec<Option<String>> = values
         .iter()
         .map(|value| match *value {
@@ -476,16 +501,73 @@ pub fn arrow_column(values: &[Value]) -> (DataType, arrow_array::ArrayRef) {
     (DataType::Utf8, Arc::new(arrow_array::StringArray::from(texts)))
 }
 
+/// How wide an exact integral column is declared, which is the widest `Decimal128` Arrow has.
+///
+/// The scale is zero, and that pairing is what [`ResultBatches::to_rows`] reads to widen a
+/// fitting value back to
+/// [`Value::Integer`].
+const EXACT_PRECISION: u8 = 38;
+
+/// A column mixing [`Value::Integer`] with exact integral text, as one `Decimal128(38, 0)` array.
+///
+/// `None` when the column is not that shape, which leaves [`arrow_column`]'s text arm to answer -
+/// and also when `with_precision_and_scale` refuses, which the two constants above make
+/// unreachable: `arrow` rejects only a precision past 38 or a scale past the precision. Answered as
+/// `None` rather than unwrapped because this workspace allows neither `unwrap` nor `expect` here,
+/// and the fallback is the behaviour this arm replaced rather than a new one.
+fn exact_integers(values: &[Value]) -> Option<(DataType, arrow_array::ArrayRef)> {
+    use std::sync::Arc;
+
+    let present = || values.iter().filter(|value| !matches!(**value, Value::Null));
+    // At least one real `Integer`: an all-TEXT column is never promoted. See `arrow_column`.
+    if !present().any(|value| matches!(*value, Value::Integer(_))) {
+        return None;
+    }
+    let exact: Option<Vec<Option<i128>>> = values
+        .iter()
+        .map(|value| match *value {
+            Value::Null => Some(None),
+            Value::Integer(number) => Some(Some(i128::from(number))),
+            Value::Text(ref text) => text.parse::<i128>().ok().map(Some),
+            Value::Real(_) => None,
+        })
+        .collect();
+    let array = arrow_array::Decimal128Array::from(exact?)
+        .with_precision_and_scale(EXACT_PRECISION, 0)
+        .ok()?;
+    Some((DataType::Decimal128(EXACT_PRECISION, 0), Arc::new(array)))
+}
+
+/// A [`RowSet`] as Arrow batches: what an adapter whose driver speaks rows returns from
+/// [`Warehouse::execute`](crate::warehouse::Warehouse::execute).
+///
+/// **One function, named, in the interior - which is what makes the four adapters paying for the
+/// Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+/// exactly that when it still expected the conversion to live in a combiner crate; the port moved
+/// and the property did not.
+///
+/// It carries [`arrow_column`]'s inference limit.
+///
+/// # Errors
+///
+/// [`MalformedRowSet::RowWidth`], which a [`RowSet`] cannot be: [`RowSet::new`] refuses a ragged
+/// row before one exists. Propagated rather than defaulted, because a batch built anyway from a
+/// row set whose invariant had been broken would be an answer with cells in the wrong columns.
+pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
+    of_rows(rows.columns(), rows.rows())
+}
+
 /// A result built from domain rows, for a fake and for an adapter whose source speaks rows.
 ///
-/// Behind `fixtures` for [`arrow_column`]'s reason, and it carries that function's inference limit.
+/// Un-gated for [`arrow_column`]'s reason, and it carries that function's inference limit.
+/// [`of_row_set`] is the form an adapter holding a [`RowSet`] calls, whose width
+/// invariant makes the ragged case unreachable.
 ///
 /// # Errors
 ///
 /// [`MalformedRowSet::RowWidth`] for a ragged input, refused here rather than at the Arrow layer -
 /// `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
 /// would be the one nobody had read.
-#[cfg(feature = "fixtures")]
 pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
     use std::sync::Arc;
 

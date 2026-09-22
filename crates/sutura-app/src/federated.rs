@@ -35,7 +35,7 @@ use sutura_domain::plan::{FederatedAnswerRefusal, FederatedFailure, FederatedPla
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::{ExecutedAs, UniformlyExecuted};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{PreFlight, ResultBatches, RowSet, Warehouse};
 
 use crate::{
     Answered, Answering, ServiceError, SpendLedger, Warehouses, exceeds_response_bound, exceeds_row_cap, now_in_unix_seconds,
@@ -67,7 +67,7 @@ impl<E, Q> From<ServiceError<E, Q>> for LegError<E, Q> {
 
 /// The leg execution's return type, named so `run_leg`'s signature is not a `type_complexity`
 /// finding.
-pub(crate) type LegResult<W, B> = Result<RowSet, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+pub(crate) type LegResult<W, B> = Result<ResultBatches, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
 
 /// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegResult`] is.
 pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
@@ -226,19 +226,25 @@ where
     }
 
     let fact = match run_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
-        Ok(rows) => rows,
+        Ok(batches) => batches,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
     let lookup = match run_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
-        Ok(rows) => rows,
+        Ok(batches) => batches,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
+    // Two decodes, and they are the measurement `docs/adr/0039` step 3 exists to delete: the legs
+    // arrive as Arrow and the combiner in the domain reads rows, so a `BigQuery` leg's typed arrays
+    // become domain values here and a DataFusion combine would build batches from them again. The
+    // combiner port is what removes this pair.
+    let fact = fact.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
+    let lookup = lookup.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
 
     // The row cap applies to the ANSWER, not to a leg - a leg carries none. The combiner checks the
     // working-set ceiling as it groups; exhaustion here is a governance refusal, anything else the

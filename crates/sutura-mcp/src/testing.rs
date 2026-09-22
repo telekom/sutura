@@ -48,7 +48,7 @@ use sutura_domain::source::{
     AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture, UniformlyExecuted,
 };
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
@@ -215,6 +215,17 @@ pub(crate) struct FixedCatalog;
 #[error("a fixture cannot fail")]
 pub(crate) struct Unreachable;
 
+/// A fake's canned [`RowSet`] as the port's own Arrow currency.
+///
+/// **One helper rather than a conversion at each fake, and the `expect` is the honest shape here.**
+/// `of_row_set`'s only failure is a row set whose width invariant is broken, and
+/// `RowSet::new` refuses one before it exists - so a fake built from a literal cannot reach it.
+/// `clippy.toml`'s `allow-expect-in-tests` is what permits saying that here rather than threading a
+/// `Result` through a canned answer.
+pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
+    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+}
+
 impl SemanticCatalog for FixedCatalog {
     type Error = Unreachable;
 
@@ -272,8 +283,13 @@ impl Warehouse for FakeWarehouse {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

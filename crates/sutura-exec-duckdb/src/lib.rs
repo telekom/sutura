@@ -23,9 +23,12 @@ use duckdb::types::Value as DuckValue;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{
+    AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, ResultBatches, RowSet, Value, Warehouse,
+};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -542,10 +545,19 @@ impl Warehouse for DuckDbWarehouse {
     }
 
     /// Carried, not enforced here; see [`Self::dry_run`]'s note and `docs/adr/0029`.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.run(&query)
+        let rows = self.run(&query)?;
+        // The Arrow port's conversion, in the adapter that owns the row-speaking driver. This one is
+        // the adapter `docs/adr/0039` names as unable to be Arrow-NATIVE until `duckdb-rs` releases
+        // its merged arrow-59 bump, so this is where that expiry lands rather than a second place.
+        of_row_set(&rows).map_err(|cause| DuckDbError::Shape { cause })
     }
 
     /// Re-runs an anchor's plan, under the one identity this connection was opened with.

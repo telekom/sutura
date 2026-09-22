@@ -249,6 +249,7 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.columns(), query.result_labels().as_slice());
     assert_eq!(
@@ -293,6 +294,7 @@ fn a_large_decimal_fixture_total_stays_exact() {
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(
         result.rows(),
@@ -335,6 +337,7 @@ fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing()
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Null));
@@ -366,6 +369,7 @@ fn a_count_if_answers_zero_for_a_group_with_no_matches_rather_than_nothing() {
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
     assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
@@ -403,6 +407,7 @@ fn a_conditional_count_is_usable_as_a_ratio_numerator() {
     );
     let result = adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));

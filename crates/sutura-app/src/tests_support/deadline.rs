@@ -9,7 +9,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
 
 use super::{AdapterFailure, DriverFailure};
 
@@ -67,7 +67,12 @@ impl Warehouse for NeverAskedWarehouse {
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.executes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
@@ -146,10 +151,15 @@ impl Warehouse for RecordingLegsWarehouse {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         std::thread::sleep(self.delay);
         self.seen.borrow_mut().push(deadline);
-        Ok(self.result.clone())
+        Ok(crate::tests_support::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -199,7 +209,12 @@ impl<const EXECUTES_LEGS: bool> Warehouse for DeadlineExceededWarehouse<EXECUTES
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(AdapterFailure::TimedOut)
     }
 

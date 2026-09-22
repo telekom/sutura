@@ -276,6 +276,16 @@ a corpus of many says which one.
 
   Reachable only from a pack that needs a case to establish the adapter is live. `census`
   fails on the same condition for every other behaviour.
+- `Unreadable` - The data system answered, and a column of the answer could not become a domain value.
+
+  **Its own fault rather than a content disagreement, and the diagnosis is why.** Since
+  `docs/adr/0039` step 2 the port's currency is Arrow, so the decode happens above every
+  adapter - and the failure it can produce is *this workspace maps no cell of that Arrow type*,
+  not *this adapter computed the wrong number*. Reported as a disagreement it would send a
+  reader to look at the data.
+
+  The variant carries `sutura_domain::warehouse::UnreadableCell`, which names the column and
+  its Arrow type and never a cell.
 
 ### Implements
 

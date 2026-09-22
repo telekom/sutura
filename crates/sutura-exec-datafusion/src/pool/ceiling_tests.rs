@@ -111,6 +111,7 @@ fn the_same_question_under_a_roomy_ceiling_is_answered() {
     let roomy = engine(ROOMY);
     let rows = roomy
         .execute(Executable::Query(&question()), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("a thousand groups fit in 64 mebibytes");
     // A thousand distinct keys in one month: three columns - the bucket, the key and the measure.
     assert_eq!((rows.columns().len(), rows.rows().len()), (3, 1000));

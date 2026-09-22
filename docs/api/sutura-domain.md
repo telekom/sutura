@@ -10555,6 +10555,26 @@ is a closed set of typed variants an adapter binds, never text somebody concaten
 `crate::query` is the *tool* surface, where SQL must be unrepresentable because the text comes
 from a caller; here there is no text for a value to reach at all.
 
+# The currency is Arrow, and `docs/adr/0039` step 2 decided it before there was a consumer
+
+`Warehouse::execute` returns `ResultBatches` rather than a `RowSet`, so an adapter whose
+driver speaks Arrow hands its batches through untouched and the one Arrow-to-`Value` decode
+happens once, at the presentation edge, in `ResultBatches::to_rows`.
+
+**What that costs, because it is not free for every adapter and the record only counted the
+half that gains.** The two Arrow-native adapters - `BigQuery` through ADBC, and the engine -
+stop converting at all, and a federated leg from either reaches the combiner with its driver's
+own types. The four whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` -
+now convert at their own boundary through `arrow::of_rows`, which they did not before: on a
+single-source answer that is a conversion out and `ResultBatches::to_rows` back, for data
+that never left the process. The conversion did not disappear; it moved to the adapter that
+owns the row-speaking driver, which is where the leg's own cost already had to be paid.
+
+**And it carries `arrow::arrow_column`'s inference limit onto those four adapters' production
+path**: a column mixing `Value::Integer` and `Value::Text` cells round-trips as text. No
+data system produces one - a source declares a column's type - so what this reaches is a fake
+that builds one by hand, and the row builder's own doc is where that is stated.
+
 ### `enum ParamValue`
 
 ```rust
@@ -10663,7 +10683,8 @@ that. `docs/adr/0008` part 1 is the decision, and the mechanism is the absence o
 rather than a rule somebody follows.
 
 The boot path is the other caller of this port and it has no subject, so it gets its own method:
-`Self::verify_anchor` takes no credential and returns `AnchorRows` rather than a `RowSet`.
+`Self::verify_anchor` takes no credential and returns `AnchorRows` rather than the
+`ResultBatches` a question comes back as.
 **Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
 `VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
 then named a `compile_fail` test asserting that answering a question cannot pass one. That test
@@ -10723,7 +10744,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 struct Undeclared {
     source: SourceName,
@@ -10742,7 +10763,7 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -10761,7 +10782,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
 
 struct Declared {
     source: SourceName,
@@ -10781,7 +10802,7 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<ResultBatches, Self::Error> {
         Err(core::fmt::Error)
     }
 
@@ -12622,13 +12643,58 @@ pub fn arrow_column(values: &[crate::warehouse::cell::Value]) -> (arrow_schema::
 
 One column's Arrow array, built from domain values.
 
-Behind the `fixtures` feature, because only a fake and an adapter whose source speaks rows need
-it: an adapter reading Arrow from its driver has nothing to build.
+**No longer behind the `fixtures` feature, and `docs/adr/0039` step 2's second half is why.**
+With `Warehouse::execute` returning `ResultBatches`,
+the four adapters whose drivers speak rows - `DuckDB`, `Postgres`, Oracle, `ClickHouse` - call
+this on their own production path. An adapter whose driver speaks Arrow still calls none of it.
 
-**The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`, all-`Real` is `Float64`, anything else is `Utf8` with each value
-rendered - so a MIXED column round-trips as text rather than as the types it went in as. That is
-the honest limit of a per-cell union meeting a per-column format, and no source produces a mixed
-column: a data system declares a column's type.
+**The inference is deliberately narrow and stated where it is made.** All-`Integer` is `Int64`,
+all-`Real` is `Float64`, a column that mixes `Integer` with EXACT INTEGRAL TEXT is
+`Decimal128(38, 0)`, and anything else is `Utf8` with each value rendered. An all-null column,
+and every column of a result with no rows at all, reads as `Int64` - which no cell can be read
+from, so the type is arbitrary rather than wrong.
+
+**The `Decimal128` arm exists because the "no source produces a mixed column" argument is
+FALSE here, and it was measured rather than reasoned.** A data system does declare one type per
+column - but a row-speaking adapter maps that column PER CELL: `sutura-exec-duckdb` and
+`sutura-exec-postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
+one that does not as an exact `Value::Text`, so one `DECIMAL`/`HUGEINT` column arrives mixed.
+The conformance corpus has two such cases (`wide-total-by-day`,
+`overflowing-integer-total-by-day`), and rendering them to `Utf8` turned `Integer(15)` into
+`Text("15")` - a conformance failure against the reference rows, on the production path, for
+two of the four adapters the Arrow port makes convert.
+
+`Decimal128(38, 0)` round-trips both halves exactly, because `ResultBatches::to_rows`'s
+zero-scale arm widens a
+value that fits an `i64` back to `Value::Integer` and leaves one that does not as its exact
+text. That is the same pairing `sutura-exec-bigquery`'s conformance fake declares by hand.
+
+**The limit that survives:** a column mixing `Value::Integer` or `Value::Real` with text
+that is NOT an exact integer still renders to `Utf8`, so a number in it comes back as text. An
+all-text column is never promoted, deliberately - a postal code column of `"01234"` would lose
+its leading zero, and text a source declared as text is not a number this may decide about.
+
+#### `fn of_row_set`
+
+```rust
+pub fn of_row_set(rows: &crate::warehouse::rows::RowSet) -> Result<ResultBatches, crate::warehouse::rows::MalformedRowSet>
+```
+
+A `RowSet` as Arrow batches: what an adapter whose driver speaks rows returns from
+`Warehouse::execute`.
+
+**One function, named, in the interior - which is what makes the four adapters paying for the
+Arrow port a single place to measure and a single place to delete.** `docs/adr/0007` asked for
+exactly that when it still expected the conversion to live in a combiner crate; the port moved
+and the property did not.
+
+It carries `arrow_column`'s inference limit.
+
+# Errors
+
+`MalformedRowSet::RowWidth`, which a `RowSet` cannot be: `RowSet::new` refuses a ragged
+row before one exists. Propagated rather than defaulted, because a batch built anyway from a
+row set whose invariant had been broken would be an answer with cells in the wrong columns.
 
 #### `fn of_rows`
 
@@ -12638,7 +12704,9 @@ pub fn of_rows(columns: &[String], rows: &[Vec<crate::warehouse::cell::Value>]) 
 
 A result built from domain rows, for a fake and for an adapter whose source speaks rows.
 
-Behind `fixtures` for `arrow_column`'s reason, and it carries that function's inference limit.
+Un-gated for `arrow_column`'s reason, and it carries that function's inference limit.
+`of_row_set` is the form an adapter holding a `RowSet` calls, whose width
+invariant makes the ragged case unreachable.
 
 # Errors
 

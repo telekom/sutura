@@ -45,7 +45,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, RowSet, Value, Warehouse};
 
 use crate::inbound::gate::InboundGate;
 use crate::surface::LocalService;
@@ -186,7 +186,12 @@ impl Warehouse for RecordsWhatItWasHanded {
         reason = "the recording fake exists to report WHICH credential reached the adapter, which is \
                   the property two subjects driving two credentials is measured on"
     )]
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| Disagreed { cause })?;
@@ -200,7 +205,7 @@ impl Warehouse for RecordsWhatItWasHanded {
             Presented::SharedServiceUser { .. } => String::from("the deployment's own identity"),
         };
         drop(self.handed.send(material));
-        Ok(self.result.clone())
+        Ok(crate::testing::canned(&self.result))
     }
 }
 

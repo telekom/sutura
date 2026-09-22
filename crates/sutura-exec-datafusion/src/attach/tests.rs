@@ -55,6 +55,7 @@ fn total(adapter: &DataFusionWarehouse) -> Vec<Vec<Value>> {
     let query = crate::question();
     adapter
         .execute(Executable::Query(&query), &crate::test_leg(), crate::test_deadline())
+        .map(|batches| crate::decoded(&batches))
         .expect("the plan runs")
         .rows()
         .to_vec()

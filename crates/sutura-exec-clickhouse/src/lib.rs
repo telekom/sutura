@@ -77,9 +77,10 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, ResultBatches, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use transport::ClickHouseTransport;
@@ -240,10 +241,18 @@ where
         &self.posture
     }
 
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.run(&query, deadline)
+        let rows = self.run(&query, deadline)?;
+        // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
+        // `sutura_domain::warehouse::arrow`.
+        of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

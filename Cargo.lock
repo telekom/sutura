@@ -4381,6 +4381,8 @@ dependencies = [
 name = "sutura-conformance"
 version = "0.5.1"
 dependencies = [
+ "arrow-array 59.2.0",
+ "arrow-schema 59.2.0",
  "serde_json",
  "sutura-dev",
  "sutura-domain",

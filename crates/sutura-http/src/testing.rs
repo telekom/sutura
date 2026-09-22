@@ -32,12 +32,22 @@ use sutura_domain::pinned::{
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
 use crate::state::ServiceState;
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: &str = "197122";
+/// A fake's canned [`RowSet`] as the port's own Arrow currency.
+///
+/// **One helper rather than a conversion at each fake, and the `expect` is the honest shape here.**
+/// `of_row_set`'s only failure is a row set whose width invariant is broken, and
+/// `RowSet::new` refuses one before it exists - so a fake built from a literal cannot reach it.
+/// `clippy.toml`'s `allow-expect-in-tests` is what permits saying that here rather than threading a
+/// `Result` through a canned answer.
+pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
+    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+}
 
 /// The one data system name every fixture here uses.
 pub(crate) fn source() -> SourceName {
@@ -336,7 +346,12 @@ impl Warehouse for FailingWarehouse {
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -395,7 +410,12 @@ impl Warehouse for WarehouseThatWillNotPage {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(WouldNotReturnAtOnce)
     }
 
@@ -448,7 +468,12 @@ impl Warehouse for WarehouseThatFailsToExecute {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -502,7 +527,12 @@ impl Warehouse for FakeWarehouse {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         // Held rather than slept, and that is about the test suite rather than about realism. A
         // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
         // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the
@@ -515,7 +545,7 @@ impl Warehouse for FakeWarehouse {
         while self.held.load(Ordering::Relaxed) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(5));
         }
-        Ok(self.result.clone())
+        Ok(canned(&self.result))
     }
 
     // `#666`'s review, finding 2: a router-level test needs this fake to accept a raw statement to

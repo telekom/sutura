@@ -99,7 +99,7 @@ fn execute_decodes_a_names_types_and_rows_response() {
             sutura_conformance::corpus::deadline(),
         )
         .expect("a well-formed response decodes");
-    assert_eq!(rows.rows().len(), 1);
+    assert_eq!(rows.rows(), 1);
 }
 
 /// A spent deadline is refused before any round trip, held at the transport seam and not only in

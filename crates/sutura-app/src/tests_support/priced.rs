@@ -7,7 +7,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
 
 use super::AdapterFailure;
 
@@ -76,9 +76,14 @@ impl Warehouse for PricedWarehouse {
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.executions.set(self.executions.get().saturating_add(1));
-        Ok(self.result.clone())
+        Ok(crate::tests_support::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

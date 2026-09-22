@@ -108,6 +108,21 @@ boundary gate bans `anyhow` for, arrived at by a different route.
   adapter is the last thing before a driver and may not assume who called it. What it replaces is
   the assumption that every FUTURE adapter will remember to.
 - `Credentials`
+- `Unreadable` - A result came back as Arrow and one of its columns could not become a domain value.
+
+  **This variant is where the Arrow port's decode moved to, not a new failure mode.**
+  `docs/adr/0039` step 2 puts the one Arrow-to-`Value`
+  decode in the interior and step 2's second half moves the CALL to the presentation edge, so
+  the failure that used to arrive wrapped in an adapter's own error - `BigQueryError::
+  Unreadable`, the engine's `DataFusionError::Unreadable` - arrives here instead, for every
+  adapter at once.
+
+  **An internal failure rather than a refusal, and that is today's classification kept rather
+  than chosen afresh:** both adapters mapped it into their own error type, which reaches a
+  transport as `Self::Warehouse` does. What it means is that a data system returned a column
+  of a type this workspace does not map, or a value no domain cell can hold - a non-finite
+  double, a day number that is not a date. No caller caused it and narrowing the question does
+  not avoid it, which is why it is not a refusal a caller is told to act on.
 
 ### Implements
 

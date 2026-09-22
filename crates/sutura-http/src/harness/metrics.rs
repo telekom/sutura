@@ -19,7 +19,7 @@ use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 
 use super::{app, metrics_settings, over};
 use crate::testing::{
@@ -559,8 +559,13 @@ impl Warehouse for PricedWarehouse {
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(crate::testing::canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

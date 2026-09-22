@@ -8,7 +8,7 @@
 //! 1. **The binding.** `mod conformance` invokes the macro twice, once per leg declaration, so a
 //!    behaviour that lost its test or a declaration that disagrees with the adapter's own constant
 //!    fails the build or the census rather than reducing the count quietly.
-//! 2. **The faults.** All nine `Fault` variants are provoked - eight by a fake distorted in
+//! 2. **The faults.** All ten `Fault` variants are provoked - nine by a fake distorted in
 //!    exactly one way, and `EmptyCorpus` through `execute::a_leg_is_refused_over`, the seam that
 //!    variant needed to be reachable at all. The pack is called DIRECTLY, because through the macro
 //!    a fault is a panic - so a variant that stopped being reachable would leave a pack that
@@ -20,227 +20,19 @@
 //!    which is what makes an absence a decision rather than a swallowed failure. Either half alone
 //!    is satisfied by a harness that swallows every fault.
 
-use sutura_conformance::{Fixture, corpus};
-use sutura_domain::identity::Presented;
-use sutura_domain::model::SourceName;
-use sutura_domain::plan::{AnchorPlan, Executable};
-use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_conformance::Fixture;
 
-/// How a fake's answer differs from the corpus's.
+/// The fake over the port, and the distortion axis - split out because this file crossed the
+/// unexemptable `max-lines` cap.
 ///
-/// One axis with one variant per `Fault` the answer can produce, so each fault below is provoked
-/// by exactly one distortion and a test cannot pass because two of them fired. One exception:
-/// [`Self::ReversedOnlyForCase`] provokes no fault at all when it names the one case
-/// `Case::order_is_asserted` marks `false` - that is the property it exists to test.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Distortion {
-    /// None: the corpus's own answer, unchanged.
-    Faithful,
-    /// The right rows under the wrong column names.
-    Relabelled,
-    /// The right shape with one cell replaced.
-    ANumberChanged,
-    /// The right rows, back to front.
-    Reversed,
-    /// The named case's rows, back to front; every other case's answer is faithful.
-    ///
-    /// Separate from [`Self::Reversed`], which reverses every case and so cannot isolate one: a
-    /// fake built on it faults on the first order-asserted case in `corpus::cases()` before ever
-    /// reaching a case further down the list.
-    ReversedOnlyForCase(&'static str),
-    /// No answer at all.
-    Silent,
-}
+/// `#[path]` and a `bound_` prefix rather than a `bound/` subdirectory, which is what the
+/// repository's other split test targets do: cargo makes every top-level `tests/*.rs` its own test
+/// TARGET, so a plain `mod fake;` would compile the fake twice - once here and once as a target of
+/// its own with no `#[test]` in it.
+#[path = "bound/fake.rs"]
+mod fake;
 
-/// What a fake's pre-flight says.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Check {
-    /// The port's own default: nobody looked.
-    NotAsked,
-    /// Asked and accepted.
-    Accepted,
-    /// Accepted with a real estimate, though this fake declares `PRICES_DRY_RUN = false` - the
-    /// mismatch `Fault::EstimateDisagreesWithCapability` exists to catch.
-    AcceptedWithAnEstimate,
-    /// Asked and refused, which for a plan the adapter is held to answer is a fault.
-    Refused,
-}
-
-/// Never returned by anything a conformance run is about: this fake computes nothing.
-#[derive(Debug, thiserror::Error)]
-enum FakeFailure {
-    #[error("the fake holds no answer for this executable")]
-    NoSuchExecutable,
-    #[error("this fake declines to execute a leg")]
-    NoLeg,
-    #[error("this fake was asked to be silent")]
-    Silent,
-    #[error("this fake refuses every pre-flight")]
-    PreFlightRefused,
-    #[error("the fake verifies no anchor")]
-    NoAnchor,
-    #[error("the fake built a result that is not rectangular")]
-    Ragged(#[from] sutura_domain::warehouse::MalformedRowSet),
-}
-
-/// One implementor of the execution port, answering out of the corpus.
-///
-/// `LEGS` is a const parameter rather than two types, because `EXECUTES_LEGS` is an associated
-/// constant and one distortion axis should not be written twice to vary it. `Fake<true>` and
-/// `Fake<false>` are what the two bindings below are instantiated at. `PRICES` is the same move
-/// for `PRICES_DRY_RUN`, defaulted `false` so every existing `Fake<LEGS>` use site keeps compiling
-/// unchanged - only `a_missing_estimate_from_an_adapter_that_declares_it_prices_is_a_fault` below
-/// names the other value.
-struct Fake<const LEGS: bool, const PRICES: bool = false> {
-    source: SourceName,
-    posture: SourcePosture,
-    distortion: Distortion,
-    check: Check,
-    /// Answers a leg even though `LEGS` is `false`, which is the one thing the refusing pack exists
-    /// to catch.
-    answers_a_leg_anyway: bool,
-}
-
-impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
-    /// A fake that answers the corpus faithfully, checks nothing, and honours its declaration.
-    fn faithful() -> Self {
-        Self {
-            source: corpus::source(),
-            posture: corpus::posture(),
-            distortion: Distortion::Faithful,
-            check: Check::NotAsked,
-            answers_a_leg_anyway: false,
-        }
-    }
-
-    fn distorted(distortion: Distortion) -> Self {
-        Self {
-            distortion,
-            ..Self::faithful()
-        }
-    }
-
-    fn checking(check: Check) -> Self {
-        Self {
-            check,
-            ..Self::faithful()
-        }
-    }
-
-    /// The corpus's own answer for whatever it was handed.
-    fn faithful_answer(executable: Executable<'_>) -> Option<RowSet> {
-        match executable {
-            Executable::Query(plan) => corpus::cases()
-                .into_iter()
-                .find(|case| case.plan() == plan)
-                .map(|case| case.expected().clone()),
-            Executable::Leg(leg) => {
-                let case = corpus::leg_case();
-                (case.leg() == leg).then(|| case.expected().clone())
-            }
-        }
-    }
-
-    /// Which named case this executable is, if any - what [`Distortion::ReversedOnlyForCase`]
-    /// reads to decide whether to reverse.
-    fn case_name(executable: Executable<'_>) -> Option<String> {
-        match executable {
-            Executable::Query(plan) => corpus::cases()
-                .into_iter()
-                .find(|case| case.plan() == plan)
-                .map(|case| case.name().to_owned()),
-            Executable::Leg(leg) => {
-                let case = corpus::leg_case();
-                (case.leg() == leg).then(|| case.name().to_owned())
-            }
-        }
-    }
-
-    /// The answer, distorted the one way this fake was built to distort it.
-    fn answer(&self, executable: Executable<'_>) -> Result<RowSet, FakeFailure> {
-        if self.distortion == Distortion::Silent {
-            return Err(FakeFailure::Silent);
-        }
-        let faithful = Self::faithful_answer(executable).ok_or(FakeFailure::NoSuchExecutable)?;
-        let columns = faithful.columns().to_vec();
-        let mut rows = faithful.rows().to_vec();
-        match self.distortion {
-            Distortion::Faithful | Distortion::Silent => {}
-            Distortion::Relabelled => {
-                let renamed = columns.iter().map(|label| format!("{label}_")).collect();
-                return Ok(RowSet::new(renamed, rows)?);
-            }
-            Distortion::ANumberChanged => {
-                if let Some(cell) = rows.first_mut().and_then(|row| row.last_mut()) {
-                    *cell = Value::Integer(i64::MAX);
-                }
-            }
-            Distortion::Reversed => rows.reverse(),
-            Distortion::ReversedOnlyForCase(name) => {
-                if Self::case_name(executable).as_deref() == Some(name) {
-                    rows.reverse();
-                }
-            }
-        }
-        Ok(RowSet::new(columns, rows)?)
-    }
-}
-
-impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
-    type Error = FakeFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_LEGS: bool = LEGS;
-    const PRICES_DRY_RUN: bool = PRICES;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn dry_run(
-        &self,
-        _executable: Executable<'_>,
-        _presented: &Presented,
-        _deadline: Deadline,
-    ) -> Result<PreFlight, Self::Error> {
-        match self.check {
-            Check::NotAsked => Ok(PreFlight::NotAsked),
-            Check::Accepted => Ok(PreFlight::Accepted { estimated_bytes: None }),
-            Check::AcceptedWithAnEstimate => Ok(PreFlight::Accepted {
-                estimated_bytes: Some(EstimatedBytes::parse(1)),
-            }),
-            Check::Refused => Err(FakeFailure::PreFlightRefused),
-        }
-    }
-
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        // Matched exhaustively, for the reason every real adapter does: a fake that accepted subject
-        // material it cannot use would let a pack pass an adapter that reported a leg as
-        // impersonated when it ran shared.
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
-                return Err(FakeFailure::NoSuchExecutable);
-            }
-        }
-        match executable {
-            Executable::Query(_) => self.answer(executable),
-            Executable::Leg(_) if LEGS || self.answers_a_leg_anyway => self.answer(executable),
-            Executable::Leg(_) => Err(FakeFailure::NoLeg),
-        }
-    }
-
-    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Err(FakeFailure::NoAnchor)
-    }
-}
+pub(crate) use fake::{Check, Distortion, Fake};
 
 /// The bindings: one macro invocation per leg declaration, over the same pack.
 ///
@@ -428,11 +220,7 @@ mod faults {
     /// contract: the two may not disagree about what this adapter accepts.
     #[test]
     fn a_pre_flight_that_accepts_and_then_no_answer_is_a_fault() {
-        let fake = Fake::<false> {
-            check: Check::Accepted,
-            distortion: Distortion::Silent,
-            ..Fake::<false>::faithful()
-        };
+        let fake = Fake::<false>::checking_and_distorted(Check::Accepted, Distortion::Silent);
         let fault =
             execute::a_preflight_that_accepts_is_followed_by_an_answer(&fake).expect_err("accepted then silent is a fault");
         assert!(matches!(fault, Fault::AcceptedThenDidNotAnswer { .. }), "{fault:?}");
@@ -485,10 +273,7 @@ mod faults {
     /// the guard of an adapter with no leg venue of its own.
     #[test]
     fn an_adapter_that_answers_a_leg_it_declares_it_cannot_is_a_fault() {
-        let fake = Fake::<false> {
-            answers_a_leg_anyway: true,
-            ..Fake::<false>::faithful()
-        };
+        let fake = Fake::<false>::answering_a_leg_anyway();
         let fault = execute::a_leg_is_refused(&fake).expect_err("answering an undeclared leg is a fault");
         assert!(matches!(fault, Fault::ALegWasAnswered { .. }), "{fault:?}");
     }
@@ -502,7 +287,21 @@ mod faults {
         assert!(matches!(fault, Fault::NotAnswered { .. }), "{fault:?}");
     }
 
-    /// **The eighth fault**, and the reason `execute::a_leg_is_refused_over` exists.
+    /// **A column this workspace maps no cell of is its own fault**, and it is the fault the Arrow
+    /// port created: with `RowSet` as the currency there was no unreadable answer, because a
+    /// `RowSet` is already domain values.
+    ///
+    /// Reported as `Unreadable` and NOT as `Content`, which is the assertion that carries the
+    /// diagnosis: the number was never read, so calling it a wrong number sends a reader to look at
+    /// data that was never decoded.
+    #[test]
+    fn a_column_this_workspace_cannot_read_is_an_unreadable_fault() {
+        let fake = Fake::<false>::distorted(Distortion::UnmappableColumn);
+        let fault = execute::content_agrees_with_the_reference(&fake).expect_err("an unmapped Arrow type is a fault");
+        assert!(matches!(fault, Fault::Unreadable { .. }), "{fault:?}");
+    }
+
+    /// **The ninth fault**, and the reason `execute::a_leg_is_refused_over` exists.
     ///
     /// `Fault::EmptyCorpus` is what stops the refusing pack being green over nothing - it is the
     /// non-empty-corpus guard `census` gives every other behaviour, in the one place it is a

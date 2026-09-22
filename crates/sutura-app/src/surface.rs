@@ -489,6 +489,11 @@ where
             // data-system concern in the sense that matters to a transport: the question and the
             // caller were fine.
             ServiceError::Federated { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            // The Arrow port's decode, which used to arrive inside an adapter's own error and
+            // therefore through the arm above. Same destination on purpose: a column whose type this
+            // workspace does not map is this deployment's concern and not the caller's, and the
+            // typed `UnreadableCell` under it is what names the column and the Arrow type.
+            ServiceError::Unreadable { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
         })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line

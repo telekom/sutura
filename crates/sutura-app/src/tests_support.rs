@@ -19,7 +19,7 @@ use sutura_domain::plan::Executable;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyCounts, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
 
 /// The raw-SQL-tool fake - split into its own file for the same reason this one is split out of
 /// `lib.rs`: this file reached the 1000-line gate too.
@@ -28,6 +28,17 @@ pub(crate) use raw::RawCapableWarehouse;
 
 /// A catalog over one already-pinned test bundle.
 pub(crate) struct FixedCatalog(PinnedDefinitions);
+
+/// A fake's canned [`RowSet`] as the port's own Arrow currency.
+///
+/// **One helper rather than a conversion at each fake, and the `expect` is the honest shape here.**
+/// `arrow::of_row_set`'s only failure is a row set whose width invariant is broken, and `RowSet::new`
+/// refuses one before it exists - so a fake built from a literal cannot reach it.
+/// `clippy.toml`'s `allow-expect-in-tests` is what permits saying so here rather than threading a
+/// `Result` through a canned answer.
+pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
+    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+}
 
 impl FixedCatalog {
     pub(crate) const fn of(pinned: PinnedDefinitions) -> Self {
@@ -262,10 +273,18 @@ impl Warehouse for FixedWarehouse {
         }
     }
 
-    fn execute(&self, _executable: Executable<'_>, presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.executions.set(self.executions.get().saturating_add(1));
         self.deliverable(presented)?;
-        self.result.clone().ok_or(AdapterFailure::Statement { cause: DriverFailure })
+        self.result
+            .as_ref()
+            .map(canned)
+            .ok_or(AdapterFailure::Statement { cause: DriverFailure })
     }
 
     fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -353,9 +372,14 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
         }
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.executions.set(self.executions.get().saturating_add(1));
-        Ok(self.result.clone())
+        Ok(canned(&self.result))
     }
 
     fn source_refused(&self, error: &Self::Error) -> bool {
@@ -374,116 +398,16 @@ impl<const EXECUTES_LEGS: bool> Warehouse for PreflightWarehouse<EXECUTES_LEGS> 
 pub(crate) type MonoPreflightWarehouse = PreflightWarehouse<false>;
 pub(crate) type LegPreflightWarehouse = PreflightWarehouse<true>;
 
+/// The two leg-executing fakes - split out for this file's own `max-lines` reason, and
+/// `#[cfg(test)]` for the reason `priced` carries above: a bare `mod` declares nothing
+/// `xtask test-causality`'s scan reads as a test.
+#[cfg(test)]
+mod legs;
+pub(crate) use legs::{LegsWarehouse, PageBoundLegsWarehouse};
+
 /// The catalog-authored-SQL fake and its bundle - split out for this file's own `max-lines` reason.
 mod authored;
 pub(crate) use authored::{AuthoredWarehouse, authored_bundle};
-
-/// A fake that can run one half of a federated answer.
-///
-/// Unlike [`FixedWarehouse`] it declares [`Warehouse::EXECUTES_LEGS`], so the federated path will
-/// not refuse it : that is the whole difference, and it is why the port exposes the capability
-/// rather than letting `answer` assume. Each instance holds one scripted result and answers any
-/// statement with it, which is enough to exercise the orchestrator above real legs - the combiner's
-/// own correctness is proven in the domain suite against the same plan shapes this feeds it.
-pub(crate) struct LegsWarehouse {
-    source: SourceName,
-    posture: SourcePosture,
-    result: RowSet,
-}
-
-impl LegsWarehouse {
-    pub(crate) fn answering(source: SourceName, posture: SourcePosture, result: RowSet) -> Self {
-        Self { source, posture, result }
-    }
-}
-
-impl Warehouse for LegsWarehouse {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_LEGS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn dry_run(
-        &self,
-        _executable: Executable<'_>,
-        _presented: &Presented,
-        _deadline: Deadline,
-    ) -> Result<PreFlight, Self::Error> {
-        Ok(PreFlight::NotAsked)
-    }
-
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Ok(AnchorRows::of(self.result.clone()))
-    }
-}
-
-/// A leg-executing fake whose `execute` fails because the data system would not return the whole
-/// result at once.
-///
-/// The instrument for the federated half of the volume bound: the same reach
-/// [`LegsWarehouse`] gives (it declares [`Warehouse::EXECUTES_LEGS`], so the federated path runs it),
-/// but its `execute` returns `Err` and its [`Warehouse::result_did_not_fit`] answers `true`, so
-/// `run_leg` must turn it into a [`RefusalReason::ResultTooLarge`] carrying
-/// [`ResultBound::Volume`] and never into the `503` a dead data system produces. `federated.rs`'s
-/// `a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503` pins that.
-pub(crate) struct PageBoundLegsWarehouse {
-    source: SourceName,
-    posture: SourcePosture,
-}
-
-impl PageBoundLegsWarehouse {
-    pub(crate) fn new(source: SourceName, posture: SourcePosture) -> Self {
-        Self { source, posture }
-    }
-}
-
-impl Warehouse for PageBoundLegsWarehouse {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_LEGS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn dry_run(
-        &self,
-        _executable: Executable<'_>,
-        _presented: &Presented,
-        _deadline: Deadline,
-    ) -> Result<PreFlight, Self::Error> {
-        Ok(PreFlight::NotAsked)
-    }
-
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Err(AdapterFailure::TooMuchData)
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Err(AdapterFailure::TooMuchData)
-    }
-
-    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(error, AdapterFailure::TooMuchData)
-    }
-}
 
 /// A mono fake whose `execute` fails because the DATA SYSTEM refused the statement at the
 /// identity/authorization level.
@@ -527,7 +451,12 @@ impl Warehouse for RefusingSourceWarehouse {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(AdapterFailure::RefusedBySource)
     }
 
@@ -582,7 +511,12 @@ impl Warehouse for RefusingLegsWarehouse {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(AdapterFailure::RefusedBySource)
     }
 
@@ -635,7 +569,12 @@ impl Warehouse for TransientlyBrokenWarehouse {
         Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         Err(AdapterFailure::Statement { cause: DriverFailure })
     }
 

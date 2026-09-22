@@ -54,9 +54,10 @@
 use parking_lot::Mutex;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::plan::Executable;
+use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, Real, ResultBatches, RowSet, Value, Warehouse};
 use sutura_sql::generate::{generate, generate_key_probe};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -571,10 +572,18 @@ impl Warehouse for OracleWarehouse {
     /// adapter that overrides it must not read data" - so the honest thing this adapter can do
     /// today is nothing, exactly the trait's own documented escape hatch for "checking is not
     /// cheaper than running here".
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.run_with_deadline(&query, deadline)
+        let rows = self.run_with_deadline(&query, deadline)?;
+        // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
+        // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
+        of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
     }
 
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

@@ -2,7 +2,6 @@
 source: crates/sutura-app/tests/golden/data_systems.rs
 expression: chain(error)
 ---
-the data system did not answer
-  caused by: a result column could not be read as a domain value
+a result column could not be read
   caused by: column revenue_per_churned_subscription came back as a value that is not a finite number
   caused by: inf is not a finite number

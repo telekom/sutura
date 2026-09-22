@@ -77,25 +77,31 @@ fn a_result_the_endpoint_would_not_return_at_once_is_a_size_bound_and_not_an_out
 }
 
 #[test]
-fn an_unmapped_result_column_names_itself_through_the_adapter_s_own_error_chain() {
-    // **What this asserts that the interior's own table does not: the CHAIN.** The mapping and its
-    // refusals are `sutura_domain::warehouse::arrow`'s and are tested there; what is this adapter's
-    // is that `BigQueryError::Unreadable` carries the interior's cause rather than flattening it, so
-    // a caller walking the chain still reaches the column and the Arrow type. `docs/adr/0039`
-    // replaced seven variants of this crate's own with that one wrapper, and this is the cell that
-    // says the detail survived the replacement.
+fn an_unmapped_result_column_reaches_the_interior_rather_than_becoming_an_adapter_error() {
+    // **What this asserts that the interior's own table does not: that this adapter is a
+    // PASS-THROUGH.** The mapping and its refusals are `sutura_domain::warehouse::arrow`'s and are
+    // tested there; what is this adapter's is that a column the domain maps no cell of leaves
+    // `execute` as the driver's own column rather than as a `BigQueryError` - so the refusal names
+    // the column and the Arrow type once, above the port, for every adapter at the same place.
+    //
+    // **This cell used to assert the opposite**, that `BigQueryError::Unreadable` wrapped the
+    // interior's cause without flattening it. `docs/adr/0039` step 2's second half is what changed:
+    // the port's currency is `ResultBatches`, so `execute` no longer decodes and there is no
+    // adapter error left to carry a chain. `Self::rows` and that variant survive for the BOOT path,
+    // which still reads an anchor's rows, and `verify_anchor`'s own cell is where that chain is
+    // pinned now.
     //
     // A ZERO-ROW column, deliberately: it is the shape that used to be answered as a successful
     // empty result, because the cell mapping reads a null before it reads a type.
     let empty: arrow_array::ArrayRef = std::sync::Arc::new(arrow_array::Float32Array::from(Vec::<f32>::new()));
     let warehouse = open(Recording::answering(one_column(empty)), shared_posture());
-    let error = warehouse
+    let answered = warehouse
         .execute(Executable::Query(&plan()), &leg_of(&shared_posture()), test_deadline())
-        .expect_err("an unmapped result column is refused");
-    let BigQueryError::Unreadable { ref cause } = error else {
-        panic!("expected the interior's own cause, got {error:?}");
-    };
-    match *cause {
+        .expect("the driver's batch agrees with its own announced schema, so the port accepts it");
+    let cause = answered
+        .to_rows()
+        .expect_err("an unmapped result column is refused above the port");
+    match cause {
         sutura_domain::warehouse::UnreadableCell::UnsupportedType {
             ref column,
             ref arrow_type,

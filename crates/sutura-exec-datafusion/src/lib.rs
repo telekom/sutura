@@ -47,7 +47,7 @@ use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{Accumulating, AnchorRows, RowSet, Warehouse};
+use sutura_domain::warehouse::{Accumulating, AnchorRows, ResultBatches, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -576,7 +576,7 @@ impl DataFusionWarehouse {
     /// what each shape projects, so a leg cannot be read back under labels a whole answer's
     /// arithmetic derived - and the comparison below is the same one, once, rather than two copies
     /// that could drift.
-    async fn rows(&self, executable: Executable<'_>) -> Result<RowSet, DataFusionError> {
+    async fn rows(&self, executable: Executable<'_>) -> Result<ResultBatches, DataFusionError> {
         let logical = match executable {
             Executable::Query(plan) => self.logical_plan(plan).await?,
             Executable::Leg(leg) => self.leg_plan(leg).await?,
@@ -617,7 +617,10 @@ impl DataFusionWarehouse {
             .execute_logical_plan(logical)
             .await
             .map_err(|cause| DataFusionError::Analyze { cause })?;
-        let rows = collected(frame).await?;
+        let rows = collected(frame)
+            .await?
+            .to_rows()
+            .map_err(|cause| DataFusionError::Unreadable { cause })?;
         KeyUniqueness::read(&rows).map_err(|cause| DataFusionError::KeyCounts { cause })
     }
 }
@@ -635,13 +638,13 @@ fn labels_of(frame: &DataFrame) -> Vec<String> {
         .collect()
 }
 
-/// A frame's batches, as one result set.
+/// A frame's batches, checked against the frame's own announced schema.
 ///
-/// **One collector for both the answer path and the boot probe**, so the Arrow-to-domain mapping
-/// cannot be one thing for a question and another for a check - and since `docs/adr/0039` it is not
-/// this crate's mapping at all: the batches go through `sutura_domain::warehouse::Accumulating` and
-/// are read back by its `to_rows`, the same function `sutura-exec-bigquery`'s ADBC stream uses.
-/// The engine had its own `cell` before that, which meant two implementations of one agreement.
+/// **One collector for the answer path, the boot probe and the combine**, so the schema check
+/// cannot be one thing for a question and another for a check. It no longer decodes: since
+/// `docs/adr/0039` step 2 the port's currency IS [`ResultBatches`], so the batches leave this crate
+/// as batches and `ResultBatches::to_rows` runs once, above the port - or, for the boot probe and
+/// the key-uniqueness probe, at the one call that needs rows and says so.
 ///
 /// **The row ceiling is `usize::MAX` here, and that is deliberate rather than an omission.** The
 /// bound that protects this process from a wide result is the memory pool in `crate::pool` - an
@@ -650,7 +653,7 @@ fn labels_of(frame: &DataFrame) -> Vec<String> {
 /// would refuse a legitimate answer the pool had already granted. A FOREIGN driver is the case the
 /// ceiling exists for, because nothing bounds what it streams; `MOST_RESULT_ROWS` in the `BigQuery`
 /// adapter is that caller. So `UnannouncedBatch::OverBound` is unreachable through this function.
-async fn collected(frame: DataFrame) -> Result<RowSet, DataFusionError> {
+async fn collected(frame: DataFrame) -> Result<ResultBatches, DataFusionError> {
     let announced = Arc::clone(frame.schema().inner());
     let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
     let mut accumulating = Accumulating::announcing(announced, usize::MAX);
@@ -659,10 +662,7 @@ async fn collected(frame: DataFrame) -> Result<RowSet, DataFusionError> {
             .push(batch)
             .map_err(|cause| DataFusionError::Unannounced { cause })?;
     }
-    accumulating
-        .finish()
-        .to_rows()
-        .map_err(|cause| DataFusionError::Unreadable { cause })
+    Ok(accumulating.finish())
 }
 
 impl Warehouse for DataFusionWarehouse {
@@ -719,7 +719,12 @@ impl Warehouse for DataFusionWarehouse {
     /// Deadline-aware at cooperative yield points: `tokio::time::timeout` on a runtime built with
     /// `enable_time()` drops the rows future when the budget is spent. [`DataFusionError::DeadlineExceeded`]'s
     /// doc has the mechanism, `docs/adr/0029` the limits.
-    fn execute(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<RowSet, Self::Error> {
+    fn execute(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
         // What this leg runs as, matched exhaustively before anything is executed. There is exactly
         // one shape this adapter can honour, and the other two are a wiring defect rather than a
         // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
@@ -767,9 +772,14 @@ impl Warehouse for DataFusionWarehouse {
     /// available: one process, one operating-system identity, nowhere for a subject to arrive.
     /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        // The boot path still reads rows: an anchor is a certified scalar compared against a
+        // definition, and `AnchorRows` is the type that keeps it off the answer path. So the decode
+        // happens here rather than at a presentation edge this call has none of.
         self.runtime()?
-            .block_on(self.rows(Executable::Query(plan.plan())))
+            .block_on(self.rows(Executable::Query(plan.plan())))?
+            .to_rows()
             .map(AnchorRows::of)
+            .map_err(|cause| DataFusionError::Unreadable { cause })
     }
 
     /// Counts a declared join key's values and its distinct values, in this process.
@@ -834,6 +844,18 @@ use sutura_domain::plan::{
 };
 #[cfg(test)]
 use sutura_domain::warehouse::ParamValue;
+
+/// A result as domain rows, for this crate's own suite.
+///
+/// The port's currency is Arrow since `docs/adr/0039` step 2, and every assertion in this crate is
+/// over domain values - so the decode happens here once rather than at forty call sites. The
+/// `expect` is what `clippy.toml`'s `allow-expect-in-tests` permits: a result this engine built from
+/// a plan this crate wrote carries only types the domain maps, and a cell that did not decode is the
+/// failure the assertion would have reported anyway.
+#[cfg(test)]
+pub(crate) fn decoded(result: &ResultBatches) -> sutura_domain::warehouse::RowSet {
+    result.to_rows().expect("the engine's own result decodes")
+}
 
 #[cfg(test)]
 pub(crate) fn day(iso: &str) -> Date {

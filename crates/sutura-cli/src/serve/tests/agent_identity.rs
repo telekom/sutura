@@ -38,7 +38,7 @@ use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
 use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 
 // ------------------------------------------------------------------- fixtures ----
@@ -249,6 +249,16 @@ async fn post(app: axum::Router, token: &str, body: serde_json::Value) -> serde_
 /// drained by real answered calls, the same fixture `sutura-http`'s own spend cell uses.
 const PRICE_BYTES: u64 = 500;
 
+/// A fake's canned [`RowSet`] as the port's own Arrow currency.
+///
+/// `arrow::of_row_set`'s only failure is a row set whose width invariant is broken, and
+/// `RowSet::new` refuses one before it exists - so a fake built from a literal cannot reach it.
+/// Outside the `execute` that calls it, because `clippy::unwrap_in_result` is denied and an
+/// unreachable arm threaded through a canned answer says less than this sentence does.
+fn canned(rows: &RowSet) -> ResultBatches {
+    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+}
+
 /// A data system whose dry run reports a real byte price. The served surface never reaches a real
 /// priced adapter (`bigquery` needs a real project), so this fake lets
 /// `governance.per_replica_spend_ceiling` move the ledger through the REAL `/mcp` transport.
@@ -282,8 +292,13 @@ impl Warehouse for PricedWarehouse {
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>, _presented: &Presented, _deadline: Deadline) -> Result<RowSet, Self::Error> {
-        Ok(self.result.clone())
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
