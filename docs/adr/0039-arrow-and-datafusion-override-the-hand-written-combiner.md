@@ -195,24 +195,53 @@ this was scoped, one is what makes step 2 possible at all, and the last is what 
   the domain-side pair above - build batches from rows, read rows from batches - so an adapter or a
   fake that has rows changes one line.
 - **`ALLOWED_IN_DOMAIN` is the cost that is not mechanical, and it is paid.** The domain naming
-  `arrow-array` and `arrow-schema` took that allowlist's walk from 33 crates to 97. Twenty-two are
-  in the FEATURE-RESOLVED tree (`cargo tree -p sutura-domain --all-features`), and two of those
-  twenty-two are worth naming rather than counting: a time-zone database (`chrono`,
-  `iana-time-zone`) and an entropy source (`getrandom`, through `ahash` through `hashbrown`) are now
-  in the hexagon's interior, reachable from no code this crate has. The remaining forty-two are the
-  over-broad kind that allowlist already carries - optional and platform-specific edges
-  `cargo metadata` resolves for every target, including a `wasm-bindgen` pair and the `windows-*`
-  family. **No new lockfile entry**: both crates were already resolved at 59.2.0. Arrow is a data
-  format rather than a runtime, a client or an engine, which is the line
+  `arrow-array` and `arrow-schema` took that allowlist's walk from 33 crates to 97 - so the entry
+  added 64, which is the number a reader should carry. **Every other number here needs its venue
+  named, because they disagree.** Under `cargo tree -p sutura-domain --all-features`, 21 of the 64
+  are compiled and the remaining 43 are the over-broad kind that allowlist already carries -
+  optional and platform-specific edges `cargo metadata` resolves for every target, including a
+  `wasm-bindgen` pair and the `windows-*` family. Under the WORKSPACE-unified resolve that
+  `just test` and `just lint` run in, more than 21 are compiled: one `arrow-array` serves the whole
+  graph, `adbc_core` turns its optional `chrono-tz` on, and features unify, so the zone DATABASE
+  compiles into the interior in the venue every gate uses. A per-package tree does not show that.
+  **Two of the 21 are worth naming rather than counting**: a time-zone database (`chrono` ->
+  `iana-time-zone`, which reads `/etc/localtime` or asks `CFTimeZoneCopySystem`) and an entropy
+  source (`arrow-array` -> `ahash` -> `getrandom`, directly and not through `hashbrown`) are now in
+  the hexagon's interior, reachable from no code this crate has. That last clause is a claim about
+  current use and not a mechanism, so `clippy.toml` now bans the clock and entropy entry points by
+  name; what no mechanism here reaches is the calls `arrow-array` and `ahash` make inside
+  themselves. **No new lockfile entry**: both crates were already resolved at 59.2.0. Arrow is a
+  data format rather than a runtime, a client or an engine, which is the line
   `xtask/src/boundaries/edges.rs` actually draws - and this record is what authorises the entry.
 
-## Step 3, decided and not built here: the combiner is a DataFusion plan
+## Step 3, decided and not built here: the combiner is a DataFusion plan behind a second DRIVEN port
 
 `sutura_domain::plan::FederatedPlan::combine` is replaced by a DataFusion plan over the two legs'
-batches, built in an **adapter** crate. `-domain` keeps the plan type and the port and names no
-engine: `ALLOWED_IN_DOMAIN`'s stated line is *no runtime, no client, no engine*, and DataFusion is an
-engine. Step 2's Arrow port is what makes that seam possible without an adapter calling an adapter -
-`sutura-app` calls the combiner, above every adapter, exactly as it calls `combine` today.
+batches, reached through a **second driven port** the domain declares beside `Warehouse` and
+`SemanticCatalog`, with `LocalService` generic in both. `-domain` keeps the plan type and the port
+and names no engine: `ALLOWED_IN_DOMAIN`'s stated line is *no runtime, no client, no engine*, and
+DataFusion is an engine. Step 2's Arrow port is what makes that seam possible without an adapter
+calling an adapter - `sutura-app` calls the port, above every adapter, exactly as it calls `combine`
+today.
+
+**Corrected in place: this step used to say the plan was built in an adapter crate, and a gate says
+it cannot be.** `xtask/src/boundaries/application.rs` refuses any `sutura-exec-*` name in
+`sutura-app`'s NORMAL dependency tree, and `sutura-app` is `FederatedPlan::combine`'s only caller.
+Three seams exist and only one is honest:
+
+| Seam                                     | Verdict                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the combiner in `sutura-exec-datafusion` | Refused by name. A dev-dependency is exempt from that rule, and a combiner is not test support.                                                                                                                                                                                                                                                                       |
+| a new **prefix-free** crate              | PASSED, and that was the problem: the rule named `sutura-exec-*` rather than *an engine*, so this put DataFusion in `sutura-app`'s tree by picking a name the rule does not match. A gate end-run is not a design - so the rule now names the PROPERTY, as a `FORBIDDEN_EDGES` row forbidding `datafusion` in `sutura-app`'s normal tree. This seam is refused today. |
+| a second **driven port**                 | The established shape, and the one ADR 0007 designed. Its absence is recorded in 0007's BODY, under *A second driven port was designed here and is NOT what was built* - **not** in 0007's second amendment, which is about a deployment holding two kinds of warehouse.                                                                                              |
+
+So step 3 is an architecture change with its own record: a trait with its first implementor, a
+composition-root wiring, and a startup refusal for a deployment declaring a federated question with
+no combiner linked - `Warehouse::EXECUTES_LEGS`'s mirror image on the other side of the plan. It is
+not a further commit on a branch that has already moved the interior's vocabulary, and it is on the
+path that produces certified numbers: 3,639 lines under `crates/sutura-domain/src/plan/federated`
+and `crates/sutura-app/src/federated`, and `plan/federated/failure.rs`'s two enums - 13
+`FederatedFailure` variants and 7 `FederatedAnswerRefusal` ones.
 
 **The byte budget must survive, and this is the mechanism.** 0007 decided the working-set bound is
 applied *as rows are converted*, because 0009's Decision 3 put the engine's memory pool on what its

@@ -94,8 +94,11 @@ years. Say so rather than adding a wrap check.
 
 ## Decision 4: `sutura-runtime` owns the registry, behind a default-off feature
 
-`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` is twenty-eight crates and a registry is
-not among them, so adding one is an architecture decision by that gate's own doc comment.
+`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` (`xtask/src/boundaries/edges.rs`) names
+every crate the interior's whole transitive tree may hold and a registry is not among them, so adding
+one is an architecture decision by that gate's own doc comment. The list was twenty-eight crates when
+this was written and is ninety-seven since `docs/adr/0039` put Arrow in the interior; the number is
+not what the argument rests on, so it is stated as the gate rather than as a count.
 
 `sutura-runtime` is right for the same reason it already owns `Admission`, and that module says it: the
 resource it bounds is the process, and *"two independently sized semaphores would be two controls each
