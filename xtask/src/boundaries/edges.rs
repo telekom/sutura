@@ -96,7 +96,7 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // is `forbid(unsafe_code)` and pulls only `zeroize`, with `default-features = false, features =
     // ["alloc"]`, so nothing further follows - measured against `cargo tree -p sutura-domain
     // --all-features` rather than assumed. `zeroize` DOES contain `unsafe`: volatile writes and a
-    // compiler fence, which is precisely the thing a workspace with `unsafe_code = "forbid"` cannot
+    // compiler fence, which is precisely the thing a tree that forbids `unsafe_code` at every crate root cannot
     // write for itself and should not try to. Neither is a framework - no runtime, no client, no
     // engine - which is the line this list's doc comment draws.
     //

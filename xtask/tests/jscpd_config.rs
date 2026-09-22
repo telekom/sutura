@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The jscpd config is one strict ignore-only document consumed by both gate paths.
 
 #![cfg(test)]

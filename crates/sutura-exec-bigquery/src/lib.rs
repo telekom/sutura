@@ -620,21 +620,22 @@ where
 impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// Opens a dataset over the ADBC transport.
     ///
-    /// `driver_path` is the on-disk location of the self-built
-    /// `libadbc_driver_bigquery.so` (one per release triple, see
-    /// `nix/bigquery-adbc.nix`).
+    /// `driver` is where this process reaches the self-built driver: linked into a release
+    /// artefact's own binary, or a `.so` a deployment mounted. [`adbc::DriverLocation`] carries why
+    /// that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
+    /// one pinned source.
     ///
     /// `impersonation` is whether this source impersonates and at what scope - the source's declared
     /// `workload_identity.scope`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here
     /// rather than read per request because it is a property of the source, and a declared scope the
     /// driver would refuse then fails before a listener is bound.
     #[must_use]
-    pub fn over_adbc(
+    pub const fn over_adbc(
         source: SourceName,
         posture: SourcePosture,
         billing_project: ProjectId,
         default_dataset: DatasetId,
-        driver_path: impl Into<String>,
+        driver: adbc::DriverLocation,
         impersonation: adbc::Impersonation,
     ) -> Self {
         Self::new(
@@ -642,7 +643,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
             posture,
             billing_project,
             default_dataset,
-            adbc::AdbcBigQuery::new(driver_path, impersonation),
+            adbc::AdbcBigQuery::new(driver, impersonation),
         )
     }
 }

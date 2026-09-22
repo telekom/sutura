@@ -284,14 +284,15 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
-pub fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver_path: impl Into<String>, impersonation: adbc::Impersonation) -> Self
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
 
-`driver_path` is the on-disk location of the self-built
-`libadbc_driver_bigquery.so` (one per release triple, see
-`nix/bigquery-adbc.nix`).
+`driver` is where this process reaches the self-built driver: linked into a release
+artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` carries why
+that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
+one pinned source.
 
 `impersonation` is whether this source impersonates and at what scope - the source's declared
 `workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
@@ -421,14 +422,20 @@ has somewhere to go.
 
 ## Module `adbc`
 
-The ADBC transport: loads the self-built `libadbc_driver_bigquery.so`
+The ADBC transport: opens the self-built `BigQuery` driver
 (`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
 decodes its Arrow result sets.
 
 ```text
-adbc_core + adbc_driver_manager → C ABI → libadbc_driver_bigquery.so
+adbc_core + adbc_driver_manager → C ABI → the BigQuery ADBC driver
   → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
 ```
+
+**Two routes to that driver and one type deciding between them** - `DriverLocation`, resolved
+once at composition. A release artefact carries the driver in its own link (the `c-archive`
+half of one nix derivation), which is the only route a STATIC musl binary has; a source build
+opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+the arbitrary path `telekom/sutura#929`'s sixth finding named.
 
 Behind the crate's default-off `adbc` feature, like the `wire`: the native
 driver and its Arrow graph are a per-triple addition a lean build should not
@@ -524,34 +531,40 @@ its own.
 #### Methods
 
 ```rust
-pub fn new(driver_path: impl Into<String>, impersonation: Impersonation) -> Self
+pub const fn new(driver: DriverLocation, impersonation: Impersonation) -> Self
 ```
 
-Names the driver `.so` a composition root resolves to load, and whether this source
-impersonates.
+Takes the driver a composition root resolved, and whether this source impersonates.
+
+**A `DriverLocation` and not a path**, which is `telekom/sutura#929`'s sixth finding: the
+driver a release artefact carries has no path, and a mounted one has been parsed before it
+gets here.
 
 ```rust
-pub fn probe(driver_path: &str) -> Result<(), AdbcError>
+pub fn probe(driver: &DriverLocation) -> Result<(), AdbcError>
 ```
 
-Does the driver at this path load and initialise at all?
+Does this artefact's driver load and initialise at all?
 
-**The one thing a boot path or a diagnostic can find out about the `.so` without a project**,
-and it is worth more than reading the environment variable: `dlopen` of this driver runs the
-GO RUNTIME's own initialisation inside this process, beside tokio and beside the allocator a
-release build links. That is the coexistence nobody could assert while the only caller was a
-question - so a link-success check would have passed and been wrong, and this executes instead.
+**The one thing a boot path or a diagnostic can find out about the driver without a
+project**, and it is worth more than reading a manifest or an environment variable:
+initialising this driver runs the GO RUNTIME inside this process, beside tokio and beside
+the allocator a release build links. That is the coexistence nobody could assert while the
+only caller was a question - so a link-success check would have passed and been wrong, and
+this executes instead. `nix/bigquery-driver-check.sh` is the venue that runs it against the
+release artefacts, and it is the whole of what makes the driver *carried* rather than
+*built*.
 
 It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
 on the Go side and reaches no network; `new_connection` is where the driver builds its client
 and looks for application default credentials, which on a host with none is a metadata-server
-probe this has no business making. So what a success means is exactly *the `.so` is this ABI
+probe this has no business making. So what a success means is exactly *this driver is this ABI
 and its runtime started*, and nothing about whether a question could be answered.
 
 # Errors
 
-`AdbcError::Load` where the `.so` is absent, is not this ABI, or cannot be loaded at all -
-which is what a static-musl binary answers, because it has no dynamic loader.
+`AdbcError::Load` where a mounted `.so` is absent, is not this ABI, or cannot be loaded at
+all, and where a linked-in driver's own initialisation refused.
 `AdbcError::Adbc` where the driver loaded and refused the database.
 
 #### Implements
@@ -566,6 +579,18 @@ Whether this source impersonates at all, and against which pool when it does.
 DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
 `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
 which of these a transport holds is decided once, at composition, from a value an operator wrote.
+
+### `use DriverLocation`
+
+Where the driver is, once something has decided that it is reachable at all.
+
+**There is no third state and no `Option`.** A source cannot be opened without one of these,
+so a composition root either resolved a driver or refused to serve - the shape
+`crate::transport::JobIdentity` uses for the same reason.
+
+### `use UnusableDriverPath`
+
+Why a named driver path is not one this process will open.
 
 ### `use UnusablePool`
 

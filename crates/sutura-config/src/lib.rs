@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The service's configuration: layered sources in, one typed tree out, and a refusal instead of
 //! a permissive default.
 //!

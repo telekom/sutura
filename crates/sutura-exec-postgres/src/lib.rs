@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over PostgreSQL - one connection under the deployment's declared
 //! identity (`SharedServiceUser`). The static half of Postgres: no OAuth, no impersonation.
 //!

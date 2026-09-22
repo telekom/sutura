@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The real [`HttpAspectReader`] against a real local HTTP server - "ports get fakes, not mocked
 //! HTTP" - serving the shapes `docs/adr/0016`'s "Field by field" table and `tests/provisioned.rs`'s
 //! own measured `metric` envelope describe. No mock-HTTP crate: a hand-rolled `TcpListener` loop

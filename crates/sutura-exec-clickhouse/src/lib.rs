@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `ClickHouse`, over its HTTP interface.
 //!
 //! One connection under the deployment's declared identity (`SharedServiceUser`) - the static

@@ -15,16 +15,21 @@
 # The driver advertises a go floor above what nixpkgs' default `go` provides;
 # override `buildGoModule` with `go_1_27` for this derivation only.
 #
-# The c-shared facade lives in `go/pkg` and is gated behind the `driverlib` build
-# tag, which is how upstream's `adbc-make` builds it; we pass `-tags driverlib`.
+# The C facade lives in `go/pkg` and is gated behind the `driverlib` build tag,
+# which is how upstream's `adbc-make` builds it; we pass `-tags driverlib`. It is
+# built TWICE from that one package, `c-shared` and `c-archive`, because the two
+# serve different runtimes - see the `Output` note below.
 #
 # Modules are fetched into a per-triple Go-modules fixed-output derivation; each
 # triple's FOD is a separate derivation, but all four fetch the same resolved
 # module set (libc/arch-independent on linux), so they share one `vendorHash`.
 # That hash was measured from a real aarch64-musl build, not guessed.
 #
-# Output: `$out/lib/libadbc_driver_bigquery.so` - the ADBC v1 C ABI entrypoint
-# `AdbcDriverInit` that `adbc_driver_manager` dlopens.
+# Output: two files exporting the same ADBC v1 C ABI entrypoint `AdbcDriverInit`.
+# `$out/lib/libadbc_driver_bigquery.so` is what `adbc_driver_manager` dlopens for a
+# deployment that mounts a driver; `$out/lib/libadbc_driver_bigquery.a` is the
+# `c-archive` `nix/shipped.nix` links into a published artefact, which is the ONLY
+# route a static musl binary has - it has no dynamic loader at all.
 #
 # `src` must be the repository's `go/` directory (the Go module root).
 { pkgs, src, crossSystemName, vendorHash }:
@@ -53,11 +58,18 @@ buildGoModule {
   buildPhase = ''
     runHook preBuild
     go build -tags driverlib -buildmode=c-shared -o libadbc_driver_bigquery.so ./pkg
+    # `-extar` because `c-archive` is the one build mode that shells out to `ar`, and it
+    # shells out to the literal name `ar` - which a nixpkgs CROSS stdenv does not put on
+    # PATH (it exports `$AR` as the target's own, prefixed). Without this the link fails
+    # with `running ar failed: exec: "ar": executable file not found in $PATH`, measured.
+    # The archive has to be the TARGET's, so `$AR` is the only correct value here.
+    go build -tags driverlib -buildmode=c-archive -ldflags "-extar=$AR" -o libadbc_driver_bigquery.a ./pkg
     runHook postBuild
   '';
   installPhase = ''
     runHook preInstall
     install -Dm755 libadbc_driver_bigquery.so $out/lib/libadbc_driver_bigquery.so
+    install -Dm644 libadbc_driver_bigquery.a $out/lib/libadbc_driver_bigquery.a
     # Record, machine-greppable beside the binary, every pinned module and its
     # real licence text. `go build` above already extracted the exact import
     # closure into $GOMODCACHE, so walk those module dirs (<path>@<version>,

@@ -1,11 +1,17 @@
-//! The ADBC transport: loads the self-built `libadbc_driver_bigquery.so`
+//! The ADBC transport: opens the self-built `BigQuery` driver
 //! (`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
 //! decodes its Arrow result sets.
 //!
 //! ```text
-//! adbc_core + adbc_driver_manager → C ABI → libadbc_driver_bigquery.so
+//! adbc_core + adbc_driver_manager → C ABI → the BigQuery ADBC driver
 //!   → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
 //! ```
+//!
+//! **Two routes to that driver and one type deciding between them** - [`DriverLocation`], resolved
+//! once at composition. A release artefact carries the driver in its own link (the `c-archive`
+//! half of one nix derivation), which is the only route a STATIC musl binary has; a source build
+//! opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+//! the arbitrary path `telekom/sutura#929`'s sixth finding named.
 //!
 //! Behind the crate's default-off `adbc` feature, like the `wire`: the native
 //! driver and its Arrow graph are a per-triple addition a lean build should not
@@ -39,8 +45,15 @@
 mod bind;
 pub mod decode;
 mod identity;
+// The driver this artefact carries, and the one `unsafe` in this workspace. `cfg`-gated by
+// `../../build.rs`, so a source build does not compile it - `cargo xtask check-unsafe` is what
+// reads it regardless of that, and the module header carries the limit.
+#[cfg(adbc_driver_linked)]
+mod linked;
+mod location;
 mod subject;
 pub use identity::Impersonation;
+pub use location::{DriverLocation, UnusableDriverPath};
 pub use subject::{UnusablePool, WorkloadPool};
 
 // The ADBC traits below are imported anonymously (`as _`) because they exist only
@@ -145,6 +158,40 @@ where
     Ok(())
 }
 
+/// Loads the driver, by whichever of the two routes this artefact has.
+///
+/// **One function for both call sites, and that is the point rather than tidiness.** `probe` and
+/// `connect` are the only two places a driver is opened, and before this each named its own
+/// constructor - so a build that linked the archive could have had one of them still looking for a
+/// file. The route is a property of the [`DriverLocation`] the composition root resolved, so
+/// neither caller decides it.
+fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
+    if let Some(path) = at.mounted() {
+        return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default()).map_err(AdbcError::Load);
+    }
+    carried()
+}
+
+/// The driver this artefact's own link carries - the only route a STATIC musl binary has, because
+/// it has no dynamic loader at all. `linked`'s header carries what makes it sound.
+#[cfg(adbc_driver_linked)]
+fn carried() -> Result<ManagedDriver, AdbcError> {
+    linked::driver().map_err(AdbcError::Load)
+}
+
+/// Unreachable in a build that linked no archive, because [`DriverLocation::linked_in`] is the only
+/// constructor of the location this serves and it answers `None` there.
+///
+/// An `Err` and not an `unreachable!`: a refusal a caller can render beats a panic in a boot path,
+/// and the two `cfg` halves then have one signature, so [`load`] needs no branch of its own.
+#[cfg(not(adbc_driver_linked))]
+fn carried() -> Result<ManagedDriver, AdbcError> {
+    Err(AdbcError::Load(CoreError::with_message_and_status(
+        "this build linked no `BigQuery` driver",
+        adbc_core::error::Status::NotFound,
+    )))
+}
+
 /// A driver handle, a prepared statement, and the loopback source they may still fetch from.
 ///
 /// **The third element is the lifetime fix rather than a convenience.** `externalaccount`'s token
@@ -173,44 +220,46 @@ const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 /// is the cell that dies if the option list starts being memoised; a *connection* cache would need
 /// its own.
 pub struct AdbcBigQuery {
-    driver_path: String,
+    driver: DriverLocation,
     /// Whether this source impersonates, and at what scope - decided at composition from what the
     /// source declared, never per request. See [`Impersonation`] for why it is not an `Option`.
     impersonation: Impersonation,
 }
 
 impl AdbcBigQuery {
-    /// Names the driver `.so` a composition root resolves to load, and whether this source
-    /// impersonates.
-    pub fn new(driver_path: impl Into<String>, impersonation: Impersonation) -> Self {
-        Self {
-            driver_path: driver_path.into(),
-            impersonation,
-        }
+    /// Takes the driver a composition root resolved, and whether this source impersonates.
+    ///
+    /// **A [`DriverLocation`] and not a path**, which is `telekom/sutura#929`'s sixth finding: the
+    /// driver a release artefact carries has no path, and a mounted one has been parsed before it
+    /// gets here.
+    pub const fn new(driver: DriverLocation, impersonation: Impersonation) -> Self {
+        Self { driver, impersonation }
     }
 
-    /// Does the driver at this path load and initialise at all?
+    /// Does this artefact's driver load and initialise at all?
     ///
-    /// **The one thing a boot path or a diagnostic can find out about the `.so` without a project**,
-    /// and it is worth more than reading the environment variable: `dlopen` of this driver runs the
-    /// GO RUNTIME's own initialisation inside this process, beside tokio and beside the allocator a
-    /// release build links. That is the coexistence nobody could assert while the only caller was a
-    /// question - so a link-success check would have passed and been wrong, and this executes instead.
+    /// **The one thing a boot path or a diagnostic can find out about the driver without a
+    /// project**, and it is worth more than reading a manifest or an environment variable:
+    /// initialising this driver runs the GO RUNTIME inside this process, beside tokio and beside
+    /// the allocator a release build links. That is the coexistence nobody could assert while the
+    /// only caller was a question - so a link-success check would have passed and been wrong, and
+    /// this executes instead. `nix/bigquery-driver-check.sh` is the venue that runs it against the
+    /// release artefacts, and it is the whole of what makes the driver *carried* rather than
+    /// *built*.
     ///
     /// It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
     /// on the Go side and reaches no network; `new_connection` is where the driver builds its client
     /// and looks for application default credentials, which on a host with none is a metadata-server
-    /// probe this has no business making. So what a success means is exactly *the `.so` is this ABI
+    /// probe this has no business making. So what a success means is exactly *this driver is this ABI
     /// and its runtime started*, and nothing about whether a question could be answered.
     ///
     /// # Errors
     ///
-    /// [`AdbcError::Load`] where the `.so` is absent, is not this ABI, or cannot be loaded at all -
-    /// which is what a static-musl binary answers, because it has no dynamic loader.
+    /// [`AdbcError::Load`] where a mounted `.so` is absent, is not this ABI, or cannot be loaded at
+    /// all, and where a linked-in driver's own initialisation refused.
     /// [`AdbcError::Adbc`] where the driver loaded and refused the database.
-    pub fn probe(driver_path: &str) -> Result<(), AdbcError> {
-        let mut driver =
-            ManagedDriver::load_dynamic_from_filename(driver_path, None, AdbcVersion::default()).map_err(AdbcError::Load)?;
+    pub fn probe(driver: &DriverLocation) -> Result<(), AdbcError> {
+        let mut driver = load(driver)?;
         // A project id is set because the driver's own option map is what is being exercised; the
         // value reaches no request, because no connection is opened. `PROBE_PROJECT` is a name
         // rather than a literal so nobody reads it as a default for anything.
@@ -231,7 +280,7 @@ impl AdbcBigQuery {
     /// execute as the wrong one.
     fn connect(&self, request: &JobRequest<'_>) -> Result<Connected, AdbcError> {
         // WHO first. `identity_options` is empty for a shared leg and refuses a bearer; a refused
-        // identity must not reach `load_dynamic_from_filename`, because a loaded driver with no
+        // identity must not reach `load`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
         let authentication = identity::authenticate(request.identity(), &self.impersonation)?;
         // The values, as the one batch this driver binds from - assembled before the `.so` is
@@ -239,8 +288,7 @@ impl AdbcBigQuery {
         // connection. `None` where a call carries no values, which is every boot-path call and a
         // different code path inside the driver - see [`bind`].
         let bound = bind::parameter_batch(request.params())?;
-        let mut driver = ManagedDriver::load_dynamic_from_filename(&self.driver_path, None, AdbcVersion::default())
-            .map_err(AdbcError::Load)?;
+        let mut driver = load(&self.driver)?;
         let opts = [
             (
                 OptionDatabase::Other("bigquery.project_id".into()),

@@ -1641,8 +1641,8 @@ change takes that measurement.
 `github.com/telekom/sutura#685` measured it: *"`checks.one-binary` and `checks.shipped-features`
 themselves now build every release and release-performance target at this feature set"* is false
 for the second half of that claim. `checks.one-binary` reads `crossPackages."${b.bin}-${target}"`
-(`nix/shipped.nix:545`) - the unsuffixed key - and `checks.shipped-features` reads
-`nativeBinaries.${b.bin}` (`:659`), the native, unsuffixed key. Neither expression ever names the
+(`nix/shipped.nix:573`) - the unsuffixed key - and `checks.shipped-features` reads
+`nativeBinaries.${b.bin}` (`:687`), the native, unsuffixed key. Neither expression ever names the
 `-performance` suffix, so neither gate builds or reads a `release-performance` target; both are
 release-profile only. `github.com/telekom/sutura#685`'s own binaries slice (musl at
 `release-performance`) is a separate, matrix-only fix that does not touch either gate either.

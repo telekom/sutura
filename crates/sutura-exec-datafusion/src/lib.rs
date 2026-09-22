@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter that executes a plan in process, generating no SQL at all.
 //!
 //! `DataFusion` is the reason the port takes a [`QueryPlan`] rather than a rendered statement. It

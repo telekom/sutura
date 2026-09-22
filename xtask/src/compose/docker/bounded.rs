@@ -188,7 +188,7 @@ impl Budget {
     /// `ps` every 500ms for up to a 900s deadline, so a budget re-read per invocation is ~1800
     /// environment reads per `dev-up` - and, now that an unusable override says so, ~1800 identical
     /// warnings burying the one report a reader needs. The environment cannot change under this:
-    /// `set_var` is `unsafe` and the workspace forbids `unsafe_code`, so nothing in this process
+    /// `set_var` is `unsafe` and this crate's root forbids `unsafe_code`, so nothing in this process
     /// writes one.
     pub(crate) fn of(extra: &[&str]) -> Self {
         Self::for_call(Call::of(extra))
@@ -563,7 +563,7 @@ pub(super) fn run(command: &mut Command, budget: Budget) -> Result<Output, Faile
 ///
 /// **Its own function because the wait-ERROR arm cannot be produced on demand.** `try_wait` fails
 /// when `waitpid` answers `ECHILD`, which needs a `SIGCHLD` disposition of `SIG_IGN` in this
-/// process - `unsafe` to arrange, and this workspace forbids `unsafe_code`. Taking the wait's
+/// process - `unsafe` to arrange, and this crate's root forbids `unsafe_code`. Taking the wait's
 /// result as a value makes the DECISION assertable without arranging the condition, which is what
 /// stopped a spawned call from being reported as one that started nothing.
 ///
@@ -618,7 +618,7 @@ mod tests {
     /// Constructed field-wise on purpose: `Budget::of` reads the environment, and the smallest value
     /// the clamp there permits is a whole second - which is a second per assertion, for no gain.
     /// Mutating the environment is not the alternative: `set_var` is `unsafe`, and this workspace
-    /// FORBIDS `unsafe_code`.
+    /// FORBIDS `unsafe_code` at its root.
     const fn budget_of(call: Call, millis: u64) -> Budget {
         Budget {
             call,
@@ -776,7 +776,7 @@ mod tests {
         //
         // Asserted through `answered`, which is the function `run` uses, so this is the wiring and
         // not a hand-built value: the arm cannot be reached on demand, because `try_wait` fails on
-        // `ECHILD` and arranging that needs `unsafe`, which this workspace forbids.
+        // `ECHILD` and arranging that needs `unsafe`, which this crate's root forbids.
         let echild = || std::io::Error::from(std::io::ErrorKind::NotFound);
 
         let Err(lost @ Failed::Lost { .. }) = super::answered(Err(echild()), Budget::of(&["up", "--detach"])) else {

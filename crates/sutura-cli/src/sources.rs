@@ -270,8 +270,8 @@ fn unservable(cause: &sutura_config::SettingsLoadError) -> String {
 /// The environment-overlay half of the remedy above, over the variables a process has set.
 ///
 /// A function of the names rather than of the process, so the wording is testable without a process
-/// environment a test cannot arrange - `std::env::set_var` is `unsafe` in this edition and the
-/// workspace forbids it.
+/// environment a test cannot arrange - `std::env::set_var` is `unsafe` in this edition and this
+/// crate's root forbids it.
 ///
 /// **Both branches say something.** The empty one is not silence: telling a reader the overlay is
 /// empty is what rules it out, and a remedy that lists three places to look without saying which

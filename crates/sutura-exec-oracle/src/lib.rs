@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over Oracle Database - one connection under the deployment's declared
 //! identity (`SharedServiceUser`). `github.com/telekom/sutura#127` PR 2, over PR 1's
 //! `Dialect::Oracle` rendering.

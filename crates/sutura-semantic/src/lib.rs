@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The semantic compiler: a modelled question becomes one plan for one data system.
 //!
 //! Two stages, in two modules, and the split is the design rather than tidiness:

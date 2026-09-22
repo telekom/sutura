@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Findings from an adversarial review of `sutura_sql::expression`, as tests.
 //!
 //! Every case here was reproduced against the compile at commit `4f6983f` with sutura's own

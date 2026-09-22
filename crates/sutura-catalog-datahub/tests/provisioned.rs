@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The provisioned `DataHub` instance, asked the one question the recorded fixture cannot answer.
 //!
 //! # What this test IS, stated before what it is not, because the distinction is the whole point

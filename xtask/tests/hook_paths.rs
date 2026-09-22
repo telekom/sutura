@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `check-fuzz` must refuse a target whose imported crate reaches neither hook surface.
 //!
 //! `github.com/telekom/sutura#867`. Drives the real binary against a fixture tree rather than

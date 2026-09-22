@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The HTTP surface. Transport only.
 //!
 //! # What this crate is allowed to do

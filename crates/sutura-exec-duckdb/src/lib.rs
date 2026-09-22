@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `DuckDB`, for local development and single-file work.
 //!
 //! `DuckDB` is the case where the data is a file and there is no server to authenticate against, so

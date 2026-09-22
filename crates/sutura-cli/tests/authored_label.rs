@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `catalog` over `examples/authored-sql/catalog`, spawned, so a rename of the label
 //! `commands::computation_label` prints for the authored-SQL case is LOOKED AT rather than merely
 //! compiled against the `const` assertion sitting beside it.

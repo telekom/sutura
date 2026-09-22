@@ -421,14 +421,15 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor;
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers;
           inherit (commonArgs) version;
         };
 
         inherit (shipped) binaries crossPackages imageTargets;
 
-        # The ADBC BigQuery driver packages, some binding-visible here so both
-        # `packages.*` and a `checks` entry point at the same four triples.
+        # The ADBC BigQuery driver packages, some binding-visible here so `packages.*`, a `checks`
+        # entry and every SHIPPED artefact's link point at the same four triples. `shipped` above
+        # reads this for the `c-archive` half - a release artefact carries its own driver.
         adbcDrivers = import ./nix/bigquery-adbc-drivers.nix {
           pkgs = pkgs;
           bigqueryAdbcGoSource = "${bigquery-adbc-src}/go";
@@ -514,19 +515,31 @@
           # `attrValues` rather than four hand-written attribute names so this gate
           # cannot name a driver the driver file no longer builds.
           #
-          # **The limit, beside the claim: this LOADS nothing.** It is a file-existence
-          # test plus a literal count, so it establishes that the four `.so` files
-          # build and no more - a driver that builds and cannot be dlopen'd passes
-          # here. The venue that RUNS one is `ci.yml`'s `bigquery-driver-check` job
-          # (`bash nix/bigquery-driver-check.sh`, `sutura doctor` through the driver
-          # manager), and it is `x86_64-linux` only.
+          # **BOTH driver shapes, since `telekom/sutura#929`'s sixth finding.** Each
+          # triple builds a `.so` for a mounted driver AND a `.a` the published
+          # artefact links in, and a gate asserting one of two would leave the
+          # release half unmeasured - the archive is the ONLY route the two static
+          # musl artefacts have. `crates/sutura-exec-bigquery/build.rs` refuses an
+          # archive-less directory, so an absent `.a` would fail a release build
+          # rather than ship a mounted fallback; this is the cheaper place to find
+          # out, on every pull request and on every system.
+          #
+          # **The limit, beside the claim: this LOADS nothing.** It is a
+          # file-existence test plus a literal count, so it establishes that the
+          # four triples' two files build and no more - a driver that builds and
+          # cannot be opened passes here. The venue that RUNS one is `ci.yml`'s
+          # `bigquery-driver-check` job (`bash nix/bigquery-driver-check.sh`,
+          # `sutura doctor` against the release artefacts), and it is
+          # `x86_64-linux` only.
           adbc-driver-bigquery = pkgs.runCommand "adbc-driver-bigquery-check" {
             buildInputs = builtins.attrValues adbcDrivers;
           } ''
             found=0
             for d in $buildInputs; do
-              test -f "$d/lib/libadbc_driver_bigquery.so" \
-                || { echo "missing libadbc_driver_bigquery.so in $d" >&2; exit 1; }
+              for shape in so a; do
+                test -f "$d/lib/libadbc_driver_bigquery.$shape" \
+                  || { echo "missing libadbc_driver_bigquery.$shape in $d" >&2; exit 1; }
+              done
               found=$((found + 1))
             done
             test "$found" -eq 4 \

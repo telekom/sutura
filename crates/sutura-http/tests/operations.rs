@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The generated interface description is the governed tool surface, in full and nothing else.
 
 #[cfg(test)]

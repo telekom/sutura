@@ -69,7 +69,7 @@ const DEFAULTS: &str = include_str!("defaults.yaml");
 ///
 /// A value rather than a set of arguments, for one reason: the process environment is global, and
 /// `std::env::set_var` is `unsafe` in this edition - so a test that wanted to exercise the variable
-/// layer by setting variables could not be written under `unsafe_code = "forbid"`. Supplying the
+/// layer by setting variables could not be written under this crate's root `forbid(unsafe_code)`. Supplying the
 /// variables as a map makes that layer a pure function of its input, and
 /// [`Sources::from_process_environment`] is the one place that reads the real environment.
 #[derive(Debug, Clone)]

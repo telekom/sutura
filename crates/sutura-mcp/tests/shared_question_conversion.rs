@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Both transports parse the same wire input into the same [`Query`], through the ONE shared
 //! conversion now inward of both: `sutura_domain::question::parse_query`.
 //!

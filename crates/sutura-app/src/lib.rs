@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The service: what happens between a question arriving and an answer leaving.
 //!
 //! Generic over the ports and holding no framework types, so it can be exercised against a fake

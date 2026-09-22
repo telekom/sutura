@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The deployment a user actually gets: a settings file, a catalog directory, a listener, a bearer
 //! token, one question, rows.
 //!

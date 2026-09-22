@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Leg 2 for `BigQuery`, as a hosted leg: does a declared subject's question really execute as that
 //! subject's own principal at the identity pool, rather than as this deployment?
 //!
@@ -41,7 +42,7 @@ mod declared_principal {
     use sutura_domain::model::SourceName;
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_exec_bigquery::BigQueryWarehouse;
-    use sutura_exec_bigquery::adbc::{Impersonation, WorkloadPool};
+    use sutura_exec_bigquery::adbc::{DriverLocation, Impersonation, WorkloadPool};
     use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 
     /// One required environment value, or a panic naming it.
@@ -62,9 +63,18 @@ mod declared_principal {
         SourceName::parse("warehouse").expect("a source name is a name")
     }
 
+    /// The driver this leg opens.
+    ///
+    /// A MOUNTED one, and that is the only route a cargo test binary has: the archive a release
+    /// artefact links in is supplied by `nix/shipped.nix` for the four release triples, and this
+    /// binary is none of them. So this venue measures the driver and not the packaging -
+    /// `nix/bigquery-driver-check.sh` is where the packaging is measured.
+    fn driver() -> DriverLocation {
+        DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
+    }
+
     /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
-        let driver = required("SUTURA_BIGQUERY_ADBC_DRIVER");
         let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
         let dataset = DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id");
         let pool = WorkloadPool::parse(&required("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
@@ -73,7 +83,7 @@ mod declared_principal {
             SourcePosture::ImpersonationAtSource,
             project,
             dataset,
-            driver,
+            driver(),
             Impersonation::ThroughPool(pool),
         )
     }
@@ -148,7 +158,7 @@ mod declared_principal {
             },
             ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id"),
             DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
-            required("SUTURA_BIGQUERY_ADBC_DRIVER"),
+            driver(),
             Impersonation::Disabled,
         );
         let ours = String::from(

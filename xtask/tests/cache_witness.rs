@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The `causality-target-cache` witness, EXECUTED rather than read.
 //!
 //! `.github/actions/causality-target-cache` refuses a restore that carried nothing: the action

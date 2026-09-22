@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The example under `examples/single-player`, run as a test.
 //!
 //! **One directory, two purposes, and no second copy of either.** `examples/single-player` is what

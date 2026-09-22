@@ -627,11 +627,25 @@ unused_must_use = "deny"
 # `dead_code` - which is precisely how an unused function survives review. `pub(crate)`
 # says what is true, and then the dead-code check can see it.
 unreachable_pub = "deny"
-# `forbid`, so a crate cannot re-allow it locally. No first-party `unsafe` exists and none
-# is planned: every FFI-shaped dependency (arrow, duckdb) is consumed through its own safe
-# wrapper. Needing `unsafe` here is an architecture decision, and lifting a `forbid` is
-# exactly the size of diff that decision deserves.
-unsafe_code = "forbid"
+# `deny` HERE and `#![forbid(unsafe_code)]` AT EVERY CRATE ROOT BUT ONE, which is one
+# architecture decision and not a relaxation - `telekom/sutura#929`'s sixth finding, and the
+# diff it deserved. `forbid` used to be set here and inherited by every member; cargo refuses a
+# member that both inherits `[workspace.lints]` and overrides one entry (measured:
+# *"cannot override `workspace.lints` in `lints`"*), and an `#[expect]` under an inherited
+# `forbid` is `E0453`, so there was no way to except one crate without moving the level.
+#
+# What replaces the lost strictness is the re-assertion: every crate root carries
+# `#![forbid(unsafe_code)]`, which a crate cannot then lower, and `cargo xtask check-unsafe`
+# holds both halves - the attribute at every root, and the ONE crate excepted from it. The
+# exception is `sutura-exec-bigquery`, whose `src/adbc/linked.rs` declares the ADBC driver's C
+# entrypoint so a STATIC musl artefact can carry its own driver: a static binary has no dynamic
+# loader, so the alternative was no BigQuery on two of four published triples.
+#
+# The limit next to that: `forbid` at a root covers that crate's targets that HAVE that root -
+# a library, a binary, each integration test and each bench, which is why the gate reads them
+# all. It does not cover a `#[cfg]`-disabled region no compiler reaches, and the gate's text
+# scan is what reads those.
+unsafe_code = "deny"
 
 # Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
 # `just lint`.

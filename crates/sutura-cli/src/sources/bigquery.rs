@@ -57,8 +57,8 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// posture this adapter cannot deliver; the `impersonation-at-source` posture, which this binary
-/// attaches no broker for; a missing `SUTURA_BIGQUERY_ADBC_DRIVER`; and a project or dataset id the
-/// transport will not accept.
+/// attaches no broker for; a build carrying no driver with no usable mounted one named either; and
+/// a project or dataset id the transport will not accept.
 #[cfg(feature = "bigquery")]
 pub(super) fn open(
     source: &SourceName,
@@ -107,21 +107,15 @@ pub(super) fn open(
             ));
         }
     }
-    // The on-disk ADBC driver. An environment variable rather than a settings key: the `.so` is a
-    // deployment detail (which binary, mounted where) and is not yet a shipped artefact, so no
-    // settings schema owns a path for it yet; named so a startup refusal says what to set.
-    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_err| {
-        format!(
-            "`SUTURA_BIGQUERY_ADBC_DRIVER` is not set; point it at the self-built \
-             libadbc_driver_bigquery.so for {source}"
-        )
-    })?;
-    // Loaded and initialised rather than merely named - `serve/bigquery.rs` carries the argument,
-    // and it applies identically here: a path naming no usable `.so` must stop this command rather
-    // than become a failure on the one question it was launched to answer.
-    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver_path).map_err(|cause| {
-        format!("`SUTURA_BIGQUERY_ADBC_DRIVER` names a driver this process cannot load for {source}: {cause}")
-    })?;
+    // WHICH driver, decided by `crate::bigquery_driver` for this root, `serve::bigquery` and
+    // `doctor` alike: a published artefact carries its own, and a build from source names a mounted
+    // one. That module's header carries why the order is not a preference.
+    let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
+    // Loaded and initialised rather than merely resolved - `serve/bigquery.rs` carries the argument,
+    // and it applies identically here: a driver this process cannot open must stop this command
+    // rather than become a failure on the one question it was launched to answer.
+    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
+        .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
     let project = ProjectId::parse(billing_project.as_str())
         .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
     let dataset = DatasetId::parse(dataset.as_str())
@@ -131,7 +125,7 @@ pub(super) fn open(
         identity.posture().clone(),
         project,
         dataset,
-        driver_path,
+        driver,
         // `Disabled`, and the match above is what makes that the whole truth here rather than a
         // default: this command refuses `impersonation-at-source` by name, so the only posture that
         // reaches this line is the shared one - the deployment's own application default

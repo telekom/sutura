@@ -577,9 +577,10 @@ and not `yes`.
 
 The second half - this venue - is still only described, and it is a served deployment that:
 
-1. boots `sutura serve` with the `bigquery` feature and `security.inbound` armed, pointing
-   `SUTURA_BIGQUERY_ADBC_DRIVER` at a driver `.so` for its triple, with one `bigquery` source
-   declared `impersonation-at-source` whose `impersonate` map names both subjects;
+1. boots `sutura serve` with the `bigquery` feature and `security.inbound` armed, over the ADBC
+   driver the release artefact for its triple carries (a build from source instead points
+   `SUTURA_BIGQUERY_ADBC_DRIVER` at a `.so`), with one `bigquery` source declared
+   `impersonation-at-source` whose `impersonate` map names both subjects;
 2. asks one question as each of two verified callers and asserts the two answers differ in the way
    the two accounts' dataset grants make them differ - the ROWS, which is what the adapter-level
    venue cannot see;

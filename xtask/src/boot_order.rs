@@ -26,9 +26,10 @@
 //! credential whose only public constructor read a file, so no arrangement of that root could ask a
 //! dataset about a table before a credential was read. That alias is
 //! `BigQueryWarehouse<adbc::AdbcBigQuery>` now, and `AdbcBigQuery`'s two public constructors are
-//! `new(driver_path, impersonation)` and `probe(driver_path)` - **neither reads a credential**,
-//! because the driver authenticates itself. So both halves of the order rest on the line-position
-//! scan below and on nothing else, which is **weaker than the two-mechanism claim this replaces**:
+//! `new(driver, impersonation)` and `probe(&driver)` over a `DriverLocation` - **neither reads a
+//! credential**, because the driver authenticates itself. So both halves of the order rest on the
+//! line-position scan below and on nothing else, which is **weaker than the two-mechanism claim
+//! this replaces**:
 //! the surviving type argument used to make the first half true of every arrangement of the root,
 //! where the scan only compares where three calls appear in one file. The three limits stated below
 //! now apply to the whole order rather than to its second half.

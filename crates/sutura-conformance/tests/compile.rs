@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The binding that exercises the compile packs over the two hand-built fixture catalogs.
 //!
 //! [`compile_packs!`](sutura_conformance::compile_packs) binds one `#[test]` per behaviour to a

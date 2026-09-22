@@ -12,28 +12,34 @@
 //! same spawned-binary argument and for the same reason.
 //!
 //! **A spawned binary and not an in-process cell, and that is forced rather than preferred.**
-//! `std::env::set_var` is `unsafe` on edition 2024 and `unsafe_code` is `forbid` here, so a test
-//! cannot put `SUTURA_BIGQUERY_ADBC_DRIVER` into its own process. A child takes it through
+//! `std::env::set_var` is `unsafe` on edition 2024 and this file's own root forbids `unsafe_code`,
+//! so a test cannot put `SUTURA_BIGQUERY_ADBC_DRIVER` into its own process. A child takes it through
 //! `Command::env`, which is safe - and the harness strips every `SUTURA_*` variable first, so the
 //! one this suite sets is the only one the deployment sees.
 //!
-//! # The pair, and why one of them alone proves nothing
+//! # The three cases, and why one of them alone proves nothing
 //!
-//! Two cases over one fixture, differing only in that variable:
+//! Three cases over one fixture, differing only in that variable:
 //!
-//! * **unset** - the refusal names the variable. This is the case every existing cell reaches, and
-//!   it passes whether or not a probe exists.
-//! * **set, to a path holding no driver** - the refusal names the driver. Only a boot that OPENS
-//!   the file can produce it, so this is the cell that dies when the probe goes.
+//! * **unset** - the refusal says this build carries no driver and names the variable. This is the
+//!   case every existing cell reaches, and it passes whether or not a probe exists.
+//! * **set, to an absolute path holding no driver** - the refusal names the driver and says it did
+//!   not initialise. Only a boot that OPENS the file can produce it, so this is the cell that dies
+//!   when the probe goes.
+//! * **set, to a RELATIVE path** - refused by the parse, before anything is opened, because what a
+//!   relative path names depends on the working directory the supervisor happened to use and the
+//!   driver is the code that then executes every question (`telekom/sutura#929`'s sixth finding).
 //!
-//! The two are asserted to be DIFFERENT refusals rather than each matched in isolation: a boot that
-//! answered *the variable is not set* to both would satisfy a lone substring check on the first.
+//! All three are asserted to be DIFFERENT refusals rather than each matched in isolation: a boot
+//! that answered *no driver* to all three would satisfy a lone substring check on the first.
 //!
 //! # What it does not establish
 //!
-//! That a real driver loads. The path here names nothing, so what is shown is that the process
-//! reached the loader and declined to serve - `just bigquery-driver-check` is the venue that loads
-//! a real `.so`, and it runs on `x86_64-linux` only.
+//! That a real driver loads, and NOT that a release artefact carries one. This binary is a cargo
+//! build, so `cfg(adbc_driver_linked)` is off in it and the mounted route is the only one it has -
+//! which is why the unset case here refuses rather than succeeding. `just bigquery-driver-check` is
+//! the venue that asks a RELEASE artefact, with the variable cleared, whether the driver it
+//! initialised is the one it carries; it runs on `x86_64-linux` only.
 
 #[cfg(test)]
 mod tests {
@@ -93,10 +99,10 @@ mod tests {
     #[test]
     fn a_driver_path_naming_no_driver_stops_the_process_rather_than_the_first_question() {
         // **THE CELL THE SERVING ROOT'S PROBE IS HELD BY - that root, and not "either" of them.**
-        // `SUTURA_BIGQUERY_ADBC_DRIVER` is set, so the variable check one line above the probe
-        // passes and the boot has to open the file to fail. Delete the `AdbcBigQuery::probe` call in
-        // `src/serve/bigquery.rs` and this reads the *variable is unset* refusal instead - which is
-        // the mutation review found nothing catching.
+        // `SUTURA_BIGQUERY_ADBC_DRIVER` is set to an absolute path, so both the resolve and the
+        // parse one line above the probe pass and the boot has to open the file to fail. Delete the
+        // `AdbcBigQuery::probe` call in `src/serve/bigquery.rs` and this reads the *no driver*
+        // refusal instead - which is the mutation review found nothing catching.
         //
         // **What it does NOT hold, measured: the other root.** This comment claimed both; deleting
         // the same call in `src/sources/bigquery.rs` left all 141 cells of `-p sutura-cli` green,
@@ -108,13 +114,37 @@ mod tests {
             &[("SUTURA_BIGQUERY_ADBC_DRIVER", "/nonexistent/libadbc_driver_bigquery.so")],
         );
         assert!(
-            said.contains("cannot load"),
-            "the refusal must say the driver could not be LOADED, not that a variable is unset:\n{said}"
+            said.contains("did not initialise"),
+            "the refusal must say the driver did not INITIALISE, not that no driver was named:\n{said}"
         );
         assert!(said.contains(BQ_SOURCE), "the refusal must name the source:\n{said}");
         assert!(
             !said.contains("is not set"),
             "a boot that only read the variable cannot have opened the file:\n{said}"
+        );
+    }
+
+    #[test]
+    fn a_relative_driver_path_is_refused_by_the_parse_and_never_opened() {
+        // **THE THIRD CASE, and the one `telekom/sutura#929`'s sixth finding is about.** A relative
+        // path names a different file depending on the working directory a supervisor launched this
+        // process in, and the driver is the code that then executes every question - so it is
+        // refused where it is READ rather than canonicalised into whatever the cwd happens to make
+        // it. Asserted against the other two sentences, because a boot that answered *no driver* to
+        // all three would satisfy a lone substring check.
+        let said = refusal(
+            "bigquery-driver-relative",
+            &[("SUTURA_BIGQUERY_ADBC_DRIVER", "lib/libadbc_driver_bigquery.so")],
+        );
+        assert!(said.contains("is relative"), "the refusal must name the defect:\n{said}");
+        assert!(said.contains(BQ_SOURCE), "the refusal must name the source:\n{said}");
+        assert!(
+            !said.contains("did not initialise"),
+            "a path refused by the parse is never opened, so nothing can have failed to initialise:\n{said}"
+        );
+        assert!(
+            !said.contains("is not set"),
+            "the variable WAS set, so the absent-driver sentence is the wrong one:\n{said}"
         );
     }
 
@@ -130,8 +160,8 @@ mod tests {
             "an unnamed driver is refused by the variable check:\n{said}"
         );
         assert!(
-            !said.contains("cannot load"),
-            "nothing was opened, so nothing can have failed to load:\n{said}"
+            !said.contains("did not initialise"),
+            "nothing was opened, so nothing can have failed to initialise:\n{said}"
         );
     }
 }

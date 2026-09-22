@@ -500,7 +500,8 @@ fn a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question()
     // have to restate the decision under test.
     let warehouse = open(
         crate::adbc::AdbcBigQuery::new(
-            "/nonexistent/libadbc_driver_bigquery.so",
+            crate::adbc::DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
+                .expect("an absolute path parses whether or not a file is there"),
             crate::adbc::Impersonation::Disabled,
         ),
         shared_posture(),

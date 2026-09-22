@@ -4339,6 +4339,7 @@ version = "0.5.1"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
+ "adbc_ffi",
  "arrow-array 59.2.0",
  "arrow-cast 59.2.0",
  "arrow-schema 59.2.0",

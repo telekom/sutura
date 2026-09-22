@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The harness held to itself: the macro binds, the declaration selects, and every fault fires.
 //!
 //! **Fakes over the port, not a data system.** A pack is a statement about the execution port, so

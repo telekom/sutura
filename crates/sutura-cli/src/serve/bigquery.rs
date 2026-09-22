@@ -120,30 +120,25 @@ fn build_bigquery(
         )
         .map_err(super::flatten)?;
     // **The ADBC driver authenticates itself, so there is no credential file to read and no token
-    // rotation to drive - the removed `wire` half.** The on-disk driver is read at BOOT rather than on
-    // the first question, which is the same argument the inbound key set is read before the listener
-    // opens: a driver path that is missing has to stop the process, not become a deployment that
-    // answers every question with a failure while its startup log says it opened a dataset.
+    // rotation to drive - the removed `wire` half.** The driver is opened at BOOT rather than on the
+    // first question, which is the same argument the inbound key set is read before the listener
+    // opens: a driver this process cannot open has to stop it, not become a deployment that answers
+    // every question with a failure while its startup log says it opened a dataset.
     //
-    // **And it reads the FILE and not only the variable, which is what closes the limit this comment
-    // used to state.** `AdbcBigQuery::probe` loads the `.so` and initialises it, so a path naming a
-    // missing or wrong-ABI driver stops the process here. It is also the only place in a normal boot
-    // that runs the driver's Go runtime beside tokio and the release allocator - a coexistence a
-    // link check cannot see - which is what makes `just bigquery-driver-check` a real verification
+    // **And it opens the DRIVER and not only a declaration.** `AdbcBigQuery::probe` initialises it,
+    // so a release artefact whose linked-in driver does not start, and a mounted path naming a
+    // missing or wrong-ABI `.so`, both stop the process here. It is also the only place in a normal
+    // boot that runs the driver's Go runtime beside tokio and the release allocator - a coexistence
+    // a link check cannot see - which is what makes `just bigquery-driver-check` a real verification
     // rather than a compile. What it still does not establish is that a question can be ANSWERED:
     // the probe opens no connection and looks for no credential.
     //
-    // `nix/shipped.nix` publishes no driver at all today, which is the open decision
-    // `docs/adr/0018`'s fifth amendment records rather than one this function can close.
-    let driver_path = std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER").map_err(|_err| {
-        format!(
-            "`SUTURA_BIGQUERY_ADBC_DRIVER` is not set; point it at the self-built \
-             libadbc_driver_bigquery.so for {source}"
-        )
-    })?;
-    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver_path).map_err(|cause| {
-        format!("`SUTURA_BIGQUERY_ADBC_DRIVER` names a driver this process cannot load for {source}: {cause}")
-    })?;
+    // WHICH driver is `crate::bigquery_driver`'s decision, shared with `sources::bigquery` and with
+    // `doctor` - `nix/shipped.nix` links one into every published artefact now, which is what
+    // `docs/adr/0018`'s sixth amendment records and its fifth left open.
+    let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
+    sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
+        .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
     // The two resource newtypes are parsed a SECOND time here, and that is not a redundant check: the
     // settings tree's `BillingProject` and the transport's `ProjectId` are two types in two crates,
     // and the one whose value is written into a request path is the transport's. Neither can be
@@ -183,7 +178,7 @@ fn build_bigquery(
         identity.posture().clone(),
         project,
         dataset,
-        driver_path,
+        driver,
         impersonation,
     ))
 }

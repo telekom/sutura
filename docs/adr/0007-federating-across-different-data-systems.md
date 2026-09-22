@@ -511,7 +511,8 @@ Why not move the port to Arrow first, which is the direction [Connectors: Arrow 
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
-which copies every buffer, or the C data interface, which `unsafe_code = "forbid"` puts out of reach.
+which copies every buffer, or the C data interface, which `forbid(unsafe_code)` at every crate root
+puts out of reach.
 ADR 0006 built both of those walls.
 
 **This has since been attempted, and the split is a TIMING constraint with an expiry, not an

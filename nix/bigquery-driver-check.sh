@@ -1,34 +1,81 @@
 #!/usr/bin/env bash
-# The ADBC BigQuery driver, EXECUTED rather than linked (telekom/sutura#913).
+# THE RELEASE ARTEFACT CARRIES A WORKING ADBC BIGQUERY DRIVER - executed, not linked, and not
+# mounted (telekom/sutura#913, #929's sixth finding).
 #
 # Why this exists at all: every other statement this repository makes about the driver is a build
-# or a `cfg!`. A link-success check would have passed today and been wrong, because the risk is not
-# linking - it is the driver's GO RUNTIME starting inside a binary that also links tokio and the
-# release allocator. `sutura doctor` loads the `.so` through the driver manager, which runs that
-# initialisation, so running the shipped binary is the verification and nothing cheaper is.
+# or a `cfg!`. A link-success check would pass and be wrong, because the risk is not linking - it
+# is the driver's GO RUNTIME starting inside a binary that also links tokio and the release
+# allocator. `sutura doctor` initialises the driver through the driver manager, so running the
+# shipped binary is the verification and nothing cheaper is.
 #
-# Two artefacts, and the musl one is asserted in BOTH directions:
+# WHAT CHANGED, AND IT IS THE WHOLE POINT OF THE CHECK NOW. This used to hand each binary a `.so`
+# through `SUTURA_BIGQUERY_ADBC_DRIVER` and assert that the gnu artefact could load it and the
+# static musl one could not. That measured the driver and said nothing about the product: the
+# shipped feature set carried the BigQuery adapter on all four triples and no published artefact
+# contained a driver. `nix/shipped.nix` links the `c-archive` half of the same derivation into every
+# artefact that has one, so both binaries below are asked with the variable CLEARED and both must
+# answer that the driver they initialised is the one they carry.
 #
-#   * the gnu release binary MUST load the driver - if it cannot, the Go runtime does not coexist
-#     with this binary, or the `.so` is not this ABI, and BigQuery is non-functional everywhere;
-#   * the static musl release binary MUST NOT, because a static binary has no dynamic loader. That
-#     is a limit this repository has written down, and writing it down is not a mechanism - so if it
-#     ever loads, this refuses and says the record is wrong rather than quietly going green.
+# Two artefacts, one assertion each, and the musl one is the reason the mechanism exists: a static
+# binary has no dynamic loader, so a carried driver is the only route it can ever have.
 #
-# What it does NOT establish: that a question can be answered. `probe` opens no connection and looks
-# for no credential, so nothing here reaches BigQuery. That is `docs/where-identity-is-proven.md`'s
-# hosted venue, which is a different job with a different cost.
+# FAIL CLOSED, AND PROVEN SO IN THIS SCRIPT. `verdict` is run first over three lines whose right
+# answer is known - including the line a build with NO driver prints - so a matcher that accepted
+# anything would be caught here rather than by a reviewer. A probe that passes by not measuring is
+# what this repository has been bitten by; see `docs/where-identity-is-proven.md`.
+#
+# What it does NOT establish: that a question can be answered. `probe` opens no connection and
+# looks for no credential, so nothing here reaches BigQuery. That is
+# `docs/where-identity-is-proven.md`'s hosted venue, a different job with a different cost.
 #
 # Run it with `just bigquery-driver-check`. It executes linux binaries, so x86_64-linux is its only
 # venue - it REFUSES anywhere else rather than skipping, because a probe that passes by not running
 # reads as held when it is not.
 set -euo pipefail
 
+# Is one `bq driver` line the sentence a carried, initialised driver prints? Prints `ok` or `no`.
+#
+# BOTH halves are required and neither implies the other: *initialised* without *carried* is a
+# mounted `.so`, which is the shape #929 called not-a-product, and *carried* without *initialised*
+# cannot happen but would be a driver that linked and did not start.
+verdict() {
+    local line="$1"
+    case "$line" in
+    *"loaded and initialised"*"linked into this binary"*) printf 'ok' ;;
+    *) printf 'no' ;;
+    esac
+}
+
+# The three lines whose right answer is known, asserted before any artefact is read.
+self_check() {
+    local expected got
+    while IFS='|' read -r expected line; do
+        [ -n "$expected" ] || continue
+        got="$(verdict "$line")"
+        if [ "$got" != "$expected" ]; then
+            echo "bigquery-driver-check: FAILED its own matcher - expected $expected for '$line', got $got" >&2
+            exit 1
+        fi
+    done <<'CASES'
+ok|  bq driver    : loaded and initialised, linked into this binary
+no|  bq driver    : loaded and initialised, mounted at /opt/sutura/lib/libadbc_driver_bigquery.so
+no|  bq driver    : not configured - this build carries no BigQuery ADBC driver and `SUTURA_BIGQUERY_ADBC_DRIVER` is not set
+no|  bq driver    : NOT usable: linked into this binary: could not load the BigQuery ADBC driver
+no|  bq driver    : not linked - this build has no BigQuery adapter to load one for
+CASES
+    echo "bigquery-driver-check: matcher ok - a mounted driver, an absent one, a failed load and an"
+    echo "  unlinked adapter are all refusals; only a carried driver that initialised passes."
+}
+
+# The `bq driver` line of one binary's `doctor`, with nothing mounted.
+#
+# `env -u` rather than trusting the environment: a host that happens to export the mounted-driver
+# variable would otherwise let a binary carrying no driver print a passing line, which is exactly
+# the fail-open reading this check exists to refuse. `doctor` never fails, so a missing line means
+# the command's shape changed and this check has stopped measuring it.
 line_for() {
-    # The `bq driver` line of one binary's `doctor`, with the driver named. `doctor` never fails, so
-    # a missing line means the command's shape changed and this check has stopped measuring it.
-    local binary="$1" driver="$2" line
-    line="$(SUTURA_BIGQUERY_ADBC_DRIVER="$driver" "$binary" doctor | grep 'bq driver' || true)"
+    local binary="$1" line
+    line="$(env -u SUTURA_BIGQUERY_ADBC_DRIVER "$binary" doctor | grep 'bq driver' || true)"
     if [ -z "$line" ]; then
         echo "bigquery-driver-check: $binary printed no \`bq driver\` line, so this check measured nothing" >&2
         exit 1
@@ -36,49 +83,38 @@ line_for() {
     printf '%s' "$line"
 }
 
+# One artefact, named for the report, refused by name.
+assert_carries() {
+    local what="$1" binary="$2" line
+    line="$(line_for "$binary")"
+    echo "  $what: ${line#*: }"
+    if [ "$(verdict "$line")" != ok ]; then
+        echo "bigquery-driver-check: FAILED - the $what release artefact does not carry a working ADBC" >&2
+        echo "  BigQuery driver. Either nix/shipped.nix stopped linking the c-archive for this triple -" >&2
+        echo "  in which case the artefact falls back to a mounted .so and a static musl build has no" >&2
+        echo "  route at all - or the driver linked and its Go runtime did not start beside tokio and" >&2
+        echo "  the release allocator. BigQuery is non-functional in this artefact either way." >&2
+        exit 1
+    fi
+}
+
 system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
 if [ "$system" != "x86_64-linux" ]; then
-    echo "bigquery-driver-check: this EXECUTES a linux driver and two linux release binaries, so it" >&2
-    echo "  runs on x86_64-linux and refuses elsewhere (this host is $system). CI is its venue." >&2
+    echo "bigquery-driver-check: this EXECUTES two linux release binaries, so it runs on x86_64-linux" >&2
+    echo "  and refuses elsewhere (this host is $system). CI is its venue." >&2
     exit 1
 fi
 
-driver_out="$(nix build --no-link --print-out-paths .#adbc-driver-bigquery-x86_64-unknown-linux-gnu)"
-driver="$driver_out/lib/libadbc_driver_bigquery.so"
+self_check
+
 gnu="$(nix build --no-link --print-out-paths .#sutura)/bin/sutura"
 musl="$(nix build --no-link --print-out-paths .#sutura-x86_64-unknown-linux-musl)/bin/sutura"
-echo "bigquery-driver-check: scope - one driver .so, the gnu release binary and the static musl one;"
-echo "  it loads the driver into each and reads the outcome. No project, no credential, no question."
-echo "  driver: $driver"
+echo "bigquery-driver-check: scope - the gnu release binary and the static musl one, each asked with"
+echo "  the mounted-driver variable cleared. No project, no credential, no question."
 
-gnu_line="$(line_for "$gnu" "$driver")"
-echo "  gnu : ${gnu_line# *}"
-case "$gnu_line" in
-*"loaded and initialised"*) ;;
-*)
-    echo "bigquery-driver-check: FAILED - the gnu release binary could not load the driver. Either the" >&2
-    echo "  Go runtime does not coexist with this binary or the .so is not this ABI; BigQuery is" >&2
-    echo "  non-functional on every triple until this passes." >&2
-    exit 1
-    ;;
-esac
+assert_carries gnu "$gnu"
+assert_carries musl "$musl"
 
-musl_line="$(line_for "$musl" "$driver")"
-echo "  musl: ${musl_line# *}"
-case "$musl_line" in
-*"loaded and initialised"*)
-    echo "bigquery-driver-check: FAILED - the STATIC musl release binary loaded a dynamic driver." >&2
-    echo "  This repository records that as impossible (docs/adr/0018, fifth amendment). Either the" >&2
-    echo "  record is wrong and BigQuery is usable on musl, or this artefact is not static. Both are" >&2
-    echo "  findings; neither is a pass." >&2
-    exit 1
-    ;;
-*"NOT usable"*) ;;
-*)
-    echo "bigquery-driver-check: FAILED - the musl binary answered neither outcome: $musl_line" >&2
-    exit 1
-    ;;
-esac
-
-echo "bigquery-driver-check: ok - the gnu release binary runs the driver's runtime; the static musl"
-echo "  one cannot load it, which is the limit this check holds rather than states."
+echo "bigquery-driver-check: ok - both release artefacts carry their own ADBC BigQuery driver and its"
+echo "  Go runtime started inside them. The static musl one has no other route, which is why the"
+echo "  c-archive exists; neither artefact reads a path."

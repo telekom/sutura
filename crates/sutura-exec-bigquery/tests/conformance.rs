@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! This adapter, held to the conformance packs, from its OWN crate.
 //!
 //! **Closes `telekom/sutura#710`.** `execute_packs!` bound three adapters and none of them was this

@@ -24,6 +24,7 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 adbc = [
   "dep:adbc_core",
   "dep:adbc_driver_manager",
+  "dep:adbc_ffi",
   "dep:arrow-array",
   "dep:arrow-schema",
   "dep:arrow-cast",
@@ -67,6 +68,12 @@ serde_json = { workspace = true }
 
 adbc_core = { version = "0.24", optional = true }
 adbc_driver_manager = { version = "0.24", optional = true }
+# The C ABI types, named directly for ONE declaration: `ManagedDriver::load_static` takes
+# `&adbc_ffi::FFI_AdbcDriverInitFunc`, and `adbc_driver_manager` re-exports neither that type nor
+# the crate - so the artefact that carries its own driver (`src/adbc/linked.rs`) cannot spell its
+# entrypoint without this edge. Already in `Cargo.lock` transitively through the line above, so it
+# adds an edge and no package.
+adbc_ffi = { version = "0.24", optional = true }
 # The ADBC driver manager (telekom/sutura#913): loads the self-built
 # `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
 # and runs a statement, returning Arrow record batches. The driver owns its own

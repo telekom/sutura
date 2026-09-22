@@ -1060,6 +1060,8 @@ unconditional `ADBC driver` step as well.
   four triples cannot load one however it is shipped - which is now ASSERTED by running the artefact
   rather than stated (see above). Both are open decisions, not conclusions of this record; the
   archive route that would close them is the `unsafe_code` section above.
+  **Both are closed by the tenth amendment**, which takes exactly that route: every published
+  artefact links the `c-archive` and no release artefact reads the variable at all.
 - **The driver is loaded at BOOT now, not on the first question.** Both composition roots call
   `AdbcBigQuery::probe` after reading the path, so a missing or wrong-ABI `.so` stops the process.
   What that does not establish is that a question can be answered: the probe opens no connection.
@@ -1333,3 +1335,67 @@ stand. It is not correct as a description of what this repository declares. **Th
 compares that file against a number written down anywhere, so a driver bump moves the resolved
 version silently, and any prose naming `v0.23.2` - here, or in the two doc comments that cite
 `credsfile::ExternalAccountFile` - is a measurement with a date on it rather than a checked fact.
+
+## Tenth amendment, 2026-09-22: the driver IS the artefact, and route 1 was taken with a containment gate
+
+**The seventh amendment's four-way owner decision is settled: route 1.** The owner's ruling was
+*"we could have an option (maybe unsafe) that would use the right constructor on musl to handle SO
+cant we do that?"*, and the narrowing beside it was equally explicit - the `forbid` is lifted for
+one exception, not outright. So `-buildmode=c-archive` is built beside the `c-shared` `.so` by the
+same derivation, `nix/shipped.nix` links it into every published artefact whose triple has one, and
+`ManagedDriver::load_static` opens it. The consequences the seventh amendment predicted all hold:
+the driver ships because it IS the binary, static musl works because no `dlopen` is reached, and no
+release artefact reads `SUTURA_BIGQUERY_ADBC_DRIVER` at all.
+
+**Routes 2, 3 and 4 are recorded as declined rather than deleted.** Route 2 - a crate outside the
+workspace - was re-costed and is worse than it reads: `Cargo.toml`'s `exclude` takes the crate out
+of `--workspace` clippy, out of the test sweep, out of `check-boundaries` and out of
+`check-api-docs`' member census, so the one `unsafe` in the tree would sit in the one crate no gate
+reads. Route 3 stays the right upstream ask and is not a blocker for a release; route 4 is the
+status quo, and *BigQuery is unavailable on half the published triples* is what it costs.
+
+**What route 1 costs, and what pays for it.** `[workspace.lints.rust] unsafe_code` is `deny` now,
+not `forbid`. That change was forced rather than chosen: cargo refuses a member that both inherits
+`[workspace.lints]` and overrides one entry - *"cannot override `workspace.lints` in `lints`"* -
+and an `#[expect(unsafe_code)]` beneath an inherited `forbid` is `E0453`, both measured. What
+replaces the lost strictness is a re-assertion at every crate root, which a crate cannot then
+lower, and `cargo xtask check-unsafe` holding that every root carries it with exactly one declared
+exception.
+
+Measured in both directions, because *the exception did not widen* is the claim worth breaking:
+
+| Probe                                                                                           | Verdict                                                                                                                               |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| an `#[expect(unsafe_code)]` plus an `unsafe extern` block planted in `sutura-tls`               | `error[E0453]: expect(unsafe_code) incompatible with previous forbid` and `error: usage of an unsafe extern block` - does not compile |
+| the same probe with that crate root's `#![forbid(unsafe_code)]` deleted, so only `deny` applies | compiles clean, `Finished dev profile` - **so the workspace level alone is exactly the widening the gate refuses**                    |
+| `cargo xtask check-unsafe` over that second shape                                               | `FAILED - 1 crate root(s) do not re-assert #![forbid(unsafe_code)] ... crates/sutura-tls/src/lib.rs`                                  |
+
+**The limits, next to the claim.** The `unsafe extern` block lives behind
+`cfg(adbc_driver_linked)`, which only a build that links the archive compiles - so `just lint` and
+every `--all-features` cargo gate judge it not at all, and what reads it is the text gate plus the
+`cross` release builds that link it. The gate reads the roots a conventional layout produces rather
+than the target list cargo resolves, so a target declared with an explicit `path` is outside it.
+And the driver a linked artefact carries is pinned by the flake lock and by nothing in the type
+system: a second archive exporting `AdbcDriverInit` would be the wrong driver, silently.
+
+**The fifth amendment's record is spent and this replaces it.** `just bigquery-driver-check` no
+longer hands each binary a `.so` and asserts that the static musl one cannot load it. It runs
+`sutura doctor` against both release artefacts with `SUTURA_BIGQUERY_ADBC_DRIVER` **cleared**, and
+requires each to report a driver that both *initialised* and is *linked into this binary* - so a
+derivation that stopped linking the archive is a red rather than a silent fall back to a mounted
+path. The matcher asserts its own five known-answer cases before reading an artefact, because a
+probe that passes by not measuring is the failure this repository has been bitten by.
+
+**What linking the archive does to the artefact, measured on the x86_64-musl one.** The binary is
+146 MB and its runtime closure gains exactly three paths - `tzdata`, `iana-etc` and `mailcap` -
+which are Go's stdlib data references and not a toolchain, so `checks.one-binary`'s closure rule is
+unaffected. The published image was already correct for the driver's TLS by accident of an earlier
+decision: `nix/oci.nix` puts `cacert` and `tzdata` in `contents` and sets `SSL_CERT_FILE`, which Go's
+`crypto/x509` reads on linux, so a `FROM scratch` image with a carried driver has a CA bundle. Worth
+recording because the opposite would have been invisible until a question was asked.
+
+**What no venue here establishes.** That a question can be answered. `probe` opens no connection
+and reads no credential, and nothing in `just validate` links the static path at all - the four
+`cross` jobs and `bigquery-driver-check` do. `x86_64-unknown-linux-musl` is the one triple whose
+link was measured by hand for this amendment (`static-pie linked`, with a Go BuildID in the ELF
+header); the other three are CI's to report.

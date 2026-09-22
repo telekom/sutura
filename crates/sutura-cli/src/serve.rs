@@ -255,10 +255,11 @@ pub(crate) fn run() -> Result<(), String> {
             // calls `of` further down, in `open_bigquery`. **And the replacement claim - that the
             // `BigQuerySource` alias's `BigQueryWire<Credential>` transport held it, because
             // `Credential::read` was its one public constructor - died with the `wire` half: there
-            // is no credential to read, and `AdbcBigQuery::new` takes a path. So the first half of
-            // the order is held by NOTHING today.** What `open_bigquery` still reads at boot is the
-            // driver path and the declared scope, so an unusable one of either is a startup failure;
-            // that is a smaller claim than the one this comment used to make.
+            // is no credential to read, and `AdbcBigQuery::new` takes a `DriverLocation`. So the
+            // first half of the order is held by NOTHING today.** What `open_bigquery` still reads
+            // at boot is the driver this artefact carries (or the one a source build mounted) and
+            // the declared scope, so an unusable one of either is a startup failure; that is a
+            // smaller claim than the one this comment used to make.
             //
             // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
             // is there because this comment used to close by calling the order *a

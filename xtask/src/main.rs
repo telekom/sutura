@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Repo automation. Run as `cargo xtask <task>`, or `cargo run -q -p xtask -- <task>`.
 //!
 //! These are gates, not conveniences: each answers "what fails if this rule is violated?"
@@ -65,6 +66,7 @@ mod task_table;
 mod tasks;
 mod text;
 mod threshold_expect;
+mod unsafe_containment;
 mod unused_deps;
 #[cfg(test)]
 mod validated_base;

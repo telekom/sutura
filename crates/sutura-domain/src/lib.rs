@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The hexagon's interior: the types the business rules are written in, and the port traits it
 //! names its dependencies by.
 //!
