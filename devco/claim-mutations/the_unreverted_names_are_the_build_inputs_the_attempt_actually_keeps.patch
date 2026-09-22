@@ -1,0 +1,17 @@
+--- a/xtask/src/causality/plan.rs
++++ b/xtask/src/causality/plan.rs
+@@ -91,12 +91,8 @@
+     /// output must name truthfully. Filtering rather than copying the list: a withdrawn manifest
+     /// goes to base on the first attempt, and printing it as held at HEAD would be this gate
+     /// describing a tree it did not build.
+-    pub(super) fn unreverted_from(&self, reverting: &[String]) -> Vec<String> {
+-        self.build_inputs
+-            .iter()
+-            .filter(|path| !reverting.contains(path))
+-            .cloned()
+-            .collect()
++    pub(super) fn unreverted_from(&self, _reverting: &[String]) -> Vec<String> {
++        self.build_inputs.to_vec()
+     }
+ }
+ 

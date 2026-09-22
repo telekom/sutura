@@ -14,10 +14,15 @@
 //! green `--strict` build. It is a ratchet rather than a cleanup, and saying so is the point: the
 //! tree had none of those the day it landed, so what it buys is that the next one is loud.
 //!
-//! The third rule holds a different claim to the same standard: `docs/implementation-plan.md`
-//! says the tracker's reserved-number table stops two branches minting the same ADR number, and
-//! nothing in the tree checked that before [`duplicate_adr_numbers`]. It refuses a collision only
-//! - see that function's own documentation for why contiguity is deliberately not asserted.
+//! The third rule holds a different claim to the same standard, and the claim turned out to be
+//! false: `docs/implementation-plan.md` said a reserved-number table in the tracker stopped two
+//! branches minting the same ADR ordinal. A comment cannot see an unpushed branch, three ordinals
+//! were claimed twice while that table was the only thing behind them, and
+//! `github.com/telekom/sutura#937` is the record. [`adr_number_problems`] is the mechanism, the
+//! merged tree is the only place both files exist at once, and this sweep runs in the merge
+//! queue's own `hygiene` build - so the refusal arrives there rather than on either branch. It
+//! refuses a collision only; see that function for why contiguity is deliberately not asserted,
+//! and [`Claim::of`] for the naming that used to get past it.
 //!
 
 //! **Why a module under `check-guidance` and not a gate of its own.** The theme there is *a claim
@@ -44,7 +49,7 @@
 //!   shapes this repository's own renderer still tables, taken from it rather than from
 //!   `CommonMark`; a shape nobody probed is treated as a paragraph, which reports rather than
 //!   misses. The probe and its result are in that function's own documentation.
-//! * **A gap in the ADR sequence.** [`duplicate_adr_numbers`] refuses a collision, not a jump; the
+//! * **A gap in the ADR sequence.** [`adr_number_problems`] refuses a collision, not a jump; the
 //!   numbers this tree already ships were minted out of order and that is not a defect.
 
 use std::path::Path;
@@ -211,42 +216,99 @@ pub(super) fn table_problems(rel: &str, lines: &[String]) -> Vec<String> {
     problems
 }
 
-/// The number an ADR filename claims, or `None` for a page this rule does not judge.
+/// What a page directly under `docs/adr/` claims of the sequence.
 ///
-/// Only `docs/adr/NNNN-*.md` is in scope. The prefix must be all-digit and the file an actual
-/// Markdown page - a coincidental name elsewhere is not a claim on the sequence.
-fn adr_number(rel: &str) -> Option<&str> {
-    let name = rel.strip_prefix("docs/adr/").filter(|_| super::has_ext(rel, &["md"]))?;
-    let (number, _) = name.split_once('-')?;
-    (!number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())).then_some(number)
+/// A parsed answer rather than an `Option<&str>`, because the old shape had exactly one way to say
+/// *nothing to compare* and used it for two different things: a path outside the directory, and a
+/// record inside it whose name the rule could not read. The second is a collision this gate passed
+/// over - see [`Claim::of`].
+#[derive(Debug, PartialEq, Eq)]
+enum Claim<'a> {
+    /// `NNNN-<slug>.md`: the leading digits are the ordinal two branches can collide on, and the
+    /// slug is what a citation reads. The only shape a record may be named.
+    Ordinal(&'a str),
+    /// A record inside `docs/adr/` whose name claims no ordinal this rule can compare.
+    Unreadable,
 }
 
-/// Refuses two ADR files that claim the same number.
+impl<'a> Claim<'a> {
+    /// What `rel` claims, or `None` for a path that is not one of this directory's own pages.
+    ///
+    /// **THE MEASURED HOLE, and why the ordinal is now a leading digit RUN.** The old reader took
+    /// the text before the first `-` and required all of it to be digits, so a record named
+    /// `docs/adr/0037.md` answered *not judged* - and `check-guidance` reported
+    /// `ok` over that file sitting beside `docs/adr/0037-a-real-record.md`, a genuine collision on
+    /// 0037 with no refusal anywhere in the tree. Two files claiming one ordinal is exactly what
+    /// `github.com/telekom/sutura#937` is about, and the slugged-versus-bare pair is the shape that
+    /// got past it.
+    ///
+    /// Nested pages are deliberately out of scope: the ordinal sequence is the directory's own
+    /// listing, and a `.md` under a subdirectory of it is material rather than a record. A
+    /// collision between two nested pages is not held here and is not claimed to be.
+    fn of(rel: &'a str) -> Option<Self> {
+        let name = rel.strip_prefix("docs/adr/").filter(|_| super::has_ext(rel, &["md"]))?;
+        if name.contains('/') {
+            return None;
+        }
+        let rest = name.trim_start_matches(|c: char| c.is_ascii_digit());
+        let number = name.strip_suffix(rest).unwrap_or(name);
+        let slugged = rest
+            .strip_prefix('-')
+            .and_then(|tail| tail.strip_suffix(".md"))
+            .is_some_and(|slug| !slug.is_empty());
+        Some(if number.is_empty() || !slugged {
+            Self::Unreadable
+        } else {
+            Self::Ordinal(number)
+        })
+    }
+}
+
+/// Refuses two ADR files that claim the same ordinal, and a record whose name claims none.
 ///
-/// **Uniqueness only, deliberately not contiguity.** `docs/implementation-plan.md`'s division
-/// table claims the tracker's reserved-number table stops two branches minting the same number -
-/// a collision claim, not an ordering one - and 0023 through 0031 were minted out of order on this
-/// very tree without that being a defect. A contiguity check would refuse a true history to
+/// **The two rules are one function because they are one guarantee.** A collision is only refused
+/// over names this rule can read, so a naming it cannot read is a way past the collision rule
+/// rather than an untidiness - which is what [`Claim::of`] measured. Refusing the name closes it
+/// for any scheme whose identifier is a digit run followed by `-`, which the timestamped one
+/// `github.com/telekom/sutura#937` proposes can be written as.
+///
+/// **Uniqueness only, deliberately not contiguity.** 0023 through 0031 were minted out of order on
+/// this very tree without that being a defect, so a contiguity check would refuse a true history to
 /// enforce a guarantee nobody asked this mechanism to hold.
-fn duplicate_adr_numbers(files: &[String]) -> Vec<String> {
+///
+/// **And this refusal is the whole mechanism**: a reserved-number table in the tracker is a comment
+/// on an issue, it cannot see an unpushed branch, and three ordinals were claimed twice while it
+/// was the only thing standing behind them. The venue that decides is the merge queue's own run of
+/// this sweep, because only the merged tree holds both files.
+fn adr_number_problems(files: &[String]) -> Vec<String> {
     let mut by_number: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    let mut problems = Vec::new();
     for rel in files {
-        if let Some(number) = adr_number(rel) {
-            by_number.entry(number).or_default().push(rel.as_str());
+        match Claim::of(rel) {
+            Some(Claim::Ordinal(number)) => by_number.entry(number).or_default().push(rel.as_str()),
+            Some(Claim::Unreadable) => problems.push(format!(
+                "{rel}: an ADR is named `NNNN-<slug>.md`, and this name claims no ordinal the \
+                 collision rule can read - so nothing would compare it against the record that \
+                 holds the same number"
+            )),
+            None => {}
         }
     }
-    by_number
-        .into_iter()
-        .filter(|(_, paths)| paths.len() > 1)
-        .map(|(number, mut paths)| {
-            paths.sort_unstable();
-            format!(
-                "docs/adr: {number} is claimed by more than one file ({}) - two branches minted the \
-                 same ADR number, which the tracker's reserved-number table exists to prevent",
-                paths.join(", ")
-            )
-        })
-        .collect()
+    problems.extend(
+        by_number
+            .into_iter()
+            .filter(|(_, paths)| paths.len() > 1)
+            .map(|(number, mut paths)| {
+                paths.sort_unstable();
+                format!(
+                    "docs/adr: {number} is claimed by more than one file ({}) - two branches minted the \
+                     same ADR ordinal, which no number check on a branch can prevent because it cannot \
+                     see an unpushed one; rename one record and carry its citations",
+                    paths.join(", ")
+                )
+            }),
+    );
+    problems
 }
 
 /// What one sweep read, for the caller to print.
@@ -282,7 +344,7 @@ pub(super) struct PageCounts {
 ///   matching leaves both equalities above intact and this at zero.
 pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, PageCounts) {
     let offered = files.iter().filter(|f| f.to_ascii_lowercase().ends_with(".md")).count();
-    let mut problems = duplicate_adr_numbers(files);
+    let mut problems = adr_number_problems(files);
     let mut read = 0_usize;
     let mut headings = 0_usize;
     for rel in files.iter().filter(|f| super::has_ext(f, &["md"])) {
@@ -327,7 +389,7 @@ pub(super) fn page_problems(root: &Path, files: &[String]) -> (Vec<String>, Page
 
 #[cfg(test)]
 mod tests {
-    use super::duplicate_adr_numbers;
+    use super::adr_number_problems;
 
     /// **No naturally occurring base regression exists for this rule**: `main` has no two ADR
     /// files sharing a number, so there is nothing to be red against without building a fixture.
@@ -339,7 +401,7 @@ mod tests {
             "docs/adr/0009-the-plan-from-one-source-to-many.md".to_owned(),
             "docs/adr/0009-a-second-branch-minted-the-same-number.md".to_owned(),
         ];
-        let problems = duplicate_adr_numbers(&files);
+        let problems = adr_number_problems(&files);
         assert_eq!(problems.len(), 1, "{problems:#?}");
         assert!(problems[0].contains("0009"), "{problems:#?}");
     }
@@ -350,7 +412,7 @@ mod tests {
             "docs/adr/0009-the-plan-from-one-source-to-many.md".to_owned(),
             "docs/adr/0010-transport-security-for-a-source.md".to_owned(),
         ];
-        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+        assert_eq!(adr_number_problems(&files), Vec::<String>::new());
     }
 
     /// A gap between numbers is not this rule's claim - only a collision is. 0023 through 0031
@@ -358,12 +420,58 @@ mod tests {
     #[test]
     fn a_gap_between_numbers_is_not_a_collision() {
         let files = vec!["docs/adr/0009-a.md".to_owned(), "docs/adr/0031-b.md".to_owned()];
-        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+        assert_eq!(adr_number_problems(&files), Vec::<String>::new());
     }
 
     #[test]
     fn a_file_outside_docs_adr_is_not_judged() {
         let files = vec!["docs/adr/0009-a.md".to_owned(), "docs/0009-unrelated-page.md".to_owned()];
-        assert_eq!(duplicate_adr_numbers(&files), Vec::<String>::new());
+        assert_eq!(adr_number_problems(&files), Vec::<String>::new());
+    }
+
+    /// **The way past the collision rule, measured rather than imagined.** Planted on `main` at
+    /// `d5d0448e`, `docs/adr/0037.md` beside `docs/adr/0037-a-real-record.md` - one ordinal, two
+    /// records - and `check-guidance` printed `ok`: the old reader needed a `-` to find a number
+    /// at all, so the bare name claimed nothing and the slugged one collided with nobody. The
+    /// naming is refused now, which is what makes the collision rule's scope its own directory
+    /// rather than the subset it happens to be able to read.
+    #[test]
+    fn a_record_whose_name_claims_no_readable_ordinal_is_refused() {
+        let files = vec!["docs/adr/0037.md".to_owned(), "docs/adr/0037-a-real-record.md".to_owned()];
+        let problems = adr_number_problems(&files);
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert!(problems[0].starts_with("docs/adr/0037.md:"), "{problems:#?}");
+        // Every naming a digits-then-slug rule refuses, each of which used to read as *not judged*
+        // and so as licence to reuse the ordinal beside it.
+        for named in [
+            "docs/adr/0038_an-underscore.md",
+            "docs/adr/0039-.md",
+            "docs/adr/no-ordinal.md",
+        ] {
+            let one = vec![String::from(named)];
+            assert_eq!(adr_number_problems(&one).len(), 1, "{named}");
+        }
+    }
+
+    /// The identifier is a leading digit RUN followed by `-`, so a scheme that makes the digits
+    /// themselves unique - the timestamp `github.com/telekom/sutura#937` proposes - is still named
+    /// and still compared. This pins the parse, not a decision about which scheme wins; what it
+    /// does require of any future scheme is that the identifier be digits and the `-` follow them.
+    #[test]
+    fn a_longer_identifier_still_names_its_ordinal() {
+        let files = vec![
+            "docs/adr/0037-20260921-a-record.md".to_owned(),
+            "docs/adr/0037-20260921-another.md".to_owned(),
+        ];
+        let problems = adr_number_problems(&files);
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert!(problems[0].contains("0037 is claimed by more than one file"), "{problems:#?}");
+        // And a pair whose whole digit run differs is not a collision, which is the property a
+        // unique-on-creation identifier buys.
+        let distinct = vec![
+            "docs/adr/20260921064300-a-record.md".to_owned(),
+            "docs/adr/20260921071500-another.md".to_owned(),
+        ];
+        assert_eq!(adr_number_problems(&distinct), Vec::<String>::new());
     }
 }

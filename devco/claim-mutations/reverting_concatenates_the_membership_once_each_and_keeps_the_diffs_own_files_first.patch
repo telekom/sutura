@@ -1,0 +1,13 @@
+--- a/xtask/src/causality/membership.rs
++++ b/xtask/src/causality/membership.rs
+@@ -94,9 +94,7 @@
+     pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Vec<String> {
+         let mut out: Vec<String> = reverting.to_vec();
+         for path in withdrawn(&self.added, inputs, at_head) {
+-            if !out.contains(&path) {
+-                out.push(path);
+-            }
++            out.push(path);
+         }
+         out
+     }

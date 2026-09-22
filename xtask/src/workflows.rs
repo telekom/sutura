@@ -256,7 +256,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) reachable by a line rather than by their position, no release output in the {} file(s) ordinary CI runs: {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, no release output in the {} file(s) ordinary CI runs: {}",
             references.len(),
             obligations::held(),
             walked.len(),

@@ -1,16 +1,6 @@
-//! A throwaway tree for a gate test, swept when the binding drops.
-//!
-//! **One copy rather than one per gate test module.** The shape - `temp_dir().join(format!(..
-//! process::id()))`, `create_dir_all`, write the fixture, `remove_dir_all` - is written in roughly
-//! thirty test modules in this tree already, and the migration in
-//! `github.com/telekom/sutura#619` needed three more of it *plus* a `chmod` and a restore. A copy
-//! that has to restore a mode before `remove_dir_all` is a copy that leaks a mode-`000` directory
-//! into the system temp directory whenever an assert fires first, so the restore belongs in a
-//! `Drop` that runs either way.
-//!
-//! **jscpd would not have reported the next copy**: its threshold is 30 lines / 250 tokens and
-//! each copy is around fifteen. That is the signal's stated limit rather than a reason to lower it.
-//! Nothing here weakens a gate - this module is `#[cfg(test)]` and ships in no binary.
+//! The scratch-tree implementation - the content `scratch_tree/mod.rs` re-exports. Kept one file
+//! below the module root so every definition sits where `clippy::definition_in_module_root` wants
+//! it, and so the `#[path = "scratch_tree/mod.rs"]` include stays one line in every including file.
 
 use std::path::{Path, PathBuf};
 

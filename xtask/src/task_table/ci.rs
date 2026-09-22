@@ -5,7 +5,7 @@
 //! where*, reading `.github/**`, `flake.nix` and `devenv.nix` instead of the crates.
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
-use crate::{action_shell, changes, devenv_linter, devenv_shell, hook_coverage, hooks, venues, workflows};
+use crate::{action_shell, changes, devenv_linter, devenv_shell, hook_coverage, hooks, pr_title, venues, workflows};
 
 pub(crate) const TASKS: &[Task] = &[
     Task {
@@ -111,6 +111,17 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: hook_coverage::run,
+    },
+    Task {
+        // The venue is the seam, as everywhere in this area: the subject that lands on `main` is
+        // composed from the PULL-REQUEST TITLE at merge time, so the only place it can be read is
+        // a run that has the event. `Standalone` because it takes that title as an argument - the
+        // `hygiene` sweep is argument-free and has no pull request to ask about.
+        name: "check-pr-title",
+        description: "the title the queue will squash into main's subject keeps the commit vocabulary; <title>",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: pr_title::run,
     },
     Task {
         name: "classify",

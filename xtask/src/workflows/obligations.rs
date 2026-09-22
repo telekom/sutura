@@ -65,30 +65,65 @@
 
 use std::path::Path;
 
-/// A step that must stay reachable, and the exact condition that keeps it so.
+/// A step whose `if:` is held by this rule, and the exact form it needs.
+///
+/// **Two kinds of obligation now, and the table is the same shape for both.** Three rows are here
+/// because a condition keeps the step REACHABLE after a red above it - the finding this module's
+/// header is about. `PR title` is here because its condition decides the EVENT it runs on: the
+/// title expression expands to the empty string on anything but a `pull_request`, so a dropped
+/// `if:` would put the gate on a run with nothing to judge. Its own gate fails closed on that
+/// rather than passing, which is why the two mechanisms are worth having together - this one names
+/// the step in `check-workflows`, that one reddens the run.
 struct Obligation {
     /// The step's `name:` value, which is also how a reader finds it.
     step: &'static str,
     /// The `if:` expression, with `${{ }}` and surplus whitespace already removed.
     condition: &'static str,
+    /// Why the `if:` is held - see [`Kind`]. The None-arm's refusal text is written per kind, so
+    /// an event-kind step whose `if:` goes missing is not told to make itself reachable.
+    kind: Kind,
 }
 
-/// The steps whose obligation survives a red above them, and the form each needs.
+/// What the held condition is FOR. Two kinds, and they are not interchangeable:
 ///
-/// A table rather than two hand-written arms so that adding a third is one line, and so the
-/// verdict can print how many it held - a rule over an empty table would pass by finding nothing.
+/// - [`Kind::Reachability`] - the condition keeps the step REPORTING after a red above it. The
+///   refusal for a missing `if:` names what reachability costs, and `always()` is the right fix.
+/// - [`Kind::Event`] - the condition decides the EVENT the step runs on. `PR title`'s condition
+///   is the example: the title expression expands to the empty string on anything but a
+///   `pull_request`, and its own gate refuses an empty title rather than passing, so a dropped
+///   `if:` does not expose an unchecked pass - it starts the run that carries the subject. The
+///   refusal therefore says where the condition belongs, and NEVER reaches for `always()`, which
+///   would put the gate on every event where there is nothing to judge.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Reachability,
+    Event,
+}
+
 const REQUIRED: &[Obligation] = &[
     Obligation {
         step: "Secrets",
         condition: "always()",
+        kind: Kind::Reachability,
     },
     Obligation {
         step: "Licensing",
         condition: "!cancelled()",
+        kind: Kind::Reachability,
     },
     Obligation {
         step: "Chart",
         condition: "!cancelled()",
+        kind: Kind::Reachability,
+    },
+    Obligation {
+        // #935. The landed subject is composed from the pull-request title, so the gate holding the
+        // commit vocabulary over it can only run where that title exists. No `always()` and no
+        // `!cancelled()`: on every other event the expression supplying the title is empty, and the
+        // step has nothing to judge.
+        step: "PR title",
+        condition: "github.event_name == 'pull_request'",
+        kind: Kind::Event,
     },
 ];
 
@@ -159,10 +194,16 @@ fn check(text: &str) -> Vec<String> {
             continue;
         };
         match step.gate() {
-            None => out.push(format!(
-                "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
-                step.line, want.step, want.condition
-            )),
+            None => out.push(match want.kind {
+                Kind::Reachability => format!(
+                    "ci.yml:{} `{}` carries no `if:`. A failed step ends the job, so it runs only while every step above it is green - `if: ${{{{ {} }}}}` is what makes it reachable regardless",
+                    step.line, want.step, want.condition
+                ),
+                Kind::Event => format!(
+                    "ci.yml:{} `{}` carries no `if:`. Its condition decides the EVENT it runs on, not its reachability: `{}` is empty on every other event, and the gate it runs refuses an empty subject rather than passing, so the step would start and fail closed where there is nothing to judge - `if: ${{{{ {} }}}}` puts it on the event that carries the subject",
+                    step.line, want.step, want.condition, want.condition
+                ),
+            }),
             Some(gate) if gate != want.condition => out.push(format!(
                 "ci.yml:{} `{}` is gated on `{gate}`, but its obligation needs `{}` - see the header of xtask/src/workflows/obligations.rs for which case each form survives",
                 step.line, want.step, want.condition
@@ -181,19 +222,29 @@ mod tests {
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
     /// `None` writes the step with no `if:` at all, which is the state the finding was about.
+    /// `PR title` gets the body it really carries, because it is the one obligation that PAYS for
+    /// the xtask closure - so these trees exercise the order half as well as the condition half.
     fn tree(gates: &[Option<&str>]) -> String {
         let mut text = String::from("jobs:\n  ci:\n    steps:\n");
         for (want, gate) in REQUIRED.iter().zip(gates) {
-            text.push_str("      - name: ");
-            text.push_str(want.step);
-            text.push('\n');
-            if let Some(gate) = gate {
-                text.push_str("        if: ${{ ");
-                text.push_str(gate);
-                text.push_str(" }}\n");
-            }
-            text.push_str("        run: true\n");
+            text.push_str(&step(want.step, *gate));
         }
+        text
+    }
+
+    /// One step, with `gate` as its condition - `None` writes no `if:` at all.
+    fn step(name: &str, gate: Option<&str>) -> String {
+        let mut text = format!("      - name: {name}\n");
+        if let Some(gate) = gate {
+            text.push_str("        if: ${{ ");
+            text.push_str(gate);
+            text.push_str(" }}\n");
+        }
+        text.push_str(if name == "PR title" {
+            "        run: nix run .#xtask -- check-pr-title \"$TITLE\"\n"
+        } else {
+            "        run: true\n"
+        });
         text
     }
 
@@ -213,6 +264,34 @@ mod tests {
             "every unconditioned step should be named: {found:?}"
         );
         assert!(found.iter().all(|problem| problem.contains("carries no `if:`")), "{found:?}");
+    }
+
+    /// The two kinds refuse DIFFERENTLY. An event-kind step whose `if:` goes missing must not be
+    /// told to buy reachability - `always()` would put its gate on every event, where the subject
+    /// it judges does not exist - so the reachability sentence must never appear in its refusal.
+    #[test]
+    fn the_event_kind_refusal_does_not_suggest_reachability() {
+        let gates: Vec<Option<&str>> = REQUIRED.iter().map(|_| None).collect();
+        let found = check(&tree(&gates));
+        let title = found
+            .iter()
+            .find(|problem| problem.contains("`PR title`"))
+            .expect("the unconditioned PR title step is reported");
+        assert!(
+            title.contains("decides the EVENT it runs on"),
+            "the event-kind refusal must name what its condition is for: {title}"
+        );
+        assert!(
+            !title.contains("reachable regardless"),
+            "reachability is the other kind's reason, not this one's: {title}"
+        );
+        assert!(
+            found
+                .iter()
+                .filter(|problem| !problem.contains("`PR title`"))
+                .all(|problem| problem.contains("reachable regardless")),
+            "the reachability kind keeps its own sentence: {found:?}"
+        );
     }
 
     /// The mutation the real finding was: a condition that exists but is the wrong form.
@@ -250,6 +329,47 @@ mod tests {
     /// trusting the generic tests above to cover it: those iterate `REQUIRED` itself, so an
     /// entry that was never added would leave them passing over one fewer obligation and
     /// nothing would say so.
+    /// #935: the step that reads the pull-request title, and the condition deciding the EVENT it
+    /// runs on. Named rather than left to the loops above, for the reason the chart's test gives -
+    /// an entry never added would leave them passing over one fewer obligation.
+    #[test]
+    fn the_pr_title_step_is_a_required_obligation() {
+        assert!(
+            REQUIRED
+                .iter()
+                .any(|o| o.step == "PR title" && o.condition == "github.event_name == 'pull_request'"),
+            "the pull-request title's step obligation is missing or holds the wrong condition"
+        );
+    }
+
+    /// The ORDER half over the shape #935 introduced: `PR title` realises the xtask closure, so
+    /// every closure-free obligation has to stay ahead of it - and the rule may not report that
+    /// step against itself, which is what placing it first measures.
+    #[test]
+    fn a_closure_free_obligation_behind_the_title_step_is_refused() {
+        let mut text = String::from("jobs:\n  ci:\n    steps:\n");
+        text.push_str(&step("PR title", Some("github.event_name == 'pull_request'")));
+        for want in REQUIRED.iter().filter(|want| want.step != "PR title") {
+            text.push_str(&step(want.step, Some(want.condition)));
+        }
+
+        let found = check(&text);
+
+        assert_eq!(
+            found.len(),
+            REQUIRED.len().saturating_sub(1),
+            "every closure-free obligation behind it, and only those: {found:?}"
+        );
+        assert!(
+            found.iter().all(|problem| problem.contains("sits behind ci.yml:")),
+            "{found:?}"
+        );
+        assert!(
+            !found.iter().any(|problem| problem.contains("`PR title` sits behind")),
+            "the first xtask step is not behind itself: {found:?}"
+        );
+    }
+
     #[test]
     fn the_chart_step_is_a_required_obligation() {
         assert!(

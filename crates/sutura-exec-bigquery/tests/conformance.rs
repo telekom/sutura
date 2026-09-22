@@ -13,18 +13,21 @@
 //! and `validate` from a table it built ONCE, by rendering every corpus case's own plan through
 //! `sutura_sql::generate(_, Dialect::BigQuery)` - the SAME function `BigQueryWarehouse::execute`
 //! calls - and remembering the `(statement, params)` pair that rendering produced against that
-//! case's own [`sutura_conformance::corpus::Case::expected`] rows, converted to the wire's own
-//! [`Cell`]/[`FieldType`] shapes. `run` looks the pair straight back up; a statement this pack never
-//! rendered has no entry and the lookup fails loudly.
+//! case's own [`sutura_conformance::corpus::Case::expected`] rows, converted into the ARROW shapes
+//! the driver delivers - an `arrow_array::RecordBatch` per case, carried by
+//! `sutura_domain::warehouse::ResultBatches`. `run` looks the pair straight back up; a statement
+//! this pack never rendered has no entry and the lookup fails loudly.
 //!
 //! **What that proves, stated so nobody reads this pack as a live-endpoint claim:** that this
 //! adapter's OWN plumbing round-trips - the request it builds from a rendered plan, and the domain
-//! `Value` a wire [`Cell`]/[`FieldType`] decodes back into, agree with what the corpus says an
-//! answer to that plan looks like. **What it does NOT prove:** that a real `GoogleSQL` endpoint,
-//! asked the rendered statement, returns those rows - nothing here executes SQL. That is
-//! `tests/corpus.rs`'s claim, behind `wire`+`fixtures`, against a real dataset, and it is a
-//! DIFFERENT and narrower thing than this file's `Fixture::Standing` claim is that it needed no
-//! endpoint to make honestly.
+//! `Value` that `ResultBatches::to_rows` decodes an Arrow batch back into, agree with what the
+//! corpus says an answer to that plan looks like. **What it does NOT prove:** that a real
+//! `GoogleSQL` endpoint, asked the rendered statement, returns those rows - nothing here executes
+//! SQL. **And nothing in this repository makes that claim any more:** the leg that did was
+//! `tests/corpus.rs` over the `wire`+`fixtures` features, and it was deleted with the HTTP
+//! transport. The hosted `BigQuery` venue that is left - `just bigquery-declared-principal` - asks a
+//! real dataset `SELECT SESSION_USER()` and runs no corpus case, so *the rendered statement is
+//! accepted by a real endpoint* is unmeasured on this tree rather than measured elsewhere.
 //!
 //! **Why not `Fixture::Absent` when nothing is configured**, which is the shape every other
 //! networked binding here reaches for: `sutura_conformance::venue::refuse_a_declared_absence` fires

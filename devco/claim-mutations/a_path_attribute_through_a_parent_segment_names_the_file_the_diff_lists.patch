@@ -1,0 +1,11 @@
+--- a/xtask/src/causality/place.rs
++++ b/xtask/src/causality/place.rs
+@@ -415,7 +415,7 @@
+ pub(super) fn declared_module_files(path: &str, name: &str, relocated: Option<&str>) -> Vec<String> {
+     let (dir, file) = path.rsplit_once('/').unwrap_or(("", path));
+     if let Some(rel) = relocated {
+-        return vec![collapse(&in_dir(dir, rel))];
++        return vec![in_dir(dir, rel)];
+     }
+     let base = match file {
+         "lib.rs" | "main.rs" | "mod.rs" => String::from(dir),

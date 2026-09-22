@@ -446,7 +446,9 @@ pub(crate) fn run() -> Result<(), String> {
 /// gauge, and the agent surface is handed a handle to the same one, so both surfaces drive ONE spend
 /// series rather than two that disagree. That handle only exists once the state does, which is what
 /// moves this call below `ServiceState::new` and costs the `settings`-still-owned convenience the
-/// previous order had.
+/// previous order had. `sutura_http::SpendHeadroomPush::of` is the only route to it, and
+/// `AgentMount::new` will not build without one - so the ordering is a consequence of the types
+/// rather than of this comment.
 ///
 /// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
 /// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
@@ -461,7 +463,7 @@ fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, 
         state.surface(),
         state.settings(),
         state.admission().clone(),
-        state.spend_headroom_gauge(),
+        sutura_http::SpendHeadroomPush::of(state),
     )?))
 }
 

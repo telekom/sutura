@@ -169,6 +169,30 @@ pub enum RouterNotBuilt {
          identity: set `security.inbound.mode`"
     )]
     AgentSurfaceWithoutInboundIdentity,
+    /// The mounted agent surface's spend-headroom declaration disagrees with the state it is
+    /// attached to.
+    ///
+    /// **The half `SpendHeadroomPush` cannot hold by itself.** That type makes the handle
+    /// unforgeable - the only way to a [`state::ReplicaSpendGauge`](crate::state::ReplicaSpendGauge)
+    /// is `SpendHeadroomPush::of(&state)` - and it makes the absence a name a caller has to write.
+    /// What it cannot do is check that the name is TRUE: `NoCeilingConfigured` typechecks on a
+    /// deployment that configured a ceiling, and the deployment would then serve `/mcp` with
+    /// `sutura_spend_headroom_bytes` frozen at its boot reading while the agent surface drained the
+    /// ledger - exactly the stale-gauge lie `telekom/sutura#892` closed for the composition root and
+    /// nothing held anywhere else. This refuses to assemble instead.
+    ///
+    /// A presence comparison rather than gauge identity, and that is the limit: two states in one
+    /// process could still cross their gauges if both configured a ceiling. Nothing in the shipped
+    /// composition root builds a second state.
+    #[cfg(feature = "agent")]
+    #[error(
+        "the mounted agent surface's spend-headroom declaration does not match this state: the mount \
+         pushes a gauge ({mount_pushes}) and this state registered `sutura_spend_headroom_bytes` \
+         ({state_registered}), so the agent surface would leave that series frozen while the ledger \
+         drains, or push onto a series no scrape of this deployment renders. Build the mount's \
+         declaration with `SpendHeadroomPush::of(&state)`"
+    )]
+    AgentSurfaceSpendPushMismatched { mount_pushes: bool, state_registered: bool },
     /// A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
     ///
     /// **The mechanism that makes an ungoverned route auditable rather than invisible.**
@@ -667,6 +691,18 @@ fn agent_subtree(
     if declared.is_none() {
         return Err(RouterNotBuilt::AgentSurfaceWithoutInboundIdentity);
     }
+    // After the leg 1 refusal above and before any layering, so a state with both problems still
+    // reports the security one. `AgentMount::new` required a declaration and only this state can
+    // produce the gauge inside it - what is left to be wrong is the declaration being a truthful
+    // `NoCeilingConfigured` for some OTHER deployment, and this is where the two are in one place.
+    let mount_pushes = mount.spend().gauge().is_some();
+    let state_registered = state.spend_headroom_registered();
+    if mount_pushes != state_registered {
+        return Err(RouterNotBuilt::AgentSurfaceSpendPushMismatched {
+            mount_pushes,
+            state_registered,
+        });
+    }
     let mount = mount.ungoverned().layered(|router| {
         router.route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -852,10 +888,16 @@ mod tests {
         )
         .expect("the test bundle validates");
         let state = crate::testing::state_over(std::sync::Arc::new(service), crate::testing::settings_with(""));
-        let mount = crate::state::AgentMount::new(tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
-            let _request = request;
-            async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
-        }));
+        // `settings_with("")` configures no spend ceiling and the service carries the default
+        // `SpendLedger::no_budget()`, so `ServiceState::new` registered no
+        // `sutura_spend_headroom_bytes` and this declaration is the true one.
+        let mount = crate::state::AgentMount::new(
+            tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
+                let _request = request;
+                async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
+            }),
+            crate::state::SpendHeadroomPush::NoCeilingConfigured,
+        );
         let state = state.with_agent_surface(mount);
         let refused = super::agent_subtree(&state, None).expect_err("a mount with no inbound identity assembles no subtree");
         assert!(
