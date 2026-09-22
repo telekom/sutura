@@ -39,6 +39,15 @@ const SKIP_DIRS: &[&str] = &[
     "site",
 ];
 
+/// Which entry of [`SKIP_DIRS`] a path component of `path` matches, if any.
+///
+/// Split out of [`from_git`] so it is testable on a bare string, with no filesystem and no git
+/// listing involved.
+fn skip_dir_crossed(path: &str) -> Option<&'static str> {
+    path.split('/')
+        .find_map(|component| SKIP_DIRS.iter().find(|&&skip| skip == component).copied())
+}
+
 /// Strip the git environment variables that would point a subprocess at another repository.
 ///
 /// A gate that shells out to git is often invoked BY git - from a hook, or from inside a command
@@ -337,6 +346,21 @@ fn from_git(root: &Path, tracked: &Listed, untracked: &Listed) -> Option<Census>
             "git ls-files --others could not answer, so every untracked-but-not-ignored file is \
              missing from this listing and no gate's read can reach it",
         ));
+    }
+
+    // The one direction the walk fallback is WEAKER in: `SKIP_DIRS` is applied by `walk`'s own
+    // recursion and never by a git listing, so a tracked path under one of these names would be
+    // judged on every checkout that has `.git` and silently dropped in the nix sandbox, where
+    // `all_files` falls back to the walk. Refusing here makes the divergence unrepresentable
+    // rather than merely absent - `git ls-files` names zero tracked paths under `SKIP_DIRS` today,
+    // so this guards a shape that does not exist yet, not one that does.
+    for path in &files {
+        if let Some(dir) = skip_dir_crossed(path) {
+            unreachable.push(format!(
+                "{path}: tracked under `{dir}`, which the walk fallback always skips - the git \
+                 listing and the walk would disagree about whether this file exists"
+            ));
+        }
     }
 
     files.sort_unstable();
@@ -641,6 +665,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tracked_path_under_a_skip_dir_refuses_rather_than_disagreeing_with_the_walk() {
+        // THE one direction the fallback is weaker in: `SKIP_DIRS` is applied by the WALK's own
+        // recursion and never by a git listing, so a tracked file under one of these names would
+        // be judged wherever `.git` is present and silently dropped in the nix sandbox. Zero
+        // tracked paths cross today - this guards a shape that does not exist yet.
+        let root = std::path::Path::new("/nowhere");
+        let census = super::from_git(root, &listed(&staged(&["target/generated.rs"]), ""), &listed("", ""))
+            .expect("a listing was still produced");
+        match census.into_listing(super::Unmigrated::WarmStart) {
+            Err(super::Refusal::Unreachable(subjects)) => assert!(
+                subjects.first().is_some_and(|why| why.starts_with("target/generated.rs: ")),
+                "{subjects:?}"
+            ),
+            Err(other) => panic!("wrong arm: {}", other.describe()),
+            Ok(listing) => panic!("a path under a SKIP_DIRS name produced {} subject(s)", listing.1.len()),
+        }
+    }
+
+    #[test]
+    fn a_tracked_path_elsewhere_is_unaffected() {
+        let root = std::path::Path::new("/nowhere");
+        let census =
+            super::from_git(root, &listed(&staged(&["src/lib.rs"]), ""), &listed("", "")).expect("a listing was still produced");
+        let listing = census
+            .into_listing(super::Unmigrated::WarmStart)
+            .expect("an ordinary path is not caught by the SKIP_DIRS guard");
+        assert_eq!(listing.1, [String::from("src/lib.rs")]);
+    }
+
+    #[test]
     fn the_tracked_listing_carries_the_same_rule() {
         // Both invocations, because a stderr rule on one of two subprocesses is half a rule.
         let census = super::from_git(
@@ -755,6 +809,13 @@ mod tests {
         assert!(super::looks_like_text(b""));
 
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn skip_dir_crossed_matches_at_any_depth() {
+        assert_eq!(super::skip_dir_crossed("target/generated.rs"), Some("target"));
+        assert_eq!(super::skip_dir_crossed("crates/x/target/y.rs"), Some("target"));
+        assert_eq!(super::skip_dir_crossed("crates/x/src/lib.rs"), None);
     }
 
     #[test]

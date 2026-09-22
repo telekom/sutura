@@ -224,59 +224,36 @@ const LINK_TARGET: &str = "../.agents/skills";
 
 /// Verify each agent directory still points at the canonical tree.
 ///
-/// Checks the INDEX, not the working tree: on a platform without symlink support git stores
-/// mode 120000 and writes a pointer file, so the working tree looks like a regular file and
-/// only the index says what it is.
-fn link_problems(root: &Path) -> Vec<String> {
-    let out = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["ls-files", "--stage", "--"])
-        .args(AGENT_SKILL_LINKS)
-        .output();
-    // `Ok` means git RAN, not that it succeeded. A missing binary is `Err`; a present binary
-    // outside a repository is `Ok` with a non-zero status and empty stdout - and reading that
-    // empty listing as "the index has no such entry" reported all three links missing in
-    // exactly the environment the doc comment above says cannot be judged. That is what broke
-    // the Dockerfile's `build` target, where `COPY . .` brings the tree and no `.git`.
-    //
-    // The same distinction as the supply-chain gate: a check that could not run must not
-    // report a finding.
-    let Ok(out) = out else {
-        return Vec::new();
-    };
-    if !out.status.success() {
-        return Vec::new();
-    }
-    let listing = String::from_utf8_lossy(&out.stdout);
-    problems_in_listing(root, &listing)
-}
-
-/// Judge an index listing that git DID produce.
+/// **Reads the WORKING TREE via `symlink_metadata`, not the git index.** The index read this
+/// replaced shelled to `git ls-files --stage`, which exits non-zero outside a repository - and
+/// `.git` is absent from every nix build sandbox, so that read returned an empty listing and this
+/// gate reported no problems whatever the three entries actually were. `checks.hygiene` is built
+/// from `.#checks.<sys>.hygiene`, and every CI invocation of it (`ci.yml`, `docs.yml` x2,
+/// `release.yml`, `cachix-push.yml`) runs exactly there - so the index-based check held only in a
+/// real checkout, never in CI, whichever way an agent directory drifted.
 ///
-/// Split out so the two failure modes can be told apart in a test: an empty listing from a
-/// successful `git ls-files` genuinely means the entries are gone, while git being unable to
-/// answer at all means nothing - and conflating them is the bug this split exists to prevent.
-fn problems_in_listing(root: &Path, listing: &str) -> Vec<String> {
+/// **The limit.** This repo's checkouts - Linux and macOS via `nix develop`, and Windows through
+/// the Docker dev container - all materialise a tracked symlink as a real symlink. A checkout
+/// with `core.symlinks=false` writes a pointer FILE to the working tree even for a correctly
+/// tracked link, and reading the working tree cannot tell that apart from a genuinely broken one
+/// the way the index (which still records mode `120000`) could on a checkout that HAS `.git`.
+/// None of this repo's supported platforms take that path, so trading it for a check that also
+/// runs where `.git` does not exist is the right side of the trade - but it is a trade, not a
+/// strict improvement, and `cargo xtask check-skills` still cannot see it on one it would.
+fn link_problems(root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
     for link in AGENT_SKILL_LINKS {
-        let entry = listing.lines().find(|l| l.ends_with(link));
-        match entry {
-            None => problems.push(format!(
+        let path = root.join(link);
+        match std::fs::symlink_metadata(&path) {
+            Err(_) => problems.push(format!(
                 "`{link}` is missing - it must be a symlink to `{LINK_TARGET}` so every agent reads one tree"
             )),
-            Some(line) if !line.starts_with("120000") => problems.push(format!(
+            Ok(meta) if !meta.file_type().is_symlink() => problems.push(format!(
                 "`{link}` is a regular file, not a symlink - `git add -A` on a checkout without symlink support does this"
             )),
-            Some(_) => {
-                // `read_link` FIRST, because the link points at a DIRECTORY: reading it as a file
-                // fails once the OS has followed it, and `unwrap_or_default` turned that into
-                // "points at ``" - this gate failing on a checkout that was correct, since
-                // `4378d2e`. `read_to_string` stays as the FALLBACK, for the pointer-file shape the
-                // mode check above describes: git can record 120000 while the working tree holds a
-                // regular file whose content is the target path.
-                let target = std::fs::read_link(root.join(link))
+            Ok(_) => {
+                let target = std::fs::read_link(&path)
                     .map(|p| p.to_string_lossy().into_owned())
-                    .or_else(|_| std::fs::read_to_string(root.join(link)))
                     .unwrap_or_default();
                 if target.trim() != LINK_TARGET {
                     problems.push(format!("`{link}` points at `{}`, not `{LINK_TARGET}`", target.trim()));
@@ -289,65 +266,87 @@ fn problems_in_listing(root: &Path, listing: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod link_tests {
-    use std::path::Path;
+    /// A scratch root with the `LINK_TARGET` directory created and **no `.git` anywhere in it** -
+    /// the shape every CI invocation of `checks.hygiene` runs in. The OLD check shelled to `git
+    /// ls-files --stage`, which exits non-zero here, and every arm read that as "no findings"
+    /// rather than "could not look" - so a broken link passed silently in exactly this shape.
+    /// `link_problems` no longer touches git at all; these tests prove it still catches the same
+    /// defects with no `.git` to fall back on.
+    fn tree(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("sutura-skills-links-{name}-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(super::LINK_TARGET.trim_start_matches("../"))).expect("a scratch tree");
+        assert!(!root.join(".git").exists(), "the fixture must start with no .git");
+        root
+    }
 
     #[test]
-    fn an_empty_listing_from_a_successful_run_means_the_links_are_gone() {
-        // This is the CORRECT reading when git answered. The bug was reaching this conclusion
-        // after git had exited non-zero with nothing to say.
-        let problems = super::problems_in_listing(Path::new("."), "");
+    fn a_missing_link_is_named_as_such() {
+        let root = tree("missing");
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
         assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len());
-        assert!(problems.iter().all(|p| p.contains("is missing")));
+        assert!(problems.iter().all(|p| p.contains("is missing")), "{problems:?}");
     }
 
     #[test]
     fn a_regular_file_is_named_as_such_rather_than_missing() {
-        // Mode 100644 instead of 120000: the shape `git add -A` produces on a checkout with no
-        // symlink support. Worth its own message, because the fix is different.
-        let listing = super::AGENT_SKILL_LINKS
-            .iter()
-            .map(|l| format!("100644 0000000000000000000000000000000000000000 0	{l}"))
-            .collect::<Vec<_>>()
-            .join(
-                "
-",
-            );
-        let problems = super::problems_in_listing(Path::new("."), &listing);
+        // THE incident this guards: `git add -A` on a checkout without symlink support replaces a
+        // tracked symlink with a regular pointer file. Worth its own message, because the fix is
+        // different.
+        let root = tree("regular-file");
+        for link in super::AGENT_SKILL_LINKS {
+            let path = root.join(link);
+            std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
+            std::fs::write(&path, super::LINK_TARGET).expect("a pointer file standing in for a symlink");
+        }
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
         assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len());
-        assert!(problems.iter().all(|p| p.contains("not a symlink")));
+        assert!(problems.iter().all(|p| p.contains("not a symlink")), "{problems:?}");
     }
 
     #[cfg(unix)]
     #[test]
     fn a_link_to_a_directory_reads_as_a_link_rather_than_as_a_file() {
-        // THE bug this closes: each of these links points at a DIRECTORY, so reading it as a
-        // FILE fails once the OS has followed it, and `unwrap_or_default` turned that failure
-        // into `points at ``` - the gate failing on a checkout that was correct. Nothing caught
-        // it, and the reason is the same blind spot the mode check documents: the nix sandbox
-        // has no `.git`, so `check-skills` skips itself in CI and only ever ran on a real tree.
-        let root = std::env::temp_dir().join(format!("sutura-skills-{}", std::process::id()));
-        // Bound rather than `let _`: `let_underscore_must_use` is on, and a scratch directory
-        // that may not exist yet - or may be left behind by a killed run - is the one case where
-        // the result genuinely carries nothing.
-        let _cleanup = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(root.join(super::LINK_TARGET.trim_start_matches("../"))).expect("a scratch tree");
+        // THE bug this closes: each of these links points at a DIRECTORY, so reading it as a FILE
+        // fails once the OS has followed it, and `unwrap_or_default` turned that failure into
+        // `points at ``` - the gate failing on a checkout that was correct.
+        let root = tree("directory-link");
         for link in super::AGENT_SKILL_LINKS {
             let path = root.join(link);
             std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
             std::os::unix::fs::symlink(super::LINK_TARGET, &path).expect("a symlink to the one tree");
         }
-        let listing = super::AGENT_SKILL_LINKS
-            .iter()
-            .map(|link| format!("120000 2b7a412b8fa0fb7e985b0793321bd4e698f2b6cd 0\t{link}"))
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        let problems = super::problems_in_listing(&root, &listing);
-        // Bound rather than `let _`: `let_underscore_must_use` is on, and a scratch directory
-        // that may not exist yet - or may be left behind by a killed run - is the one case where
-        // the result genuinely carries nothing.
-        let _cleanup = std::fs::remove_dir_all(&root);
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
         assert!(problems.is_empty(), "a correct checkout reports nothing, got {problems:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_broken_link_is_caught_with_no_dot_git_anywhere() {
+        // THE hole `github.com/telekom/sutura#952` measured: with `.git` absent, the OLD
+        // git-index read exited non-zero and every arm read that as "no findings" -
+        // `ok - 17 routed, 20 in the library, 3 agent link(s)` was byte-identical whether one of
+        // these three was a regular file or a symlink. Two links correct, one replaced by a
+        // regular file, and nothing here shells to git any more - so there is no `.git`-less
+        // blind spot left to fall into.
+        let root = tree("broken-in-sandbox");
+        for (index, link) in super::AGENT_SKILL_LINKS.iter().enumerate() {
+            let path = root.join(link);
+            std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
+            if index == 0 {
+                std::fs::write(&path, "not a symlink, planted on purpose").expect("the planted defect");
+            } else {
+                std::os::unix::fs::symlink(super::LINK_TARGET, &path).expect("a correct symlink");
+            }
+        }
+
+        let problems = super::link_problems(&root);
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems.first().is_some_and(|p| p.contains("not a symlink")), "{problems:?}");
     }
 }
 
