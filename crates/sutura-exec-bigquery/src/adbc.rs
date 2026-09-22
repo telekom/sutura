@@ -66,7 +66,7 @@ use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 
-use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
+use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
 use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport};
 
@@ -91,13 +91,45 @@ use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, J
 /// keeps. **The VALUE is held rather than commented** - review measured that raising it to
 /// `usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
 /// the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
-/// `tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
+/// `tests::both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_derived_from` -
+/// which is where that sentence became true: it named a cell called
+/// `the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap` that no file in this
+/// tree ever defined, so for as long as the sentence stood the value was held by the sentence.
 ///
 /// **The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
 /// caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
 /// batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
 /// puts it. A foreign driver is what a row ceiling exists for.
 pub const MOST_RESULT_ROWS: usize = 1_000_000;
+
+/// How many bytes this transport will spend holding and converting one result stream before
+/// refusing.
+///
+/// **The bound [`MOST_RESULT_ROWS`] is not**, and round 7 of `telekom/sutura#929`'s review is the
+/// report: a row count cannot be a memory bound when the caller controls row WIDTH, so a million
+/// narrow rows and a few thousand very wide ones are the same number there and orders of magnitude
+/// apart here. Both apply - whichever is crossed first refuses - and the byte one is the one that
+/// protects the process.
+///
+/// **A constant here and not a configured key, and the difference from the engine's own budget is
+/// worth stating.** `sutura-exec-datafusion` derives its budget from
+/// `runtime.working_set_max_bytes`, which the composition root has already checked at boot against
+/// the memory this process can reach. This crate depends on no settings crate - an adapter does not
+/// call another adapter, and nothing hands a transport that number - so the value is written here
+/// instead, and it is therefore **not checked against the memory available**: a container smaller
+/// than this ceiling can still be ended by a result under it.
+///
+/// **The value, and why this one.** A quarter of `docs/adr/0009`'s provisional 1 GiB working set,
+/// so two federated legs plus the combine above them cannot each spend the whole of a query's
+/// provisional byte budget. It is provisional for exactly the reason that number is - 0009's
+/// amendment says the corpus it was measured on is too small to justify moving it, and it names
+/// driver buffering and row conversion as the paths its harness never observed. This is one of
+/// them.
+///
+/// **The VALUE is held rather than commented**, because a ceiling nothing asserts can be raised to
+/// `usize::MAX` with a green suite - review measured exactly that happening to `MOST_RESULT_ROWS`.
+/// `tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set` is the cell.
+pub const MOST_RESULT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Why the ADBC transport could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -433,7 +465,21 @@ impl JobTransport for AdbcBigQuery {
         // **The limit beside it:** the ceiling is a bound on THIS PROCESS, not the working-set
         // check `sutura_app` makes above. A leg carries no `LIMIT`, so this is the only number
         // standing between a driver that streams without end and this process's memory.
-        let mut accumulating = Accumulating::announcing(announced, MOST_RESULT_ROWS);
+        //
+        // **And bounded in BYTES as well as in rows since round 7 of the same review**, which
+        // measured that a row count is no bound at all on a wide result: `MOST_RESULT_BYTES` is
+        // charged per batch, for what the batch costs to hold AND what converting it will cost, so
+        // the refusal lands before the batch that would have crossed it is retained.
+        let mut accumulating = Accumulating::announcing(
+            announced,
+            MOST_RESULT_ROWS,
+            ResultBudget::of_bytes(
+                // `MOST_RESULT_BYTES` is a non-zero literal, so this cannot be `None`; mapped
+                // rather than unwrapped because this workspace allows neither `unwrap` nor
+                // `expect`, and a zero here would refuse every result including the empty one.
+                core::num::NonZeroUsize::new(MOST_RESULT_BYTES).unwrap_or(core::num::NonZeroUsize::MIN),
+            ),
+        );
         for batch in reader {
             accumulating
                 .push(batch.map_err(AdbcError::Batch)?)
@@ -473,7 +519,7 @@ impl JobTransport for AdbcBigQuery {
         matches!(*error, AdbcError::NoDryRun)
     }
 
-    /// `true` for the ROW CEILING alone, which is the one failure here that is a result not fitting.
+    /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
     ///
     /// **The port's default is `false` and that was wrong for this transport once
     /// [`MOST_RESULT_ROWS`] existed.** A stream refused for crossing the ceiling is exactly *the
@@ -483,13 +529,19 @@ impl JobTransport for AdbcBigQuery {
     /// `BigQueryWarehouse::result_did_not_fit`'s own doc true, which is why it is here and not a
     /// sentence there.
     ///
+    /// [`MOST_RESULT_BYTES`] joins it for the same argument on the quantity that is actually scarce,
+    /// and the two are deliberately ONE answer to the caller: *too much data* is one outcome
+    /// whichever bound measured it, which is the reasoning
+    /// [`Warehouse::result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit)
+    /// already gives for the row cap and a remote size cap sharing a refusal.
+    ///
     /// Every other [`UnannouncedBatch`] is `false`, exhaustively and by NAME: a mislabelled or
     /// mis-width batch is a driver disagreeing with its own announced schema, which no narrower
     /// request fixes and which a retry may not repeat.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         match *error {
             AdbcError::Unannounced(ref cause) => match *cause {
-                UnannouncedBatch::OverBound { .. } => true,
+                UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => true,
                 UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
             },
             AdbcError::Load(_)

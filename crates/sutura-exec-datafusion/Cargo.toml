@@ -24,16 +24,16 @@ datafusion = { workspace = true }
 # stops a question at its deadline (`telekom/sutura#160`, `docs/adr/0029`). Still no `enable_all`,
 # so still no I/O driver, which a plan over a local file does not need.
 tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+# `StreamExt::next` over `DataFrame::execute_stream`, so a result is charged against its byte budget
+# one batch at a time instead of being collected first. Already in the graph through `datafusion`,
+# and it was already a DEV-dependency here for the deadline test's hand-rolled `PartitionStream`.
+futures-util = { workspace = true }
 thiserror = { workspace = true }
 
 # The conformance packs, which `tests/conformance.rs` binds this engine to. A DEV-dependency, for
 # the reason the sibling adapter's manifest gives.
 [dev-dependencies]
 sutura-conformance = { workspace = true }
-# Only for the `Stream` trait, to hand-roll a synthetic `PartitionStream` the deadline test never
-# finishes on its own. Already in the graph via `sutura-exec-postgres`, so this is a new edge, not
-# a new crate.
-futures-util = { workspace = true }
 # `sutura_dev::tolerance`: the deadline tests' wall-clock margin widens on a shared dev machine and
 # stays CI's own strict number everywhere else. Already in the graph via `sutura-exec-postgres`'s
 # own dev-dependencies, so this is a new edge, not a new crate.

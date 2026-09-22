@@ -30,7 +30,7 @@ use arrow_array::{
 use arrow_buffer::i256;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
-use super::{Accumulating, ResultBatches, UnannouncedBatch, UnreadableCell, cell, of_rows};
+use super::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnreadableCell, cell, materialised, of_rows};
 use crate::calendar::Date;
 use crate::warehouse::{Real, Value};
 
@@ -272,7 +272,7 @@ fn a_same_typed_column_swap_is_refused_before_a_value_is_read() {
     let batch = RecordBatch::try_new(Arc::clone(&swapped), vec![ints(&[7]), ints(&[2])])
         .expect("Arrow accepts a same-typed swap, which is the whole point");
 
-    let mut accumulating = Accumulating::announcing(announced, 10);
+    let mut accumulating = Accumulating::announcing(announced, 10, roomy());
     let refused = accumulating.push(batch).expect_err("a swapped batch is refused");
     assert!(matches!(refused, UnannouncedBatch::Mislabelled { at: 0, .. }), "{refused:?}");
     // The refusal names both descriptors and no cell value.
@@ -310,7 +310,7 @@ fn a_column_delivered_under_its_announced_name_with_another_type_is_refused() {
     let substituted = RecordBatch::try_new(one_int("average_order"), vec![ints(&[1])])
         .expect("Arrow accepts a batch that matches its own schema, whatever was announced");
 
-    let mut accumulating = Accumulating::announcing(announced, 10);
+    let mut accumulating = Accumulating::announcing(announced, 10, roomy());
     let refused = accumulating
         .push(substituted)
         .expect_err("a column delivered under another type is refused");
@@ -330,7 +330,7 @@ fn a_batch_narrower_than_its_schema_is_refused_rather_than_matched_on_its_prefix
         Field::new("refunds", DataType::Int64, true),
     ]));
     let narrow = RecordBatch::try_new(one_int("orders"), vec![ints(&[7])]).expect("a one-column batch is valid");
-    let refused = Accumulating::announcing(announced, 10)
+    let refused = Accumulating::announcing(announced, 10, roomy())
         .push(narrow)
         .expect_err("a narrow batch is refused");
     assert_eq!(
@@ -346,7 +346,7 @@ fn a_batch_narrower_than_its_schema_is_refused_rather_than_matched_on_its_prefix
 #[test]
 fn the_row_ceiling_refuses_the_batch_that_crosses_it() {
     let schema = one_int("orders");
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 3);
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 3, roomy());
     let two = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&[1, 2])]).expect("a two-row batch is valid");
     accumulating.push(two.clone()).expect("two rows are under the ceiling");
     assert_eq!(accumulating.delivered(), 2);
@@ -354,11 +354,144 @@ fn the_row_ceiling_refuses_the_batch_that_crosses_it() {
     assert_eq!(refused, UnannouncedBatch::OverBound { most: 3 });
 }
 
+/// The byte budget fires at the batch that crosses it, not after the stream is collected.
+///
+/// **Sized from the fixture's own measured cost rather than from a literal**, so the assertion is
+/// that the configured number is what refuses. A magic constant here would pass or fail on Arrow's
+/// buffer padding, and the cell would be measuring the allocator.
+#[test]
+fn the_byte_budget_refuses_the_batch_that_crosses_it() {
+    let schema = one_int("orders");
+    let two = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&[1, 2])]).expect("a two-row batch is valid");
+    // Room for one of these batches and not for two.
+    let one_batch = materialised(&two);
+    let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(one_batch).expect("a batch costs something"));
+
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), usize::MAX, budget);
+    accumulating.push(two.clone()).expect("one batch fits its own budget");
+    assert_eq!(accumulating.spent_bytes(), one_batch);
+
+    let refused = accumulating.push(two).expect_err("a second batch does not fit");
+    assert_eq!(refused, UnannouncedBatch::OverBudget { most_bytes: one_batch });
+    // The BUDGET and not the demand: what the question wanted is an observation about one caller's
+    // data, and the number an operator can act on is the one they configured.
+    assert!(refused.to_string().contains(&one_batch.to_string()), "{refused}");
+    // And nothing about the refused batch was retained - the row count is the first one's alone.
+    assert_eq!(accumulating.delivered(), 2);
+    assert_eq!(accumulating.spent_bytes(), one_batch);
+}
+
+/// The control for the cell above: the same two batches under a budget that fits both are kept.
+///
+/// Without it, that test passes just as well against a guard that refuses every batch.
+#[test]
+fn two_batches_inside_the_byte_budget_are_both_kept() {
+    let schema = one_int("orders");
+    let two = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&[1, 2])]).expect("a two-row batch is valid");
+    let budget = ResultBudget::of_bytes(
+        core::num::NonZeroUsize::new(materialised(&two).saturating_mul(2)).expect("two batches cost something"),
+    );
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), usize::MAX, budget);
+    accumulating.push(two.clone()).expect("the first batch fits");
+    accumulating.push(two).expect("the second batch fits too");
+    assert_eq!(accumulating.delivered(), 4);
+}
+
+/// The budget charges what `to_rows` will allocate, not only what the batches cost to hold.
+///
+/// **This is the half round 7 of `telekom/sutura#929`'s review named**, and it is the one a budget
+/// is most likely to be written without: `ResultBatches::to_rows` builds a whole second copy as
+/// `Vec<Vec<Value>>`, so a bound charged for `get_array_memory_size` alone understates the peak by
+/// roughly a factor of two and the process dies inside the conversion of a result the guard had
+/// already accepted.
+///
+/// So the budget here is set to exactly the batch's ARROW size - which
+/// [`RecordBatch::get_array_memory_size`] reports and the guard is not allowed to accept - and the
+/// assertion is a refusal. A guard charging only the Arrow buffers would accept it and this cell
+/// would go green.
+#[test]
+fn a_batch_whose_arrow_buffers_fit_is_refused_when_its_row_conversion_would_not() {
+    let schema = one_int("orders");
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&[1, 2, 3, 4])]).expect("a four-row batch is valid");
+    let arrow_only = batch.get_array_memory_size();
+    assert!(
+        materialised(&batch) > arrow_only,
+        "the conversion has to cost something, or this cell asserts nothing"
+    );
+    let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(arrow_only).expect("a batch's buffers cost something"));
+
+    let refused = Accumulating::announcing(schema, usize::MAX, budget)
+        .push(batch)
+        .expect_err("a batch is refused when holding it AND converting it will not fit");
+    assert_eq!(refused, UnannouncedBatch::OverBudget { most_bytes: arrow_only });
+}
+
+/// The budget charges the batch's buffers TWICE, and a budget for one copy is still a refusal.
+///
+/// **Aimed at the factor of two, with an oracle that is not the measure under test.** The cell above
+/// refuses on the ARROW size alone, which the per-row term already exceeds, so it stays green against
+/// a guard that dropped the doubling - measured by mutation (`arrays.saturating_mul(2)` reduced to
+/// `arrays`: 3998 tests, all passed). A first attempt at this cell sized its budget from
+/// `materialised` itself and was green under the same mutation for the obvious reason: a cell whose
+/// expectation is computed by the function it is testing cannot see that function change.
+///
+/// So the budget is written out here instead - what a guard charging the buffers ONCE would compute:
+/// hold the batch, plus one `Vec` per row and one [`Value`] per cell for the conversion. The property
+/// that makes it a refusal is that `ResultBatches::to_rows` clones an owned value out of every array,
+/// so the buffers are paid for twice, and a budget covering them once is not a budget for both.
+#[test]
+fn a_budget_that_charges_the_buffers_only_once_is_refused() {
+    let schema = one_int("orders");
+    let values: Vec<i64> = (0..64).collect();
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&values)]).expect("a sixty-four-row batch is valid");
+    let charged_once = batch.get_array_memory_size()
+        + batch.num_rows() * (core::mem::size_of::<Vec<Value>>() + batch.num_columns() * core::mem::size_of::<Value>());
+    let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(charged_once).expect("the cost is positive"));
+
+    let refused = Accumulating::announcing(schema, usize::MAX, budget)
+        .push(batch)
+        .expect_err("a budget that pays for the buffers once does not cover both copies");
+    assert_eq!(
+        refused,
+        UnannouncedBatch::OverBudget {
+            most_bytes: charged_once
+        }
+    );
+}
+
+/// The budget charges the row structure, which is the term a TALL result is mostly made of.
+///
+/// **The third term, aimed separately from the doubling above.** `Vec<Vec<Value>>` is one `Vec` per
+/// row plus one [`Value`] per cell whatever the cells hold, so a thousand narrow rows cost far more
+/// to convert than their Arrow buffers do to hold - which is the same *a row count is not a width*
+/// argument `docs/adr/0009` retired the per-leg row cap over, seen from the memory side.
+///
+/// So the budget here is twice the batch's Arrow size: enough for the batch and for an owned copy of
+/// every value in it, and not enough for the row vectors. A guard charging only `arrays * 2` would
+/// accept it.
+#[test]
+fn a_tall_narrow_batch_is_refused_when_its_row_structure_would_not_fit() {
+    let schema = one_int("orders");
+    let values: Vec<i64> = (0..1000).collect();
+    let tall = RecordBatch::try_new(Arc::clone(&schema), vec![ints(&values)]).expect("a thousand-row batch is valid");
+    let both_copies = tall.get_array_memory_size().saturating_mul(2);
+    assert!(
+        materialised(&tall) > both_copies,
+        "the row structure has to cost something, or this cell asserts nothing"
+    );
+    let budget = ResultBudget::of_bytes(core::num::NonZeroUsize::new(both_copies).expect("a batch's buffers cost something"));
+
+    let refused = Accumulating::announcing(schema, usize::MAX, budget)
+        .push(tall)
+        .expect_err("a thousand narrow rows do not fit twice their own buffers");
+    assert_eq!(refused, UnannouncedBatch::OverBudget { most_bytes: both_copies });
+}
+
 /// A batch that matches its announced schema by name and type is kept, and reads back as rows.
 #[test]
 fn an_announced_batch_reads_back_under_the_names_it_was_announced_with() {
     let schema = one_int("orders");
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10);
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10, roomy());
     accumulating
         .push(RecordBatch::try_new(schema, vec![ints(&[7, 2])]).expect("a valid batch"))
         .expect("an announced batch is kept");
@@ -443,7 +576,7 @@ fn an_unmapped_column_is_refused_whatever_the_data_happened_to_be() {
         other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
     }
 
-    let mut accumulating = Accumulating::announcing(Arc::clone(&unmapped), 10);
+    let mut accumulating = Accumulating::announcing(Arc::clone(&unmapped), 10, roomy());
     let all_null: ArrayRef = Arc::new(Float32Array::from(vec![None::<f32>, None::<f32>]));
     accumulating
         .push(RecordBatch::try_new(unmapped, vec![all_null]).expect("a null column is a valid batch"))
@@ -465,7 +598,7 @@ fn an_unmapped_column_is_refused_whatever_the_data_happened_to_be() {
 fn every_mapped_type_passes_the_schema_pass_and_float32_does_not() {
     for (name, array, _expected) in mapping_table() {
         let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(name, array.data_type().clone(), true)]));
-        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10);
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 10, roomy());
         accumulating
             .push(RecordBatch::try_new(schema, vec![Arc::clone(&array)]).expect("a one-column batch"))
             .expect("the batch carries the announced field");
@@ -479,4 +612,12 @@ fn every_mapped_type_passes_the_schema_pass_and_float32_does_not() {
         ResultBatches::none_under(refused).to_rows().is_err(),
         "Float32 is not mapped, so the schema pass must refuse it"
     );
+}
+
+/// A materialisation budget no fixture in this file comes near, so a cell aimed at the schema guard
+/// or at the mapping table cannot be refused by the byte budget instead.
+///
+/// The budget's own cells build their own, at the size the assertion is about.
+const fn roomy() -> ResultBudget {
+    ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }
