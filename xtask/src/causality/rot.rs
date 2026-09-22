@@ -390,12 +390,52 @@ mod tests {
         assert_eq!(check_apply_at(&root), Verdict::Fail);
     }
 
+    /// `locate()` itself, not `run_at`'s Fail/Pass: both `Gone` and `Ambiguous` end in
+    /// `Verdict::Fail` through `run_at`, but so does a `One` whose worktree creation fails in a
+    /// scratch root with no `.git` - so a mutation that turned `Ambiguous`/`Gone` into `One` would
+    /// still read `Fail` at that level and the cell would stay green over a broken rule. Asserting
+    /// on the ENUM `locate` returns is what a mutation of its own match arms actually moves.
     #[test]
-    fn a_cell_no_test_declares_any_more_is_gone_not_silently_ignored() {
+    fn locate_reports_gone_for_a_cell_no_file_declares() {
         // `#929`'s own shape: the patch is still committed and still applies, but nothing in the
-        // tree declares a test by this name any more. `run_at` must refuse before it ever reaches
-        // the expensive `claim::run` call - this test would time out if it did not.
-        let root = scratch("kill-gone");
+        // tree declares a test by this name any more.
+        let root = scratch("locate-gone");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "").expect("an empty crate root");
+        let cells = vec![String::from("a_test_fn_nothing_declares_any_more")];
+        let found = locate(&root, &cells).expect("a readable tree");
+        match found.get("a_test_fn_nothing_declares_any_more") {
+            Some(Located::Gone) => {}
+            other => panic!("expected Gone, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn locate_reports_ambiguous_for_a_cell_two_files_declare() {
+        let root = scratch("locate-ambiguous");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), "").expect("an empty crate root");
+        std::fs::write(root.join("src/one.rs"), "#[test]\nfn a_shared_cell_name() {}\n").expect("the first file");
+        std::fs::write(root.join("src/two.rs"), "#[test]\nfn a_shared_cell_name() {}\n").expect("the second file");
+        let cells = vec![String::from("a_shared_cell_name")];
+        let found = locate(&root, &cells).expect("a readable tree");
+        match found.get("a_shared_cell_name") {
+            Some(Located::Ambiguous(files)) => {
+                assert_eq!(files.len(), 2, "both declaring files must be named, not just counted");
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_gone_or_ambiguous_cell_fails_run_at_before_any_worktree_is_built() {
+        // THE WIRING, once `locate`'s own classification is proven above: `run_at` must turn
+        // EITHER non-`One` outcome into a `Fail` rather than reaching `claim::run` at all - a
+        // scratch root with no `.git` makes that reachable half fail too, so this only proves the
+        // wiring surfaces a refusal, not which cause fired.
+        let root = scratch("kill-gone-wiring");
         std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
         std::fs::create_dir_all(root.join("src")).expect("src/");
         std::fs::write(root.join("src/lib.rs"), "").expect("an empty crate root");
@@ -403,23 +443,6 @@ mod tests {
         write_patch(
             &root,
             "a_test_fn_nothing_declares_any_more",
-            "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
-        );
-        assert_eq!(run_at(&root), Verdict::Fail);
-    }
-
-    #[test]
-    fn a_cell_declared_in_two_files_is_ambiguous_not_guessed_at() {
-        let root = scratch("kill-ambiguous");
-        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").expect("a manifest");
-        std::fs::create_dir_all(root.join("src")).expect("src/");
-        std::fs::write(root.join("src/lib.rs"), "").expect("an empty crate root");
-        std::fs::write(root.join("src/one.rs"), "#[test]\nfn a_shared_cell_name() {}\n").expect("the first file");
-        std::fs::write(root.join("src/two.rs"), "#[test]\nfn a_shared_cell_name() {}\n").expect("the second file");
-        std::fs::write(root.join("a.txt"), "hello\n").expect("a target file for the patch");
-        write_patch(
-            &root,
-            "a_shared_cell_name",
             "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-hello\n+world\n",
         );
         assert_eq!(run_at(&root), Verdict::Fail);
