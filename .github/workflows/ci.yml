@@ -1215,6 +1215,26 @@ jobs:
             BASE=$(git merge-base "$base_tip" "$PR_HEAD")
             trap 'git checkout --detach "$merge_head" || exit 1' EXIT
             git checkout --detach "$PR_HEAD"
+          elif [ "$EVENT" = push ]; then
+            # THE CLASSIFICATION BASE IS TOO WIDE FOR THIS GATE. `base` above is the durable
+            # marker, deliberately wide so an EVICTED run's commits stay covered (#561) - right
+            # for `Classify the change`, wrong here: causality at this HEAD was already measured
+            # at `HEAD^..HEAD` by its `merge_group` run at the SAME SHA (squash queue), and the
+            # marker only advances on a green run, so re-measuring marker..HEAD reads every
+            # undeclared test merged since as this commit's own and the red sustains itself.
+            # Narrow to HEAD's single parent; any other parent count falls open like
+            # `merge_group` above. `xtask workflows::step::causality` is the gate holding this
+            # arm, and it is UNCONDITIONAL on push because that fixture exports neither
+            # `GITHUB_REF_NAME` nor `DEFAULT_BRANCH` - a branch-filtered arm would never execute
+            # there. `on:` above already restricts push to the default branch.
+            parents="$(git show -s --format=%P HEAD)"
+            read -r parent extra <<< "$parents"
+            if [ -n "$parent" ] && [ -z "$extra" ]; then
+              BASE="$parent"
+            else
+              echo "push HEAD does not have exactly one parent (${parents:-<none>}); falling open" >&2
+              BASE=""
+            fi
           fi
           if [ -z "$BASE" ]; then
             echo "::warning title=Test causality::No usable base ref, so this step is green over NOTHING RUN - not a red-before-green verdict. Read the base-resolution step above for why none was resolved."
