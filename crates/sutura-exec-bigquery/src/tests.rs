@@ -14,11 +14,14 @@
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::identity::Presented;
-use sutura_domain::model::{ColumnName, Grain, MetricName, TableName};
-use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, ResultLabel};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, TableName};
+use sutura_domain::plan::{
+    Executable, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
+    ResultLabel,
+};
 use sutura_domain::source::ImpersonationCapability;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{Accumulating, PreFlight, ResultBatches, Warehouse};
+use sutura_domain::warehouse::{Accumulating, ParamValue, PreFlight, ResultBatches, Warehouse};
 
 use std::sync::Arc;
 
@@ -465,7 +468,14 @@ fn a_dry_run_the_endpoint_rejects_is_not_reported_as_accepted() {
     assert!(core::error::Error::source(&error).is_some());
 }
 
-/// One fact leg, for the arm that refuses one.
+/// One fact leg, the shape `sutura_semantic::federated_plan` builds: a dimension key, a measure
+/// term, and the two range bounds as predicates with their values as the parameters those
+/// predicates index.
+///
+/// **The bindings are not decoration, for [`fakes::plan`]'s own reason one shape over.** A leg
+/// carrying no predicate renders no `WHERE`, so a leg fixture without them gives the no-injection
+/// assertion in `crate::tests::results` nothing to look for - the values have to be somewhere for a
+/// test to see that they are not in the text.
 fn a_leg() -> sutura_domain::plan::LegPlan {
     let table = TableName::parse("fct_subscription_monthly").expect("a test table is a table");
     let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a test column is a column"));
@@ -474,9 +484,37 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
         metric: MetricName::parse("mrr").expect("a test metric is a metric"),
         tables: sutura_domain::plan::StatementTables::only(table.clone()),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
-        keys: Vec::new(),
-        terms: Vec::new(),
-        bindings: PlanBindings::none(),
+        keys: vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),
+            column("region"),
+        )],
+        terms: vec![LegTerm::new(
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("mrr_cents"),
+            },
+            ResultLabel::measure(&MetricName::parse("mrr").expect("a test metric is a metric")),
+        )],
+        bindings: PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: column("month"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: column("month"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![ParamValue::Date(day("2026-06-01")), ParamValue::Date(day("2026-07-01"))],
+        )
+        .expect("a fixture leg binds its two range bounds in placeholder order"),
         range: TimeRange::new(day("2026-06-01"), day("2026-07-01")).expect("a test range is a range"),
     }
 }

@@ -25,6 +25,19 @@
 //! under one operating-system identity and
 //! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
 //! twice. Single-player federation.
+//!
+//! **Two legs CAN now each run as the asking subject, and only on a `bigquery` build.**
+//! `sutura-exec-bigquery` declares the constant since `telekom/sutura#929` and is the one adapter
+//! declaring `PerSubjectCredential`, so `sutura serve --features bigquery` over two `bigquery`
+//! sources reaches this path with `ExecutedAs::uniform` satisfied by two IMPERSONATING legs rather
+//! than two shared ones. The single mint below does not collapse them: that adapter's
+//! `DeclaredPrincipalBroker::mint` walks the `SourceSet` and resolves each source's OWN declared
+//! account for the asking subject out of that source's own map, so one mint over two sources yields
+//! one credential per leg
+//! (`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`). **The limits,
+//! beside the claim:** no published artefact links that adapter, and no federated answer has been
+//! produced against a real dataset - what is held is that each leg renders for the dialect and is
+//! submitted with that subject's own credential and that source's configured byte ceiling.
 
 use std::time::Instant;
 
@@ -79,8 +92,10 @@ pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>
 /// (`Warehouse::executes_legs`, asked of that source's own adapter), or the answer is refused as
 /// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
 /// keeps a build whose adapter declares `false` refusing a two-source question cleanly instead of
-/// letting a typed leg refusal surface as a retryable 503 - which is still every build linking
-/// `sutura-exec-bigquery` or a fake, and is no longer the shipped engine.
+/// letting a typed leg refusal surface as a retryable 503. That is no longer the shipped engine, and
+/// since `telekom/sutura#929` it is no longer `sutura-exec-bigquery` either - what still reaches it
+/// is an adapter with no leg venue of its own (`sutura-exec-postgres`, `sutura-exec-clickhouse`,
+/// `sutura-exec-oracle`) or a fake taking the port's default.
 ///
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH

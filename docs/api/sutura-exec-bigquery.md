@@ -23,7 +23,10 @@ What it contains is everything this adapter DECIDES:
   declared;
 - the rendering, through `sutura-sql` in `Dialect::BigQuery`, so no second set of quoting and
   placeholder decisions exists here;
-- the refusal of a federated leg, because there is no combiner above it;
+- one federated LEG, rendered through the same `sutura-sql` at the same dialect, which is what
+  makes two `BigQuery` sources federate with a per-subject credential at each
+  (`telekom/sutura#929`); the refusal this replaces is gone rather than relaxed - see
+  `BigQueryWarehouse::EXECUTES_LEGS`;
 - handing the driver's Arrow batches to the interior's own decode, which is where a wrong
   number would come from and which is no longer this crate's code (`docs/adr/0039`);
 - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
@@ -132,11 +135,6 @@ an owned `#[source]`.
   **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
   typed variant rather than a panic for the same reason every other "unreachable" case in
   this workspace is one - the input reaching it is not bounded by the type system alone.
-- `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
-
-  **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
-  leg run with nothing above it returns rows at a finer grouping than the question asked for,
-  which is a wrong number under a certified name.
 - `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and no transport here has a spelling for one.
 
   **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds

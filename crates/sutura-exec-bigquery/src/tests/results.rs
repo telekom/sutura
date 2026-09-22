@@ -20,28 +20,70 @@
 //! * The **delivered-versus-reported** pair went with `jobs.query`'s paging. An ADBC read streams
 //!   the whole result and `run` drains the reader, so completeness is the drain; the ADR records it.
 //!
-//! What is left here is what is still this adapter's own: the leg refusal, the size-bound
+//! What is left here is what is still this adapter's own: the federated leg, the size-bound
 //! delegation, and the row ceiling that replaced the page bound.
 
 use super::{
-    BigQueryError, Broken, Executable, Paged, Recording, Warehouse as _, leg_of, one_column, open, plan, shared_posture,
-    test_deadline,
+    BigQueryError, Broken, Executable, Paged, Recording, Warehouse as _, impersonating_posture, leg_of, one_column, open, plan,
+    shared_posture, test_deadline,
 };
 
 #[test]
-fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs() {
-    // A leg executed with nothing above it returns rows at a finer grouping than the question asked
-    // for, which is a wrong number under a certified name. Both SQL adapters answer this the same way.
-    let warehouse = open(Recording::empty(), shared_posture());
+fn a_federated_leg_is_submitted_as_the_asking_subject_at_this_sources_own_declared_account() {
+    // **THE CELL `telekom/sutura#929`'s federation half asks for.** This arm used to answer
+    // `LegWithoutCombiner` with the transport never touched, so `Warehouse::EXECUTES_LEGS` stayed at
+    // its default and `sutura_app::federated`'s capability gate refused every `BigQuery` federation
+    // before a credential existed. Three separate things have to hold for a leg to federate here,
+    // and each one is a way this could be green while delivering nothing:
+    //
+    //  1. the constant, pinned BY VALUE - the gate reads `Warehouse::executes_legs()`, so a `false`
+    //     here refuses the answer above this adapter and no assertion below would notice;
+    //  2. the leg's statement REACHES THE TRANSPORT, and is `sutura_sql::generate_leg`'s own text
+    //     for this dialect - the whole-plan renderer would have produced a grouped answer for the
+    //     wrong question, and a hand-built one would be a second set of quoting decisions. This is
+    //     also what puts a leg through `adbc::prepared`, the one funnel that sets
+    //     `bigquery.query.max_bytes_billed`: `AdbcBigQuery::run` is the only caller of `connect`
+    //     and `connect` the only caller of `prepared`, so a request that arrives here at all
+    //     carries this source's configured ceiling;
+    //  3. the leg carries BOTH halves of the subject's credential - the asker's own assertion AND
+    //     the account this source declared for that asker (`#929` F3). A leg presenting the
+    //     assertion with a dropped account runs every declared caller as the pool's own principal.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    // The INSTANCE method and not the constant, because that is what `answer_federated` reads -
+    // `Warehouse::executes_legs` defaults to `EXECUTES_LEGS`, and the gate asks each leg's own
+    // adapter instance so a closed enum over several kinds can answer per variant.
+    assert!(
+        warehouse.executes_legs(),
+        "the capability gate in sutura_app reads this, and refuses the whole answer where it is false"
+    );
     let leg = crate::tests::a_leg();
-    let error = warehouse
-        .execute(Executable::Leg(&leg), &leg_of(&shared_posture()), test_deadline())
-        .expect_err("a leg has no combiner above it");
-    match error {
-        BigQueryError::LegWithoutCombiner { ref table } => assert_eq!(table, "fct_subscription_monthly"),
-        other => panic!("expected a leg refusal, got {other:?}"),
-    }
-    assert!(warehouse.transport.seen.borrow().is_empty());
+    let presented = leg_of(&impersonating_posture());
+    drop(
+        warehouse
+            .execute(Executable::Leg(&leg), &presented, test_deadline())
+            .expect("a leg renders and is submitted"),
+    );
+    let seen = warehouse.transport.seen.borrow();
+    let [asked] = seen.as_slice() else {
+        panic!("one leg is one job, and the transport saw {} of them", seen.len());
+    };
+    let rendered = sutura_sql::generate_leg(&leg, sutura_sql::Dialect::BigQuery).expect("the leg fixture renders");
+    assert_eq!(
+        asked.statement,
+        rendered.sql(),
+        "the leg reached the transport as something other than `generate_leg`'s own GoogleSQL"
+    );
+    assert_eq!(asked.params.len(), rendered.params().len(), "the values did not travel apart");
+    assert_eq!(
+        asked.subject.as_deref(),
+        Some("an-exchanged-token-for-the-asker"),
+        "the leg ran as somebody other than the asker"
+    );
+    assert_eq!(
+        asked.impersonate.as_deref(),
+        Some(super::fakes::A_DECLARED_ACCOUNT),
+        "the account this source declared for the asker did not ride on the leg"
+    );
 }
 
 #[test]

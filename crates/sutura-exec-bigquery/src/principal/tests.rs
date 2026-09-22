@@ -377,6 +377,72 @@ fn each_subject_is_minted_the_account_declared_beside_it() {
 }
 
 #[test]
+fn one_subject_federating_two_sources_is_minted_each_sources_own_declared_account() {
+    // **THE CELL `telekom/sutura#929`'s federation half asks for, and the axis
+    // `each_subject_is_minted_the_account_declared_beside_it` does NOT cover.** That one holds two
+    // SUBJECTS at one source; this one holds one subject across two sources, which is the shape
+    // `sutura_app::federated` actually produces and the shape where a collapse would be invisible:
+    // it mints ONCE over a `SourceSet` spanning both legs, so if a single `impersonate` map decided
+    // both legs, two sources declaring the same subject to two different accounts would reach the
+    // dataset as one principal while the settings tree said two.
+    //
+    // It does not collapse, and this is the mechanism rather than the reasoning: `mint` iterates
+    // `sources.iter()` and looks each source up in ITS OWN `DeclaredPrincipals`, so the account is
+    // resolved per (source, subject) pair. Asserted by reading both legs out of ONE mint and
+    // comparing the two accounts - a shared map, a first-entry fallback, or a mint that kept the
+    // last source's answer would all put one value in both.
+    //
+    // The ASSERTION is deliberately the same in both legs, because it is the caller's own document
+    // and a broker that federates has exactly one per request. What differs is which principal each
+    // data system runs it as, which is the whole of `impersonate`.
+    let east = source("warehouse_east");
+    let west = source("warehouse_west");
+    let broker = DeclaredPrincipalBroker::empty()
+        .impersonating(
+            east.clone(),
+            DeclaredPrincipals::parse(BTreeMap::from([(
+                subject("analyst-a@example.com"),
+                principal("bq-east@sutura.example.com"),
+            )]))
+            .expect("a one-subject declaration names somebody"),
+        )
+        .impersonating(
+            west.clone(),
+            DeclaredPrincipals::parse(BTreeMap::from([(
+                subject("analyst-a@example.com"),
+                principal("bq-west@sutura.example.com"),
+            )]))
+            .expect("a one-subject declaration names somebody"),
+        );
+    let asked = SourceSet::of(east.clone()).and(west.clone());
+    let minted = broker
+        .mint(&caller("analyst-a@example.com"), &asked)
+        .expect("a subject both sources declare is mintable for both");
+    let bound = granted(minted, "analyst-a@example.com", &asked);
+    let account_at = |at: &SourceName| match bound.presented_for(at).expect("the source was asked for") {
+        Presented::SubjectToken { impersonate, .. } => impersonate.as_ref().map(PrincipalName::to_string),
+        other => panic!("expected the asker's own credential for {at}, got {other:?}"),
+    };
+    assert_eq!(account_at(&east).as_deref(), Some("bq-east@sutura.example.com"));
+    assert_eq!(account_at(&west).as_deref(), Some("bq-west@sutura.example.com"));
+    assert_ne!(
+        account_at(&east),
+        account_at(&west),
+        "one mint over two sources collapsed into one credential, so one source's map decided both legs"
+    );
+    // And a source this subject is NOT declared at refuses the whole answer rather than being
+    // served the other source's account - so the per-source lookup is an authorization decision on
+    // both axes, not only a value lookup.
+    let undeclared = broker
+        .mint(&caller("analyst-b@example.com"), &asked)
+        .expect("an undeclared subject is a refusal, not an error");
+    assert!(
+        matches!(undeclared, Minted::Refused { ref source } if source == &east),
+        "{undeclared:?}"
+    );
+}
+
+#[test]
 fn a_declared_target_that_is_not_a_service_account_email_is_refused_at_parse() {
     // **The send-side narrowing, as a mechanism rather than a paragraph.** The account is
     // interpolated into ONE PATH SEGMENT of the URL that decides which account a question runs as,

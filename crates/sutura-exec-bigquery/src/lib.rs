@@ -14,7 +14,10 @@
 //!   declared;
 //! - the rendering, through `sutura-sql` in [`Dialect::BigQuery`], so no second set of quoting and
 //!   placeholder decisions exists here;
-//! - the refusal of a federated leg, because there is no combiner above it;
+//! - one federated LEG, rendered through the same `sutura-sql` at the same dialect, which is what
+//!   makes two `BigQuery` sources federate with a per-subject credential at each
+//!   (`telekom/sutura#929`); the refusal this replaces is gone rather than relaxed - see
+//!   [`BigQueryWarehouse::EXECUTES_LEGS`];
 //! - handing the driver's Arrow batches to the interior's own decode, which is where a wrong
 //!   number would come from and which is no longer this crate's code (`docs/adr/0039`);
 //! - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
@@ -113,7 +116,7 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
-use sutura_sql::generate::generate;
+use sutura_sql::generate::{generate, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 mod preflight;
@@ -188,13 +191,6 @@ where
         #[source]
         cause: sutura_domain::plan::ResolveTablesError<UnresolvableConnection>,
     },
-    /// A federated leg arrived, and there is nothing above it to combine legs.
-    ///
-    /// **A refusal to execute rather than an execution**, worded as `sutura-exec-duckdb` words it: a
-    /// leg run with nothing above it returns rows at a finer grouping than the question asked for,
-    /// which is a wrong number under a certified name.
-    #[error("a leg of a federated plan over {table} arrived, and there is no combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The leg presents a principal for the data system to switch to, and no transport here has a
     /// spelling for one.
     ///
@@ -367,14 +363,21 @@ where
     /// The plan, rendered as one `GoogleSQL` statement.
     ///
     /// The dialect is not a parameter: a `BigQuery` adapter renders `BigQuery`. One exhaustive match,
-    /// so a third plan shape cannot be answered by accident, and the leg arm refuses rather than
-    /// renders.
+    /// so a third plan shape cannot be answered by accident, and both arms render.
+    ///
+    /// **The leg arm does NOT go through [`Self::render_query`]'s resolve step, and that is a
+    /// decision with a bound rather than an omission.** `crate::resolve::resolve` writes THIS
+    /// CONNECTION's own project into a path that names a dataset and no project; the job the leg
+    /// becomes is submitted under that same project ([`Self::request`] carries
+    /// `self.billing_project`), so the path the service resolves is the path `resolve` would have
+    /// written. What is lost is only that the statement no longer SAYS which project - and
+    /// `crate::tests::results`' own cell pins the leg's text as `generate_leg`'s, so this
+    /// equivalence is a comparison rather than a paragraph. A leg whose table names its own
+    /// project is untouched by either path.
     fn render(&self, executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
         match executable {
             Executable::Query(plan) => self.render_query(plan),
-            Executable::Leg(leg) => Err(BigQueryError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause }),
         }
     }
 
@@ -581,7 +584,6 @@ where
             | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
-            | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }
@@ -661,6 +663,33 @@ where
     /// to go here. It does not say Google has ever accepted one - that is leg 2, it needs a hosted
     /// run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
+
+    /// **One federated leg is rendered and executed here, and this is the only adapter where that
+    /// puts a SUBJECT on each half of a two-source answer** (`telekom/sutura#929`). Every other
+    /// adapter declaring it - `sutura-exec-datafusion`, `sutura-exec-duckdb` - runs in process and
+    /// declares `NoPlaceForASubject`, so a two-source answer over those reads both legs as one
+    /// operating-system identity. Here each leg is opened as its own source, so
+    /// `DeclaredPrincipalBroker::mint` resolves that source's OWN declared account for the asking
+    /// subject and [`Self::job_identity`] hands each leg its own
+    /// [`JobIdentity::AsSubject`](crate::transport::JobIdentity::AsSubject) - one mint over both
+    /// sources, two credentials.
+    ///
+    /// The refusal this replaces - `LegWithoutCombiner` - is DELETED rather than left unreachable:
+    /// nothing constructed it once this arm rendered, and `dead_code` is denied here. A leg with no
+    /// combiner above it is still refused, one layer up and before any credential is minted: it is
+    /// `sutura_app::federated`'s own capability gate that decides whether a leg may run, and a
+    /// `BigQueryWarehouse` reached outside that gate is reached outside the whole federated path.
+    ///
+    /// **Two limits, both stated because this constant is what opens the path.** A leg renders
+    /// correctly for the dialect (`crates/sutura-app/tests/golden/legs.rs` at
+    /// [`Dialect::BigQuery`]) and the transport submits it with the subject's own credential and
+    /// this source's configured `maximumBytesBilled`. **No federated answer has been produced
+    /// against a real `BigQuery` dataset** - the dialect axis declares this dialect
+    /// `Evidence::RenderOnly` and nothing here changes that. And ADBC prices no dry run, so
+    /// `docs/adr/0030`'s all-or-nothing charge sums two `PreFlight::NotAsked` legs and charges
+    /// nothing at all: `governance.per_replica_spend_ceiling` bounds a federated `BigQuery` answer
+    /// exactly as little as it bounds a mono one. [`Self::PRICES_DRY_RUN`] carries that argument.
+    const EXECUTES_LEGS: bool = true;
 
     /// **This declares what this adapter's DATA SYSTEM can do, and the shipped transport has no
     /// call that does it.** Both halves are load-bearing and the second one is new. `BigQuery`'s
@@ -819,7 +848,6 @@ where
             | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
-            | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }
@@ -868,7 +896,6 @@ where
             | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
-            | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
             | BigQueryError::Unreadable { .. } => false,
         }

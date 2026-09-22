@@ -64,6 +64,15 @@ pub(super) struct Asked {
     /// a bearer and a principal - while the adapter could deliver either; the principal switch was
     /// deleted, so a second field would record a mechanism nothing can produce.
     pub(super) subject: Option<String>,
+    /// The ACCOUNT the job was to execute as, where the leg named a subject - `BigQuery`'s
+    /// `service_account_impersonation_url` one layer down. `None` for a shared leg.
+    ///
+    /// **Recorded beside the assertion rather than folded into it**, because the two answer
+    /// different questions and a federated answer needs both: the assertion is WHOSE question this
+    /// is, and this is WHICH principal the data system runs it as. A leg carrying the right
+    /// assertion and a dropped account is exactly the defect `telekom/sutura#929` F3 fixed one
+    /// layer up, and a fake blind to this field could not see it come back.
+    pub(super) impersonate: Option<String>,
     /// Which clock this call answered to - `JobDeadline::Port` for a request-time call,
     /// `JobDeadline::Boot` for `verify_anchor`. This is F1's own seam: the port's `Deadline` has to
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
@@ -170,6 +179,10 @@ impl Recording {
             // adapter forwarded. Production code never reads it as text.
             subject: match request.identity() {
                 JobIdentity::AsSubject { assertion, .. } => Some(String::from(assertion.expose_secret())),
+                JobIdentity::Transport => None,
+            },
+            impersonate: match request.identity() {
+                JobIdentity::AsSubject { target, .. } => Some(target.to_string()),
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
