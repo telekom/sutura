@@ -93,7 +93,7 @@ pub(crate) const TASKS: &[Task] = &[
         // `causality::rot`'s header carries the residual this does NOT cover: a patch that still
         // applies but no longer kills its cell is [`check-claim-mutation-kills`] below, not this.
         name: "check-claim-mutations",
-        description: "every committed devco/claim-mutations/*.patch still applies at HEAD",
+        description: "every committed devco/claim-mutations/*.patch still applies against the work tree",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
             seeds: &[(ROTTED_CLAIM_MUTATION_SEED, "not a git diff at all\n")],

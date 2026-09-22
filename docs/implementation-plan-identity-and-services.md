@@ -1001,7 +1001,7 @@ economise.
    | `check-expect-thresholds` | every tracked `*.rs` |
    | `check-examples` | the directories under `examples/`, and the Rust that reaches for one |
    | `check-fuzz` | the fuzz crate's manifest, targets, seeds and the fuzz workflow - none of it under `docs/` |
-   | `check-claim-mutations` | `devco/claim-mutations/*.patch`, for whether each still `git apply`s at HEAD (#950) - none of it under `docs/` |
+   | `check-claim-mutations` | `devco/claim-mutations/*.patch`, for whether each still `git apply`s against the work tree (#950) - none of it under `docs/` |
    | `check-skills` | `.agents/skills/**` and the router - prose, and none of it under `docs/` |
    | `check-scope` | the `justfile`, which no other gate reads |
    | `check-inconclusive` | the `justfile`, `devenv.nix`, `flake.nix`, `nix/*.nix` and everything `crate::workflows::sources` walks - for what each venue does with exit 3 |

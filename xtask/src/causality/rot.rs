@@ -1,5 +1,17 @@
-//! Whether every COMMITTED claim-mutation patch still applies at HEAD and still kills the cell
-//! it names - `github.com/telekom/sutura#950`.
+//! Whether every COMMITTED claim-mutation patch still applies against the work tree and still
+//! kills the cell it names - `github.com/telekom/sutura#950`.
+//!
+//! **"AGAINST THE WORK TREE", NOT "AT HEAD"**: [`check_apply`] reads `repo::root()` - whatever is
+//! checked out, uncommitted edits included - while [`run`]'s kill half applies the same patch
+//! inside a detached-HEAD worktree (`claim::validate`'s own comment: *"an UNCOMMITTED patch is not
+//! the range the trailer declared"*). The two agree on a clean tree, and the `hygiene` derivation
+//! that gates every commit builds from the commit's own tree with nothing uncommitted in it - so
+//! the venue that actually gates never sees the gap. A dirty checkout can, in both directions: it
+//! can report rot that is not there at HEAD, or miss rot that is. The same split gives `run`'s own
+//! `patches()` a call one step earlier that reads the WORKING tree while `validate` reads the HEAD
+//! worktree - an uncommitted patch refuses as `Cause::MissingPatch` (fail-closed, if confusingly
+//! worded for a file sitting right there), and a patch deleted from the working tree while still
+//! committed is not checked at all.
 //!
 //! `claim.rs`'s own arm only re-proves a patch a COMMIT'S OWN trailer just declared, in the range
 //! that commit is measured against. A patch accepted on an earlier commit and never touched again
@@ -22,7 +34,11 @@
 //! STALE. It does NOT prove the patch still DISCRIMINATES - only [`run`], which recompiles and
 //! executes the named cell under the mutation, proves that. A tree where every patch applies but
 //! one no longer kills its cell (the assertion it once broke was refactored around) is still
-//! silently unproven between two `run` invocations; nothing here claims otherwise.
+//! silently unproven between two `run` invocations; nothing here claims otherwise. And BOTH halves
+//! are keyed on the patches [`patches`] finds on disk: a `Claim-Cell:` accepted in history whose
+//! PATCH was later deleted while its test survives has nothing here to check it against - `#929`'s
+//! own instance deleted the test too, which [`Located::Gone`] now catches, but the reverse (patch
+//! gone, test present) is the same silently-unproven state and this module does not reach it.
 //!
 //! [`run`] REUSES `claim::run` WHOLESALE rather than re-deriving its git/panic-site machinery a
 //! second time: the mutation being re-checked here is the SAME shape that gate already validates
@@ -46,12 +62,21 @@ use crate::repo;
 ///
 /// An ABSENT directory is a legitimate "nothing committed yet" and answers `Ok(empty)` - the same
 /// distinction `repo::census`'s own walk makes between absent and unreachable. A directory this
-/// call CANNOT READ (permissions, a broken symlink) is refused instead: treating the two alike is
-/// exactly the fail-OPEN direction `#950` is about, so a real read error costs a `Fail` rather
-/// than reading as "nothing to check".
+/// call CANNOT READ (an unreadable parent, a regular file or a broken symlink standing in for it)
+/// is refused instead: treating the two alike is exactly the fail-OPEN direction `#950` is about,
+/// so a real read error costs a `Fail` rather than reading as "nothing to check".
+///
+/// `!dir.is_dir()` alone cannot tell those apart - `is_dir` answers `false` for absent, for an
+/// unreadable parent, for a regular file AND for a broken symlink alike, so it collapsed three of
+/// those four into "nothing committed yet". `symlink_metadata` is stat, not lstat-then-follow: it
+/// reports the link itself rather than resolving through it, so a broken symlink's metadata call
+/// still succeeds and reads as "not a directory" instead of vanishing into `NotFound`.
 fn patches(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    if !dir.is_dir() {
-        return Ok(Vec::new());
+    match std::fs::symlink_metadata(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("could not stat {}: {error}", dir.display())),
+        Ok(meta) if !meta.is_dir() => return Err(format!("{} is not a directory", dir.display())),
+        Ok(_) => {}
     }
     let entries = std::fs::read_dir(dir).map_err(|error| format!("could not read {}: {error}", dir.display()))?;
     let mut out: Vec<PathBuf> = Vec::new();
@@ -81,7 +106,8 @@ fn outside_vendor(rel: &str) -> bool {
     !rel.starts_with("vendor/")
 }
 
-/// THE APPLY HALF: every committed mutation patch still `git apply --check`s at HEAD.
+/// THE APPLY HALF: every committed mutation patch still `git apply --check`s against the work
+/// tree - see this module's header for why that is not the same claim as "at HEAD".
 ///
 /// See this module's header for the residual: this proves a patch is not stale, not that it
 /// still discriminates.
@@ -119,7 +145,10 @@ fn check_apply_at(root: &Path) -> Verdict {
     }
 
     if rotted.is_empty() {
-        println!("xtask check-claim-mutations: ok - {} patch(es) apply at HEAD", list.len());
+        println!(
+            "xtask check-claim-mutations: ok - {} patch(es) apply against the work tree",
+            list.len()
+        );
         return Verdict::Pass;
     }
 
@@ -293,8 +322,22 @@ fn run_at(root: &Path) -> Verdict {
         return Verdict::Fail;
     };
 
-    claim::run(root, &Scoped::of_named(tests), &[], &declared)
+    claim::run(root, &Scoped::of_named(tests), &[], &declared, KILL_HALF)
 }
+
+/// [`run`]'s own identity, threaded into [`claim::run`] so a refusal names the task actually run
+/// and the remedy actually reachable - re-anchoring or dropping the committed patch, not "fix or
+/// drop the declaration" `claim::Caller::TEST_CAUSALITY` prints for a trailer sitting in a diff.
+/// No declaration lives in the diff here; the trailer was accepted commits ago.
+const KILL_HALF: claim::Caller = claim::Caller {
+    task: "check-claim-mutation-kills",
+    remedy: &[
+        "A patch under devco/claim-mutations/ that no longer kills its cell leaves the claim it",
+        "names silently unproven, the same way one that no longer applies does. Re-anchor the",
+        "patch against HEAD, or drop it and the test it pinned if the behaviour it once broke is",
+        "gone. `cargo xtask check-claim-mutations` re-verifies that every patch still applies too.",
+    ],
+};
 
 #[cfg(test)]
 mod tests {
@@ -315,6 +358,125 @@ mod tests {
         let patches_dir = dir.join(super::claim::MUTATIONS_DIR);
         std::fs::create_dir_all(&patches_dir).expect("the patches directory");
         std::fs::write(patches_dir.join(format!("{name}.patch")), contents).expect("a patch file");
+    }
+
+    /// A `git` invocation in `dir`, with this process's own git environment stripped - the same
+    /// requirement `worktree.rs`'s own [`super::claim`] machinery has, for the same reason: a
+    /// pre-commit hook running these tests under nextest has `GIT_DIR`/`GIT_INDEX_FILE` set, and
+    /// an unstripped subprocess would operate on the OUTER repository instead of the fixture.
+    fn git_cmd(dir: &std::path::Path, args: &[&str]) {
+        let mut command = std::process::Command::new("git");
+        crate::repo::strip_git_env(&mut command);
+        let out = command.current_dir(dir).args(args).output().expect("git runs");
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+
+    /// A throwaway ONE-CRATE real git repo with `content` as `src/lib.rs`, committed - exactly
+    /// the shape `causality::tests::inseparable_claim_case` already builds. Fast, not the ~68s
+    /// full-workspace rebuild `just causality` itself pays: `run_at` recompiles only this crate.
+    fn kill_half_repo(name: &str, content: &str) -> PathBuf {
+        let root = scratch(name);
+        git_cmd(&root, &["init", "-q", "-b", "main"]);
+        git_cmd(&root, &["config", "user.email", "test@example.com"]);
+        git_cmd(&root, &["config", "user.name", "test"]);
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[profile.ci]\ninherits = \"dev\"\n",
+        )
+        .expect("a manifest");
+        std::fs::create_dir_all(root.join("src")).expect("src/");
+        std::fs::write(root.join("src/lib.rs"), content).expect("the crate root");
+        root
+    }
+
+    /// The `diff --no-index` patch turning `before` into `after`, rewritten onto `src/lib.rs` -
+    /// same technique `causality::tests` uses to keep the mutation's own text out of a diff.
+    fn diff_onto_lib_rs(root: &std::path::Path, before: &str, after: &str) -> String {
+        std::fs::write(root.join(".old.rs"), before).expect("before");
+        std::fs::write(root.join(".new.rs"), after).expect("after");
+        let out = std::process::Command::new("git")
+            .current_dir(root)
+            .args(["diff", "--no-index", "--", ".old.rs", ".new.rs"])
+            .output()
+            .expect("git diff --no-index runs");
+        std::fs::remove_file(root.join(".old.rs")).expect("cleanup");
+        std::fs::remove_file(root.join(".new.rs")).expect("cleanup");
+        String::from_utf8_lossy(&out.stdout)
+            .replace(".old.rs", "src/lib.rs")
+            .replace(".new.rs", "src/lib.rs")
+    }
+
+    /// `src/lib.rs` for every kill-half fixture below: a production line and its OWN inline test.
+    const KILL_HALF_LIB_RS: &str = "pub fn f() -> u8 { 2 }\n\n#[cfg(test)]\nmod tests {\n    use super::f;\n\n    #[test]\n    fn the_wired_one() {\n        assert_eq!(f(), 2);\n    }\n}\n";
+
+    /// THE ADOPTED TECHNIQUE, four ways - the review on #951 built these live and asked for them
+    /// as cells rather than a claim resting on having watched it work once. Each is a real
+    /// end-to-end run of [`run_at`] over a throwaway one-crate repo, so the kill half is KNOWN to
+    /// work rather than known to pass.
+    #[test]
+    fn the_kill_half_accepts_a_mutation_that_kills_its_cell() {
+        let root = kill_half_repo("kill-half-kills", KILL_HALF_LIB_RS);
+        let mutated = KILL_HALF_LIB_RS.replacen("{ 2 }", "{ 9 }", 1);
+        let patch = diff_onto_lib_rs(&root, KILL_HALF_LIB_RS, &mutated);
+        write_patch(&root, "the_wired_one", &patch);
+        git_cmd(&root, &["add", "-A"]);
+        git_cmd(&root, &["commit", "-q", "-m", "init"]);
+        let verdict = run_at(&root);
+        drop(std::fs::remove_dir_all(&root));
+        assert_eq!(verdict, Verdict::Pass, "a mutation that kills the cell must be accepted");
+    }
+
+    #[test]
+    fn the_kill_half_refuses_a_mutation_that_does_not_kill_its_cell() {
+        let root = kill_half_repo("kill-half-does-not-kill", KILL_HALF_LIB_RS);
+        let mutated = KILL_HALF_LIB_RS.replacen("pub fn f() -> u8 { 2 }", "pub fn f() -> u8 { 2 } // same", 1);
+        let patch = diff_onto_lib_rs(&root, KILL_HALF_LIB_RS, &mutated);
+        write_patch(&root, "the_wired_one", &patch);
+        git_cmd(&root, &["add", "-A"]);
+        git_cmd(&root, &["commit", "-q", "-m", "init"]);
+        let verdict = run_at(&root);
+        drop(std::fs::remove_dir_all(&root));
+        assert_eq!(
+            verdict,
+            Verdict::Fail,
+            "a mutation that leaves the cell green must be refused"
+        );
+    }
+
+    #[test]
+    fn the_kill_half_refuses_a_cell_gone_from_the_tree() {
+        let root = kill_half_repo("kill-half-gone", "pub fn f() -> u8 { 2 }\n");
+        write_patch(
+            &root,
+            "the_wired_one",
+            "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-pub fn f() -> u8 { 2 }\n+pub fn f() -> u8 { 9 }\n",
+        );
+        git_cmd(&root, &["add", "-A"]);
+        git_cmd(&root, &["commit", "-q", "-m", "init"]);
+        let verdict = run_at(&root);
+        drop(std::fs::remove_dir_all(&root));
+        assert_eq!(
+            verdict,
+            Verdict::Fail,
+            "a cell no file declares any more must refuse before any build"
+        );
+    }
+
+    #[test]
+    fn the_kill_half_is_inconclusive_over_a_mutation_that_does_not_compile() {
+        let root = kill_half_repo("kill-half-build-fails", KILL_HALF_LIB_RS);
+        let mutated = KILL_HALF_LIB_RS.replacen("pub fn f() -> u8 { 2 }", "pub fn f() -> ThisTypeDoesNotExist { 2 }", 1);
+        let patch = diff_onto_lib_rs(&root, KILL_HALF_LIB_RS, &mutated);
+        write_patch(&root, "the_wired_one", &patch);
+        git_cmd(&root, &["add", "-A"]);
+        git_cmd(&root, &["commit", "-q", "-m", "init"]);
+        let verdict = run_at(&root);
+        drop(std::fs::remove_dir_all(&root));
+        assert_eq!(
+            verdict,
+            Verdict::Inconclusive,
+            "a mutation the tree never compiles under is a non-verdict, not a kill or a refusal"
+        );
     }
 
     #[test]
@@ -381,13 +543,54 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_patch_fails_closed_rather_than_being_skipped() {
-        // A DIRECTORY standing in for the patch file: as "unreadable as a diff" as a permission
-        // failure, and it needs no chmod bit a sandboxed runner might not honour.
+    fn a_directory_shaped_patch_file_fails_closed_rather_than_being_skipped() {
+        // A DIRECTORY standing in for the PATCH FILE (not for `devco/claim-mutations` itself): as
+        // "unreadable as a diff" as a permission failure, and it needs no chmod bit a sandboxed
+        // runner might not honour. This is `claim::apply_git`'s refusal, not `patches`'s own - see
+        // the cells below for the directory-level fail-open direction.
         let root = scratch("apply-unreadable");
         let dir = root.join(super::claim::MUTATIONS_DIR);
         std::fs::create_dir_all(dir.join("unreadable_cell.patch")).expect("a directory, not a file");
         assert_eq!(check_apply_at(&root), Verdict::Fail);
+    }
+
+    #[test]
+    fn patches_refuses_a_regular_file_standing_in_for_the_directory() {
+        let root = scratch("patches-file-not-dir");
+        let dir = root.join(super::claim::MUTATIONS_DIR);
+        std::fs::create_dir_all(dir.parent().expect("devco/")).expect("devco/");
+        std::fs::write(&dir, "not a directory\n").expect("a file where a directory is expected");
+        assert!(
+            patches(&dir).is_err(),
+            "a regular file must refuse, not read as nothing committed"
+        );
+    }
+
+    #[test]
+    fn patches_refuses_a_broken_symlink_standing_in_for_the_directory() {
+        let root = scratch("patches-broken-symlink");
+        let dir = root.join(super::claim::MUTATIONS_DIR);
+        std::fs::create_dir_all(dir.parent().expect("devco/")).expect("devco/");
+        std::os::unix::fs::symlink(root.join("nowhere"), &dir).expect("a broken symlink");
+        assert!(
+            patches(&dir).is_err(),
+            "a broken symlink must refuse, not read as nothing committed"
+        );
+    }
+
+    #[test]
+    fn patches_refuses_an_unreadable_parent_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = scratch("patches-unreadable-parent");
+        let parent = root.join("devco");
+        std::fs::create_dir_all(&parent).expect("devco/");
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o000)).expect("chmod 000 on devco/");
+        let result = patches(&parent.join("claim-mutations"));
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).expect("restore for cleanup");
+        assert!(
+            result.is_err(),
+            "an unreadable parent must refuse, not read as nothing committed"
+        );
     }
 
     /// `locate()` itself, not `run_at`'s Fail/Pass: both `Gone` and `Ambiguous` end in
