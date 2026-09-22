@@ -502,6 +502,7 @@ fn a_dry_run_the_transport_declined_is_not_asked_rather_than_a_failed_question()
             crate::adbc::DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
                 .expect("an absolute path parses whether or not a file is there"),
             crate::adbc::Impersonation::Disabled,
+            crate::adbc::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling"),
         ),
         shared_posture(),
     );

@@ -92,6 +92,7 @@ fn build_bigquery(
     let sutura_config::SourcePlacement::BigQuery {
         ref billing_project,
         ref dataset,
+        max_bytes_billed,
         ..
     } = *configured.placement()
     else {
@@ -136,6 +137,19 @@ fn build_bigquery(
     // WHICH driver is `crate::bigquery_driver`'s decision, shared with `sources::bigquery` and with
     // `doctor` - `nix/shipped.nix` links one into every published artefact now, which is what
     // `docs/adr/0018`'s sixth amendment records and its fifth left open.
+    // **The money bound, parsed before anything expensive is opened.** `sources.<alias>.max_bytes_billed`
+    // is required at boot and its RANGE belongs to the transport that sends it, so a `0` - BigQuery's
+    // own spelling of *no ceiling* - and a value above what the transport will send both stop the
+    // process here rather than reaching the driver as no bound at all. For one review round this key
+    // was required, unparsed and read by nothing.
+    //
+    // **Ahead of the driver deliberately**, and it is the one ordering here a cell depends on: a
+    // number the deployment wrote is the operator's own typo, and resolving the driver starts a Go
+    // runtime in this process, so a refusal about the ceiling must not be preceded by one about an
+    // artefact. `a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key`
+    // asserts the refusal names the key and the source and does NOT name the driver.
+    let max_bytes_billed = sutura_exec_bigquery::adbc::BytesBilledCeiling::parse(max_bytes_billed)
+        .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a ceiling this transport will send: {cause}"))?;
     let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
     sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
         .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
@@ -180,5 +194,6 @@ fn build_bigquery(
         dataset,
         driver,
         impersonation,
+        max_bytes_billed,
     ))
 }

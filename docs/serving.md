@@ -863,21 +863,43 @@ carried to the BigQuery transport and the ADBC driver is handed no bound from it
 outlives the request it answers is still billed for a result nobody is waiting for. `docs/adr/0029`'s
 second amendment carries the measurement.
 
-**`credential_file` and `max_bytes_billed` are required for a `bigquery` source and both reach
-nothing.** The driver authenticates itself, so the credential path is checked to be absolute and then
-passed nowhere; the ceiling lost the type that parsed its range along with the HTTP transport, so a
-zero or an absurd value is accepted at boot and no ceiling is sent to BigQuery. Budget at the source
-system - `docs/adr/0017`'s nineteenth amendment says why they are still required.
+**`credential_file` and `max_bytes_billed` are both required for a `bigquery` source; one of them
+reaches nothing and the other is now the bound on what a question may cost.** The driver
+authenticates itself, so the credential path is checked to be absolute and then passed nowhere.
+`max_bytes_billed` is parsed at boot and sent on every statement the ADBC transport submits, as that
+driver's `bigquery.query.max_bytes_billed` option - which is BigQuery's own `maximumBytesBilled` job
+configuration. So the bound is enforced **by BigQuery and not by a check here**: a job that would
+scan past the ceiling fails and is not charged. It covers every statement, not only a question's own
+legs - a verified anchor, the identity read and a fixture load go through the same call.
 
-**And `governance.per_replica_spend_ceiling` does not replace them: nothing in this repository bounds
-BigQuery spend today.** That ceiling is charged from a dry run's ESTIMATE, and the shipped ADBC
+**Two values are refused at boot rather than sent**, and this is a refusal and not the `WARN`
+described in [One boot check that is a SIGNAL rather than a
+refusal](#one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves): that check
+is about what the CATALOG claims, which is trusted for metadata, while this is a number the
+deployment wrote about money, which is not trusted at all and cannot be re-asked later. A `0` is
+BigQuery's own spelling of *no ceiling* - it reads the field as unset below one - so a deployment
+that wrote the tightest possible bound would have been given none; and a value above one tebibyte is
+refused because it is indistinguishable from no ceiling in practice. Both name the key and the
+source in the startup failure.
+
+**What that ceiling does NOT bound, and the distinction decides whether it is enough.** It bounds
+BYTES BILLED for ONE JOB. N questions cost N times it. It is not a bound on a deployment's total
+spend, on one subject's spend, or on any window. And on a capacity-priced reservation a job is
+billed for SLOT TIME rather than for bytes scanned, so there the ceiling bounds the scan without
+bounding the bill.
+
+**`governance.per_replica_spend_ceiling` is a different key and it still bounds nothing on a
+`bigquery` source.** That ceiling is charged from a dry run's ESTIMATE, and the shipped ADBC
 transport has no call that prices a statement - `AdbcBigQuery::validate` declines, so
 `BigQueryWarehouse::dry_run` answers `PreFlight::NotAsked`, and the ledger reads a `None` estimate as
-*not counted*, never *free*: it charges nothing and refuses nothing. So on a `bigquery` source the
+*not counted*, never *free*: it charges nothing and refuses nothing. So on a `bigquery` source that
 ceiling can be written, parsed, and observed as a `sutura_spend_headroom_bytes` series that never
 moves. The mechanism itself is real and covered by cells - but every one of them runs over a fake or
-a test transport that prices, and no shipped adapter can reach the refusal. **Bound the spend at the
-source system**, with a cost control on the billing project: that is outside this deployment and
+a test transport that prices, and no shipped adapter can reach the refusal. The pinned driver does
+carry a `bigquery.query.dry_run` option, so closing this is possible rather than blocked; what it
+needs is a venue that can observe the estimate the driver returns, and none of the checks here can.
+**For a bound across questions, budget at the source system** too, with a cost control on the billing
+project: that is outside this deployment and
 outside this repository's reach, which is exactly why it is the answer.
 `.agents/skills/sutura/invariants` carries the same limit beside the mechanism, and
 `BigQueryWarehouse::PRICES_DRY_RUN` carries it at the declaration.
@@ -900,10 +922,14 @@ Two facts, declared by two different parties, and conflating them gives the mode
   as;
 - **the adapter declares its CAPABILITY**, in code - whether it can carry a per-subject credential at
   all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
-  subject to appear. **Nor can the `BigQuery` adapter**, for a different reason worth knowing: a
-  credential file is one service account, and per-subject execution needs a credential minted per
-  question through a token exchange that does not exist here yet. Saying so explicitly is the point of
-  the declaration.
+  subject to appear. **The `BigQuery` adapter can**, and the mechanism is worth knowing because the
+  exchange is not performed in this process: the transport puts the caller's own verified assertion
+  behind a workload-identity credential document served over a loopback source, Google's token
+  service performs the exchange, and the target the source declares reaches that credential as an
+  impersonation URL. What has NOT been observed is the leg end to end - no served binary has executed
+  as a caller, and `docs/where-identity-is-proven.md` is the authority for which venue may be cited
+  for which claim. Saying which half is mechanism and which half is unproven is the point of the
+  declaration.
 
 The boot check compares them. A source configured to impersonate on an adapter that cannot does not
 start, and there is no fallback.

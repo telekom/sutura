@@ -350,19 +350,22 @@ pub enum SourcePlacement {
         /// changes nothing either way. A settings surface with no mechanism behind it rather than a
         /// control, stated at both of the two things it does and does not check.
         credential_file: PathBuf,
-        /// What the most one job may be billed for scanning WOULD be. **Required, unvalidated
-        /// beyond fitting a `u64`, and sent to no data system.**
+        /// The most one job may be billed for scanning. **Required, and sent to the data system as
+        /// `BigQuery`'s own `maximumBytesBilled`.**
         ///
-        /// **A bare number and not a newtype, and this is now the defect it was designed against.**
-        /// The RANGE belonged to the adapter - `BytesBilledCeiling::parse` refused a zero and
-        /// refused a value above the largest ceiling it would send - so a second copy of those
-        /// bounds here would have been a drifting duplicate. That type went with the HTTP wire and
-        /// the `jobs.query` parameter it fed, and nothing replaced either: there is now **no parse
-        /// of this number anywhere**, so a zero and an absurd value are both accepted at boot, and
-        /// the ADBC driver is given no ceiling. `docs/adr/0017`'s *the only number in the settings
-        /// tree that spends money* is answered by its own amendment. What this crate still owns is
-        /// that the key was WRITTEN, which is the half a settings tree can see - and it is now the
-        /// whole of what the key does.
+        /// **A bare number here and a newtype one crate over, deliberately.** The RANGE belongs to
+        /// the adapter that sends it - `sutura_exec_bigquery::adbc::BytesBilledCeiling::parse`
+        /// refuses a zero and refuses a value above the largest ceiling that transport will send -
+        /// so a second copy of those bounds in this crate would be a drifting duplicate of the only
+        /// one that decides anything. Both composition roots parse it at the line that opens the
+        /// source, so a value outside the range stops the process before a listener is bound. What
+        /// this crate owns is that the key was WRITTEN, which is the half a settings tree can see.
+        ///
+        /// **For one review round the parse did not exist**, the type having gone with the HTTP
+        /// wire and the `jobs.query` parameter it fed, so a declared `0` and a declared `u64::MAX`
+        /// both booted green over a source with no bound on bytes scanned at all.
+        /// `docs/adr/0017`'s nineteenth amendment records that state and its twentieth records the
+        /// fix, including the driver option the fix is read off.
         max_bytes_billed: u64,
     },
     /// A `PostgreSQL` database, reached over a connection the deployment declares.

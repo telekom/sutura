@@ -277,7 +277,7 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
-pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation) -> Self
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
@@ -291,6 +291,12 @@ one pinned source.
 `workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
 rather than read per request because it is a property of the source, and a declared scope the
 driver would refuse then fails before a listener is bound.
+
+`max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
+every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
+on bytes scanned is enforced by the service. `adbc::BytesBilledCeiling` states what it does
+NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a different key that
+this adapter still does not reach.
 
 ```rust
 pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
@@ -423,8 +429,8 @@ The ADBC transport: opens the self-built `BigQuery` driver
 decodes its Arrow result sets.
 
 ```text
-adbc_core + adbc_driver_manager → C ABI → the BigQuery ADBC driver
-  → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
+adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
+  → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
 ```
 
 **Two routes to that driver and one type deciding between them** - `DriverLocation`, resolved
@@ -531,7 +537,7 @@ pub struct AdbcBigQuery
 
 A `BigQuery` endpoint over ADBC.
 
-**Two owned values and nothing else, which is load-bearing rather than tidy.** There is no
+**Three owned values and nothing else, which is load-bearing rather than tidy.** There is no
 connection here, no database handle and no token: `Self::connect` builds all three per job from
 that job's own request and drops them with it. That is what keeps one subject's principal off
 another subject's query - not a check, but the absence of anything two jobs could share.
@@ -545,14 +551,22 @@ its own.
 #### Methods
 
 ```rust
-pub const fn new(driver: DriverLocation, impersonation: Impersonation) -> Self
+pub const fn new(driver: DriverLocation, impersonation: Impersonation, max_bytes_billed: BytesBilledCeiling) -> Self
 ```
 
-Takes the driver a composition root resolved, and whether this source impersonates.
+Takes the driver a composition root resolved, whether this source impersonates, and the
+money bound every job it submits is capped at.
 
 **A `DriverLocation` and not a path**, which is `telekom/sutura#929`'s sixth finding: the
 driver a release artefact carries has no path, and a mounted one has been parsed before it
 gets here.
+
+**`max_bytes_billed` has no default, and that is the same argument
+`crate::BigQueryWarehouse::new` makes about its own arguments**: a defaulted ceiling is
+money somebody else pays. It is also why the type is `BytesBilledCeiling` and not a
+number - `sources.<alias>.max_bytes_billed` is required at boot, and for the length of one
+review round it was required, unparsed and sent nowhere, so a declared `0` and a declared
+`u64::MAX` both booted green over a source with no bound on bytes scanned at all.
 
 ```rust
 pub fn probe(driver: &DriverLocation) -> Result<(), AdbcError>
@@ -584,6 +598,35 @@ all, and where a linked-in driver's own initialisation refused.
 #### Implements
 
 `JobTransport`
+
+### `use BytesBilledCeiling`
+
+The most a single job this transport submits may be billed for scanning.
+
+**Sent as the pinned driver's `bigquery.query.max_bytes_billed` statement option, which that
+driver maps onto `BigQuery`'s own `maximumBytesBilled` job configuration - so the bound is
+enforced at the service and not by a check here.** A job that would exceed it fails and is not
+charged. That is what makes it worth more than a client-side estimate: nothing on this side has
+to be consulted, kept accurate, or trusted.
+
+**A newtype and not the `u64` the settings tree holds, because two values in that range are not
+ceilings.** Zero is `BigQuery`'s own spelling of *no ceiling* - the field is read as unset below
+one - so a deployment that wrote `0` asked for a bound and would have been given none; and a
+value above `Self::MAX_BYTES` is indistinguishable from no ceiling in practice. Both are
+refused by `Self::parse`, which is the only constructor, at the composition root, before a
+listener is bound.
+
+**The limit, and it is the whole of what this bound is not.** `maximumBytesBilled` bounds BYTES
+BILLED for one job. It is not a bound on a deployment's total spend, on one subject's spend, or
+on a window - `governance.per_replica_spend_ceiling` is that key and it charges only priced
+estimates, which this transport does not produce (see `super::AdbcError::NoDryRun`). It is
+also not a bound on a job billed for SLOT TIME rather than bytes scanned: on a
+capacity-priced reservation the bytes a job scans are not what it costs, and this ceiling then
+bounds the scan without bounding the bill. And it is per JOB, so N questions cost N times it.
+
+### `use UnusableCeiling`
+
+Why a configured bytes-billed ceiling is not one this transport will send.
 
 ### `use Impersonation`
 

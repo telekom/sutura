@@ -11558,9 +11558,10 @@ so a byte count read off a dry run cannot be confused with any of the plan's oth
 `SELECT` can genuinely cost nothing to scan, so `Self::parse` cannot fail: this type validates
 nothing beyond fitting in a `u64`. That is unlike a bound, where zero would refuse every question
 and ought to be refused itself - an estimate of zero is simply the truth for some questions. The
-example that used to stand here was `BytesBilledCeiling`, and it is deleted:
-`sources.<alias>.max_bytes_billed` now reaches the settings tree unparsed, so the contrast has no
-live counterpart in this repository. What means "could not price" is the `Option`
+contrast has a live counterpart again: `sutura_exec_bigquery`'s `BytesBilledCeiling` is a BOUND
+over the same unit, and its `parse` refuses a zero for exactly the reason this type accepts one -
+`BigQuery` reads a `maximumBytesBilled` below one as no ceiling, so a bound of nothing is no
+bound, while an estimate of nothing is a fact. What means "could not price" is the `Option`
 around this type on `super::PreFlight::Accepted`, never a reserved value inside it.
 
 ##### Methods

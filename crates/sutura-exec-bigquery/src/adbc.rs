@@ -3,8 +3,8 @@
 //! decodes its Arrow result sets.
 //!
 //! ```text
-//! adbc_core + adbc_driver_manager → C ABI → the BigQuery ADBC driver
-//!   → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
+//! adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
+//!   → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
 //! ```
 //!
 //! **Two routes to that driver and one type deciding between them** - [`DriverLocation`], resolved
@@ -43,6 +43,7 @@
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
 mod bind;
+mod ceiling;
 mod identity;
 // The driver this artefact carries, and the one `unsafe` in this workspace. `cfg`-gated by
 // `../../build.rs`, so a source build does not compile it - `cargo xtask check-unsafe` is what
@@ -51,6 +52,7 @@ mod identity;
 mod linked;
 mod location;
 mod subject;
+pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use identity::Impersonation;
 pub use location::{DriverLocation, UnusableDriverPath};
 pub use subject::{UnusablePool, WorkloadPool};
@@ -59,7 +61,7 @@ pub use subject::{UnusablePool, WorkloadPool};
 // to resolve those types' methods and are never named directly - except `Statement`, which
 // `prepared` names as a BOUND so a fake implementor can stand in for the driver's own.
 use adbc_core::error::Error as CoreError;
-use adbc_core::options::{AdbcVersion, OptionDatabase, OptionValue};
+use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
@@ -196,10 +198,26 @@ pub enum AdbcError {
 ///
 /// `None` binds nothing at all rather than an empty batch - [`bind`]'s own header has the driver's
 /// two code paths.
-fn prepared<S>(stmt: &mut S, request: &JobRequest<'_>, bound: Option<arrow_array::RecordBatch>) -> Result<(), AdbcError>
+///
+/// **It also carries the MONEY bound, and this is the one place every statement passes through** -
+/// `AdbcBigQuery`'s `run` is the only caller of its [`connect`](AdbcBigQuery::connect), so a leg, a verified
+/// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
+/// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
+/// what the service does with it, and what it does not bound.
+fn prepared<S>(
+    stmt: &mut S,
+    request: &JobRequest<'_>,
+    bound: Option<arrow_array::RecordBatch>,
+    max_bytes_billed: BytesBilledCeiling,
+) -> Result<(), AdbcError>
 where
     S: Statement,
 {
+    stmt.set_option(
+        OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
+        OptionValue::Int(max_bytes_billed.as_int()),
+    )
+    .map_err(AdbcError::Adbc)?;
     stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
     if let Some(batch) = bound {
         stmt.bind(batch).map_err(AdbcError::Adbc)?;
@@ -256,9 +274,23 @@ type Connected = (ManagedDriver, ManagedStatement, Option<subject::SubjectSource
 /// never-resolvable name.
 const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 
+/// The pinned driver's own name for `BigQuery`'s `maximumBytesBilled` job configuration.
+///
+/// **Read off the driver's option table rather than guessed** - `go/driver.go`'s
+/// `OptionQueryMaxBytesBilled`, which `go/statement.go`'s `SetOptionInt` assigns to
+/// `queryConfig.MaxBytesBilled`. The flake pins that source (`bigquery-adbc-src`, tag
+/// `go/v1.13.0`), so the string and the version it is true of move together.
+///
+/// **An INTEGER option, which decides how it is sent.** `adbc_ffi` routes an
+/// `OptionValue::Int` to `StatementSetOptionInt` only at ADBC 1.1.0, and the driver is opened at
+/// `AdbcVersion::default()` - which is that revision. A string here would reach the driver's
+/// `SetOptionString`, whose own match does not carry this key, and come back
+/// `NotImplemented`.
+const MAX_BYTES_BILLED_OPTION: &str = "bigquery.query.max_bytes_billed";
+
 /// A `BigQuery` endpoint over ADBC.
 ///
-/// **Two owned values and nothing else, which is load-bearing rather than tidy.** There is no
+/// **Three owned values and nothing else, which is load-bearing rather than tidy.** There is no
 /// connection here, no database handle and no token: [`Self::connect`] builds all three per job from
 /// that job's own request and drops them with it. That is what keeps one subject's principal off
 /// another subject's query - not a check, but the absence of anything two jobs could share.
@@ -273,16 +305,34 @@ pub struct AdbcBigQuery {
     /// Whether this source impersonates, and at what scope - decided at composition from what the
     /// source declared, never per request. See [`Impersonation`] for why it is not an `Option`.
     impersonation: Impersonation,
+    /// The money bound every statement this transport submits carries.
+    ///
+    /// Held here rather than on a [`JobRequest`] for [`Impersonation`]'s reason: it is a property
+    /// of the SOURCE the deployment declared, so no request decides it and no request can omit it.
+    /// Parsed at composition, so a value that is not a ceiling fails before a listener is bound.
+    max_bytes_billed: BytesBilledCeiling,
 }
 
 impl AdbcBigQuery {
-    /// Takes the driver a composition root resolved, and whether this source impersonates.
+    /// Takes the driver a composition root resolved, whether this source impersonates, and the
+    /// money bound every job it submits is capped at.
     ///
     /// **A [`DriverLocation`] and not a path**, which is `telekom/sutura#929`'s sixth finding: the
     /// driver a release artefact carries has no path, and a mounted one has been parsed before it
     /// gets here.
-    pub const fn new(driver: DriverLocation, impersonation: Impersonation) -> Self {
-        Self { driver, impersonation }
+    ///
+    /// **`max_bytes_billed` has no default, and that is the same argument
+    /// `crate::BigQueryWarehouse::new` makes about its own arguments**: a defaulted ceiling is
+    /// money somebody else pays. It is also why the type is [`BytesBilledCeiling`] and not a
+    /// number - `sources.<alias>.max_bytes_billed` is required at boot, and for the length of one
+    /// review round it was required, unparsed and sent nowhere, so a declared `0` and a declared
+    /// `u64::MAX` both booted green over a source with no bound on bytes scanned at all.
+    pub const fn new(driver: DriverLocation, impersonation: Impersonation, max_bytes_billed: BytesBilledCeiling) -> Self {
+        Self {
+            driver,
+            impersonation,
+            max_bytes_billed,
+        }
     }
 
     /// Does this artefact's driver load and initialise at all?
@@ -353,7 +403,7 @@ impl AdbcBigQuery {
             .map_err(AdbcError::Adbc)?;
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
-        prepared(&mut stmt, request, bound)?;
+        prepared(&mut stmt, request, bound, self.max_bytes_billed)?;
         Ok((driver, stmt, authentication.source))
     }
 }

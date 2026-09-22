@@ -80,6 +80,12 @@ mod declared_principal {
         DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER")).expect("the declared driver path is absolute")
     }
 
+    /// The money bound both legs here run under: a gibibyte, which is what `docs/adr/0017` says
+    /// protects this venue's own project from a question that scans a partitioned table end to end.
+    fn ceiling() -> sutura_exec_bigquery::adbc::BytesBilledCeiling {
+        sutura_exec_bigquery::adbc::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling")
+    }
+
     /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
         let project = ProjectId::parse(required("SUTURA_BQ_PROJECT")).expect("the declared project is a project id");
@@ -92,6 +98,7 @@ mod declared_principal {
             dataset,
             driver(),
             Impersonation::ThroughPool(pool),
+            ceiling(),
         )
     }
 
@@ -183,6 +190,7 @@ mod declared_principal {
             DatasetId::parse(required("SUTURA_BQ_DATASET")).expect("the declared dataset is a dataset id"),
             driver(),
             Impersonation::Disabled,
+            ceiling(),
         );
         let ours = String::from(
             shared

@@ -1716,3 +1716,53 @@ neutralising the ledger's refusal killed only cells running over a priced fake, 
 transport can reach it. So a deployment's only real bound is at the source system, which is where the
 two required keys above already point. Retracting the claim is the correction here; inventing a
 ceiling this repository does not send would have been the defect.
+
+## Twentieth amendment, 2026-09-22: `max_bytes_billed` reaches the driver, and the ceiling it is not
+
+The Nineteenth amendment's *"there is no parse of it anywhere now"* and *"the ADBC driver is given no
+ceiling at all"* are **no longer true, and the reason they could be fixed is that the driver can be
+asked.** The previous round declined this decision on the grounds that no driver option is verifiable
+without a driver and a network. The flake pins the driver's source (`bigquery-adbc-src`, tag
+`go/v1.13.0`), so its option table is readable in the nix store, and that is where this was settled
+rather than by guessing:
+
+- `go/driver.go` declares `OptionQueryMaxBytesBilled = "bigquery.query.max_bytes_billed"`;
+- `go/statement.go`'s `SetOptionInt` assigns it to `queryConfig.MaxBytesBilled`, which is BigQuery's
+  own `maximumBytesBilled` job configuration - so the bound is enforced at the service;
+- it is an INTEGER option, and `adbc_ffi` routes an `OptionValue::Int` to `StatementSetOptionInt`
+  only at ADBC revision 1.1.0. The driver is opened at `AdbcVersion::default()`, which is that
+  revision. Sent as a string it would reach the driver's `SetOptionString`, whose match does not
+  carry the key, and come back `NotImplemented`.
+
+So *The three keys a served source needs* reads true again: `BytesBilledCeiling::parse` is back, in
+`crates/sutura-exec-bigquery/src/adbc/ceiling.rs` rather than in the deleted wire, it is the only
+parse of the number, and a value outside its range is a startup refusal naming the key and the
+source. Both composition roots parse it at the seam the two resource ids are already parsed at. The
+option is set in `adbc::prepared`, which every statement this transport submits passes through - a
+leg, a verified anchor, the identity read and a fixture load - so no call site can opt out. The cell
+is `adbc::tests::every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling`,
+which asserts the exact option key and value over the recording statement fake, because a
+*misspelled* key is not a loud failure: an unknown key is `NotImplemented`, but a key that happens to
+name a different option of the driver's own would set something else and still bill the scan.
+
+**Two values are refused rather than sent**, which is what makes this a parse and not a cast. Zero is
+BigQuery's own spelling of *no ceiling* - the field is read as unset below one - so a deployment that
+wrote the tightest bound imaginable would have been given none at all; and a value above one tebibyte
+is refused as a bound on the bound, being indistinguishable from no ceiling in practice.
+
+**What this does NOT close, stated because the Nineteenth amendment's own retraction is still half
+right.** `maximumBytesBilled` bounds bytes billed for ONE JOB. N questions cost N times it. It is not
+a bound on a deployment's total spend, on one subject's spend, or on any window - and on a
+capacity-priced reservation a job is billed for SLOT TIME rather than for bytes scanned, so there
+this ceiling bounds the scan without bounding the bill. `governance.per_replica_spend_ceiling` is
+still inert on a `BigQuery` source for exactly the reason that amendment gives: no shipped ADBC call
+prices a statement, `AdbcBigQuery::validate` declines, and a `None` estimate is *not counted*.
+
+**That half is possible rather than blocked, and it was deliberately not built here.** The same
+pinned driver carries `OptionQueryDryRun = "bigquery.query.dry_run"`, and `go/record_reader.go`'s
+`makeDryRunReader` attaches `BIGQUERY:statistics:query:total_bytes_processed` to the Arrow schema it
+returns - which is the number the ledger charges. What is missing is a venue that can OBSERVE it: no
+check in this repository reaches a real dataset, so a `validate` built on that metadata would sit on
+the hot path of every question with its own failure mode unmeasured, and a `per_replica_spend_ceiling`
+that reads as enforced when it may not be is worse than one that is documented as inert. The evidence
+above is recorded so the next round starts from the option name rather than from the question.

@@ -607,6 +607,12 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// `workload_identity.scope`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here
     /// rather than read per request because it is a property of the source, and a declared scope the
     /// driver would refuse then fails before a listener is bound.
+    ///
+    /// `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
+    /// every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
+    /// on bytes scanned is enforced by the service. [`adbc::BytesBilledCeiling`] states what it does
+    /// NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a different key that
+    /// this adapter still does not reach.
     #[must_use]
     pub const fn over_adbc(
         source: SourceName,
@@ -615,13 +621,14 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         default_dataset: DatasetId,
         driver: adbc::DriverLocation,
         impersonation: adbc::Impersonation,
+        max_bytes_billed: adbc::BytesBilledCeiling,
     ) -> Self {
         Self::new(
             source,
             posture,
             billing_project,
             default_dataset,
-            adbc::AdbcBigQuery::new(driver, impersonation),
+            adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed),
         )
     }
 }

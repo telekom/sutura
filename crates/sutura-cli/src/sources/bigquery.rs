@@ -71,12 +71,13 @@ pub(super) fn open(
 
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
-    // openable kind should arrive as a compile error at this line too. The removed `wire` read a
-    // `credential_file` and a `max_bytes_billed` ceiling here; the ADBC driver authenticates itself,
-    // so neither is read - the placement's `credential_file` field stays for `sutura-catalog-datahub`.
+    // openable kind should arrive as a compile error at this line too. `credential_file` is the one
+    // key here the ADBC transport does not read - the driver authenticates itself - and the field
+    // stays for `sutura-catalog-datahub`.
     let sutura_config::SourcePlacement::BigQuery {
         ref billing_project,
         ref dataset,
+        max_bytes_billed,
         ..
     } = *configured.placement()
     else {
@@ -110,6 +111,12 @@ pub(super) fn open(
     // WHICH driver, decided by `crate::bigquery_driver` for this root, `serve::bigquery` and
     // `doctor` alike: a published artefact carries its own, and a build from source names a mounted
     // one. That module's header carries why the order is not a preference.
+    // **The money bound, parsed before the driver is resolved**, for `serve::bigquery`'s reason at
+    // the same line: the RANGE belongs to the transport that sends it, so a `0` - BigQuery's own
+    // spelling of *no ceiling* - and an absurd value stop the command here, ahead of anything that
+    // starts a Go runtime.
+    let max_bytes_billed = sutura_exec_bigquery::adbc::BytesBilledCeiling::parse(max_bytes_billed)
+        .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a ceiling this transport will send: {cause}"))?;
     let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
     // Loaded and initialised rather than merely resolved - `serve/bigquery.rs` carries the argument,
     // and it applies identically here: a driver this process cannot open must stop this command
@@ -131,6 +138,7 @@ pub(super) fn open(
         // reaches this line is the shared one - the deployment's own application default
         // credentials, which is mandatory for that posture and impersonates nothing.
         sutura_exec_bigquery::adbc::Impersonation::Disabled,
+        max_bytes_billed,
     );
     Ok(Opened::BigQuery(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
