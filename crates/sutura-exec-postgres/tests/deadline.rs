@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! `docs/adr/0029`'s Postgres row, measured against a real server rather than asserted from the
 //! driver's documentation - `SET LOCAL statement_timeout` actually stops a running statement AND a
 //! blocked `PREPARE`, the certified path's per-request value is not the connect-time ceiling, and
@@ -237,7 +238,7 @@ mod deadline {
     /// the ceiling and not the asker's own budget.
     ///
     /// **Slow on purpose, rather than narrowing the ceiling.** `std::env::set_var` is `unsafe` in
-    /// this edition and the workspace forbids `unsafe` outright (`crates/sutura-cli/tests/declared_source.rs`'s
+    /// this edition and this crate's root forbids `unsafe` outright (`crates/sutura-cli/tests/declared_source.rs`'s
     /// own header states the same rule) - what a test can decide is what a CHILD process sees, and
     /// spawning one just to narrow this single value is not worth a second binary. So this cell
     /// leaves the default 15 s ceiling in place and sleeps past it instead of narrowing it.

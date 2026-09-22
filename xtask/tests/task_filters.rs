@@ -1,12 +1,31 @@
+#![forbid(unsafe_code)]
 //! Literal selector parity through the real `check-scope` entry point, without running a venue.
 //! These fixtures hold text selection only, not shell/Nix evaluation or live identity behavior.
 
 #![cfg(test)]
 
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
+// The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the
+// module holds are the two halves #938's leftover trap had - rather than a hand-rolled exclusive
+// `create_dir` on a pid-and-counter-keyed path, which is what this file did until #938. `seal`
+// and `Fixture` are the module's own tests' items; this integration test does not use them, so
+// the include expects `dead_code` on it rather than weakening the module for everyone.
+#[path = "scratch_tree/mod.rs"]
+#[expect(
+    dead_code,
+    reason = "the module's own tests use `seal` and `Fixture`; this integration test does not"
+)]
+#[cfg(test)]
+mod scratch_tree;
+
+use scratch_tree::Tree;
+
+// The tag must stay unique PER CALL, not per process: nextest runs this file's tests
+// concurrently, and `Tree::of` sweeps before it creates, so two live trees sharing a tag would
+// delete each other mid-test. A per-call counter restores the distinctness the pid-and-counter
+// fixture had, without the exclusive create that made a recycled pid fail its NEXT run (#938).
+static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 const JUST: &str = "\
 test:
@@ -29,28 +48,22 @@ const FLAKE: &str = "\
 }
 ";
 
-#[expect(
-    clippy::create_dir,
-    reason = "the PID-and-counter fixture must be newly allocated, never reused"
-)]
 fn run(just: &str, flake: &[u8]) -> Output {
-    let root = std::env::temp_dir().join(format!(
-        "sutura-task-filters-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir(&root).expect("create a distinct fixture");
-    let result = (|| {
-        std::fs::write(root.join("Cargo.toml"), "[workspace]\n")?;
-        std::fs::write(root.join("justfile"), just)?;
-        std::fs::write(root.join("flake.nix"), flake)?;
-        Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .arg("check-scope")
-            .current_dir(&root)
-            .env_clear()
-            .output()
-    })();
-    std::fs::remove_dir_all(&root).expect("remove only the owned fixture before asserting");
+    let tree = Tree::of(
+        &format!("task-filters-{}", CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+        &[
+            ("Cargo.toml", b"[workspace]\n" as &[u8]),
+            ("justfile", just.as_bytes()),
+            ("flake.nix", flake),
+        ],
+    );
+    let root = tree.root().to_path_buf();
+    let result = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .arg("check-scope")
+        .current_dir(&root)
+        .env_clear()
+        .output();
+    drop(tree);
     result.expect("run the real gate without a shell or venue command")
 }
 

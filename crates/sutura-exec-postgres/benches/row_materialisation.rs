@@ -1,10 +1,11 @@
+#![forbid(unsafe_code)]
 //! How much of a query's wall time the row-shaped materialisation step costs.
 //!
 //! `github.com/telekom/sutura#915`. ADR 0007's port question is whether an Arrow-shaped transfer
 //! would be faster than the row-shaped one this workspace uses today - `docs/adr/0007`, argued so
 //! far from reading code. This is the number: the cost of building a
 //! [`RowSet`](sutura_domain::warehouse::RowSet) - the port type every adapter, including this
-//! crate's own `execute_tests` around `src/lib.rs:540`, hands back - as a function of how many
+//! crate's own `execute_tests` around `src/lib.rs:541`, hands back - as a function of how many
 //! rows and columns a query returns.
 //!
 //! **The limit, stated where the claim is.** This does NOT measure the wire decode this crate's

@@ -840,6 +840,22 @@ panic-free.
   `<caller> / <job> (<value>)`, which no `jobs:` key spells - so requiring one printed *no job
   reports it*, which was false about the one remedy that file discusses. Such an entry is refused
   with that sentence now, pointing at the aggregating job whose plain context IS checkable.
+- **THE SUBJECT THAT LANDS IS THE PULL-REQUEST TITLE, and no local hook sees it - #935.** The queue
+  squashes and composes `main`'s subject from the title, so `commit-msg` judged every commit except
+  the one that becomes history: six of the last hundred landed subjects are outside the vocabulary
+  `xtask/src/commit_msg.rs` declares (`batch:` ×3, `batch C:`, `spike(`, and one with no type).
+  `check-pr-title` runs in the `ci` job's `pull_request` event, which is where that string exists,
+  and `obligations::REQUIRED` holds the step's `if:`. **Two limits:** it does not judge LENGTH - 69
+  of those hundred subjects exceed the commit-msg limit, so holding it would refuse most real merges
+  - and a title EDITED after the last push starts no `ci` run, so the verdict is about the title
+  that was there.
+- **A COLLISION RULE ONLY REACHES THE NAMES IT CAN READ - #937.** `check-guidance` refuses two ADR
+  files claiming one ordinal, and the merge queue's own `hygiene` build is where that fires, because
+  only the merged tree holds both files. What got past it was a NAMING: a bare `0037.md` planted in
+  that directory beside a `0037-a-real-record.md` read as *not judged* and the sweep printed `ok`
+  over a real collision, measured on `d5d0448e`. The name is refused now. A reserved-number comment
+  is not a mechanism - it cannot see an unpushed branch, and three ordinals were claimed twice while
+  it was the only thing behind them.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**
@@ -1002,6 +1018,19 @@ your assertions in that run, so a **mutation** takes its place - break the thing
 claims, one at a time, and paste the test that reddens. Scope it to a whole test binary
 (`-E 'binary_id(<pkg>::<target>)'`), never a name pattern: a filter that omits the guarding test
 reports green and proves nothing, which happened on that same PR before it was caught.
+
+**A BRANCH THAT ADDS A CRATE USED TO GET NO VERDICT AT ALL, and the cause was one line of
+classification - #936.** Every `Cargo.toml` was held at HEAD as a build input, so the reconstruction
+removed the new crate's sources and left its manifest declaring them: `no targets specified in the
+manifest`, cargo refusing before the compiler, `INCONCLUSIVE` at exit 3 for every adapter - which is
+how adapters arrive. `causality::membership` withdraws a NEW member's whole membership instead, and
+the scope is measured rather than reasoned: with only the new manifest, the root manifest and the
+lock at base, `cargo metadata` still refused with `` `dependency.<crate>` was not found in
+`workspace.dependencies` `` from an EXISTING member's manifest held at HEAD, so **every changed
+manifest and the lockfile** go together. Two things it does not do: a new crate with any file kept
+at HEAD keeps its manifest (removing it would take the package a measured test compiles into out of
+the workspace), and reverting every changed manifest also reverts any other dependency the branch
+added - which is `the base tree does not build`, loud, and still not a pass.
 
 **A SECOND CAUSE WEARS THAT SAME VERDICT, and this file recorded only the first one - #332.** *A
 commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at

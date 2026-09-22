@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The jscpd config is one strict ignore-only document consumed by both gate paths.
 
 #![cfg(test)]
@@ -5,11 +6,33 @@
 
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-static NEXT: AtomicUsize = AtomicUsize::new(0);
+// The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the
+// module holds are the two halves #938's leftover trap had - rather than a hand-rolled exclusive
+// `create_dir` on a pid-and-counter-keyed path, which is what this file did until #938. `seal`
+// and `Fixture` are the module's own tests' items; this integration test does not use them, so
+// the include expects `dead_code` on it rather than weakening the module for everyone.
+#[path = "scratch_tree/mod.rs"]
+#[expect(
+    dead_code,
+    reason = "the module's own tests use `seal` and `Fixture`; this integration test does not"
+)]
+#[cfg(test)]
+mod scratch_tree;
+
+use scratch_tree::Tree;
+
+// The tag must stay unique PER CALL, not per process: nextest runs this file's tests
+// concurrently, and `Tree::of` sweeps before it creates, so two live trees sharing a tag would
+// delete each other mid-test. A per-call counter restores the distinctness the pid-and-counter
+// fixture had, without the exclusive create that made a recycled pid fail its NEXT run (#938).
+static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn tag(prefix: &str) -> String {
+    format!("{prefix}-{}", CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
 
 const CONFIG: &str = "{ \"ignore\": [] }\n";
 
@@ -58,20 +81,6 @@ struct Observed {
     source: Option<Vec<u8>>,
 }
 
-#[expect(
-    clippy::create_dir,
-    reason = "the PID-and-counter fixture must be newly allocated, never reused"
-)]
-fn fixture(tag: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "sutura-jscpd-config-{tag}-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir(&root).expect("create a distinct fixture");
-    root
-}
-
 fn executable(path: &Path, body: &str) {
     std::fs::write(path, format!("#!/bin/sh\n{body}")).expect("write fake executable");
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("make fake executable runnable");
@@ -88,18 +97,20 @@ fn read(path: &Path) -> Option<Vec<u8>> {
 }
 
 fn observe(config: Option<&[u8]>, mutate: bool, report: bool) -> Observed {
-    let root = fixture("xtask");
+    let tree = Tree::of(
+        &tag("jscpd-config-xtask"),
+        &[
+            ("Cargo.toml", b"[workspace]\n" as &[u8]),
+            ("flake.nix", b"{}\n"),
+            ("in_scope.rs", b"fn in_scope() {}\n"),
+            ("devco/dup-ignore", b"# none\n"),
+            ("nix/run-gate.sh", include_bytes!("../../nix/run-gate.sh")),
+        ],
+    );
+    let root = tree.root().to_path_buf();
     let bin = root.join("bin");
     let devco = root.join("devco");
-    let nix = root.join("nix");
     std::fs::create_dir_all(&bin).expect("fake PATH");
-    std::fs::create_dir_all(&devco).expect("config directory");
-    std::fs::create_dir_all(&nix).expect("run-gate directory");
-    std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("workspace marker");
-    std::fs::write(root.join("flake.nix"), "{}\n").expect("Nix marker");
-    std::fs::write(root.join("in_scope.rs"), "fn in_scope() {}\n").expect("Rust census subject");
-    std::fs::write(devco.join("dup-ignore"), "# none\n").expect("empty duplicate allowlist");
-    std::fs::write(nix.join("run-gate.sh"), include_bytes!("../../nix/run-gate.sh")).expect("real tier source");
     let source = devco.join("jscpd.json");
     if let Some(bytes) = config {
         std::fs::write(&source, bytes).expect("jscpd config");
@@ -128,7 +139,7 @@ fn observe(config: Option<&[u8]>, mutate: bool, report: bool) -> Observed {
         after: read(&ledger.with_extension("args.after")),
         source: read(&source),
     };
-    std::fs::remove_dir_all(root).expect("remove the owned fixture");
+    drop(tree);
     observed
 }
 
@@ -181,16 +192,16 @@ fn xtask_refuses_missing_malformed_unknown_and_wrong_type_configs_before_launch(
 
 #[test]
 fn run_gate_passes_the_same_config_to_the_pinned_jscpd_route() {
-    let root = fixture("run-gate");
+    let tree = Tree::of(
+        &tag("jscpd-config-run-gate"),
+        &[
+            ("devco/jscpd.json", CONFIG.as_bytes()),
+            ("nix/run-gate.sh", include_bytes!("../../nix/run-gate.sh")),
+        ],
+    );
+    let root = tree.root().to_path_buf();
     let bin = root.join("bin");
-    let devco = root.join("devco");
-    let nix_dir = root.join("nix");
     std::fs::create_dir_all(&bin).expect("fake PATH");
-    std::fs::create_dir_all(&devco).expect("config directory");
-    std::fs::create_dir_all(&nix_dir).expect("run-gate directory");
-    std::fs::write(devco.join("jscpd.json"), CONFIG).expect("shared config");
-    let run_gate = nix_dir.join("run-gate.sh");
-    std::fs::write(&run_gate, include_bytes!("../../nix/run-gate.sh")).expect("real run-gate script");
     executable(&bin.join("nix"), NIX);
     let ledger = root.join("nix.args");
     let bash = std::env::split_paths(&std::env::var_os("PATH").expect("test PATH"))
@@ -210,7 +221,7 @@ fn run_gate_passes_the_same_config_to_the_pinned_jscpd_route() {
         .lines()
         .map(String::from)
         .collect();
-    std::fs::remove_dir_all(root).expect("remove the owned fixture");
+    drop(tree);
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(args.iter().filter(|arg| arg.as_str() == "--config").count(), 1, "{args:?}");
     assert!(!args.iter().any(|arg| arg == "--ignore"), "{args:?}");

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! One plan, computed by the engine and by every registered data system, compared.
 //!
 //! The sides are not several implementations of one thing, and reading them that way overstates what

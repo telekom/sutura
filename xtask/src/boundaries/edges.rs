@@ -96,8 +96,9 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // is `forbid(unsafe_code)` and pulls only `zeroize`, with `default-features = false, features =
     // ["alloc"]`, so nothing further follows - measured against `cargo tree -p sutura-domain
     // --all-features` rather than assumed. `zeroize` DOES contain `unsafe`: volatile writes and a
-    // compiler fence, which is precisely the thing a workspace with `unsafe_code = "forbid"` cannot
-    // write for itself and should not try to. Neither is a framework - no runtime, no client, no
+    // compiler fence, which is precisely the thing a tree that forbids `unsafe_code` at every
+    // crate root cannot write for itself and should not try to. Neither is a framework - no
+    // runtime, no client, no
     // engine - which is the line this list's doc comment draws.
     //
     // `secrecy`'s `serde` feature is OFF, and the manifests say why at length: it is what would give
@@ -123,23 +124,50 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // FORMAT. The engine resolves it through `datafusion`, the ADBC driver manager through
     // `adbc_core`, and any Arrow Flight leg will too; all three are on major 59, so a batch crosses
     // from any of them into `sutura_domain::warehouse::arrow` with no conversion and no C data
-    // interface - which `unsafe_code = "forbid"` puts out of reach anyway. What it buys is ONE
+    // interface - which the `#![forbid(unsafe_code)]` at every crate root puts out of reach anyway
+    // (`cargo xtask check-unsafe` holds that, and its one exception is in `sutura-exec-bigquery`,
+    // not here). What it buys is ONE
     // Arrow-to-`Value` decode where there were three, and the one it deletes went through TEXT: a
     // cast to `Utf8`, a text cell, then a `parse::<i64>()` back, so an exact total had two chances
     // to stop being exact.
     //
-    // **What is really compiled, and what is only in this graph.** `cargo tree -p sutura-domain
-    // --all-features` lists TWENTY-TWO of the entries below: the four `arrow-*` crates, `chrono`
-    // with `iana-time-zone` and `core-foundation-sys` (a time-zone database), `getrandom` and
-    // `zerocopy`/`zerocopy-derive` via `ahash` via `hashbrown` (an entropy source), `half`, the
-    // `num-*` family, `bytes`, `libm`, `once_cell`, `autocfg` and `version_check`. **Two of those
-    // are worth naming rather than counting** - a time-zone database and an entropy source are now
-    // in the hexagon's interior, reachable from no code this crate has: nothing here reads a zone
-    // and nothing here seeds a generator. If either ever is read, that is a decision and this is
-    // where it gets argued.
+    // **What is really compiled, and what is only in this graph - and the VENUE decides, which is
+    // why every number here carries one.** This block added SIXTY-FOUR entries to the list, taking
+    // it from 33 to 97. `cargo tree -p sutura-domain --all-features` compiles TWENTY-ONE of them:
+    // the four `arrow-*` crates, `chrono` with `iana-time-zone` and `core-foundation-sys` (a
+    // time-zone database), `ahash` with `getrandom` and `zerocopy`/`zerocopy-derive` (an entropy
+    // source), `half`, the four `num-*`, `bytes`, `libm`, `once_cell`, `autocfg` and
+    // `version_check`. The other forty-three are resolved and not compiled in THAT venue.
     //
-    // Everything else below is the OVER-BROAD kind the `allocator-api2` block above describes -
-    // `chrono-tz`'s zone tables and its `phf` maps, the `futures-*` set, the `wasm-bindgen` and
+    // **But the venue `just test` and `just lint` run is the workspace-unified one, and there the
+    // answer is bigger.** One `arrow-array` serves the whole graph, `adbc_core` turns its optional
+    // `chrono-tz` on, and features unify - so under `cargo tree --workspace --all-features` the
+    // zone DATABASE and its `phf` maps compile into the interior too. Measured both ways rather
+    // than read off one: a per-package tree does not show it, and a per-package tree is not the
+    // venue any gate here runs in.
+    //
+    // **Two of those are worth naming rather than counting** - a time-zone database and an entropy
+    // source are now in the hexagon's interior. Both perform OS I/O: `iana-time-zone` reads
+    // `/etc/localtime`, or asks `CFTimeZoneCopySystem` on macOS, and `getrandom` makes an entropy
+    // syscall. They arrive by `arrow-array`'s OWN manifest - `arrow-array -> ahash -> getrandom`
+    // and `arrow-array -> chrono -> iana-time-zone`, measured with `cargo tree -i`, not by feature
+    // unification - so they are in the closure on every host and are not filterable by turning
+    // something off. The `ahash` edge is **direct from `arrow-array`** and not via `hashbrown`,
+    // which this comment used to say: `arrow-array` depends on both, and this graph's `hashbrown`
+    // resolves with `foldhash`. `libc` arrives here too, through `getrandom`, on every target - the
+    // `cpufeatures`/`aarch64-linux` reason given for it further up is no longer the only one.
+    //
+    // Reachable from no code this crate HAS, which is a claim about current use and not a
+    // mechanism - a type cannot forbid IO and Rust has no effect system. So the mechanism is in
+    // `clippy.toml`: `chrono::Local::now`, `chrono::Utc::now`, `ahash::RandomState::new` and all
+    // four `getrandom` entry points are `disallowed-methods`, each verified to resolve. What that
+    // does NOT reach is `arrow-array`'s and `ahash`'s own internal calls, so the entropy syscall
+    // happens in a shipped binary today whatever this workspace writes.
+    //
+    // Everything else below is the OVER-BROAD kind the `allocator-api2` block above describes in
+    // the per-package venue - `chrono-tz`'s zone tables and its `phf` maps, which the paragraph
+    // above records as compiled in the workspace-unified one, the `futures-*` set, the
+    // `wasm-bindgen` and
     // `js-sys` pair, the `windows-*` family, `android_system_properties`, `iana-time-zone-haiku`,
     // the `cc`/`jobserver`/`shlex`/`find-msvc-tools` build stack, `bitflags`, `bumpalo`,
     // `const-random`, `crunchy`, `log`, `pin-project-lite`, `r-efi`, `rand_core`, `rustversion`,
@@ -356,6 +384,37 @@ pub(crate) const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
                   `PemObject` reader) - the same types `rustls::pki_types` re-exports verbatim, so \
                   a `rustls`-depending caller converts nothing at the seam. Building a `ClientConfig` \
                   or a `RootCertStore` is each adapter's own job, with its own crypto provider",
+        edges: Edges::Normal,
+    },
+    // `github.com/telekom/sutura#929`'s boundary audit, sixth finding, and the hole it closes is a
+    // PREFIX rather than a crate. `boundaries::application` refuses any `sutura-exec-*` name in
+    // `sutura-app`'s normal tree with a one-line `starts_with`, so a combiner in a crate whose name
+    // carries no prefix at all - `sutura-combine`, say - passes it, joins no `adapters::CLASSES`
+    // entry, and had no row here: nothing in `check-boundaries` would have looked at it. Picking a
+    // name a rule does not match is a gate end-run, not a design, and `docs/adr/0039` step 3 is the
+    // decision this row makes enforceable - the combiner is a second DRIVEN port, so `sutura-app`
+    // names the trait and no engine, whatever the implementing crate is called.
+    //
+    // `Edges::Normal` for `sutura-tls`'s reason above: `sutura-app`'s differential suite
+    // dev-depends on `sutura-exec-datafusion` to compare a two-source answer against a one-source
+    // one, which is the strongest federation evidence this repository has. `Edges::Every` would
+    // forbid exactly those tests.
+    //
+    // **THE LIMIT, and it is the name.** `reaches` compares the resolved name EXACTLY, so this row
+    // holds the umbrella crate and not each `datafusion-*` member. Every route that matters passes
+    // through the umbrella - a plan needs a `SessionContext`, and `datafusion-federation 0.5.6`
+    // declares `datafusion` itself - so a combiner assembled out of `datafusion-physical-plan`
+    // alone is the shape this row does not see, and a reviewer is what catches that.
+    ForbiddenEdge {
+        from: "sutura-app",
+        forbidden: "datafusion",
+        why: "the application crate composes ports and names no engine: which adapters a process \
+              holds is a property of the BUILD, decided at a composition root. A query engine in \
+              its normal tree is one every consumer of the application links, and `docs/adr/0039` \
+              step 3 decided the combiner is a driven port for exactly that reason",
+        instead: "declare the combiner as a second driven port in `sutura-domain`, implement it over \
+                  DataFusion in a crate a composition root links, and keep `LocalService` generic in \
+                  it - the same shape `Warehouse` already has",
         edges: Edges::Normal,
     },
 ];
@@ -596,6 +655,15 @@ mod tests {
         // than an edge the walk quietly missed - it is why `sutura-tls`/`ring` are wired in here
         // too, reachable transitively (through `tls`) rather than declared directly on `sem`, which
         // is the whole shape this test is about.
+        //
+        // **`sutura-app -> a-combiner -> datafusion` is the shape `telekom/sutura#929`'s sixth
+        // finding named, and the intermediary is deliberately PREFIX-FREE.** That is the hole:
+        // `boundaries::application` matches `sutura-exec-` with a `starts_with`, so a combiner in a
+        // crate called anything else passes it, joins no `adapters::CLASSES` entry, and - before
+        // this entry existed - had no row here either, so nothing in `check-boundaries` looked at
+        // it at all. Naming the engine rather than the prefix is what makes the walk find it, and
+        // wiring the fixture through an unprefixed node is what proves the walk does not depend on
+        // the name.
         let meta: serde_json::Value = serde_json::from_str(
             r#"{
                 "packages": [
@@ -603,18 +671,43 @@ mod tests {
                     {"id": "sql", "name": "sutura-sql"},
                     {"id": "pg", "name": "polyglot-sql"},
                     {"id": "tls", "name": "sutura-tls"},
-                    {"id": "ring", "name": "ring"}
+                    {"id": "ring", "name": "ring"},
+                    {"id": "app", "name": "sutura-app"},
+                    {"id": "combiner", "name": "a-combiner"},
+                    {"id": "df", "name": "datafusion"}
                 ],
                 "resolve": {"nodes": [
-                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}]},
+                    {"id": "sem", "deps": [{"pkg": "sql"}, {"pkg": "tls"}, {"pkg": "app"}]},
                     {"id": "sql", "deps": [{"pkg": "pg"}]},
                     {"id": "pg", "deps": []},
                     {"id": "tls", "deps": [{"pkg": "ring"}]},
-                    {"id": "ring", "deps": []}
+                    {"id": "ring", "deps": []},
+                    {"id": "app", "deps": [{"pkg": "combiner"}]},
+                    {"id": "combiner", "deps": [{"pkg": "df"}]},
+                    {"id": "df", "deps": []}
                 ]}
             }"#,
         )
         .expect("fixture parses");
+        // The prefix-free route asked of the RULE rather than of the walk: `reaches` reads the
+        // entry's own `from`, so this is the finding's case end to end.
+        //
+        // The emptiness assertion is not ceremony - it is what stops the loop passing VACUOUSLY.
+        // Measured: with it absent, deleting the `sutura-app` row left this cell green, so the
+        // only thing holding the row would have been the `edge.forbidden` loop below, which a
+        // deletion also satisfies.
+        let application: Vec<&ForbiddenEdge> = FORBIDDEN_EDGES.iter().filter(|edge| edge.from == "sutura-app").collect();
+        assert!(
+            !application.is_empty(),
+            "no FORBIDDEN_EDGES row names `sutura-app`, so the prefix-free route this fixture builds is held by nothing"
+        );
+        for edge in application {
+            assert!(
+                reaches(&meta, edge).expect("walk succeeds"),
+                "a prefix-free crate between sutura-app and {} must not hide the edge",
+                edge.forbidden
+            );
+        }
         let tree = transitive_names(&meta, "sutura-semantic", Edges::Every).expect("walk succeeds");
         for edge in FORBIDDEN_EDGES {
             assert!(tree.contains(edge.forbidden), "{} was not seen in the tree", edge.forbidden);

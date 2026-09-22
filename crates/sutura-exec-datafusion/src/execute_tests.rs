@@ -508,6 +508,7 @@ fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_buil
     for handed in [
         sutura_domain::identity::Presented::SubjectToken {
             material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+            impersonate: None,
         },
         sutura_domain::identity::Presented::SubjectPrincipal {
             name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),

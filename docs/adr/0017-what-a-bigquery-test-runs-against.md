@@ -1641,8 +1641,8 @@ change takes that measurement.
 `github.com/telekom/sutura#685` measured it: *"`checks.one-binary` and `checks.shipped-features`
 themselves now build every release and release-performance target at this feature set"* is false
 for the second half of that claim. `checks.one-binary` reads `crossPackages."${b.bin}-${target}"`
-(`nix/shipped.nix:545`) - the unsuffixed key - and `checks.shipped-features` reads
-`nativeBinaries.${b.bin}` (`:659`), the native, unsuffixed key. Neither expression ever names the
+(`nix/shipped.nix:573`) - the unsuffixed key - and `checks.shipped-features` reads
+`nativeBinaries.${b.bin}` (`:687`), the native, unsuffixed key. Neither expression ever names the
 `-performance` suffix, so neither gate builds or reads a `release-performance` target; both are
 release-profile only. `github.com/telekom/sutura#685`'s own binaries slice (musl at
 `release-performance`) is a separate, matrix-only fix that does not touch either gate either.
@@ -1682,3 +1682,37 @@ gate does NOT hold**: `Allowed to claim` is free prose, read only far enough to 
 parseable - like `What it costs`, no verdict vocabulary applies to it, and nothing checks that its
 wording agrees with the *Which venue answers which claim* matrix below it. That agreement is
 review's, the same limit this page's own foot already states for `Where it runs`.
+
+## Nineteenth amendment, 2026-09-21: the two required BigQuery source keys reach nothing
+
+*The three keys a served source needs* says `max_bytes_billed` is **"the only bound on bytes SCANNED
+anywhere in this repository and the only number in the settings tree that spends money"**, and that
+its range stays the adapter's - `BytesBilledCeiling::parse` - "so there is one parse of it and a value
+outside the range is a startup refusal naming the key". **None of that is true at HEAD, and the
+number is now the weakest thing in the settings tree rather than the most consequential.**
+
+`BytesBilledCeiling` went with the HTTP transport, and so did the `jobs.query` parameter it fed. It
+was not replaced: the ADBC driver is given no ceiling at all, the value is carried to no data system,
+and - the part worth stating on its own - **there is no parse of it anywhere now**, so a declared
+zero and a declared `u64::MAX` are both accepted at boot. The same bullet's `credential_file` is in
+the same position: required, checked absolute, and passed nowhere, because the driver authenticates
+itself (`crates/sutura-cli/src/sources/bigquery.rs` records that at its own boot line, which is where
+this was found).
+
+**Why they are still required rather than removed here.** Dropping a required key is a settings-schema
+break, and a deployment that stops declaring a spend ceiling because this repository stopped reading
+one is the worse outcome: the bound belongs at the source system either way. So they stay, declared,
+with the limit written where it is read - `crates/sutura-config/src/sources/placement.rs`'s two field
+docs and `docs/serving.md`'s sources section - and removing them is its own decision.
+
+**What bounds spend: nothing in this repository, and `governance.per_replica_spend_ceiling` is not
+the replacement.** That ceiling is `sutura_app::SpendLedger`, charged from a dry run's estimate, per
+subject, inside one replica's window - a bound on what this process ADMITS, never on what BigQuery
+bills, and per replica, so N replicas would be N ceilings. **It is inert on a `BigQuery` source over
+ADBC.** No ADBC call prices a statement, so `AdbcBigQuery::validate` declines,
+`BigQueryWarehouse::dry_run` answers `PreFlight::NotAsked`, and a `None` estimate is *not counted*
+rather than *free*: nothing is charged and nothing is refused. Measured rather than inferred -
+neutralising the ledger's refusal killed only cells running over a priced fake, because no shipped
+transport can reach it. So a deployment's only real bound is at the source system, which is where the
+two required keys above already point. Retracting the claim is the correction here; inventing a
+ceiling this repository does not send would have been the defect.

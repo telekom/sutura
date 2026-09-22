@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Principal rendering through the event the shipped audit sink emits.
 //!
 //! The actor and task values are synthetic: no published transport populates those tail positions.

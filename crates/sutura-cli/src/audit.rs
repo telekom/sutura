@@ -71,7 +71,7 @@ fn records(question: &str) -> Vec<serde_json::Value> {
 /// child it spawns for that reason.
 ///
 /// **In-process there is no child to strip.** `std::env::set_var` and `remove_var` are `unsafe` in
-/// this edition and the workspace forbids them, and the command has to be driven through its own
+/// this edition and this crate's root forbids them, and the command has to be driven through its own
 /// entry point for the causality gate's sake - `crate::commands::query` is the one signature both
 /// versions of that file have. So what is left is to refuse the run and NAME the variable, which is
 /// the difference between a red run that says which variable caused it and one that points at the

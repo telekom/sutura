@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The HTTP surface. Transport only.
 //!
 //! # What this crate is allowed to do
@@ -30,7 +31,7 @@
 //! **What neither shape does is make a data system execute as the asking subject.** That is leg 2, and
 //! the half of it that is built is the credential port: a question cannot execute without a credential
 //! minted for the source it reads, and a subject with no credential there is refused rather than
-//! answered as this process. What no adapter in this build can do is CARRY a per-subject credential, so
+//! answered as this process. What no PUBLISHED adapter can do is CARRY a per-subject credential, so
 //! every question is still answered with whatever access this process already had. The startup log
 //! prints that limit on every boot, and [`inbound`] lists the four things `docs/adr/0014` describes
 //! and this does not build.
@@ -135,9 +136,9 @@ pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 #[cfg(feature = "tls")]
 pub use crate::server::serve_tls;
 pub use crate::server::{ServeFailed, serve};
-#[cfg(feature = "agent")]
-pub use crate::state::AgentMount;
 pub use crate::state::ServiceState;
+#[cfg(feature = "agent")]
+pub use crate::state::{AgentMount, ReplicaSpendGauge, SpendHeadroomPush};
 pub use crate::surface::{ErasedCause, LocalService, ServiceNotStarted, Surface, SurfaceFailure, cause_chain};
 #[cfg(feature = "tls")]
 pub use crate::tls::{Renewal, Renewed, Termination, TlsListener, TlsNotUsable};

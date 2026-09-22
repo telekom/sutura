@@ -183,6 +183,7 @@ fn a_subject_credential_is_refused_as_no_place_to_arrive() {
     let warehouse = warehouse(Scripted::answering("[]\n[]\n"));
     let presented = Presented::SubjectToken {
         material: Secret::new(String::from("unused")),
+        impersonate: None,
     };
     let error = warehouse
         .execute(

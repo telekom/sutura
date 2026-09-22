@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The raw SQL tool's execution path, against a real Postgres - `docs/adr/0013`'s amendment,
 //! measured rather than asserted from the driver's documentation.
 //!

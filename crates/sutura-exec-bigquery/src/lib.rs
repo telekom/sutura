@@ -208,6 +208,26 @@ where
     /// reported the answer as impersonated.
     #[error("{presented} was minted for {at}, and this adapter federates a subject's own assertion instead")]
     NoPrincipalSwitch { at: String, presented: &'static str },
+    /// A subject's own credential arrived with no account declared beside it.
+    ///
+    /// **Refused rather than run as the pool principal, which is the half-configured state this
+    /// variant exists to keep off a dataset.** The credential document's
+    /// `service_account_impersonation_url` is what makes a declared account decide anything; with
+    /// no account there is nothing to name, and the alternative to refusing is a question that runs
+    /// as whatever principal the pool resolves the subject to while the deployment's `impersonate`
+    /// map says it runs as somebody specific. `telekom/sutura#929`'s review is explicit that a
+    /// security-critical setting must not be accepted and then ignored - and *silently widened* is
+    /// the same defect from the other side.
+    ///
+    /// Reachable only from a broker that is not [`DeclaredPrincipalBroker`]: that one mints the
+    /// account off the map it parsed, so a served deployment refuses the declaration at boot
+    /// instead. [`Presented`] is a public port, so the refusal is typed rather than an
+    /// `unreachable!`.
+    #[error(
+        "a subject's own credential was minted for {at} with no account declared to execute as, and \
+         this adapter will not run the question as the pool's own principal instead"
+    )]
+    NoImpersonationTarget { at: String },
     /// The leg's credential and this source's declared posture do not agree.
     #[error("the credential presented for this source does not agree with the posture it was opened under")]
     PresentedDisagreesWithPosture {
@@ -365,9 +385,24 @@ where
     /// was. Two shapes have a [`JobIdentity`](crate::transport::JobIdentity) spelling; the third is
     /// refused HERE and not by a transport, because the mechanism it names was deleted from every
     /// transport in this crate.
+    ///
+    /// **And the subject shape now has a refusal of its own**, because one of its two fields is an
+    /// `Option` the domain cannot narrow for this adapter: a subject's credential with no declared
+    /// account has no `service_account_impersonation_url` to become, and running the question as
+    /// the pool's own principal instead is the half-configured deployment
+    /// [`BigQueryError::NoImpersonationTarget`] describes.
     fn job_identity<'leg>(presented: &'leg Presented, source: &SourceName) -> Mapped<JobIdentity<'leg>, T::Error> {
         match presented {
-            Presented::SubjectToken { material } => Ok(JobIdentity::AsSubject(material)),
+            Presented::SubjectToken {
+                material,
+                impersonate: Some(target),
+            } => Ok(JobIdentity::AsSubject {
+                assertion: material,
+                target,
+            }),
+            Presented::SubjectToken { impersonate: None, .. } => Err(BigQueryError::NoImpersonationTarget {
+                at: String::from(source.as_str()),
+            }),
             // **The weaker subject shape, refused because no transport here has a spelling for
             // it.** A principal switch runs the question on a connection the DEPLOYMENT
             // authenticated - this deployment vouching for a subject - and the owner rejected that
@@ -495,9 +530,10 @@ where
     /// Who this data system says the leg presenting `presented` is executing AS.
     ///
     /// **The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
-    /// [`Presented::SubjectToken`] rides as this job's own bearer, so what the endpoint resolves
-    /// that bearer to IS the identity the source executed under - and asking the source rather than
-    /// asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+    /// [`Presented::SubjectToken`] becomes this job's own credential - the subject's assertion
+    /// federated, then impersonating the account declared beside that subject - so what the
+    /// endpoint resolves it to IS the identity the source executed under, and asking the source
+    /// rather than asserting it is the difference between evidence and a comment. `docs/adr/0008` names
     /// `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
     ///
     /// It goes through [`Self::deliverable`] like every other credential-taking method, so a leg
@@ -542,6 +578,7 @@ where
             BigQueryError::Endpoint { ref cause } => transport_says(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
@@ -561,21 +598,22 @@ where
 impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     /// Opens a dataset over the ADBC transport.
     ///
-    /// `driver_path` is the on-disk location of the self-built
-    /// `libadbc_driver_bigquery.so` (one per release triple, see
-    /// `nix/bigquery-adbc.nix`).
+    /// `driver` is where this process reaches the self-built driver: linked into a release
+    /// artefact's own binary, or a `.so` a deployment mounted. [`adbc::DriverLocation`] carries why
+    /// that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
+    /// one pinned source.
     ///
     /// `impersonation` is whether this source impersonates and at what scope - the source's declared
     /// `workload_identity.scope`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here
     /// rather than read per request because it is a property of the source, and a declared scope the
     /// driver would refuse then fails before a listener is bound.
     #[must_use]
-    pub fn over_adbc(
+    pub const fn over_adbc(
         source: SourceName,
         posture: SourcePosture,
         billing_project: ProjectId,
         default_dataset: DatasetId,
-        driver_path: impl Into<String>,
+        driver: adbc::DriverLocation,
         impersonation: adbc::Impersonation,
     ) -> Self {
         Self::new(
@@ -583,7 +621,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
             posture,
             billing_project,
             default_dataset,
-            adbc::AdbcBigQuery::new(driver_path, impersonation),
+            adbc::AdbcBigQuery::new(driver, impersonation),
         )
     }
 }
@@ -600,6 +638,12 @@ where
     /// through an `external_account` credential document so Google's token service verifies it. A
     /// per-subject credential, presented per subject - so `PerSubjectCredential` is the accurate
     /// value and not merely the only workable one.
+    ///
+    /// **And the credential is per-subject at BOTH links since `telekom/sutura#929` F3.** The
+    /// document also names the account declared for that subject as its
+    /// `service_account_impersonation_url`, so two subjects declared to two accounts reach the
+    /// dataset as two principals even where one pool resolves both to the same one. A round of this
+    /// adapter accepted that declaration and read only the map's keys.
     ///
     /// **Corrected**: a round of this doc said "nothing a subject possesses arrives, only a
     /// principal the deployment becomes on that subject's behalf", which described the deleted
@@ -649,11 +693,14 @@ where
     /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
     /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
     ///
-    /// **The deadline is now what `timeoutMs`/`jobTimeoutMs` derive from; `docs/adr/0029`.** This
-    /// call's `CallDeadline` opens from what the port's own `Deadline` says is left, read at the
-    /// instant this call reaches the wire - not from this adapter's own configured job bounds, which
-    /// stay only for the boot path and the socket's own backstop ceiling. See
-    /// (the `wire` transport that used to do this was removed with the ADBC adoption).
+    /// **The port's `Deadline` is CARRIED and nothing sends it anywhere; `docs/adr/0029`'s second
+    /// amendment.** This paragraph used to say the deadline was what `timeoutMs`/`jobTimeoutMs`
+    /// derived from, and it contradicted itself two lines later: those were `jobs.query` request
+    /// parameters on the HTTP wire, and the wire is deleted. `JobDeadline::Port(deadline)` below
+    /// still reaches [`transport::JobRequest`], and the ADBC transport's `run` never reads it - the
+    /// driver is given no bound by this process. **So what bounds a `BigQuery` call is in-process
+    /// only:** `sutura_app` refuses a question whose deadline is already spent, and the answer is
+    /// whatever the driver takes as long as it likes to produce. Nothing cancels a running job.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
@@ -755,8 +802,11 @@ where
         Self::refused_via(error, |cause| self.transport.job_was_refused(cause))
     }
 
-    /// Was this failure the port's own `Deadline` running out, either found spent before the job was
-    /// sent or the service stopping it at `jobTimeoutMs`? Delegates to the TRANSPORT, for the same
+    /// Was this failure the port's own `Deadline` running out, found spent before the job was sent?
+    /// **Only that half: nothing asks the service to stop a job.** This summary line used to add *or
+    /// the service stopping it at `jobTimeoutMs`*, which contradicted the note two paragraphs down -
+    /// `jobTimeoutMs` was an HTTP `jobs.query` request parameter and went with that transport.
+    /// Delegates to the TRANSPORT, for the same
     /// reason [`Self::result_did_not_fit`] and [`Self::source_refused`] do: `Self::Error` is
     /// `BigQueryError::Endpoint` wrapping the transport's own type, and only the transport can read
     /// the wire-level shape. Every other variant is `false`, exhaustively: the transport is the
@@ -766,6 +816,7 @@ where
             BigQueryError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
@@ -814,6 +865,7 @@ where
             // this build does not map is not a reply that was too big.
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::NoImpersonationTarget { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }

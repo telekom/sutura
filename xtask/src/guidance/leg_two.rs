@@ -19,9 +19,13 @@
 //! # What it holds, and the two limits beside it
 //!
 //! While no leg-2 row in the matrix carries a citable verdict, no page in scope may state one of
-//! [`WORDINGS`]. When a row moves to `yes`, `can` or `only here`, the claim becomes sayable and
-//! this rule stops applying - the same self-retiring shape a `Contradicted` row has, derived from
-//! the cell instead of from evidence files.
+//! [`WORDINGS`]. When a row moves to `yes` or `can`, the claim becomes sayable and this rule stops
+//! applying - the same self-retiring shape a `Contradicted` row has, derived from the cell instead
+//! of from evidence files. **Those two words and not three:** this sentence used to name `only
+//! here` as well, and `venues::page::CITABLE` is `["yes", "can"]` - its own doc says `only here`
+//! and `redundant` are deliberately absent, because they say WHICH venue owns a claim rather than
+//! that one has answered it. So the sentence described a wider retirement than the code performs,
+//! which for a self-retiring rule is the direction that matters.
 //!
 //! **It matches a literal, so a paraphrase escapes.** That is the limit the whole `claims` module
 //! records, and it is why [`WORDINGS`] carries every wording that was found rather than one: the
@@ -32,6 +36,23 @@
 //! anchors: a `yes` this rule believes is a word somebody wrote, and whether the run behind it is
 //! real stays review's. What is closed is the direction that failed silently - a page claiming
 //! proof while the table records none.
+//!
+//! # The scope, which is the limit that matters most here
+//!
+//! `guidance::tree_problems` passes `text_files`, so this rule reads `md`, `nix`, `yml`, `yaml`,
+//! `toml` and `sh` and **no `.rs` file at all** - `guidance::in_scope` says why, and the reason is
+//! good: a rule table written in Rust holds the very phrases it forbids, so a widened scope makes
+//! this gate report itself. The consequence, stated rather than left to be discovered: **no gate in
+//! this repository can refuse a leg-2 overstatement in a Rust comment.** Five of the sites this
+//! rule's own wordings were harvested from were doc comments
+//! (`sutura-exec-bigquery`'s `principal.rs` and `transport.rs`, `sutura-cli`'s `serve/broker.rs`,
+//! `sutura-config`'s `sources/workload_identity.rs` and `raw.rs`), and every one of them rests on
+//! review. Widening `contradicted_claims` to `files` was priced and declined for `in_scope`'s
+//! reason; what is added instead is a wording per sentence found, which at least holds the SIBLINGS
+//! of a corrected page.
+//!
+//! It reaches no `.py` and no commit message either - nothing in `check-guidance` reads git
+//! history.
 
 use std::path::Path;
 
@@ -49,6 +70,12 @@ const WORDINGS: &[&str] = &[
     "Proven live for one source, hosted",
     "a hosted run whose job holds both principals' keys",
     "a hosted run whose job held both principals' keys",
+    // Round 8 of telekom/sutura#929, all three off `.agents/skills/sutura/identity/SKILL.md` - the
+    // file that routes other agents, offering a run of the deleted `wire` transport as current
+    // evidence and then retracting it fifteen lines later. A heading is a needle like any other.
+    "An exchange HAS run against real STS and `iamcredentials`",
+    "What proved leg 2 for BigQuery, hosted",
+    "a hosted `workflow_dispatch` run of it concluded `success`, each principal resolved to its own account",
 ];
 
 /// Pages that may state a wording in order to correct it.
@@ -176,6 +203,29 @@ mod tests {
         // against, so there is no oracle for it. What stands in its place is that a wording is
         // added the moment it is FOUND in a file - the table is a record of matches that happened,
         // not of sentences somebody expected.
+    }
+
+    #[test]
+    fn the_wordings_round_eight_harvested_are_refused_where_they_were_found() {
+        // **RED against base, and that is the point of registering a wording at all.** Each of
+        // these three stood in `.agents/skills/sutura/identity/SKILL.md` while `check-guidance`
+        // printed `ok`, because the table held six other sentences and not these. A skill file
+        // routes other agents, so a false sentence there propagates; this cell is what keeps the
+        // three from coming back once the page is corrected.
+        //
+        // The LIMIT, because this cell proves less than it looks like it does: it holds the
+        // literals, in prose files. The same three claims in a Rust comment are refused by nothing
+        // - see this module's own header - and a paraphrase of any of them escapes.
+        for wording in [
+            "An exchange HAS run against real STS and `iamcredentials`",
+            "What proved leg 2 for BigQuery, hosted",
+            "a hosted `workflow_dispatch` run of it concluded `success`, each principal resolved to its own account",
+        ] {
+            let page = format!("Prose before.\n\n{wording} - and prose after.\n");
+            let found = stated_in(".agents/skills/sutura/identity/SKILL.md", &page);
+            assert_eq!(found.len(), 1, "an unregistered wording: {wording}\n{found:?}");
+            assert!(found[0].contains("no leg-2 row"), "{found:?}");
+        }
     }
 
     #[test]

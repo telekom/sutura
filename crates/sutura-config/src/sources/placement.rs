@@ -334,22 +334,35 @@ pub enum SourcePlacement {
         billing_project: BillingProject,
         /// Where an unqualified table name resolves. See [`DatasetId`].
         dataset: DatasetId,
-        /// The credential file this source is reached with. Absolute, checked at parse.
+        /// The credential file this source is reached with. Absolute, checked at parse - **and read
+        /// by nothing.**
         ///
         /// **A path rather than a credential**, so nothing in this tree holds token material and
-        /// `Secret` has nothing to redact here. Reading it is the adapter's job and happens once, at
-        /// the line that opens the source.
+        /// `Secret` has nothing to redact here. Reading it used to be the adapter's job at the line
+        /// that opens the source; the ADBC driver authenticates itself, so the composition root
+        /// passes the path nowhere (`sutura_cli::sources::bigquery` says so at its own boot line).
+        /// **Still required and still checked to be ABSOLUTE - and not checked to exist**, which is
+        /// the correction `telekom/sutura#929`'s eighth review round made to this very paragraph.
+        /// `sources::parse_absolute` refuses `path.is_relative()` and returns; nothing stats the
+        /// file. Measured: adding `|| !path.exists()` to that predicate - a no-op if the claim had
+        /// held - produced 26 failures. So an operator who writes a path to a file that is not
+        /// there boots clean, and one who writes a relative path gets a refusal about a key that
+        /// changes nothing either way. A settings surface with no mechanism behind it rather than a
+        /// control, stated at both of the two things it does and does not check.
         credential_file: PathBuf,
-        /// The most one job may be billed for scanning.
+        /// What the most one job may be billed for scanning WOULD be. **Required, unvalidated
+        /// beyond fitting a `u64`, and sent to no data system.**
         ///
-        /// **A bare number and not a newtype, and that is deliberate rather than an omission.** The
-        /// RANGE belongs to the adapter - `sutura_exec_bigquery::wire::BytesBilledCeiling::parse`
-        /// refuses a zero and refuses a value above the largest ceiling it will send - and a second
-        /// copy of those two bounds here would be the drifting duplicate this repository's
-        /// *canonical sources* rule exists to prevent. So there is exactly one parse of this number,
-        /// in the composition root, and a value outside the range is a startup refusal naming
-        /// `sources.<alias>.max_bytes_billed`. What this crate owns is that the key was WRITTEN, which
-        /// is the half a settings tree can see.
+        /// **A bare number and not a newtype, and this is now the defect it was designed against.**
+        /// The RANGE belonged to the adapter - `BytesBilledCeiling::parse` refused a zero and
+        /// refused a value above the largest ceiling it would send - so a second copy of those
+        /// bounds here would have been a drifting duplicate. That type went with the HTTP wire and
+        /// the `jobs.query` parameter it fed, and nothing replaced either: there is now **no parse
+        /// of this number anywhere**, so a zero and an absurd value are both accepted at boot, and
+        /// the ADBC driver is given no ceiling. `docs/adr/0017`'s *the only number in the settings
+        /// tree that spends money* is answered by its own amendment. What this crate still owns is
+        /// that the key was WRITTEN, which is the half a settings tree can see - and it is now the
+        /// whole of what the key does.
         max_bytes_billed: u64,
     },
     /// A `PostgreSQL` database, reached over a connection the deployment declares.

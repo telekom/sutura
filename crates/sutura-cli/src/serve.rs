@@ -255,10 +255,11 @@ pub(crate) fn run() -> Result<(), String> {
             // calls `of` further down, in `open_bigquery`. **And the replacement claim - that the
             // `BigQuerySource` alias's `BigQueryWire<Credential>` transport held it, because
             // `Credential::read` was its one public constructor - died with the `wire` half: there
-            // is no credential to read, and `AdbcBigQuery::new` takes a path. So the first half of
-            // the order is held by NOTHING today.** What `open_bigquery` still reads at boot is the
-            // driver path and the declared scope, so an unusable one of either is a startup failure;
-            // that is a smaller claim than the one this comment used to make.
+            // is no credential to read, and `AdbcBigQuery::new` takes a `DriverLocation`. So the
+            // first half of the order is held by NOTHING today.** What `open_bigquery` still reads
+            // at boot is the driver this artefact carries (or the one a source build mounted) and
+            // the declared scope, so an unusable one of either is a startup failure; that is a
+            // smaller claim than the one this comment used to make.
             //
             // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
             // is there because this comment used to close by calling the order *a
@@ -445,7 +446,9 @@ pub(crate) fn run() -> Result<(), String> {
 /// gauge, and the agent surface is handed a handle to the same one, so both surfaces drive ONE spend
 /// series rather than two that disagree. That handle only exists once the state does, which is what
 /// moves this call below `ServiceState::new` and costs the `settings`-still-owned convenience the
-/// previous order had.
+/// previous order had. `sutura_http::SpendHeadroomPush::of` is the only route to it, and
+/// `AgentMount::new` will not build without one - so the ordering is a consequence of the types
+/// rather than of this comment.
 ///
 /// `None` is the deployment having left the surface off: a build carrying the `agent` feature is
 /// still off by default, and `sutura_http::router` refuses to assemble a mount with no leg-1 gate
@@ -460,7 +463,7 @@ fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, 
         state.surface(),
         state.settings(),
         state.admission().clone(),
-        state.spend_headroom_gauge(),
+        sutura_http::SpendHeadroomPush::of(state),
     )?))
 }
 

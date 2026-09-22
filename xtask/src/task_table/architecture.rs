@@ -7,7 +7,7 @@
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::{
     answer_path_cache, boot_order, boundaries, bounded_wait, conformance, newtype_leaks, one_bound, orphan_modules, refusals,
-    serde_parse, shared_client, threshold_expect, worktree_state,
+    serde_parse, shared_client, threshold_expect, unsafe_containment, worktree_state,
 };
 
 pub(crate) const TASKS: &[Task] = &[
@@ -73,6 +73,31 @@ pub(crate) const TASKS: &[Task] = &[
             in_scope: Some("crates/sutura-app/src/leaky_cache.rs"),
         },
         run: answer_path_cache::run,
+    },
+    Task {
+        // Beside `check-newtype-leaks` for its reason and for one more: the rule this holds used to
+        // be held by the COMPILER alone, as `[workspace.lints.rust] unsafe_code = "forbid"`, and
+        // `telekom/sutura#929`'s sixth finding had to relax it to `deny` so one crate could declare
+        // the ADBC driver's C entrypoint - a static musl artefact has no dynamic loader, so carrying
+        // its own driver is the only route it has. Cargo refuses a member that inherits the
+        // workspace lints and overrides one entry, and `#[expect]` under an inherited `forbid` is
+        // `E0453`, so there was no narrower change available.
+        //
+        // The falsifier seeds a whole one-member workspace, because this gate's subject is a crate
+        // ROOT and the shared tree declares no members - without it the refusal would be the
+        // empty-scan floor `falsifier`'s header names rather than this rule.
+        name: "check-unsafe",
+        description: "every crate root re-asserts forbid(unsafe_code), with one declared exception",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[
+                ("Cargo.toml", "[workspace]\nmembers = [\n  \"crates/unguarded\",\n]\n"),
+                ("crates/unguarded/Cargo.toml", "[package]\nname = \"unguarded\"\n"),
+                ("crates/unguarded/src/lib.rs", "pub fn reachable() {}\n"),
+            ],
+            in_scope: Some("crates/unguarded/src/lib.rs"),
+        },
+        run: unsafe_containment::run,
     },
     Task {
         // Beside `check-newtype-leaks` because it is the same shape of gate: a rule the code cannot

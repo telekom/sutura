@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! This adapter, held to the conformance packs, from its OWN crate.
 //!
 //! **The whole file is a fixture and a declaration.** Every assertion lives in

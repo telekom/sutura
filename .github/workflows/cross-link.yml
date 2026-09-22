@@ -12,8 +12,8 @@
 # the one class of behaviour change a reviewer cannot confirm by reading. Each of the three other
 # jobs in `ci.yml` fails one of those: `crap-comment` is the only job in the repository holding a
 # write scope and its grant has to be written where that decision is reviewed, and
-# `cargo xtask check-venues` reads `bigquery-acceptance` out of `ci.yml` by name, with a
-# refusal per property.
+# `cargo xtask check-venues` resolves the Keycloak venue's `Reached by` anchor out of
+# `keycloak-served-test`'s own shell body, with a refusal per property.
 #
 # WHAT STAYED BEHIND is the gating - `needs: [ci]` and the classification test - for the reason
 # `nix/lint-workflows.sh`'s header gives for the same split one level down: what moves is the BODY,

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The agent surface as an agent client gets it: **this binary, spawned, speaking the Model Context
 //! Protocol on its own pipes.**
 //!
@@ -190,7 +191,7 @@ mod tests {
             // machine has - reached this child and turned six passing tests red on "two answers to
             // one question", and `SUTURA_ENVIRONMENT=production` turned them red on an access token.
             // Found by review. `env_remove` because `std::env::set_var` is `unsafe` in this edition
-            // and the workspace forbids it: what a test can do is decide what the CHILD sees.
+            // and this crate's root forbids it: what a test can do is decide what the CHILD sees.
             .env_remove(sutura_config::ENVIRONMENT_VARIABLE)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

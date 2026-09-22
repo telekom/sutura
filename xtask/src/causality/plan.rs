@@ -74,6 +74,30 @@ impl Separable {
     pub(super) fn held(&self) -> Vec<String> {
         self.held_back.iter().chain(self.test_only.iter()).cloned().collect()
     }
+
+    /// What the first attempt keeps at HEAD: the held files PLUS the test files.
+    ///
+    /// Composition rather than recall: the membership's withdrawal decision (`membership::withdrawn`)
+    /// asks whether an added crate still has ANY file at HEAD, and a crate whose only held file is a
+    /// TEST one counts - so the test files must reach that question or a crate carrying a provable
+    /// test would be withdrawn under a tree that then cannot run it.
+    pub(super) fn at_head_first_attempt(&self) -> Vec<String> {
+        let mut at_head = self.held();
+        at_head.extend(self.test_files.iter().cloned());
+        at_head
+    }
+
+    /// Which build inputs the named attempt does NOT put at base - the held-at-HEAD remainder the
+    /// output must name truthfully. Filtering rather than copying the list: a withdrawn manifest
+    /// goes to base on the first attempt, and printing it as held at HEAD would be this gate
+    /// describing a tree it did not build.
+    pub(super) fn unreverted_from(&self, reverting: &[String]) -> Vec<String> {
+        self.build_inputs
+            .iter()
+            .filter(|path| !reverting.contains(path))
+            .cloned()
+            .collect()
+    }
 }
 
 /// Split the changed files into "added tests", "the old behaviour", and what may not be touched.
@@ -202,10 +226,57 @@ fn provable_packages(test_files: &[String], read: &PostImage<'_>) -> Option<BTre
 
 #[cfg(test)]
 mod tests {
-    use super::{Plan, plan};
+    use super::{Plan, Separable, plan};
     use crate::causality::coverage::{Attributed, Coverage};
     use crate::causality::fixtures::{changed, manifest, tree};
     use crate::causality::scoped::Scan;
+
+    /// A hand-built `Separable` for the two composition cells below. `plan` itself is covered by
+    /// the cells above; these exercise what `causality::run` composes OUT of its result, which
+    /// until now no cell held.
+    fn separable() -> Separable {
+        Separable {
+            revert: vec![String::from("crates/x/src/a.rs")],
+            test_files: vec![String::from("crates/new/tests/it.rs")],
+            held_back: vec![String::from("crates/x/src/b.rs")],
+            test_only: vec![String::from("crates/x/src/helper.rs")],
+            build_inputs: vec![String::from("Cargo.toml"), String::from("crates/new/Cargo.toml")],
+        }
+    }
+
+    /// The withdrawal question (`membership::withdrawn`) asks whether an added crate still has ANY
+    /// file at HEAD - and a crate whose only held file is a TEST one counts, because a provable
+    /// test inside the crate keeps the crate in the workspace on both attempts. The composition
+    /// therefore must include the test files, or the membership would withdraw a crate under a
+    /// tree whose nextest filterset is then empty - a red about this partition, not the change.
+    #[test]
+    fn the_first_attempt_keeps_the_test_files_at_head_as_well_as_the_held_ones() {
+        let at_head = separable().at_head_first_attempt();
+        assert!(at_head.contains(&String::from("crates/x/src/b.rs")), "held: {at_head:?}");
+        assert!(
+            at_head.contains(&String::from("crates/x/src/helper.rs")),
+            "test-only: {at_head:?}"
+        );
+        assert!(
+            at_head.contains(&String::from("crates/new/tests/it.rs")),
+            "the test file reaches the membership's withdrawal question: {at_head:?}"
+        );
+    }
+
+    /// A withdrawn manifest goes to base on the first attempt, and printing it as held at HEAD
+    /// would be the gate describing a tree it did not build. The filter must therefore really
+    /// drop every path the attempt reverts - not echo the build inputs back unchanged.
+    #[test]
+    fn the_unreverted_names_are_the_build_inputs_the_attempt_actually_keeps() {
+        let reverting = vec![String::from("Cargo.toml"), String::from("crates/new/Cargo.toml")];
+        assert_eq!(separable().unreverted_from(&reverting), Vec::<String>::new());
+        let partial = vec![String::from("Cargo.toml")];
+        assert_eq!(
+            separable().unreverted_from(&partial),
+            vec![String::from("crates/new/Cargo.toml")],
+            "only the one still at HEAD is named"
+        );
+    }
 
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {

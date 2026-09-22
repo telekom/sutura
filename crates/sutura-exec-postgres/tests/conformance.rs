@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! This adapter, held to the conformance packs, from its OWN crate.
 //!
 //! **The third binding, and the first one whose data system might not be there.** `DuckDB` and the

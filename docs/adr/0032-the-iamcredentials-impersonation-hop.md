@@ -1,6 +1,6 @@
 ---
 title: The iamcredentials impersonation hop
-description: A declared per-source subject-to-service-account map, a second port mirroring the STS exchange, and why a direct principal:// grant was rejected even though it would need no adapter code - the RowAccessPolicy grantee shape and telekom/sutura#376's own acceptance text both name a service-account email, and a federated principal string can never satisfy that comparison.
+description: WITHDRAWN by the second amendment - the hop, its port and the broker that made it are deleted and no served path performs one. The record of why a declared per-source subject-to-service-account map beat a direct principal:// grant, and of the comparison that argument rested on: a service-account email, which the shipped mechanism no longer produces.
 ---
 
 # The iamcredentials impersonation hop

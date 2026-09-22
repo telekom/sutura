@@ -185,22 +185,24 @@ pub(crate) struct RawSource {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawWorkloadIdentity {
-    /// The provider's audience - the value a subject token is exchanged against. A workload identity
-    /// provider resource, such as
+    /// The pool a subject's own assertion is federated against - the one value of this block the
+    /// transport sends. A workload identity provider resource, such as
     /// `//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/providers/{provider}`.
     pub(crate) audience: String,
-    /// The OAuth scope the exchanged credential is minted for, e.g.
-    /// `https://www.googleapis.com/auth/bigquery.readonly`.
+    /// The OAuth scope an operator declares for the federated credential, e.g.
+    /// `https://www.googleapis.com/auth/bigquery.readonly`. Required, parsed, and **sent by
+    /// nothing** - see `crate::sources::workload_identity::WorkloadIdentityConfig::scope`.
     pub(crate) scope: String,
-    /// The declared subject -> service-account map for the second hop, telekom/sutura#376's
-    /// `iamcredentials.generateAccessToken` step. Absent or empty keeps today's bare exchange: a
-    /// subject with no entry here is never granted a fallback identity, refused instead - see
+    /// The declared subject -> service-account map. Its KEYS decide which subjects a source may be
+    /// asked as - a subject with no entry here is refused rather than granted a fallback identity -
+    /// and its VALUES name the account each of those subjects executes as, sent as the credential
+    /// document's `service_account_impersonation_url`. See
     /// `crate::sources::workload_identity::WorkloadIdentityConfig`'s own doc.
     #[serde(default)]
     pub(crate) impersonate: std::collections::BTreeMap<String, String>,
-    /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Absent
-    /// keeps today's bare exchange; present, the broker links it to leg 1 at boot and checks the
-    /// subject token against it before any exchange.
+    /// The issuer the pool trusts, if the operator wrote it - telekom/sutura#817's seam. Present is
+    /// REFUSED at boot: the hop that compared it is deleted, so a declaration nothing reads would
+    /// be a control that reads as being in place.
     #[serde(default)]
     pub(crate) expected_issuer: Option<String>,
     /// The audience the pool's provider accepts, if the operator wrote it - `expected_issuer`'s

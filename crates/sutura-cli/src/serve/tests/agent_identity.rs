@@ -338,8 +338,74 @@ struct PricedAgentSurface {
     issuer: MockIssuer,
 }
 
+/// The priced, agent-enabled state and its leg-1 gate, before any mount is attached.
+///
+/// Split out of [`priced_agent_surface`] so a cell can attach a mount this state's own
+/// `SpendHeadroomPush::of` did NOT produce - the mistake `AgentMount::new`'s required declaration
+/// narrows to one nameable case and `agent_subtree` then refuses.
+struct PricedState {
+    state: sutura_http::ServiceState,
+    gate: sutura_http::InboundGate,
+    issuer: MockIssuer,
+}
+
 /// Builds the priced agent surface and returns the router, gauge, and issuer.
 fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
+    let PricedState { state, gate, issuer } = priced_state(key_set_id);
+    // The state owns the gauge; the composition root's own `agent_mount(&state)` hands a handle to
+    // the SAME gauge into the agent mount, so both surfaces drive one
+    // `sutura_spend_headroom_bytes` series. Going through `agent_mount` rather than hand-wiring
+    // `agent::mount` is the seam both cells below exist to exercise: a mutation that declared
+    // `NoCeilingConfigured` instead of `SpendHeadroomPush::of(&state)` would build a mount whose
+    // `Serving` wrapper never pushes - and `an_agent_mount_declaring_no_ceiling_on_a_priced_state_\
+    // does_not_assemble` refuses it outright, while these two catch a push that stopped.
+    let gauge = sutura_http::SpendHeadroomPush::of(&state)
+        .gauge()
+        .expect("the priced surface reports headroom at boot")
+        .clone();
+    let mount = super::super::agent_mount(&state)
+        .expect("the agent mount builds")
+        .expect("the priced overlay enabled the agent surface");
+    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+    let app = sutura_http::router(&state).expect("the test router assembles");
+    PricedAgentSurface { app, gauge, issuer }
+}
+
+/// A mount declaring there is no ceiling, attached to a state that registered the gauge, is refused
+/// at assembly - `AgentMount`'s required declaration plus the parity check behind it.
+///
+/// **`SpendHeadroomPush` alone cannot hold this half.** It makes the handle unforgeable and makes
+/// the absence a name a caller has to write, but `NoCeilingConfigured` still typechecks on a priced
+/// deployment - and that deployment would serve `/mcp` with `sutura_spend_headroom_bytes` frozen at
+/// its boot reading while the agent surface drained the ledger. Built through the composition root's
+/// own `agent::mount`, so what is refused is the real wiring mistake rather than a hand-made state.
+#[test]
+fn an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble() {
+    let PricedState { state, gate, .. } = priced_state("agent-spend-mismatch");
+    let mount = super::super::agent::mount(
+        state.surface(),
+        state.settings(),
+        state.admission().clone(),
+        sutura_http::SpendHeadroomPush::NoCeilingConfigured,
+    )
+    .expect("the agent mount builds");
+    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+
+    let refused = sutura_http::router(&state).expect_err("a ceiling-configured state refuses a mount that declares none");
+    assert!(
+        matches!(
+            refused,
+            sutura_http::RouterNotBuilt::AgentSurfaceSpendPushMismatched {
+                mount_pushes: false,
+                state_registered: true
+            }
+        ),
+        "expected the spend-push mismatch refusal, got {refused:?}"
+    );
+}
+
+/// Everything up to the state: the priced overlay, the ledger, the gate and the issuer.
+fn priced_state(key_set_id: &str) -> PricedState {
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, key_set_id).expect("the key set publishes");
     let overlay = priced_overlay(&issuer, &published.path().to_string_lossy());
@@ -392,22 +458,11 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
             .clone(),
     )
     .expect("a published key set builds a gate");
-    // The state owns the gauge; the composition root's own `agent_mount(&state)` hands a handle to
-    // the SAME gauge into the agent mount, so both surfaces drive one
-    // `sutura_spend_headroom_bytes` series. Going through `agent_mount` rather than hand-wiring
-    // `agent::mount` is the seam both cells below exist to exercise: a mutation that dropped
-    // `state.spend_headroom_gauge()` for `None` would still build a mount, but one whose `Serving`
-    // wrapper never pushes - and the cells would catch it.
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
-    let gauge = state
-        .spend_headroom_gauge()
-        .expect("the priced surface reports headroom at boot");
-    let mount = super::super::agent_mount(&state)
-        .expect("the agent mount builds")
-        .expect("the priced overlay enabled the agent surface");
-    let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
-    let app = sutura_http::router(&state).expect("the test router assembles");
-    PricedAgentSurface { app, gauge, issuer }
+    PricedState {
+        state: sutura_http::ServiceState::new(service, Arc::new(settings), admission),
+        gate,
+        issuer,
+    }
 }
 
 #[tokio::test]

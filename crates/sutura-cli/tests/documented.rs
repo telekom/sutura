@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Every `sutura` command the documentation prints, run - and every line it prints as fact.
 //!
 //! **Why this exists.** `tests/example.rs` proves the example's CATALOG still answers, by driving

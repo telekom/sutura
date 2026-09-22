@@ -757,6 +757,7 @@ fn now_in_unix_seconds() -> u64 {
 fn subject_leg() -> Presented {
     Presented::SubjectToken {
         material: Secret::new("an-exchanged-token"),
+        impersonate: None,
     }
 }
 

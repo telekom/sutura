@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Reading a declared outbound trust anchor and client identity into loadable `rustls` material.
 //!
 //! **Extracted out of `sutura-exec-postgres/src/tls.rs`**, which is where this logic first landed

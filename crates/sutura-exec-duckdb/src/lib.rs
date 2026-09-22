@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`Warehouse`] adapter over `DuckDB`, for local development and single-file work.
 //!
 //! `DuckDB` is the case where the data is a file and there is no server to authenticate against, so
@@ -881,6 +882,7 @@ mod tests {
         for handed in [
             Presented::SubjectToken {
                 material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+                impersonate: None,
             },
             Presented::SubjectPrincipal {
                 name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),

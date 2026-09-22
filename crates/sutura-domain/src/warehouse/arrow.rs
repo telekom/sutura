@@ -261,7 +261,19 @@ impl ResultBatches {
         // null reaches it and is answered: a `TIMESTAMP` column came back as a successful EMPTY
         // result, and whether this workspace maps a type depended on what the data happened to be.
         // `sutura-exec-bigquery`'s own decoder had this pass and the engine did not; it is here now,
-        // so every adapter gets it.
+        // so **both ARROW adapters** get it - the engine and `BigQuery`, which are the two that
+        // decode through this function.
+        //
+        // **NOT every adapter, which is what this comment used to claim.** The other three decode
+        // their own driver's vocabulary and never reach here, so the hole is open behind them to
+        // different depths, and a reader of this paragraph should not infer otherwise:
+        //
+        //   * `sutura-exec-duckdb`'s `cell` takes a `DuckValue` and never sees a column type at
+        //     all - `DuckValue::Null` is its first arm - so BOTH halves are still open there;
+        //   * `sutura-exec-postgres`' and `sutura-exec-oracle`'s `cell` dispatch on the column's
+        //     declared type, so the all-null half is closed and the ZERO-ROW half is not: no rows
+        //     means `cell` is never called, and an unmapped column passes as a successful empty
+        //     result exactly as it used to here.
         for (label, field) in columns.iter().zip(self.schema.fields()) {
             mapped(label, field.data_type())?;
         }

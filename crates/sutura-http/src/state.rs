@@ -79,6 +79,13 @@ pub struct ServiceState {
     /// composition root (`sutura-cli/src/serve::agent_mount`) hands a handle to this gauge across
     /// that boundary into the `Serving` wrapper it builds around the agent transport, so both
     /// surfaces drive one `sutura_spend_headroom_bytes` series rather than two that disagree.
+    ///
+    /// **The handoff is required by a type, not by the composition root remembering it.** The only
+    /// route to the handle is [`SpendHeadroomPush::of`], and [`AgentMount::new`] cannot be called
+    /// without a [`SpendHeadroomPush`] - so a mount attached with no handle is a mount whose caller
+    /// wrote [`SpendHeadroomPush::NoCeilingConfigured`] on purpose, and
+    /// `crate::router::agent_subtree` refuses to assemble that against a state which registered
+    /// the series.
     spend_headroom: Option<Gauge>,
     ///
     /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
@@ -113,11 +120,115 @@ pub struct ServiceState {
 #[derive(Clone)]
 pub struct AgentMount {
     mount: Ungoverned,
+    /// Which `sutura_spend_headroom_bytes` series the mounted transport pushes onto.
+    ///
+    /// Taken by [`Self::new`] and read by `crate::router::agent_subtree`, which refuses to
+    /// assemble a mount whose declaration disagrees with the state it is attached to. The
+    /// transport itself never reads this - the push happens in the composition root's own wrapper
+    /// around the service, one crate out - so what rides here is the DECLARATION, and its whole job
+    /// is to be checked against [`ServiceState`]'s own registration.
+    spend: SpendHeadroomPush,
+}
+
+/// Where the served agent surface pushes this replica's spend headroom.
+///
+/// **A two-variant declaration rather than an `Option<Gauge>`, because at a call site an `Option`
+/// makes forgetting and deciding look identical.** The same shape
+/// `sutura_domain::source::ImpersonationCapability` uses for the same reason: the absence is a
+/// variant with a name, so a deployment that genuinely has no ceiling says so and a caller that
+/// simply did not think about it cannot compile.
+///
+/// **And the gauge is the state's own, held by the type rather than by the caller's care.**
+/// [`Self::ThisReplicasGauge`] carries a [`ReplicaSpendGauge`], whose only constructor is
+/// [`Self::of`] - so "this is the series `POST /v1/query` writes" is what an instance means, not
+/// merely "someone chose a gauge". [`Self::gauge`] hands an `Option` back out, which is not the
+/// `Option` this type replaces: the push site must branch, and that is the one place that should.
+#[cfg(feature = "agent")]
+#[derive(Debug, Clone)]
+pub enum SpendHeadroomPush {
+    /// The `sutura_spend_headroom_bytes` gauge [`ServiceState::new`] registered for this replica.
+    ThisReplicasGauge(ReplicaSpendGauge),
+    /// There is no such series, because `governance.per_replica_spend_ceiling` is not configured.
+    ///
+    /// Saying so explicitly is the point of the declaration - an unconfigured ceiling is unlimited
+    /// rather than zero (see [`ServiceState`]'s `spend_headroom` field), so "nobody pushed
+    /// anything" and "there is nothing to push" have to be different values or the second one is
+    /// indistinguishable from the first.
+    NoCeilingConfigured,
+}
+
+/// This replica's `sutura_spend_headroom_bytes` gauge, obtainable only from the [`ServiceState`]
+/// that registered it.
+///
+/// **Only [`SpendHeadroomPush::of`] can make one, which is the whole point of the type existing.**
+/// A [`Gauge`] cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
+/// `RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
+/// while pushing onto a series no scrape of this deployment renders. A private field closes it. The
+/// fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+/// `compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
+/// syntax error - would itself fail to compile:
+///
+/// ```compile_fail,E0423
+/// fn _unrelated(gauge: sutura_runtime::Gauge) -> sutura_http::ReplicaSpendGauge {
+///     sutura_http::ReplicaSpendGauge(gauge)
+/// }
+/// ```
+///
+/// The compiling twin, so the failure above is the privacy error it claims to be and not an
+/// unresolved path: the same path, in the same crate, named rather than constructed.
+///
+/// ```
+/// fn _reachable(_: sutura_http::ReplicaSpendGauge) {}
+/// ```
+///
+/// The limit: this holds that the gauge came from *a* [`ServiceState`], not from the one the mount
+/// is attached to. Two states in one process could cross their gauges, and what catches that is the
+/// assembly refusal `crate::router::agent_subtree` raises on a declaration whose presence
+/// disagrees with the attaching state's own registration - a presence check, not gauge identity.
+#[cfg(feature = "agent")]
+#[derive(Debug, Clone)]
+pub struct ReplicaSpendGauge(Gauge);
+
+#[cfg(feature = "agent")]
+impl SpendHeadroomPush {
+    /// This state's own declaration, whichever of the two it is.
+    ///
+    /// The only route to [`Self::ThisReplicasGauge`]. `Gauge` shares its storage by `Arc`, so the
+    /// state and every holder of the returned declaration observe one series.
+    #[must_use]
+    pub fn of(state: &ServiceState) -> Self {
+        state.spend_headroom.as_ref().map_or(Self::NoCeilingConfigured, |gauge| {
+            Self::ThisReplicasGauge(ReplicaSpendGauge(gauge.clone()))
+        })
+    }
+
+    /// The gauge to push onto, or `None` where this deployment has no ceiling at all.
+    ///
+    /// For the push site, which has to branch: a `None` reading leaves the gauge untouched rather
+    /// than fabricating zero, and where there is no gauge there is nothing to leave untouched.
+    #[inline]
+    #[must_use]
+    pub const fn gauge(&self) -> Option<&Gauge> {
+        match self {
+            Self::ThisReplicasGauge(ReplicaSpendGauge(gauge)) => Some(gauge),
+            Self::NoCeilingConfigured => None,
+        }
+    }
 }
 
 #[cfg(feature = "agent")]
 impl AgentMount {
     /// Wraps any service `nest_service` can mount, so `sutura-http` never names its concrete type.
+    ///
+    /// **`spend` is required, and that is the mechanism rather than a parameter.** The mounted
+    /// transport answers through the same `Surface` and charges the same ledger as `POST /v1/query`,
+    /// so a mount attached with no handle to this replica's `sutura_spend_headroom_bytes` gauge
+    /// leaves that series frozen while the ledger drains. [`ServiceState::with_agent_surface`]
+    /// cannot ask for it - it takes a mount that is already built - so the requirement sits here,
+    /// where the mount is made, and rides inside it from there. Build it with
+    /// [`SpendHeadroomPush::of`]; [`SpendHeadroomPush::NoCeilingConfigured`] is the deployment
+    /// declaring it genuinely has no ceiling, and `crate::router::agent_subtree` refuses to
+    /// assemble that against a state which registered the series.
     ///
     /// The transport is nested at this crate's own `AGENT_MOUNT_PATH` (this builder lives in
     /// `sutura-http`, so it may name it) - `axum::Router::nest_service` panics on the root path and
@@ -128,7 +239,7 @@ impl AgentMount {
     /// `assemble` merges and records it in one call. Cloning the router shares one underlying
     /// transport the way `sutura_mcp`'s own `StreamableHttpService::clone` does.
     #[must_use]
-    pub fn new<S>(service: S) -> Self
+    pub fn new<S>(service: S, spend: SpendHeadroomPush) -> Self
     where
         S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
             + Clone
@@ -144,7 +255,17 @@ impl AgentMount {
         // `Ungoverned` value itself, not unfused into a bare `Router` here - see the struct doc.
         Self {
             mount: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service),
+            spend,
         }
+    }
+
+    /// What this mount declared about the spend-headroom series, for the assembly check.
+    ///
+    /// `pub(crate)`: only `crate::router::agent_subtree` reads it, to refuse a declaration that
+    /// disagrees with the state the mount is being attached to.
+    #[inline]
+    pub(crate) const fn spend(&self) -> &SpendHeadroomPush {
+        &self.spend
     }
 
     /// A clone of the fused mount, for `crate::router::agent_subtree` to layer and merge into the
@@ -312,17 +433,17 @@ impl ServiceState {
         &self.admission
     }
 
-    /// The shared handle to this replica's spend-headroom gauge, so a second transport can push
-    /// the same `sutura_spend_headroom_bytes` series a query route pushes.
+    /// Whether this state registered `sutura_spend_headroom_bytes` at all.
     ///
-    /// `sutura-http`'s own `/v1/query` route calls [`Self::record_spend_headroom`] instead; this is
-    /// for the composition root, which holds the served surface and needs to hand the MCP
-    /// transport a handle to the SAME gauge the HTTP route writes. `None` exactly when the
-    /// deployment has no spend ceiling (see the `spend_headroom` field doc for the absent-rather-
-    /// than-zero discipline). Cloned because [`Gauge`] shares its storage by `Arc`, so the caller
-    /// and this state observe one series.
-    pub fn spend_headroom_gauge(&self) -> Option<Gauge> {
-        self.spend_headroom.clone()
+    /// `pub(crate)`: `crate::router::agent_subtree` compares it against what an [`AgentMount`]
+    /// declared, so a mount claiming there is no ceiling cannot be assembled onto a state that
+    /// registered the series. Deliberately NOT a public accessor handing the [`Gauge`] out - the
+    /// one route to the handle is [`SpendHeadroomPush::of`], which is what makes the declaration
+    /// mean "this state's own gauge" rather than "a gauge".
+    #[cfg(feature = "agent")]
+    #[inline]
+    pub(crate) const fn spend_headroom_registered(&self) -> bool {
+        self.spend_headroom.is_some()
     }
 
     /// Pushes this replica's current spend headroom onto the gauge, if this deployment has a

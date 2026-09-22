@@ -282,6 +282,46 @@ fn a_same_typed_column_swap_is_refused_before_a_value_is_read() {
     assert!(!message.contains('7'), "a refusal must not quote a cell: {message}");
 }
 
+/// The OTHER half of the same predicate, and it was pinned by nothing.
+///
+/// **A measured gap, not a symmetry added for tidiness.** Replacing the whole condition with
+/// `announced.data_type() != delivered.data_type()` - dropping the name half - reddens
+/// `a_same_typed_column_swap_is_refused_before_a_value_is_read`; replacing it with
+/// `announced.name() != delivered.name()` - dropping the TYPE half - left all 447 cells in this
+/// crate green. So the name comparison was held and the type comparison was decoration.
+///
+/// Why it matters more than a swap does, which is the reason the announced type here is a decimal
+/// and not simply a second integer: Arrow never sees the ANNOUNCED schema at all -
+/// `RecordBatch::try_new` checks a batch's arrays against the schema handed to it, so a batch that
+/// declares `Int64` and carries `Int64` is valid however the stream was announced. And
+/// [`ResultBatches::to_rows`] type-passes the ANNOUNCED field while `cell` reads the DELIVERED
+/// array, so an unrefused substitution of `Int64` for `Decimal128(38, 9)` is answered - as
+/// `Value::Integer(1)` under a column the stream promised was a decimal, which is the same number
+/// out by a factor of a billion rather than an error anywhere.
+#[test]
+fn a_column_delivered_under_its_announced_name_with_another_type_is_refused() {
+    let announced: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+        "average_order",
+        DataType::Decimal128(38, 9),
+        true,
+    )]));
+    // Arrow accepts this: the array matches the schema this batch was built under. Same width, same
+    // NAME, different type - the mirror of the swap cell above.
+    let substituted = RecordBatch::try_new(one_int("average_order"), vec![ints(&[1])])
+        .expect("Arrow accepts a batch that matches its own schema, whatever was announced");
+
+    let mut accumulating = Accumulating::announcing(announced, 10);
+    let refused = accumulating
+        .push(substituted)
+        .expect_err("a column delivered under another type is refused");
+    assert!(matches!(refused, UnannouncedBatch::Mislabelled { at: 0, .. }), "{refused:?}");
+    // Both descriptors, so an operator can see WHICH half disagreed - and no cell value.
+    let message = refused.to_string();
+    assert!(message.contains("average_order Decimal128(38, 9)"), "{message}");
+    assert!(message.contains("average_order Int64"), "{message}");
+    assert!(!message.contains(": 1"), "a refusal must not quote a cell: {message}");
+}
+
 /// A narrower batch is refused, and the width check is what stops the name check truncating.
 #[test]
 fn a_batch_narrower_than_its_schema_is_refused_rather_than_matched_on_its_prefix() {

@@ -267,3 +267,21 @@ arrives it shortens the budget the transport opens and changes nothing on the po
 `sutura_exec_bigquery::wire::StsOverHttp`, wired by the composition root - `sutura-serve` folded into
 `sutura-cli`'s `serve` module (`github.com/telekom/sutura#685` step 2) - and the claim that it does
 not read the port's `Deadline` at all is otherwise unaffected.
+
+## Second amendment, 2026-09-21: `StsOverHttp` is deleted, so the row above is about nothing
+
+The amendment above corrects *whose* `StsOverHttp` it is. There is no `StsOverHttp`: it went with the
+BigQuery HTTP transport and then with the exchanging broker itself (`docs/adr/0018`, fifth and eighth
+amendments), and `sutura_exec_bigquery` has no `wire` module at all now. **So the gap that row
+recorded - an exchange that ignores the port's `Deadline` - is closed by deletion rather than by a
+deadline reaching it**, which is worth separating from the rest of this record: nothing was fixed.
+
+**And the BigQuery row's other half is now false in the other direction.** *What holds it, and what
+does not* has the port's `Deadline` reaching the wire as `timeoutMs`/`jobTimeoutMs`; those were
+`jobs.query` request parameters, and the ADBC transport sends nothing of the sort. `JobDeadline::Port`
+still reaches `JobRequest`, `JobRequest::deadline` still reads it, and the only implementor never
+looks - measured by grepping the one `JobTransport` implementor for the field, whose sole reader is a
+test fake. So for BigQuery this decision's in-process half holds (a question whose deadline is spent
+is refused before the call) and its at-the-source half reaches nothing: **a running BigQuery job is
+not cancelled, and nothing bounds how long it takes.** `docs/serving.md`'s
+`server.request_timeout_seconds` row says the same thing where an operator reads it.

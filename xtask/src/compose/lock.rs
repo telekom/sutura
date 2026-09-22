@@ -303,7 +303,7 @@ fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
 /// it shares with the rest of the suite; the alternatives are all worse than a parameter - a
 /// read-only file or a directory in the path fails at the `open` ABOVE the lock, so it exercises the
 /// path this defect is not on, and an `RLIMIT_FSIZE` of zero needs `libc` and therefore `unsafe`,
-/// which this workspace forbids rather than denies.
+/// which this crate's root forbids rather than denies.
 ///
 /// So the substituted step is one closure call. The open, the lock, the `Held` that takes it, the
 /// error mapping and the drop that releases are the production ones, reached through

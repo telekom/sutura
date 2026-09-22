@@ -23,13 +23,27 @@
 //!      (which passes `credential_source` THROUGH, whole, unfiltered)
 //!   -> externalaccount.NewTokenProvider: GET our loopback URL for the subject token,
 //!      exchange it at Google's STS for the declared pool audience
+//!   -> and, because the document names `service_account_impersonation_url`, wrap that
+//!      federated credential in credentials/internal/impersonate: one POST of
+//!      `generateAccessToken` to the declared account, with the federated token as its
+//!      authorization (externalaccount.go:252-270, impersonate.go:103-127)
 //! ```
 //!
-//! So Google's own token service verifies the caller's assertion against the pool, and the source
-//! executes as whatever principal that pool resolves the subject to. **That is what makes
-//! `Warehouse::IMPERSONATION` true rather than documented**: there is no arm on this path that
-//! runs a question under the deployment's identity while reporting it as the asker's -
+//! So Google's own token service verifies the caller's assertion against the pool, the pool
+//! resolves the subject to its principal, and that principal mints an access token for the account
+//! this deployment declared for that subject. **That is what makes `Warehouse::IMPERSONATION`
+//! true rather than documented**: there is no arm on this path that runs a question under the
+//! deployment's identity while reporting it as the asker's -
 //! [`crate::transport::JobIdentity`] has no such spelling since the switch was removed.
+//!
+//! **Two things measured off those sources rather than assumed.** `impersonate.Options::Token`
+//! POSTs `URL` verbatim with no scheme, host or shape check of any kind, and
+//! `externalaccount.Options::validate` checks only that it is non-empty - so the only thing
+//! standing between a declared value and an arbitrary request target is this workspace's own
+//! narrowing (`crate::principal::names_a_service_account`, applied at parse AND at send). And the
+//! STS leg is exchanged for `cloud-platform` while the CALLER's scopes go to the impersonation
+//! call (externalaccount.go:256-263), which is why this document still carries no `scopes` member
+//! and why `sources.<alias>.workload_identity.scope` still reaches nothing here.
 //!
 //! # Why a loopback URL rather than a file or an executable
 //!
@@ -103,7 +117,7 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 
 use super::AdbcError;
 
@@ -120,6 +134,20 @@ pub(super) const SECRET_HEADER: &str = "x-sutura-subject-token-secret";
 /// at emits. A pool configured for SAML would need a different value and a different leg 1, so this
 /// is a constant rather than a setting nobody could fill in correctly.
 const SUBJECT_TOKEN_TYPE: &str = "urn:ietf:params:oauth:token-type:jwt";
+
+/// Everything before the declared account in `service_account_impersonation_url`.
+///
+/// **Rendered from two constants and a `format!` rather than parsed into a type.** The URL is
+/// `iamcredentials.projects.serviceAccounts.generateAccessToken`'s resource path, which the
+/// deleted HTTP wire built the same way off a bare `&str`; a newtype whose `parse` cannot fail,
+/// with one consumer and one caller, is the builder-with-one-implementor this workspace deletes.
+/// What makes the interpolation safe is the NARROWING on the value, which
+/// `crate::principal::names_a_service_account` performs at both ends - see this function's own
+/// refusal in `super::identity`.
+const IMPERSONATION_URL_PREFIX: &str = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/";
+
+/// Everything after it: the method the pool's principal calls on that account.
+const IMPERSONATION_URL_SUFFIX: &str = ":generateAccessToken";
 
 /// How many bytes of one request head this will read before refusing.
 ///
@@ -296,12 +324,25 @@ impl SubjectSource {
     /// process the assertion - `Secret` has no `Display` and prints `REDACTED` under `Debug`, so
     /// neither is reachable by accident.
     ///
-    /// `service_account_impersonation_url` is deliberately ABSENT. Without it the credential IS the
-    /// pool principal the subject resolved to, which is what makes two subjects two principals at
-    /// the data system by construction rather than by a declared map. A per-subject service account
-    /// on top of that is the `impersonate` map's job and is not built on this path yet - see
-    /// `crate::principal`.
-    pub(super) fn document(&self, pool: &WorkloadPool) -> Secret {
+    /// **`service_account_impersonation_url` names the account declared for THIS subject**, which
+    /// is the field `telekom/sutura#929` F3 added and the reason the `impersonate` map's values
+    /// decide something. Two links, one chain: the subject's own assertion federates to the pool's
+    /// principal, and `externalaccount`'s `impersonate.go` then calls
+    /// `generateAccessToken` on this account with that federated credential - so the token the
+    /// driver ends up holding is the declared account's, reached only by a caller the pool
+    /// verified. Changing a declared account changes which account that caller's questions run as.
+    ///
+    /// A round of this path left the field ABSENT, which made the credential the pool principal
+    /// itself and every declared caller one identity; its comment described that as the `impersonate`
+    /// map's job, not yet built. It is built.
+    ///
+    /// **The limit, beside the claim**: nothing here - and nothing anywhere in this repository -
+    /// checks that the pool's principal may actually impersonate `target`. That is one IAM binding,
+    /// `roles/iam.workloadIdentityUser` on the target account with the pool's
+    /// `principal://.../subject/<id>` as its member, and no type, lint, hook or gate sees a live
+    /// policy. An account that is declared, well-formed and not reachable fails as
+    /// [`AdbcError::Adbc`] on the first question by that subject, never at boot.
+    pub(super) fn document(&self, pool: &WorkloadPool, target: &PrincipalName) -> Secret {
         // Built with `serde_json` rather than by formatting, so a declared value cannot close a
         // string and add a field - the parse in `WorkloadPool` narrows the input and this makes the
         // narrowing unnecessary rather than load-bearing.
@@ -310,6 +351,8 @@ impl SubjectSource {
             "audience": pool.audience(),
             "subject_token_type": SUBJECT_TOKEN_TYPE,
             "token_url": "https://sts.googleapis.com/v1/token",
+            "service_account_impersonation_url":
+                format!("{IMPERSONATION_URL_PREFIX}{target}{IMPERSONATION_URL_SUFFIX}"),
             "credential_source": {
                 "url": format!("http://{}/{}", self.address, self.nonce),
                 "headers": { SECRET_HEADER: self.secret.clone() },
@@ -461,6 +504,13 @@ fn authenticated(head: &str, wanted: &str, secret: &str) -> bool {
 /// than the switch this path replaced.
 fn unguessable() -> Result<String, AdbcError> {
     let mut bytes = [0_u8; 16];
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one entropy read this workspace makes on purpose: two unguessable per-request \
+                  values authorising the driver's loopback fetch of a subject's assertion. \
+                  `clippy.toml` bans all four of getrandom's entry points so that this site is the \
+                  only one, and a second is a visible diff"
+    )]
     getrandom::fill(&mut bytes).map_err(|cause| AdbcError::NoRandomness { cause })?;
     Ok(bytes.iter().fold(String::with_capacity(32), |mut hex, byte| {
         // `fold` rather than `map(format!).collect()`, which `clippy::format_collect` refuses: one

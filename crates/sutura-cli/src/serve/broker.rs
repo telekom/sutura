@@ -8,9 +8,10 @@
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
 //! implementor a composition root can reach. `sutura_exec_bigquery::DeclaredPrincipalBroker` is what
-//! the ADBC transport can be served through: it presents the PRINCIPAL a source declared for the
-//! asking subject, and the driver becomes that principal. Its own module header states what that
-//! costs relative to the exchange.
+//! the ADBC transport can be served through: it presents the asking subject's OWN verified
+//! assertion, and the declared pool is what resolves that subject to a principal. What the declared
+//! map decides is only WHETHER this caller may be served here. Its own module header states what
+//! that costs relative to the exchange.
 //!
 //! It scans the WHOLE `sources:` registry rather than the `bigquery`-kind entries only, for the
 //! reason the deleted builder did: a plan may read a shared source of one kind and an impersonating
@@ -30,7 +31,12 @@ use sutura_exec_bigquery::{DeclaredPrincipalBroker, DeclaredPrincipals};
 ///
 /// - an impersonating source whose `impersonate` map names nobody, so no caller could ever be
 ///   served there;
-/// - a declared target that is not a principal this adapter can name;
+/// - a declared target that is not a principal this adapter can name - **narrowed by
+///   `telekom/sutura#929` F3 and not relaxed by it.** `PrincipalName::parse` alone accepts `/`,
+///   `:` and `?`; since the account is now interpolated into one path segment of the credential
+///   document's `service_account_impersonation_url`, `DeclaredPrincipals::parse` refuses anything
+///   that is not a service-account address, which is what makes a bad declaration a startup
+///   failure rather than a per-question one;
 /// - a source declaring the pool expectations `telekom/sutura#817` added, which described a token
 ///   exchange no transport in this build performs.
 pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<DeclaredPrincipalBroker, String> {
@@ -59,7 +65,10 @@ pub(crate) fn build_broker(registry: &sutura_config::SourceRegistry) -> Result<D
         }
         // The declared subject -> service-account map, re-expressed once here into the adapter's own
         // parsed shape: an adapter may not depend on the settings tree, so every value on this path
-        // is parsed again by the crate that sends it.
+        // is parsed again by the crate that sends it. Both halves are read now - the KEYS decide
+        // which callers a source may be asked as, the VALUES the account each of them executes as -
+        // so `DeclaredPrincipals::parse` refusing here is what keeps a security-critical
+        // declaration from being accepted and then ignored.
         let mut declared = std::collections::BTreeMap::new();
         for (subject, target) in workload.impersonate() {
             let name = sutura_domain::identity::PrincipalName::parse(target.as_str()).map_err(|cause| {

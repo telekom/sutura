@@ -94,8 +94,11 @@ years. Say so rather than adding a wrap check.
 
 ## Decision 4: `sutura-runtime` owns the registry, behind a default-off feature
 
-`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` is twenty-eight crates and a registry is
-not among them, so adding one is an architecture decision by that gate's own doc comment.
+`sutura-domain` is excluded mechanically - `ALLOWED_IN_DOMAIN` (`xtask/src/boundaries/edges.rs`) names
+every crate the interior's whole transitive tree may hold and a registry is not among them, so adding
+one is an architecture decision by that gate's own doc comment. The list was twenty-eight crates when
+this was written and is ninety-seven since `docs/adr/0039` put Arrow in the interior; the number is
+not what the argument rests on, so it is stated as the gate rather than as a count.
 
 `sutura-runtime` is right for the same reason it already owns `Admission`, and that module says it: the
 resource it bounds is the process, and *"two independently sized semaphores would be two controls each
@@ -376,3 +379,45 @@ Two cells hold the push: `a_served_agent_surface_pushes_spend_headroom_after_an_
 (`crates/sutura-cli/src/serve/tests/agent_identity.rs`), both through the composition root's own
 `agent_mount(&state)` helper. `.agents/skills/sutura/invariants/SKILL.md`'s spend-headroom row
 names the cells and the mutations they kill.
+
+## Fourth amendment, 2026-09-21: the gauge handoff is held by a type, not by the composition root
+
+The Third amendment above is accurate and incomplete in the way that matters: it describes the
+handoff as something `sutura-cli/src/serve::agent_mount` *does*. It was, and nothing held it.
+`ServiceState::with_agent_surface` took only the mount, so it could not require that the mount had
+ever been handed a gauge, and three call sites attached one without: `crates/sutura-http/src/router.rs`'s
+own assembly cell, `crates/sutura-http/src/inbound/tests/router.rs`, and the two earlier cells in
+`crates/sutura-cli/src/serve/tests/agent_identity.rs`. "The served agent surface pushes onto the same
+gauge the HTTP route writes" was therefore true of the `serve` composition root and of nothing else.
+
+`sutura_http::SpendHeadroomPush` is the mechanism. It is a two-variant declaration rather than an
+`Option<Gauge>`, for the reason `sutura_domain::source::ImpersonationCapability` is one: at a call
+site an `Option` makes *forgetting* and *deciding* look identical, and a deployment with no
+`governance.per_replica_spend_ceiling` genuinely has nothing to push onto. So the absence is
+`NoCeilingConfigured` - a name a caller has to write - and the presence is
+`ThisReplicasGauge(ReplicaSpendGauge)`, whose payload has a private field and whose only constructor
+is `SpendHeadroomPush::of(&state)`. Handing a fresh, unrelated `sutura_runtime::Gauge` does not
+typecheck; a `compile_fail,E0423` doctest on `ReplicaSpendGauge` pins that, with a compiling twin so
+the failure is the privacy error it claims to be. `AgentMount::new` requires the declaration, so the
+guarantee rides inside the mount and `with_agent_surface` needed no signature change at all.
+
+**What the type cannot hold, and the second mechanism that does.** `NoCeilingConfigured` still
+typechecks on a priced deployment - the type can require that a case be named, not that the name be
+true - and that deployment would serve `/mcp` with `sutura_spend_headroom_bytes` frozen at its boot
+reading while the agent surface drained the ledger, which is exactly the lie
+`telekom/sutura#892` closed for one composition root. `crate::router::agent_subtree` therefore
+refuses to assemble a mount whose declaration disagrees with the attaching state's own registration,
+as `RouterNotBuilt::AgentSurfaceSpendPushMismatched`. It fires after the leg 1 refusal above it, so a
+state with both problems still reports the security one first.
+
+**The limit, stated where the claim is.** That refusal compares presence, not gauge identity: two
+`ServiceState`s in one process that both configured a ceiling could still cross their gauges, and
+nothing would refuse it. `cargo xtask check-one-bound` holds that a serving composition root builds
+one execution bound, not one state, so this rests on the shipped root building one. `Gauge` has no
+identity to compare - it is an `Arc<AtomicU64>` newtype with no `ptr_eq` accessor - so closing it
+would mean widening `sutura-runtime`'s surface for a case no shipped code can reach.
+
+`an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble`
+(`crates/sutura-cli/src/serve/tests/agent_identity.rs`) holds the refusal, built through the
+composition root's own `agent::mount` so what is refused is the real wiring mistake. The two cells
+the Third amendment names are unchanged and still hold the push itself.

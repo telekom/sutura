@@ -21,7 +21,7 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
@@ -52,13 +52,15 @@ pub enum ParameterMode {
 /// reads as exactly the regression it would be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobDeadline {
-    /// A request-time call's own `Deadline`, opened by the transport at the answer's arrival.
-    /// `Warehouse::dry_run`/`execute` build this arm, and only this arm - see
-    /// [`JobRequest::new`]'s own doc.
+    /// A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and
+    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the transport
+    /// that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
-    /// the identity read build this arm; the ADBC driver opens a fresh window under its own
-    /// configured bounds instead.
+    /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
+    /// under its own configured bounds instead*, and this process configures no bound at all: the
+    /// only database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, so
+    /// whatever window exists is the driver's own default and is not ours to state.
     Boot,
 }
 
@@ -83,19 +85,31 @@ pub enum JobIdentity<'job> {
     /// The shared posture, and the boot path - see [`JobDeadline::Boot`] for the other half of what
     /// "no caller" means to a request.
     Transport,
-    /// The asking subject's own verified assertion, for the data system to authenticate itself.
+    /// The asking subject's own verified assertion, and the account this deployment declared that
+    /// subject's questions should execute as.
     ///
     /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
-    /// [`crate::adbc`] puts this behind a workload-identity credential document, so Google's own
-    /// token service verifies it and the source executes as whatever principal the pool resolves
-    /// the subject to. Nothing on that path runs the question under the deployment's identity.
+    /// [`crate::adbc`] puts the assertion behind a workload-identity credential document, so
+    /// Google's own token service verifies it and resolves the subject to the declared pool's
+    /// principal. Nothing on that path runs the question under the deployment's identity.
     ///
-    /// **One subject arm and not two, which is the deletion that makes the claim true.** There used
-    /// to be a second - a PRINCIPAL the deployment asked the data system to become on the subject's
-    /// behalf, on a connection the deployment authenticated - and a transport could serve that one
-    /// while provenance reported the answer as impersonated. It has no spelling here any more, so
-    /// the weaker mechanism is unrepresentable rather than refused.
-    AsSubject(&'job Secret),
+    /// **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
+    /// second mechanism: the credential the driver ends up holding is still derived from the
+    /// caller's own assertion, and the pool principal impersonating a declared account is one chain
+    /// with two links. It is not the deleted principal switch, which ran from the deployment's own
+    /// application default credentials with the caller's credential nowhere in the chain - that has
+    /// no spelling here and a broker presenting it is refused by
+    /// `BigQueryError::NoPrincipalSwitch`.
+    ///
+    /// **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
+    /// run every declared caller as one pool principal while a deployment's `impersonate` map said
+    /// otherwise.
+    AsSubject {
+        /// What the pool verifies.
+        assertion: &'job Secret,
+        /// What the pool's principal then impersonates.
+        target: &'job PrincipalName,
+    },
 }
 
 /// One query job, as this adapter asks for it.
@@ -119,14 +133,16 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg
-    /// `Warehouse::dry_run`/`execute` builds carries `JobDeadline::Port`, opened by the transport at
-    /// the answer's arrival, so `timeoutMs`/`jobTimeoutMs` derive from what is really left rather
-    /// than from this adapter's own configured job bounds. `verify_anchor`, a fixture load or drop,
-    /// and the identity read have no caller and no request timeout to read one from - `docs/adr/0029`
-    /// calls that the boot path - so they pass `JobDeadline::Boot`, and `submit` opens a fresh window
-    /// from this transport's own configured job bounds instead, exactly as every call did before
-    /// this parameter existed.
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`] - and no
+    /// implementor reads it.** A leg `Warehouse::dry_run`/`execute` builds carries
+    /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no
+    /// caller and no request timeout to read one from - `docs/adr/0029` calls that the boot path -
+    /// so they pass `JobDeadline::Boot`. **What used to consume the distinction is gone**: the HTTP
+    /// wire derived `timeoutMs`/`jobTimeoutMs` from the `Port` arm, and the one transport left
+    /// ignores the field, so the two arms are a record of provenance rather than a bound. Kept
+    /// because a call site that wrote `Boot` for a request-time leg is still the regression
+    /// [`JobDeadline`]'s own doc describes, and [`JobRequest::deadline`] is how a cell reads it -
+    /// which is the only reader there is.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
@@ -164,10 +180,14 @@ impl<'job> JobRequest<'job> {
 
     /// Who this job is to be executed as.
     ///
-    /// **This is the half that makes a `BigQuery` source execute as the asker**, and which of
+    /// **This is the half that decides who a `BigQuery` job is executed as**, and which of
     /// [`JobIdentity`]'s arms a leg carries is decided once, above, from what the broker presented -
     /// never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
-    /// ignored it would answer as itself while provenance reported the asker.
+    /// ignored it would answer as itself while provenance reported the asker. It does not make the
+    /// source execute as the asker on its own: [`JobIdentity::AsSubject`] carries the subject's
+    /// assertion and the account declared for that subject, and the declared pool is what resolves
+    /// the assertion to a principal able to impersonate it - unproven against a live pool, per
+    /// `docs/where-identity-is-proven.md`.
     #[inline]
     #[must_use]
     pub const fn identity(&self) -> JobIdentity<'_> {
@@ -790,7 +810,13 @@ pub trait JobTransport {
     }
 
     /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
-    /// call sent anything, or the service stopping the job at `jobTimeoutMs`?
+    /// call sent anything?
+    ///
+    /// **One half and not two.** This used to read *or the service stopping the job at
+    /// `jobTimeoutMs`*; that was an HTTP `jobs.query` request parameter, deleted with that transport
+    /// and not replaced, so no implementor asks any service to stop anything. The predicate stays
+    /// because a transport that COULD would answer it here, and because the arm below still has the
+    /// already-spent half to report.
     ///
     /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
     /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,

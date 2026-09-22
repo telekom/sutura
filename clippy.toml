@@ -145,6 +145,54 @@ disallowed-methods = [
   { path = "rustls::ServerConfig::builder_with_protocol_versions", reason = "the same auto-detection as builder, with versions chosen; use builder_with_provider, which takes both" },
   { path = "rustls::server::WebPkiClientVerifier::builder", reason = "the same auto-detection, on the verifier rather than the config; use builder_with_provider with ring::default_provider()" },
   { path = "rustls::client::WebPkiServerVerifier::builder", reason = "the same auto-detection, on the verifier rather than the config; use builder_with_provider with ring::default_provider()" },
+  # **THE CLOCK AND THE ENTROPY SOURCE, which `docs/adr/0039` put in the hexagon's INTERIOR's
+  # closure** - `telekom/sutura#929`'s boundary audit, first finding. `xtask`'s
+  # `boundaries::edges::ALLOWED_IN_DOMAIN` says the two crates that perform OS I/O are "reachable
+  # from no code this crate has", and that is a claim about CURRENT USE: a type cannot forbid IO,
+  # Rust has no effect system, and `chrono`/`ahash` arrive by `arrow-array`'s own manifest rather
+  # than by feature unification - so they are there on every host and no gate stops the first call.
+  # These four rows are that gate. A call becomes an `#[expect]` a reviewer can see, which is the
+  # `verify_anchor` shape above.
+  #
+  # `Local::now` reads `/etc/localtime` (or `CFTimeZoneCopySystem` on macOS) through
+  # `iana-time-zone`; `Utc::now` is banned beside it because it is the same wall clock and a
+  # determinism hazard in a query planner rather than a filesystem read - a plan that consulted one
+  # would answer a different thing at midnight. `RandomState::new` is `ahash`'s `runtime-rng`,
+  # which draws from `getrandom`.
+  #
+  # **The four `getrandom` rows are the ones with a live call behind them**, so the entropy half is
+  # not held only against a hypothetical: `sutura_exec_bigquery::adbc::subject::unguessable` reads
+  # the OS source on purpose, and it now carries the one `#[expect]` for that. All four of that
+  # crate's entry points are listed rather than the one in use, because banning `fill` alone would
+  # leave `u32`, `u64` and `fill_uninit` as three unremarked syscalls.
+  #
+  # VERIFIED TO RESOLVE the way this file's header requires, and both directions were measured on
+  # #929 rather than assumed. Each of the three `chrono`/`ahash` paths was written as a call in
+  # `sutura-domain` (with the two crates temporarily added as dev-dependencies, since nothing names
+  # them directly) and clippy rejected it by file and line; each `getrandom` path was written in
+  # `sutura-exec-bigquery`, where the dependency is real, and rejected the same way. The RE-EXPORT
+  # form is what is written below: clippy reports the definition path
+  # (`chrono::offset::Utc::now`, `ahash::random_state::RandomState::new`) and accepts either, so the
+  # shorter one is here and the pair is not duplicated. The negative control ran too - a deliberate
+  # nonsense path in this list produced no diagnostic at all, which re-confirms this file's header
+  # on the current pin.
+  #
+  # **THE LIMIT, and it is the whole of what these four buy.** A `disallowed-methods` path is
+  # resolved per compilation unit, so a row reaches a crate only once that crate NAMES the
+  # dependency - which is also the moment the call becomes writable at all, since Rust 2018 needs a
+  # direct dependency to spell a path. So the three clock/hash rows are inert on today's tree by
+  # construction and fire on the diff that makes them reachable. What they do NOT reach is the
+  # calls `arrow-array` and `ahash` make INSIDE themselves: `ahash::RandomState` is constructed by
+  # `arrow-array`'s own hashing whatever this file says, so the entropy syscall happens in a shipped
+  # binary today. These rows govern this workspace's code, not its closure's, and nothing here
+  # governs the closure.
+  { path = "chrono::Local::now", reason = "reads the host time zone off the filesystem from inside the hexagon's interior; a plan must take its calendar from `sutura_domain::calendar`" },
+  { path = "chrono::Utc::now", reason = "a wall clock in a query planner answers a different thing at midnight; take the instant from a caller's own deadline or from `sutura_domain::calendar`" },
+  { path = "ahash::RandomState::new", reason = "`ahash`'s runtime-rng draws an entropy syscall; a hasher this workspace seeds belongs behind a named adapter, not in the interior" },
+  { path = "getrandom::fill", reason = "an entropy syscall; the one legitimate read is `sutura_exec_bigquery::adbc::subject::unguessable`, which holds the #[expect] naming what it is for" },
+  { path = "getrandom::fill_uninit", reason = "the same syscall, filling uninitialised memory; see getrandom::fill" },
+  { path = "getrandom::u32", reason = "the same syscall, one word at a time; see getrandom::fill" },
+  { path = "getrandom::u64", reason = "the same syscall, one word at a time; see getrandom::fill" },
   { path = "rmcp::ErrorData::invalid_params", reason = "the message reaches a model's context as this transport's own error, so caller-chosen text must not be assembled into it; use sutura_mcp::server::RenderedCause::into_error_data, the one call this crate makes to this constructor" },
 ]
 

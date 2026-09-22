@@ -100,6 +100,20 @@ fn granted(minted: Minted, raw: &str, sources: &SourceSet) -> sutura_domain::ide
     credentials
 }
 
+/// The ACCOUNT a mint declared for one source's leg, or `None` where it declared none.
+///
+/// **The value read through `agreeing_with` like every other observable here**, because a cell that
+/// reached into the map would be asserting on something no adapter can reach.
+fn target_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName) -> Option<String> {
+    match granted(minted, raw, sources)
+        .presented_for(at)
+        .expect("the source was asked for")
+    {
+        Presented::SubjectToken { impersonate, .. } => impersonate.as_ref().map(PrincipalName::to_string),
+        other => panic!("expected the asker's own credential for {at}, got {other:?}"),
+    }
+}
+
 /// The principal a mint presented for one source, or a panic naming how it did not.
 fn presented_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName) -> String {
     #[expect(
@@ -111,7 +125,7 @@ fn presented_at(minted: Minted, raw: &str, sources: &SourceSet, at: &SourceName)
         .presented_for(at)
         .expect("the source was asked for")
     {
-        Presented::SubjectToken { material } => String::from(material.expose_secret()),
+        Presented::SubjectToken { material, .. } => String::from(material.expose_secret()),
         other => panic!("expected the asker's own assertion for {at}, got {other:?}"),
     }
 }
@@ -327,4 +341,73 @@ fn a_shared_only_plan_does_not_inherit_the_callers_own_deadline() {
             .agreeing_with(&asked_by, &asked, lapses_at + 100_000)
             .expect("a shared leg does not lapse when the caller's own assertion does"),
     );
+}
+
+#[test]
+fn each_subject_is_minted_the_account_declared_beside_it() {
+    // **THE F3 cell: the map's VALUES now decide something.** A round of this broker read the KEY
+    // to answer *may this caller be served* and dropped the account beside it, so changing a
+    // declared target principal had no effect on anything - a security-critical setting accepted
+    // and then ignored (`telekom/sutura#929`'s own review). What this holds is that each subject is
+    // minted the account declared FOR THAT SUBJECT: not `None`, not the first entry for everyone,
+    // and not the key it was looked up by.
+    let broker = warehouse();
+    let at = source("warehouse");
+    let asked = SourceSet::of(at.clone());
+    let for_a = broker
+        .mint(&caller("analyst-a@example.com"), &asked)
+        .expect("a declared subject is mintable");
+    let for_b = broker
+        .mint(&caller("analyst-b@example.com"), &asked)
+        .expect("a declared subject is mintable");
+    let a = target_at(for_a, "analyst-a@example.com", &asked, &at);
+    let b = target_at(for_b, "analyst-b@example.com", &asked, &at);
+    assert_eq!(a.as_deref(), Some("bq-a@sutura.example.com"));
+    assert_eq!(b.as_deref(), Some("bq-b@sutura.example.com"));
+    assert_ne!(
+        a, b,
+        "both subjects were declared one account, so one map entry decided both legs"
+    );
+    // And it is the VALUE rather than the key: the keys are the two `analyst-*` subjects, so a
+    // broker minting what it looked up by would have put one of those here.
+    assert!(
+        !format!("{a:?}{b:?}").contains("analyst-"),
+        "the subject key was minted as the account to execute as: {a:?} / {b:?}"
+    );
+}
+
+#[test]
+fn a_declared_target_that_is_not_a_service_account_email_is_refused_at_parse() {
+    // **The send-side narrowing, as a mechanism rather than a paragraph.** The account is
+    // interpolated into ONE PATH SEGMENT of the URL that decides which account a question runs as,
+    // and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim with no shape
+    // check of its own. `PrincipalName::parse` ACCEPTS every value below - it is the parser every
+    // principal identifier in the domain shares, and a role name is not an email - so without this
+    // refusal a declaration carrying `/` re-points the segment at an account nobody declared.
+    //
+    // Refused at PARSE, so `sutura_cli`'s `build_broker` turns it into a startup failure: a
+    // deployment that cannot name its declared accounts must not boot clean.
+    let traversal = "sa/../../projects/-/serviceAccounts/other@x.iam.gserviceaccount.com";
+    for hostile in [
+        traversal,
+        "no-at-sign.example.com",
+        "two@at@signs.example.com",
+        "has space@example.com",
+        "has\"quote@example.com",
+        "query@example.com?alt=json",
+    ] {
+        let declared = principal(hostile);
+        // The domain's own parser is what accepts it, which is why this cell exists at all.
+        assert_eq!(
+            declared.as_str(),
+            hostile,
+            "the domain narrowed this, and the cell below proves nothing"
+        );
+        let refused = DeclaredPrincipals::parse(BTreeMap::from([(subject("analyst-a@example.com"), declared.clone())]))
+            .expect_err("a value that is not a service-account address is not a declarable target");
+        assert_eq!(refused, NoDeclaredPrincipals::NotAServiceAccount { target: declared });
+    }
+    // And the accepted direction, so the refusal above is not passing against a parse that refuses
+    // everything: `two_analysts` is built by `parse` and every cell here depends on it.
+    assert_eq!(two_analysts().count(), 2);
 }

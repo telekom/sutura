@@ -50,7 +50,7 @@ impl FixtureCredential {
     }
 
     /// The parse, over a LOOKUP rather than over the process environment - `std::env::set_var` is
-    /// `unsafe` in Rust 2024 and this workspace sets `unsafe_code = "forbid"`, so a test exercising
+    /// `unsafe` in Rust 2024 and this crate's root forbids `unsafe_code`, so a test exercising
     /// the real environment could not be written at all.
     pub(crate) fn parse(lookup: impl Fn(&'static str) -> Option<String>) -> Result<Self, UnconfiguredFixture> {
         let present = |name: &'static str| match lookup(name) {

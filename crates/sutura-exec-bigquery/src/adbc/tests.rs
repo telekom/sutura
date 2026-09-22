@@ -13,7 +13,7 @@ use sutura_domain::warehouse::{ParamValue, UnannouncedBatch};
 
 use adbc_core::Statement;
 
-use super::{AdbcBigQuery, AdbcError, Impersonation};
+use super::{AdbcBigQuery, AdbcError, DriverLocation, Impersonation};
 use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
 /// A path that names no driver, so a load reached here always fails.
@@ -22,8 +22,13 @@ use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobR
 /// cell that shows [`AdbcError::Uncovered`] over this path has shown the guard answered first.
 const NO_DRIVER: &str = "/nonexistent/libadbc_driver_bigquery.so";
 
+/// [`NO_DRIVER`] as the parsed location a constructor takes.
+fn nowhere() -> DriverLocation {
+    DriverLocation::parse(NO_DRIVER).expect("an absolute path parses whether or not a file is there")
+}
+
 fn endpoint(impersonation: Impersonation) -> AdbcBigQuery {
-    AdbcBigQuery::new(NO_DRIVER, impersonation)
+    AdbcBigQuery::new(nowhere(), impersonation)
 }
 
 fn impersonating() -> Impersonation {
@@ -55,6 +60,7 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
     // is the fallback the owner rejected. `Uncovered` over a path naming no `.so` is how the
     // ordering is observable without a driver: the identity is decided first.
     let assertion = Secret::new("a.caller.assertion");
+    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -62,7 +68,10 @@ fn a_subject_at_a_shared_source_is_refused_before_the_driver_is_even_loaded() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject(&assertion),
+        JobIdentity::AsSubject {
+            assertion: &assertion,
+            target: &account,
+        },
         JobDeadline::Boot,
     );
     let refused = endpoint(Impersonation::Disabled)
@@ -78,6 +87,7 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
     // only thing left to fail is the LOAD. Without this cell the refusal above passes over a
     // transport that refused every subject for any reason.
     let assertion = Secret::new("a.caller.assertion");
+    let account = crate::adbc::a_declared_account();
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new(
@@ -85,7 +95,10 @@ fn a_subject_at_an_impersonating_source_gets_as_far_as_the_driver() {
         &[],
         &project,
         &dataset,
-        JobIdentity::AsSubject(&assertion),
+        JobIdentity::AsSubject {
+            assertion: &assertion,
+            target: &account,
+        },
         JobDeadline::Boot,
     );
     let failed = endpoint(impersonating())
@@ -144,11 +157,10 @@ fn a_request_this_transport_accepts_gets_as_far_as_the_driver_and_fails_there() 
 
 #[test]
 fn a_path_that_names_no_driver_is_a_load_failure_and_not_a_silent_pass() {
-    // **`probe`'s whole job, and the reason it exists at boot.** Reading the environment variable
-    // says a path was written down; this says the `.so` at it is this ABI and its runtime started.
-    // A static-musl binary answers here too - it has no dynamic loader - which is what makes the
-    // musl limit assertable by running the artefact rather than by a sentence.
-    let failed = AdbcBigQuery::probe(NO_DRIVER).expect_err("no driver lives at this path");
+    // **`probe`'s whole job, and the reason it exists at boot.** Resolving a location says a driver
+    // was decided on; this says the driver at it is this ABI and its runtime started. A mounted path
+    // is the only route a source build has, and this is that route's failure.
+    let failed = AdbcBigQuery::probe(&nowhere()).expect_err("no driver lives at this path");
     assert!(matches!(failed, AdbcError::Load(_)), "{failed:?}");
     // The path is an operator-written string on its way to a startup line; the refusal may carry it
     // (it is not a secret) but has to name the driver at all, or an operator reading a startup
@@ -414,7 +426,7 @@ fn a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal() {
         },
         project(),
         dataset(),
-        NO_DRIVER,
+        nowhere(),
         Impersonation::Disabled,
     );
     let asked =

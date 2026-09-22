@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The conformance packs: one set of test bodies over the ports, bound to an adapter by a macro.
 //!
 //! `docs/adr/0012` is the construction and this crate is the first piece of it built. The

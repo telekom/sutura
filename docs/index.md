@@ -22,7 +22,7 @@ becomes decorative.
     an MCP surface all exist, and a deployment that declares `security.inbound` verifies a caller's
     own token - so who is asking can be known, no question can execute without a credential minted
     for the source it reads, and every outcome is recorded. What is absent is **a data system that
-    evaluates the asking subject**: no adapter in this build can carry a per-subject credential, so
+    evaluates the asking subject**: no published adapter can carry a per-subject credential, so
     every question still reads as one identity. No Arrow result envelope either. Every claim on this
     site is marked *enforced today* or *design target* at the point it is made.
 
@@ -96,8 +96,8 @@ What is not built is the part that makes the first sentence of this page true of
 is now one specific thing rather than four. There *is* a request context, a credential broker port
 with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
 declares `security.inbound` - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. What is absent is **leg 2**: no adapter in this build has anywhere
-for a per-subject credential to arrive, both declare so, and the broker mints what an operator
+operations that caller may invoke. What is absent is **leg 2**: no published adapter has anywhere
+for a per-subject credential to arrive, both published adapters declare so, and the broker mints what an operator
 configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
 a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
 and still read every row as one identity. Arrow results are also still ahead. Federation is not:

@@ -147,6 +147,21 @@ an owned `#[source]`.
   broker presenting the other one gets. Accepting it would submit the job under the
   credential the transport already holds while provenance, read off this source's posture,
   reported the answer as impersonated.
+- `NoImpersonationTarget` - A subject's own credential arrived with no account declared beside it.
+
+  **Refused rather than run as the pool principal, which is the half-configured state this
+  variant exists to keep off a dataset.** The credential document's
+  `service_account_impersonation_url` is what makes a declared account decide anything; with
+  no account there is nothing to name, and the alternative to refusing is a question that runs
+  as whatever principal the pool resolves the subject to while the deployment's `impersonate`
+  map says it runs as somebody specific. `telekom/sutura#929`'s review is explicit that a
+  security-critical setting must not be accepted and then ignored - and *silently widened* is
+  the same defect from the other side.
+
+  Reachable only from a broker that is not `DeclaredPrincipalBroker`: that one mints the
+  account off the map it parsed, so a served deployment refuses the declaration at boot
+  instead. `Presented` is a public port, so the refusal is typed rather than an
+  `unreachable!`.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `Unreadable` - A result column could not be read as a domain value.
 
@@ -262,14 +277,15 @@ it is a path segment of the request that submits a job, and a federated identity
 of its own.
 
 ```rust
-pub fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver_path: impl Into<String>, impersonation: adbc::Impersonation) -> Self
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
 
-`driver_path` is the on-disk location of the self-built
-`libadbc_driver_bigquery.so` (one per release triple, see
-`nix/bigquery-adbc.nix`).
+`driver` is where this process reaches the self-built driver: linked into a release
+artefact's own binary, or a `.so` a deployment mounted. `adbc::DriverLocation` carries why
+that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
+one pinned source.
 
 `impersonation` is whether this source impersonates and at what scope - the source's declared
 `workload_identity.scope`, or `adbc::Impersonation::Disabled` for a shared one. Taken here
@@ -283,9 +299,10 @@ pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQuer
 Who this data system says the leg presenting `presented` is executing AS.
 
 **The observable for the claim this adapter's `IMPERSONATION` constant makes.** A
-`Presented::SubjectToken` rides as this job's own bearer, so what the endpoint resolves
-that bearer to IS the identity the source executed under - and asking the source rather than
-asserting it is the difference between evidence and a comment. `docs/adr/0008` names
+`Presented::SubjectToken` becomes this job's own credential - the subject's assertion
+federated, then impersonating the account declared beside that subject - so what the
+endpoint resolves it to IS the identity the source executed under, and asking the source
+rather than asserting it is the difference between evidence and a comment. `docs/adr/0008` names
 `SESSION_USER()` as the primitive; `SESSION_USER` is the only statement this can issue.
 
 It goes through `Self::deliverable` like every other credential-taking method, so a leg
@@ -361,8 +378,13 @@ point, and erasing it would lose which transport failed.
 
 ## `use DeclaredPrincipalBroker`
 
-Presents the principal a source declared for the asking subject, and the operator's witness for a
-shared one.
+Presents the asking subject's own verified assertion at a source that declares it, beside the
+account declared for that subject - and the operator's witness for a shared one.
+
+**The assertion AND the account, because either alone loses the property.** The assertion is
+what the caller possesses and what the pool verifies; the account is what a deployment declared
+this caller's questions should run as, and a broker that presented only the assertion ran every
+declared caller as one pool principal whatever the map said.
 
 **Both maps, because one plan may read one of each and a broker is per answer rather than per
 source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
@@ -390,19 +412,26 @@ here would be process death under `panic = "abort"` for a case a type already de
 
 Why a declared impersonation map is not one a source can be served under.
 
-One variant, and an enum for the reason every other error in this crate is one: a second reason
-has somewhere to go.
+Two variants, and the second one is the reason the enum was one from the start: an empty
+declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+the same class of defect one level down.
 
 ## Module `adbc`
 
-The ADBC transport: loads the self-built `libadbc_driver_bigquery.so`
+The ADBC transport: opens the self-built `BigQuery` driver
 (`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
 decodes its Arrow result sets.
 
 ```text
-adbc_core + adbc_driver_manager → C ABI → libadbc_driver_bigquery.so
+adbc_core + adbc_driver_manager → C ABI → the BigQuery ADBC driver
   → BigQuery → Arrow RecordBatchReader → decode::Decoding → RowSet
 ```
+
+**Two routes to that driver and one type deciding between them** - `DriverLocation`, resolved
+once at composition. A release artefact carries the driver in its own link (the `c-archive`
+half of one nix derivation), which is the only route a STATIC musl binary has; a source build
+opens a `.so` a deployment mounted. `location` carries why that is a parsed value rather than
+the arbitrary path `telekom/sutura#929`'s sixth finding named.
 
 Behind the crate's default-off `adbc` feature, like the `wire`: the native
 driver and its Arrow graph are a per-triple addition a lean build should not
@@ -471,6 +500,19 @@ Why the ADBC transport could not answer.
   is this process's own: a host with no usable loopback interface cannot serve an impersonated
   question, and saying that is better than a driver failing to fetch a token for reasons of
   its own.
+- `UnusableTarget` - A declared impersonation target is not one this transport will name in a request.
+
+  **Its own variant rather than an `Self::Uncovered`, because it is a refusal about a
+  VALUE and the string in that one is a missing capability.** The account rides into one path
+  segment of `service_account_impersonation_url`, which decides which account the question
+  runs as, and `cloud.google.com/go/auth`'s impersonation provider POSTs that URL verbatim
+  with no shape check at all. `sutura_domain::identity::PrincipalName`'s parser is the
+  domain's shared one and accepts `/`, so the narrowing is this crate's.
+
+  **It carries nothing**, deliberately: the shipped broker parses the same rule at boot and
+  names the value there, where an operator can act on it, and this arm is reachable only from
+  a broker that built a `Presented` by hand. A refusal at the send boundary that echoed the
+  value would put a caller-influenced string into an error that reaches a log.
 - `NoRandomness` - The operating system would not supply the randomness this request's two secrets need.
 
   **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
@@ -503,34 +545,40 @@ its own.
 #### Methods
 
 ```rust
-pub fn new(driver_path: impl Into<String>, impersonation: Impersonation) -> Self
+pub const fn new(driver: DriverLocation, impersonation: Impersonation) -> Self
 ```
 
-Names the driver `.so` a composition root resolves to load, and whether this source
-impersonates.
+Takes the driver a composition root resolved, and whether this source impersonates.
+
+**A `DriverLocation` and not a path**, which is `telekom/sutura#929`'s sixth finding: the
+driver a release artefact carries has no path, and a mounted one has been parsed before it
+gets here.
 
 ```rust
-pub fn probe(driver_path: &str) -> Result<(), AdbcError>
+pub fn probe(driver: &DriverLocation) -> Result<(), AdbcError>
 ```
 
-Does the driver at this path load and initialise at all?
+Does this artefact's driver load and initialise at all?
 
-**The one thing a boot path or a diagnostic can find out about the `.so` without a project**,
-and it is worth more than reading the environment variable: `dlopen` of this driver runs the
-GO RUNTIME's own initialisation inside this process, beside tokio and beside the allocator a
-release build links. That is the coexistence nobody could assert while the only caller was a
-question - so a link-success check would have passed and been wrong, and this executes instead.
+**The one thing a boot path or a diagnostic can find out about the driver without a
+project**, and it is worth more than reading a manifest or an environment variable:
+initialising this driver runs the GO RUNTIME inside this process, beside tokio and beside
+the allocator a release build links. That is the coexistence nobody could assert while the
+only caller was a question - so a link-success check would have passed and been wrong, and
+this executes instead. `nix/bigquery-driver-check.sh` is the venue that runs it against the
+release artefacts, and it is the whole of what makes the driver *carried* rather than
+*built*.
 
 It opens a DATABASE and stops there, deliberately. `new_database_with_opts` is option-setting
 on the Go side and reaches no network; `new_connection` is where the driver builds its client
 and looks for application default credentials, which on a host with none is a metadata-server
-probe this has no business making. So what a success means is exactly *the `.so` is this ABI
+probe this has no business making. So what a success means is exactly *this driver is this ABI
 and its runtime started*, and nothing about whether a question could be answered.
 
 # Errors
 
-`AdbcError::Load` where the `.so` is absent, is not this ABI, or cannot be loaded at all -
-which is what a static-musl binary answers, because it has no dynamic loader.
+`AdbcError::Load` where a mounted `.so` is absent, is not this ABI, or cannot be loaded at
+all, and where a linked-in driver's own initialisation refused.
 `AdbcError::Adbc` where the driver loaded and refused the database.
 
 #### Implements
@@ -545,6 +593,18 @@ Whether this source impersonates at all, and against which pool when it does.
 DECLARATION.** A source is opened shared or impersonating - `sutura_config` refuses a
 `workload_identity` block on a shared entry and refuses its absence on an impersonating one - so
 which of these a transport holds is decided once, at composition, from a value an operator wrote.
+
+### `use DriverLocation`
+
+Where the driver is, once something has decided that it is reachable at all.
+
+**There is no third state and no `Option`.** A source cannot be opened without one of these,
+so a composition root either resolved a driver or refused to serve - the shape
+`crate::transport::JobIdentity` uses for the same reason.
+
+### `use UnusableDriverPath`
+
+Why a named driver path is not one this process will open.
 
 ### `use UnusablePool`
 
@@ -663,8 +723,8 @@ reads as exactly the regression it would be.
 
 #### Variants
 
-- `Port` - A request-time call's own `Deadline`, opened by the transport at the answer's arrival. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc.
-- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm; the ADBC driver opens a fresh window under its own configured bounds instead.
+- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the transport that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no bound at all: the only database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, so whatever window exists is the driver's own default and is not ours to state.
 
 #### Implements
 
@@ -697,18 +757,24 @@ fact and `Presented::agrees_with` passes both subject shapes - they are one POST
 
   The shared posture, and the boot path - see `JobDeadline::Boot` for the other half of what
   "no caller" means to a request.
-- `AsSubject` - The asking subject's own verified assertion, for the data system to authenticate itself.
+- `AsSubject` - The asking subject's own verified assertion, and the account this deployment declared that subject's questions should execute as.
 
   **The subject's own credential and not a stand-in for it**, which is the whole of leg 2:
-  `crate::adbc` puts this behind a workload-identity credential document, so Google's own
-  token service verifies it and the source executes as whatever principal the pool resolves
-  the subject to. Nothing on that path runs the question under the deployment's identity.
+  `crate::adbc` puts the assertion behind a workload-identity credential document, so
+  Google's own token service verifies it and resolves the subject to the declared pool's
+  principal. Nothing on that path runs the question under the deployment's identity.
 
-  **One subject arm and not two, which is the deletion that makes the claim true.** There used
-  to be a second - a PRINCIPAL the deployment asked the data system to become on the subject's
-  behalf, on a connection the deployment authenticated - and a transport could serve that one
-  while provenance reported the answer as impersonated. It has no spelling here any more, so
-  the weaker mechanism is unrepresentable rather than refused.
+  **`target` is the SECOND hop and is a field rather than a third arm**, because it is not a
+  second mechanism: the credential the driver ends up holding is still derived from the
+  caller's own assertion, and the pool principal impersonating a declared account is one chain
+  with two links. It is not the deleted principal switch, which ran from the deployment's own
+  application default credentials with the caller's credential nowhere in the chain - that has
+  no spelling here and a broker presenting it is refused by
+  `BigQueryError::NoPrincipalSwitch`.
+
+  **Both fields are read by `crate::adbc`**, and a transport that read only `assertion` would
+  run every declared caller as one pool principal while a deployment's `impersonate` map said
+  otherwise.
 
 #### Implements
 
@@ -757,10 +823,14 @@ pub const fn identity(&self) -> JobIdentity<'_>
 
 Who this job is to be executed as.
 
-**This is the half that makes a `BigQuery` source execute as the asker**, and which of
+**This is the half that decides who a `BigQuery` job is executed as**, and which of
 `JobIdentity`'s arms a leg carries is decided once, above, from what the broker presented -
 never re-derived here. A transport that cannot serve the arm it is handed refuses; one that
-ignored it would answer as itself while provenance reported the asker.
+ignored it would answer as itself while provenance reported the asker. It does not make the
+source execute as the asker on its own: `JobIdentity::AsSubject` carries the subject's
+assertion and the account declared for that subject, and the declared pool is what resolves
+the assertion to a principal able to impersonate it - unproven against a live pool, per
+`docs/where-identity-is-proven.md`.
 
 ```rust
 pub const fn params(&self) -> &[ParamValue]

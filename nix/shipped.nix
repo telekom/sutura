@@ -28,10 +28,38 @@
 , auditable
 , mimallocFor
 , optLevelFor
+# The per-triple ADBC BigQuery driver derivations, from `nix/bigquery-adbc-drivers.nix`. Read for
+# their `c-archive` half only - see `adbcArchiveFor`.
+, adbcDrivers
 , version
 }:
 
 let
+  # THE DRIVER A PUBLISHED ARTEFACT CARRIES, as the environment
+  # `crates/sutura-exec-bigquery/build.rs` reads to link it in.
+  #
+  # **This is `telekom/sutura#929`'s sixth finding closed.** Before it, a deployment pointed
+  # `SUTURA_BIGQUERY_ADBC_DRIVER` at any file on the host and no release artefact contained a
+  # driver at all; the `bigquery` feature shipped in every published binary regardless. The
+  # `c-archive` half of `nix/bigquery-adbc.nix` is linked into the artefact for each triple that
+  # has one, so the driver is pinned by the flake lock rather than mounted, and the two STATIC
+  # musl triples - which have no dynamic loader and therefore no other route at all - get one.
+  #
+  # **An attrset and not a string, so an absent triple sets nothing** rather than naming a path
+  # that does not exist: a darwin host builds no linux driver, so `nix build .#sutura` there takes
+  # the mounted route and `sutura doctor` says so. `build.rs` refuses a directory holding no
+  # archive, so a wrong value here is a build failure and never a silent fallback.
+  #
+  # ON THE FINAL ATTRSET AND NEVER ON `args`, which is deliberate: `args` reaches
+  # `buildDepsOnly`, and the deps derivation compiles third-party code that has no business
+  # relinking because a driver revision moved. The build script that reads this belongs to a
+  # workspace member, which only the real build compiles.
+  adbcArchiveFor = target:
+    let drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
+    in pkgs.lib.optionalAttrs (drv != null) {
+      SUTURA_ADBC_BIGQUERY_ARCHIVE_DIR = "${drv}/lib";
+    };
+
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
   # `sutura` already IS the x86_64-linux binary, and building a separate "cross" x86_64
   # derivation would compile the whole tree a second time for a byte-identical result.
@@ -206,7 +234,7 @@ let
       cargoExtraArgs = "--package ${binary.package}${featureArg features}";
       # Tests run as their own check in `flake.nix`, sharing the same artifacts.
       doCheck = false;
-    } // auditable.toolFor args // {
+    } // (if hostRustTarget == null then { } else adbcArchiveFor hostRustTarget) // auditable.toolFor args // {
       cargoBuildCommand = auditable.buildCommand profile;
     });
 
@@ -263,7 +291,7 @@ let
       # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
       # that RUNS during the build - `strictDeps = true` above makes that distinction
       # load-bearing rather than stylistic.
-    } // auditable.toolFor args // {
+    } // adbcArchiveFor target // auditable.toolFor args // {
       cargoBuildCommand = auditable.buildCommand profile;
     });
 

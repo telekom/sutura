@@ -197,11 +197,28 @@ repos:
       # file->target map is a review claim written in each target's header, and a hand-table would
       # rot; when the delta lands in a shared crate it replays every target that reaches it.
       # `require_serial` so two simultaneous prek partitions do not both build the one harness.
+      #
+      # TWO ALTERNATIVES WERE DELETED FROM `files:` ON `telekom/sutura#929`, and the deletion is
+      # the finding: they named `crates/sutura-exec-bigquery/src/wire.rs` and its `wire/document.rs`,
+      # which went with the HTTP transport. Nothing was caught by it and nothing could be - the
+      # paths do not exist, so the hook's reach was unchanged - but **no gate reads the literal path
+      # alternatives in a `files:` filter**, so a deleted surface leaves a claim here that looks
+      # like coverage. `hook_coverage`'s `every_surface_the_real_config_claims_still_exists` holds
+      # the hook IDs a SURFACES row names and not these; that is the limit, stated here because a
+      # reviewer counting paths is the only mechanism there is.
+      #
+      # AND `crates/sutura-domain/src/warehouse/` IS DELIBERATELY ABSENT, which was asked. None of
+      # the five targets reaches it: their reach is the catalog document, a JWK set, a question
+      # body, an authored-SQL fragment and a bearer token, and each header says so. A finding in
+      # `warehouse/` that this hook once reported was incidental - `fuzz/` changed in the same
+      # commit, so the filter matched on that rather than on the crate. The class it was a finding
+      # of - an import reachable only under a non-default feature - is held by
+      # `cargo xtask check-default-features`, which `just gates` runs and `just validate` does not.
       - id: fuzz
         name: fuzz (git delta)
         entry: bash nix/run-fuzz.sh smoke
         language: system
-        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-domain/src/catalog\.rs|crates/sutura-domain/src/catalog/|crates/sutura-domain/src/knowledge\.rs|crates/sutura-domain/src/knowledge/|crates/sutura-domain/src/pinned\.rs|crates/sutura-domain/src/pinned/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-http/src/inbound/keys\.rs|crates/sutura-http/src/inbound/keys/|crates/sutura-exec-bigquery/src/wire\.rs|crates/sutura-exec-bigquery/src/wire/document\.rs|crates/sutura-config/src/inbound\.rs|crates/sutura-config/src/inbound/|crates/sutura-catalog-local/|crates/sutura-sql/|crates/sutura-semantic/)
+        files: ^(fuzz/|nix/fuzz\.nix|nix/run-fuzz\.sh|crates/sutura-domain/src/query\.rs|crates/sutura-domain/src/model/|crates/sutura-domain/src/identity\.rs|crates/sutura-domain/src/identity/|crates/sutura-domain/src/catalog\.rs|crates/sutura-domain/src/catalog/|crates/sutura-domain/src/knowledge\.rs|crates/sutura-domain/src/knowledge/|crates/sutura-domain/src/pinned\.rs|crates/sutura-domain/src/pinned/|crates/sutura-http/src/wire|crates/sutura-http/src/inbound/token\.rs|crates/sutura-http/src/inbound/keys\.rs|crates/sutura-http/src/inbound/keys/|crates/sutura-config/src/inbound\.rs|crates/sutura-config/src/inbound/|crates/sutura-catalog-local/|crates/sutura-sql/|crates/sutura-semantic/)
         pass_filenames: false
         require_serial: true
 

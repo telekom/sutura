@@ -789,16 +789,29 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "There are 2 flavours of sutura:",
             "Per connection the mode can be configured.",
         ],
-        // The sentence that refutes it, stated today where the true limit is set out. It is the
-        // anchor rather than prose recalled: `docs/serving.md` says no source executes as the
-        // asking subject, so there is nothing to select.
+        // **RE-ANCHORED ON CODE, and the previous anchor was the trap this comment now records.**
+        // It was a SENTENCE in `docs/serving.md` - and that sentence said *no adapter in this
+        // build* can carry a per-subject credential, which is true of every published binary and
+        // false of a `--features bigquery` one. So the rewording that added the qualifier would
+        // have retired this rule silently, had `tests::every_live_rule_still_has_its_evidence` not
+        // been there to redden `just test` for a needle that stopped matching. A prose needle
+        // makes a rule retire on a paraphrase; a declaration cannot be paraphrased.
+        //
+        // `SourcePosture` is the direct refutation of the reselectable half: a posture is a value
+        // parsed out of one source's `sources:` entry, so there is no per-CONNECTION mode to
+        // configure. What it does not refute on its own is the *2 flavours* half - the qualified
+        // sentence in `docs/serving.md` carries that, and this rule holds the wording rather than
+        // the reasoning.
         evidence: &[Evidence {
-            path: "docs/serving.md",
-            holds: "no adapter in this build can carry a per-subject credential",
+            path: "crates/sutura-domain/src/source.rs",
+            holds: "pub enum SourcePosture",
         }],
         instead: "single player is what ships and the only mode any connection runs; multiplayer \
-                  is the design target. No adapter in this build can carry a per-subject \
-                  credential, so no source executes as the asking subject and nothing selects it",
+                  is the design target. A posture is declared per SOURCE in the `sources:` tree \
+                  (`sutura_domain::source::SourcePosture`) and never chosen per connection, and no \
+                  PUBLISHED adapter can carry a per-subject credential - `bigquery` is a \
+                  default-off feature and the one adapter that can, so no published binary \
+                  executes a source as the asking subject and nothing selects it",
         only: &[],
         except: &[],
     },
@@ -810,14 +823,31 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses.
         name: "the spend headroom gauge is pushed from one transport only",
         wordings: &["pushed from one transport only", "pushed from a single transport"],
-        evidence: &[Evidence {
-            path: "crates/sutura-cli/src/serve/agent.rs",
-            holds: "push_headroom",
-        }],
+        evidence: &[
+            Evidence {
+                path: "crates/sutura-cli/src/serve/agent.rs",
+                holds: "push_headroom",
+            },
+            // The handoff stopped being the composition root's habit: `AgentMount::new` cannot be
+            // called without a `SpendHeadroomPush`, whose gauge-carrying variant only
+            // `SpendHeadroomPush::of(&state)` can build.
+            Evidence {
+                path: "crates/sutura-http/src/state.rs",
+                // Anchored on the constructor, not the bare `pub enum SpendHeadroomPush`
+                // declaration: a rename or a visibility change of the enum would silently move
+                // that literal, while `SpendHeadroomPush::of` is called at every construction
+                // site and a rename has to fix all of them - so the ratchet cannot be retired by
+                // a refactor-shaped edit (`pub enum .. {` -> `pub(crate) enum .. {`).
+                holds: "SpendHeadroomPush::of",
+            },
+        ],
         instead: "the composition root hands this state's own gauge into the `Serving` wrapper, \
                   which pushes after both `Surface::answer` and `Surface::run_sql`, so the agent \
                   transport and `POST /v1/query` drive one series - with the asymmetry the record \
-                  states, that `POST /v1/run_sql` pushes nothing",
+                  states, that `POST /v1/run_sql` pushes nothing - and the handoff is held by a \
+                  type rather than by that root, since `AgentMount::new` requires a \
+                  `SpendHeadroomPush` whose gauge-carrying variant only \
+                  `SpendHeadroomPush::of(&state)` can build",
         only: &[],
         // The Second amendment's deviation 7 is quoted in order to be corrected in place, so this
         // record holds the one copy of the wording no scan may refuse.

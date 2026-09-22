@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Repo automation. Run as `cargo xtask <task>`, or `cargo run -q -p xtask -- <task>`.
 //!
 //! These are gates, not conveniences: each answers "what fails if this rule is violated?"
@@ -50,12 +51,17 @@ mod nix_platform;
 mod one_bound;
 mod orphan_modules;
 mod pins;
+mod pr_title;
 mod refusals;
 mod registry;
 mod release_provenance;
 mod repo;
 mod rust_source;
+// Test-support only - the module is `#[cfg(test)]`, and its home beside the integration
+// tests keeps the gate's declaration accounting true: the file the attribute names is the
+// file the diff moves.
 #[cfg(test)]
+#[path = "../tests/scratch_tree/mod.rs"]
 mod scratch_tree;
 mod serde_parse;
 mod shared_client;
@@ -65,6 +71,7 @@ mod task_table;
 mod tasks;
 mod text;
 mod threshold_expect;
+mod unsafe_containment;
 mod unused_deps;
 #[cfg(test)]
 mod validated_base;

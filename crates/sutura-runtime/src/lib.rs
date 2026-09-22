@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
 //! the banner, the bound on how much executes at once, the audit sink a deployment gets for free,
 //! and the wall clock a caller's relative time range resolves against.

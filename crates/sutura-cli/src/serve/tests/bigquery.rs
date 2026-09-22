@@ -127,11 +127,14 @@ fn an_impersonating_source_is_opened_and_reaches_the_driver_refusal() {
 // `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
 // `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
 // `QueryDeadline::within_request_timeout` divided that number by the two calls one answer makes and
-// found nothing left. `docs/adr/0029` retired that arithmetic - a request-time job now derives
-// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`, which the transport opens from the SAME
-// key without dividing it, so a ten-second `server.request_timeout_seconds` is a usable (if narrow)
-// budget rather than an unservable one. The refusal this test held is gone with the arithmetic that
-// produced it; deleted rather than adapted, because there is no boot-time number left to test.
+// found nothing left. `docs/adr/0029` retired that arithmetic, and its second amendment retired the
+// replacement too: a request-time job CARRIES the port's own `Deadline` and sends it nowhere, so
+// there is no per-call job budget to divide and a ten-second `server.request_timeout_seconds` is a
+// usable (if narrow) caller budget over an unbounded job. This comment read *derives
+// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`* until #929's eighth round; those were
+// `jobs.query` request parameters and went with the HTTP transport. The refusal this test held is
+// gone with the arithmetic that produced it; deleted rather than adapted, because there is no
+// boot-time number left to test.
 
 #[test]
 fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
@@ -187,7 +190,7 @@ fn wif_with(extra: &str) -> String {
 }
 
 /// Two declared subjects, each mapped to its own account - the shape a served impersonating source
-/// is answerable through.
+/// is ADMITTED on. Whether either subject is answered is not a question this module asks.
 #[cfg(feature = "bigquery")]
 fn two_declared_subjects() -> &'static str {
     "      impersonate:\n        \"analyst-a@example.com\": \"bq-a@acme-analytics.iam.gserviceaccount.com\"\n        \
@@ -196,11 +199,18 @@ fn two_declared_subjects() -> &'static str {
 
 #[test]
 #[cfg(feature = "bigquery")]
-fn a_served_impersonating_source_is_answerable_through_the_declared_principal_broker() {
+fn a_declared_two_subject_map_admits_the_source_to_the_broker() {
     // **THE NEGATIVE CONTROL for the two boot refusals below**, and it is the cell that says the
     // composition works at all: without it both of those pass over a `build_broker` that refused
     // every registry. A declared two-subject map builds a broker holding this source, so the
     // refusals beneath are about what they name rather than about anything impersonating.
+    //
+    // **Named for admission, because admission is all it asserts.** It used to be named for the
+    // source being *answerable*, and review broke that name: a broker that admits this registry and
+    // then refuses to mint for every subject keeps this cell green, because what is read is
+    // `count()` and not an answer. Nothing in this module mints or asks - the per-subject mint on a
+    // request is held in `sutura_http::identity_e2e` over a fake broker, and no cell anywhere asks a
+    // real BigQuery as a declared subject.
     let broker = super::super::broker::build_broker(&registry(&bigquery_entry(
         "warehouse",
         "impersonation-at-source",

@@ -12,7 +12,7 @@
 /// The types this repo uses. `feat`/`fix`/`refactor`/`chore`/`test`/`docs` are the set named
 /// in `AGENTS.md`; the rest are the conventional-commit types that come up in a repo with
 /// CI and packaging, and rejecting them would only teach people to bypass the hook.
-const TYPES: &[&str] = &[
+pub(crate) const TYPES: &[&str] = &[
     "feat", "fix", "refactor", "chore", "test", "docs", "perf", "ci", "build", "style", "revert",
 ];
 
@@ -40,7 +40,7 @@ pub(crate) enum SubjectVerdict {
 }
 
 impl SubjectVerdict {
-    fn explain(&self) -> String {
+    pub(crate) fn explain(&self) -> String {
         match *self {
             Self::Ok | Self::Exempt => String::new(),
             Self::Empty => String::from("the subject line is empty"),
@@ -57,21 +57,43 @@ impl SubjectVerdict {
     }
 }
 
-/// Judge one subject line.
+/// Judge one subject line: the shape, and then the length.
+///
+/// The length is asked LAST, so a subject that is both malformed and long is reported by what is
+/// wrong with it rather than by how far it ran on.
 pub(crate) fn check_subject(line: &str) -> SubjectVerdict {
     let subject = line.trim_end();
+    match check_shape(subject) {
+        SubjectVerdict::Ok => {
+            let chars = subject.chars().count();
+            if chars > MAX_SUBJECT {
+                SubjectVerdict::TooLong(chars)
+            } else {
+                SubjectVerdict::Ok
+            }
+        }
+        other => other,
+    }
+}
+
+/// Judge the TYPE, the scope and the subject text - everything except the length.
+///
+/// **Split out for `crate::pr_title`, and the split is a measurement rather than a tidy-up.** The
+/// subject that lands on `main` is composed by GitHub from the pull-request title, and
+/// [`MAX_SUBJECT`] is a rule only local commits obey: of the last hundred subjects on `main`, 69
+/// are longer than it. A title gate holding the length would refuse most of this repository's real
+/// merges, and a gate that reddens correct work gets switched off - so that gate holds the
+/// vocabulary and this one holds both.
+pub(crate) fn check_shape(subject: &str) -> SubjectVerdict {
     if subject.trim().is_empty() {
         return SubjectVerdict::Empty;
     }
-    // git writes these itself; failing them would block a merge nobody typed.
+    // git writes these itself; failing them would block a merge nobody typed. A revert pull request
+    // is titled the same way, which is why this list is on the shared side of the split.
     for prefix in ["Merge ", "Revert ", "fixup!", "squash!", "amend!"] {
         if subject.starts_with(prefix) {
             return SubjectVerdict::Exempt;
         }
-    }
-    let chars = subject.chars().count();
-    if chars > MAX_SUBJECT {
-        return SubjectVerdict::TooLong(chars);
     }
 
     let Some((prefix, rest)) = subject.split_once(':') else {

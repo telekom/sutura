@@ -624,7 +624,8 @@ infra-set:
 # tier is started here rather than already up.
 # CI runs the same leg through `nix run .#keycloak-served-test`, on the pinned toolchain, gated on
 # the paths that can change this claim. Keep this filter aligned with that app; neither derives the
-# other - `bigquery-acceptance`'s own pattern (#430) - and this recipe starts and stops the tier
+# other - the pattern the since-removed `bigquery-acceptance` leg established (#430) - and this
+# recipe starts and stops the tier
 # itself rather than delegating to the app, so a developer's own cargo runs it directly.
 # Start the keycloak tier, run the one real-issuer cell, stop the tier - fails rather than skips.
 keycloak-served-test:

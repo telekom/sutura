@@ -1,16 +1,21 @@
 # The ADBC BigQuery driver, built per release triple (telekom/sutura#913).
 #
-# This exposes `libadbc_driver_bigquery.so` for each of the four release triples
-# as flake packages, so a CI venue can build them. They are NOT yet wired into
-# the shipped closures (that is the follow-on), so nothing serves them today.
+# This exposes both driver shapes for each of the four release triples as flake
+# packages: `lib/libadbc_driver_bigquery.so` for a deployment that mounts one, and
+# `lib/libadbc_driver_bigquery.a` - the `c-archive` - which `nix/shipped.nix` links
+# into the published artefact for every triple that has one.
 #
-# The Rust `adbc_driver_manager` consumption, the dlopen-vs-static-link decision
-# for the two musl triples, and the provisioned live acceptance leg are the
-# follow-on PR. For the two static-musl artefacts in particular, `dlopen` of this
-# dynamic `.so` is impossible (a static musl binary has no dynamic loader), so
-# "adopt on musl" means a follow-on that switches to `-buildmode=c-archive` and
-# `ManagedDriver::load_static` - the `.so` this PR builds is not the artefact a
-# static-musl `sutura` loads.
+# **The archive is what makes the musl artefacts usable, and it is the whole reason
+# it exists** (`telekom/sutura#929`'s sixth finding, `docs/adr/0018`'s tenth
+# amendment). A static musl binary has no dynamic loader, so `dlopen` of the `.so`
+# is impossible there; `crates/sutura-exec-bigquery/src/adbc/linked.rs` declares
+# the archive's `AdbcDriverInit` and `ManagedDriver::load_static` opens it. The two
+# gnu triples take the same route, so there is one mechanism rather than two and
+# neither is the untested half of the other.
+#
+# What no derivation here establishes is that a driver RUNS.
+# `nix/bigquery-driver-check.sh` executes both release binaries on x86_64-linux and
+# reads what they say; this only builds.
 #
 # The one vendor hash covers all four triples: each triple realises a separate
 # Go-modules fixed-output derivation, but they all fetch the same resolved module

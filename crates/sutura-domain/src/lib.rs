@@ -1,12 +1,20 @@
+#![forbid(unsafe_code)]
 //! The hexagon's interior: the types the business rules are written in, and the port traits it
 //! names its dependencies by.
 //!
 //! Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 //! `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
-//! is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
-//! `thiserror` and their proc-macro support, plus the `serde_json` and `sha2` that the definition
-//! digest needs, and nothing else - which is why there is a hand-written calendar in [`calendar`]
-//! and no SQL parser anywhere in this crate, [`expression`] included.
+//! is worth more as a check than as a sentence in a design document. The allowlist is `serde`,
+//! `thiserror` and their proc-macro support, the `serde_json` and `sha2` the definition digest
+//! needs, `secrecy`/`zeroize` for [`identity::Secret`], and - since `docs/adr/0039` - Arrow, which
+//! brought the whole of [`warehouse::arrow`] and 64 further crates in its closure. So *and nothing
+//! else* is no longer the shape of this list, and the hand-written calendar in [`calendar`] is now
+//! held by a narrower argument than it was: `chrono` IS in the closure, reached through
+//! `arrow-array`, and the reason [`calendar`] does not use it is that a date this domain accepts is
+//! a parsed value with its own refusals rather than whatever a general calendar library will
+//! represent - plus a wall clock in a query planner answers a different thing at midnight, which
+//! `clippy.toml` bans by name rather than leaving to this paragraph. What is still absent outright
+//! is a SQL parser: nowhere in this crate, [`expression`] included.
 //!
 //! **Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 //! to invert a dependency on something outside the hexagon, so a trait with no implementor is a
@@ -20,7 +28,7 @@
 //! **What the credential port did and did not buy, said here because the count above invites the
 //! wrong reading.** There is no longer a signature that reaches a data system with a question and no
 //! credential, and a subject with no credential at a source is refused rather than answered as the
-//! process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+//! process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
 //! credential to arrive, so a leg runs under the identity an operator declared for that source and
 //! [`pinned::Provenance`] records which. The one method that still executes with no credential is
 //! [`warehouse::Warehouse::verify_anchor`], the boot path's; `clippy.toml` bans it everywhere else and

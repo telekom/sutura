@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The claim `github.com/telekom/sutura#121` is about, asked of the BINARY: a catalog whose models
 //! name a data system other than `local` is answered, because a `sources:` entry declared it.
 //!
@@ -7,7 +8,7 @@
 //! `config_dir_from_process` and the `<dir>/base.yaml` layering - the whole door this change is
 //! about - were exercised by nothing at all, and no test set `SUTURA_CONFIG_DIR`. The one that could
 //! is a spawned binary, for the reason `crates/sutura-cli/tests/served.rs` gives at its own head:
-//! `std::env::set_var` is `unsafe` in this edition and the workspace forbids it, so what a test can
+//! `std::env::set_var` is `unsafe` in this edition and this crate's root forbids it, so what a test can
 //! decide is what a CHILD sees.
 //!
 //! # What it runs, and why the catalog is copied
@@ -416,7 +417,7 @@ mod tests {
         // defect, whatever else the refusal got right.
         //
         // Reachable only by spawning the binary WITH the variable set - `std::env::set_var` is
-        // `unsafe` in this edition and this workspace forbids it, so what a test can decide is what
+        // `unsafe` in this edition and this crate's root forbids it, so what a test can decide is what
         // a child sees. That is why this case is here rather than in the crate's own suite.
         let dir = scratch("declared-source-overlay-variable");
         let catalog = example().join("catalog").to_string_lossy().into_owned();
@@ -512,10 +513,10 @@ mod tests {
         // `serve/bigquery.rs`; deleting the same `AdbcBigQuery::probe` call at
         // `src/sources/bigquery.rs` - this command's composition root - left all 141 of
         // `-p sutura-cli` green, because every cell that reached that code path stopped at the
-        // *variable is unset* refusal one line above it.
+        // *no driver named* refusal one line above it.
         //
         // A SPAWNED binary for the reason `tests/served.rs` and two cells above give: `set_var` is
-        // `unsafe` in this edition and the workspace forbids it, so what a test can decide is what a
+        // `unsafe` in this edition and this crate's root forbids it, so what a test can decide is what a
         // child sees - and `command` strips this shell's own `SUTURA_*` variables first, so the one
         // set here is the only one the command reads.
         let ran = asked_over_bigquery(
@@ -524,8 +525,8 @@ mod tests {
         );
         assert_eq!(ran.code, Some(1), "{}", ran.output());
         assert!(
-            ran.stderr.contains("cannot load"),
-            "the refusal must say the driver could not be LOADED, not that a variable is unset: {}",
+            ran.stderr.contains("did not initialise"),
+            "the refusal must say the driver did not INITIALISE, not that none was named: {}",
             ran.output()
         );
         assert!(
@@ -549,8 +550,32 @@ mod tests {
             ran.output()
         );
         assert!(
-            !ran.stderr.contains("cannot load"),
-            "nothing was opened, so nothing can have failed to load: {}",
+            !ran.stderr.contains("did not initialise"),
+            "nothing was opened, so nothing can have failed to initialise: {}",
+            ran.output()
+        );
+    }
+
+    #[cfg(feature = "bigquery")]
+    #[test]
+    fn a_relative_driver_path_stops_this_command_at_the_parse() {
+        // The third case for this root, matching the served trio: a relative path is refused where
+        // it is READ, because what it names depends on the working directory this command was
+        // launched in and the driver is the code that would then execute the question
+        // (`telekom/sutura#929`'s sixth finding). Asserted against both other sentences.
+        let ran = asked_over_bigquery(
+            "declared-source-bigquery-driver-relative",
+            Some("lib/libadbc_driver_bigquery.so"),
+        );
+        assert_eq!(ran.code, Some(1), "{}", ran.output());
+        assert!(
+            ran.stderr.contains("is relative"),
+            "the refusal must name the defect: {}",
+            ran.output()
+        );
+        assert!(
+            !ran.stderr.contains("did not initialise"),
+            "a path refused by the parse is never opened: {}",
             ran.output()
         );
     }

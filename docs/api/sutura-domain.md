@@ -12,10 +12,17 @@ names its dependencies by.
 
 Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
-is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
-`thiserror` and their proc-macro support, plus the `serde_json` and `sha2` that the definition
-digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
-and no SQL parser anywhere in this crate, `expression` included.
+is worth more as a check than as a sentence in a design document. The allowlist is `serde`,
+`thiserror` and their proc-macro support, the `serde_json` and `sha2` the definition digest
+needs, `secrecy`/`zeroize` for `identity::Secret`, and - since `docs/adr/0039` - Arrow, which
+brought the whole of `warehouse::arrow` and 64 further crates in its closure. So *and nothing
+else* is no longer the shape of this list, and the hand-written calendar in `calendar` is now
+held by a narrower argument than it was: `chrono` IS in the closure, reached through
+`arrow-array`, and the reason `calendar` does not use it is that a date this domain accepts is
+a parsed value with its own refusals rather than whatever a general calendar library will
+represent - plus a wall clock in a query planner answers a different thing at midnight, which
+`clippy.toml` bans by name rather than leaving to this paragraph. What is still absent outright
+is a SQL parser: nowhere in this crate, `expression` included.
 
 **Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
@@ -29,7 +36,7 @@ settings crate because the identity provider it reads *is* the settings tree.
 **What the credential port did and did not buy, said here because the count above invites the
 wrong reading.** There is no longer a signature that reaches a data system with a question and no
 credential, and a subject with no credential at a source is refused rather than answered as the
-process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+process. What is absent is the other end: no PUBLISHED adapter has anywhere for a per-subject
 credential to arrive, so a leg runs under the identity an operator declared for that source and
 `pinned::Provenance` records which. The one method that still executes with no credential is
 `warehouse::Warehouse::verify_anchor`, the boot path's; `clippy.toml` bans it everywhere else and
@@ -3016,15 +3023,27 @@ invite a client to retry a deployment bug until something works.
 
 ### `use PrincipalName`
 
-A name a data system knows a principal by, for the posture where a session is switched to it.
+A name a data system knows a principal by.
+
+Two roles: the one a session is switched to, and the one a source is asked to execute as after
+the asker's own credential authenticated (`Presented::SubjectToken`'s `impersonate`).
 
 **Not a `Secret`, and that is a statement rather than an omission.** A role or service-account
 name is not secret: the trust on that leg belongs to the connection the deployment
 authenticated, and the name is what the data system evaluates its policies against. A type that
 redacted it would hide the one value an operator has to be able to read back in a log.
 
+**Declared here by hand rather than by `principal_newtype!`, and that is load-bearing rather
+than historical.** That macro stores `mask_principal_into`'s
+output and drops the raw, which is right for a value that only ever reaches a record and wrong
+for one that is SENT: masked, an account address arrives at whatever is asked to become it as
+`s***-a@a***.i***.g***` and is refused. Every value of this type keeps its full string.
+
 Parsed by the same parser every principal identifier in this module goes through, so a name that
-could forge a line in the record a call is written to does not exist. Construct it with
+could forge a line in the record a call is written to does not exist. **What that parser does
+NOT do is narrow this to one data system's shape** - it accepts `/`, `:`, `?`, `#`, quotes and
+spaces, so a crate that interpolates this value into a path or a URL narrows it again at the
+point of sending. Construct it with
 `parse`: the field is private, there is no `Deserialize`, and `TryFrom<String>`
 delegates to the same constructor.
 
@@ -11537,9 +11556,11 @@ so a byte count read off a dry run cannot be confused with any of the plan's oth
 
 **Zero is a legitimate estimate, not a stand-in for "unknown".** A cached result or a trivial
 `SELECT` can genuinely cost nothing to scan, so `Self::parse` cannot fail: this type validates
-nothing beyond fitting in a `u64`. That is unlike a bound such as
-`BytesBilledCeiling`, where zero would refuse every question and is refused itself - an estimate
-of zero is simply the truth for some questions. What means "could not price" is the `Option`
+nothing beyond fitting in a `u64`. That is unlike a bound, where zero would refuse every question
+and ought to be refused itself - an estimate of zero is simply the truth for some questions. The
+example that used to stand here was `BytesBilledCeiling`, and it is deleted:
+`sources.<alias>.max_bytes_billed` now reaches the settings tree unparsed, so the contrast has no
+live counterpart in this repository. What means "could not price" is the `Option`
 around this type on `super::PreFlight::Accepted`, never a reserved value inside it.
 
 ##### Methods

@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! A [`SemanticCatalog`] over a directory of markdown documents with YAML frontmatter.
 //!
 //! One document per model, relationship and metric: the frontmatter is the definition and the prose

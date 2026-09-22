@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! This engine, held to the conformance packs, from its OWN crate.
 //!
 //! **The second binding of one pack.** `DuckDB` and this engine are different kinds of thing behind

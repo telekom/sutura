@@ -54,6 +54,7 @@ fn a_shared_leg_carries_no_credential_material() {
     // passing because nothing anywhere holds material.
     let subject_material = Presented::SubjectToken {
         material: Secret::new("an-exchanged-token"),
+        impersonate: None,
     };
     let rendered = format!("{subject_material:?}");
     assert!(
@@ -85,6 +86,7 @@ fn one_asker_holds_for_every_leg_because_there_is_one_field() {
         source("warehouse"),
         Presented::SubjectToken {
             material: Secret::new("an-exchanged-token"),
+            impersonate: None,
         },
     ));
 
@@ -422,6 +424,10 @@ fn a_leg_is_checked_against_the_posture_and_not_only_against_its_own_shape() {
     assert_eq!(
         Presented::SubjectToken {
             material: Secret::new("an-exchanged-token"),
+            // `None` and still agreeing: the domain decides whether a SHAPE fits a posture, and
+            // whether a second hop is required is the adapter's own fact - `BigQueryWarehouse`
+            // refuses this exact value as `NoImpersonationTarget`.
+            impersonate: None,
         }
         .agrees_with(&SourcePosture::ImpersonationAtSource, &at),
         Ok(())

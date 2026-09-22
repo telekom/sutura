@@ -84,7 +84,7 @@ So the division is:
 | The twenty-six numbered steps, their order, and the arguments for that order | this table, and the two sibling pages                                                                  |
 | Everything raised since, its priority, and what to pull next                 | [the tracker](https://github.com/telekom/sutura/issues/134) and the board it indexes                   |
 | What blocks what                                                             | the issues themselves - *blocked by* is a relationship GitHub answers, and it cannot go stale in prose |
-| Which record a piece of work needs, and its number                           | the tracker's reserved-number table, so two branches cannot both mint `0022`                           |
+| Which record a piece of work needs, and its number                           | the tracker names the record; `check-guidance` refuses two files claiming one ordinal                  |
 
 **A row that is DONE stays here** - the argument for why a step went where it did is worth more after it
 lands than before, and deleting it would leave the next reader unable to tell a decision from an
@@ -178,10 +178,11 @@ as a missed one.
 
 **The limit, stated next to the claim:** these are orderings between changes, not a statement about
 what identity sutura proves. Leg 1 - knowing who is asking - is built. Leg 2 - a source executing AS
-the asker - is **built and unproven**: BigQuery executes a question as the account its declared
-per-source map names, and the hosted venue that would show it is `wired` with nobody having
-dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC adoption
-deleted. See
+the asker - is **built and unproven**: on BigQuery a source's declared per-source map decides only
+WHETHER a caller may be served there, the source executes as whatever principal the declared pool
+resolves that subject to, and the hosted venue that would show a pool resolving one is `wired` with
+nobody having dispatched it. The run this paragraph used to cite was of an HTTP exchange the ADBC
+adoption deleted. See
 [where each identity claim is proven](where-identity-is-proven.md) for which venue may be cited for
 which claim.
 
@@ -292,8 +293,9 @@ them constrain the surface, and most of the constraints land on the step that is
   governed turn can exceed it, the surface has to become submit-and-poll - a design change, decided
   before the tools are written rather than after. Measure a real turn first; without push notifications
   the obvious asynchronous pattern is foreclosed. **And this is where two numbers in two records
-  disagreed by an order of magnitude** - worth settling before anybody measures: 0009's provisional
-  query deadline is three minutes, and a front door that cuts at tens of seconds means a turn allowed
+  disagreed by an order of magnitude** - settled when the deadline was measured: 0009's query
+  deadline was provisional at three minutes but ships at **30 seconds**, and a front door that cuts at
+  tens of seconds means a turn allowed
   180 seconds cannot complete on that route. 0009 now decides which yields - **the deadline does.** It
   is bounded by the front door on any route that has one, rather than a default that quietly outlives
   the connection it is supposed to bound. The measurement decides the second half: if a governed turn

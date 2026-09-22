@@ -1,13 +1,28 @@
+#![forbid(unsafe_code)]
 //! The real gate must finish resolved-feature admission before it compiles either shipped root.
 //! Fake Cargo owns only the subprocess boundary; no process-global environment or cwd is changed.
+
+// The fixture tree is a [`scratch_tree::Tree`] - the sweep-before-create and the `Drop` sweep the
+// module holds are the two halves #938's leftover trap had - rather than the exclusive
+// `create_dir` on a pid-keyed path this file carried until #938. The module carries `seal` for
+// the in-tree unit tests; this file does not use it, so the include expects `dead_code` on it
+// rather than weakening the module for everyone.
+#[path = "scratch_tree/mod.rs"]
+#[expect(
+    dead_code,
+    reason = "the module's own tests use `seal` and `Fixture`; this integration test does not"
+)]
+#[cfg(test)]
+mod scratch_tree;
 
 #[cfg(test)]
 #[cfg(unix)]
 mod tests {
     use std::fmt::Write as _;
     use std::os::unix::fs::PermissionsExt as _;
-    use std::path::Path;
     use std::process::{Command, Output};
+
+    use super::scratch_tree::Tree;
 
     const TARGETS: &[&str] = &[
         "aarch64-unknown-linux-gnu",
@@ -86,7 +101,6 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
         ledger: String,
     }
 
-    #[expect(clippy::create_dir, reason = "the PID-keyed fixture must be newly allocated, never reused")]
     fn observe(case: &str) -> Observed {
         let shell = Command::new("bash")
             .args(["--noprofile", "--norc", "-c", "command -v bash"])
@@ -95,17 +109,19 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
             .expect("resolve the fixture interpreter before replacing PATH");
         assert!(shell.status.success());
         let shell = String::from_utf8(shell.stdout).expect("the interpreter path is text");
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("default-features-{case}-{}", std::process::id()));
-        std::fs::create_dir_all(Path::new(env!("CARGO_TARGET_TMPDIR"))).expect("the integration scratch parent");
-        std::fs::create_dir(&root).expect("an exclusive fixture directory");
-        std::fs::create_dir_all(root.join("nix")).expect("the declaration directory");
-        std::fs::create_dir_all(root.join("bin")).expect("the fake command directory");
-        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("the workspace marker");
-        std::fs::write(root.join("flake.nix"), "{}\n").expect("the Nix marker");
-        std::fs::write(root.join("nix/shipped.nix"), SHIPPED).expect("the actual gate's declaration input");
+        let tree = Tree::of(
+            &format!("default-features-{case}"),
+            &[
+                ("Cargo.toml", b"[workspace]\n" as &[u8]),
+                ("flake.nix", b"{}\n"),
+                ("nix/shipped.nix", SHIPPED.as_bytes()),
+            ],
+        );
+        let root = tree.root().to_path_buf();
         let cargo = root.join("bin/cargo");
+        std::fs::create_dir_all(cargo.parent().expect("the bin directory")).expect("the fake command directory");
         std::fs::write(&cargo, format!("#!{}\n{CARGO}", shell.trim())).expect("fake Cargo");
-        std::fs::set_permissions(cargo, std::fs::Permissions::from_mode(0o755)).expect("executable fake Cargo");
+        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("executable fake Cargo");
         let ledger = root.join("calls");
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .arg("check-default-features")
@@ -117,8 +133,7 @@ if "$last" && [ "$SUTURA_FEATURE_CASE" = nonzero ]; then exit 23; fi
             .env_remove("BASH_ENV")
             .output();
         let calls = std::fs::read_to_string(ledger);
-        let cleanup = std::fs::remove_dir_all(&root);
-        cleanup.expect("remove the owned fixture before verdict assertions");
+        drop(tree);
         Observed {
             output: output.expect("execute the real xtask binary"),
             ledger: calls.expect("Cargo invocation ledger"),

@@ -27,10 +27,11 @@
 # The mock issuer cannot generate an RSA key at all, by deliberate design, so that path has no other
 # venue.
 #
-# **What it still cannot be cited for:** two subjects reading two row sets. Nothing in this
-# repository carries a per-subject credential into a data system yet - `compose.services.yaml` says
-# so at length and this tier does not change it. It makes leg 1 provable against a real provider; it
-# does not make leg 2 exist.
+# **What it still cannot be cited for:** two subjects reading two row sets. The one adapter that
+# carries a per-subject credential into a data system is `bigquery`, a default-off feature whose
+# row half needs a live pool and a live dataset - `compose.services.yaml` says so at length and this
+# tier does not change it. It makes leg 1 provable against a real provider; it does not make leg 2
+# proven.
 #
 # # Three mechanics that are not obvious
 #
@@ -701,8 +702,9 @@ rec {
   # "published again" to every other assertion in this file.
   #
   # **Its own check rather than `nextest`'s `preCheck`, and the reason is what reads it.**
-  # Postgres is provisioned there because Rust cells connect to it in that pass. Nothing in
-  # this repository can carry a per-subject credential yet, so no cell reads this tier -
+  # Postgres is provisioned there because Rust cells connect to it in that pass. The one adapter
+  # that can carry a per-subject credential needs a live pool rather than a local issuer, so no
+  # cell reads this tier -
   # paying a JVM's start-up on every test pass for a server nothing connects to is the cost
   # `compose.services.yaml` declines for the same service on the same grounds. The
   # convergence is one line: when a cell needs a real issuer, this tier moves into

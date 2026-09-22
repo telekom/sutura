@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! The sutura binary.
 //!
 //! The composition root, and nothing else. Every command lives in [`commands`] and every adapter is
@@ -44,11 +45,12 @@
 // `libmimalloc-sys`' build script already picks when the feature is off. Turning the feature
 // on here would buy a slower fast path to solve a problem this artifact cannot have.
 //
-// NO `unsafe`, AND NO LINT ESCAPE. `#[global_allocator]` on a static is a safe attribute - the
-// `unsafe impl GlobalAlloc` lives inside the mimalloc crate - so this compiles as-is under the
-// workspace's `unsafe_code = "forbid"`. There is deliberately no change to the lint table and
-// no `#[expect(unsafe_code)]`: narrowing a `forbid` is E0453, so needing one would mean this
-// was written wrong.
+// NO `unsafe`, AND NO LINT ESCAPE HERE. `#[global_allocator]` on a static is a safe attribute -
+// the `unsafe impl GlobalAlloc` lives inside the mimalloc crate - so this compiles as-is under
+// this file's own `#![forbid(unsafe_code)]`, and no `#[expect(unsafe_code)]` is needed: narrowing
+// a `forbid` is E0453, so needing one would mean this was written wrong. The workspace level is
+// `deny` since `telekom/sutura#929`'s sixth finding, which is why every root re-asserts the
+// `forbid` and `cargo xtask check-unsafe` holds that they do.
 #[cfg(target_os = "linux")]
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -81,6 +83,12 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 // says why the causality gate needs the proof and the fix in two files.
 #[cfg(test)]
 mod audit;
+/// Which BigQuery ADBC driver this process opens - one decision, three callers.
+///
+/// Behind the feature, because a build with no BigQuery adapter has no driver to decide about and
+/// `dead_code = "deny"` would say so.
+#[cfg(feature = "bigquery")]
+mod bigquery_driver;
 mod commands;
 mod mcp;
 /// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s
@@ -369,7 +377,7 @@ fn doctor() {
     // decides is `just bigquery-driver-check`, which matches on this line. `cfg!` cannot know
     // whether a driver is present, which is exactly the gap the previous version of this command
     // left - it named a transport and said nothing about whether it could be reached.
-    println!("  bq driver    : {}", bigquery_driver());
+    println!("  bq driver    : {}", bigquery_driver_line());
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");
@@ -377,24 +385,31 @@ fn doctor() {
 
 /// What `doctor` can find out about the ADBC driver, as one line.
 ///
-/// Three outcomes and they mean three different things: the adapter is not linked at all; it is
-/// linked and no path was named; a path was named and the `.so` either initialised or did not. The
-/// failure is rendered from the adapter's own typed error, so the line never invents wording for a
-/// condition the transport already names.
+/// Four outcomes and they mean four different things: the adapter is not linked at all; it is
+/// linked and this process found no driver to open; it found one and that driver either initialised
+/// or did not. The failure is rendered from the adapter's own typed error, so the line never invents
+/// wording for a condition the transport already names.
+///
+/// **It says WHICH driver, and `nix/bigquery-driver-check.sh` reads that half.** A release artefact
+/// carrying its own driver and a host mounting one are the same success sentence otherwise, and the
+/// claim that check exists to hold is about the artefact.
 #[cfg(feature = "bigquery")]
-fn bigquery_driver() -> String {
-    match std::env::var("SUTURA_BIGQUERY_ADBC_DRIVER") {
-        Err(_absent) => String::from("not configured - set SUTURA_BIGQUERY_ADBC_DRIVER to the driver .so"),
-        Ok(path) => match sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&path) {
-            Ok(()) => String::from("loaded and initialised"),
-            Err(cause) => format!("NOT usable: {cause}"),
+fn bigquery_driver_line() -> String {
+    // A diagnostic names the COMMAND, not a declared source: nothing in a settings tree is wrong
+    // when `sutura doctor` finds no driver, and a refusal saying `sources.doctor` sent a reader to
+    // edit a key this command never reads.
+    match bigquery_driver::resolve("`sutura doctor`") {
+        Err(why) => format!("not configured - {why}"),
+        Ok(at) => match sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&at) {
+            Ok(()) => format!("loaded and initialised, {at}"),
+            Err(cause) => format!("NOT usable: {at}: {cause}"),
         },
     }
 }
 
 /// The same line for a build that linked no adapter, so the release smoke test reads one shape.
 #[cfg(not(feature = "bigquery"))]
-fn bigquery_driver() -> String {
+fn bigquery_driver_line() -> String {
     String::from("not linked - this build has no BigQuery adapter to load one for")
 }
 

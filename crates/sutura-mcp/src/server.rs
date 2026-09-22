@@ -79,10 +79,12 @@
 //!   and the two transports would then be able to disagree about it while sharing one execution
 //!   bound.
 //! * The number is already load-bearing on this composition. `sutura`'s `mcp` command opens the
-//!   port's own `Deadline` from it (`docs/adr/0029`), which a `bigquery` job derives
-//!   `timeoutMs`/`jobTimeoutMs` from directly - so the engine on this transport already gives up
-//!   against this key; before this change the *peer* was the only party in that arithmetic with no
-//!   deadline at all.
+//!   port's own `Deadline` from it (`docs/adr/0029`), and the in-process engine gives up against
+//!   that deadline at a cooperative yield - so the engine on this transport already answers to this
+//!   key; before this change the *peer* was the only party in that arithmetic with no deadline at
+//!   all. This bullet used to say a `bigquery` job derived `timeoutMs`/`jobTimeoutMs` from it
+//!   directly; those were `jobs.query` request parameters on a transport that is deleted, and a
+//!   `BigQuery` job over ADBC is handed no bound at all.
 //!
 //! The key's name says `server` and this transport binds no listener, which is the one argument
 //! against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
@@ -178,7 +180,7 @@ use std::time::Instant;
 
 use rmcp::model::{
     CallToolRequestMethod, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData, ServerHandler};
@@ -347,11 +349,11 @@ impl<S> ServerHandler for AgentSurface<S>
 where
     S: Surface,
 {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         // `Implementation::new` and not `from_build_env`: that helper reads the build environment of
         // the crate it is compiled into, which is the SDK, so a server using it introduces itself as
         // the SDK. `env!` here expands in this crate.
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")))
             .with_instructions(self.instructions.to_string())
     }

@@ -216,15 +216,23 @@ this was scoped, one is what makes step 2 possible at all, and the last is what 
   the domain-side pair above - build batches from rows, read rows from batches - so an adapter or a
   fake that has rows changes one line.
 - **`ALLOWED_IN_DOMAIN` is the cost that is not mechanical, and it is paid.** The domain naming
-  `arrow-array` and `arrow-schema` took that allowlist's walk from 33 crates to 97. Twenty-two are
-  in the FEATURE-RESOLVED tree (`cargo tree -p sutura-domain --all-features`), and two of those
-  twenty-two are worth naming rather than counting: a time-zone database (`chrono`,
-  `iana-time-zone`) and an entropy source (`getrandom`, through `ahash` through `hashbrown`) are now
-  in the hexagon's interior, reachable from no code this crate has. The remaining forty-two are the
-  over-broad kind that allowlist already carries - optional and platform-specific edges
-  `cargo metadata` resolves for every target, including a `wasm-bindgen` pair and the `windows-*`
-  family. **No new lockfile entry**: both crates were already resolved at 59.2.0. Arrow is a data
-  format rather than a runtime, a client or an engine, which is the line
+  `arrow-array` and `arrow-schema` took that allowlist's walk from 33 crates to 97 - so the entry
+  added 64, which is the number a reader should carry. **Every other number here needs its venue
+  named, because they disagree.** Under `cargo tree -p sutura-domain --all-features`, 21 of the 64
+  are compiled and the remaining 43 are the over-broad kind that allowlist already carries -
+  optional and platform-specific edges `cargo metadata` resolves for every target, including a
+  `wasm-bindgen` pair and the `windows-*` family. Under the WORKSPACE-unified resolve that
+  `just test` and `just lint` run in, more than 21 are compiled: one `arrow-array` serves the whole
+  graph, `adbc_core` turns its optional `chrono-tz` on, and features unify, so the zone DATABASE
+  compiles into the interior in the venue every gate uses. A per-package tree does not show that.
+  **Two of the 21 are worth naming rather than counting**: a time-zone database (`chrono` ->
+  `iana-time-zone`, which reads `/etc/localtime` or asks `CFTimeZoneCopySystem`) and an entropy
+  source (`arrow-array` -> `ahash` -> `getrandom`, directly and not through `hashbrown`) are now in
+  the hexagon's interior, reachable from no code this crate has. That last clause is a claim about
+  current use and not a mechanism, so `clippy.toml` now bans the clock and entropy entry points by
+  name; what no mechanism here reaches is the calls `arrow-array` and `ahash` make inside
+  themselves. **No new lockfile entry**: both crates were already resolved at 59.2.0. Arrow is a
+  data format rather than a runtime, a client or an engine, which is the line
   `xtask/src/boundaries/edges.rs` actually draws - and this record is what authorises the entry.
 
 ## Step 3, decided and BUILT: the combiner is a DataFusion plan behind a driven port
@@ -243,7 +251,18 @@ build. So the seam is the one `docs/adr/0007` designed and recorded as unbuilt:
 `-domain` names no engine: `ALLOWED_IN_DOMAIN`'s stated line is *no runtime, no client, no engine*,
 and DataFusion is one. Arrow is a data FORMAT, which is why `ResultBatches` may be the currency on
 both sides of that signature - the argument is step 2's and was paid there. `docs/adr/0007`'s
-*Fourth amendment* carries the four mechanisms the port's shape is held by.
+*Fifth amendment* carries the four mechanisms the port's shape is held by.
+
+**Three seams existed for reaching the engine and only one was honest, so the rejected two are
+recorded rather than assumed away.**
+`xtask/src/boundaries/application.rs` refuses any `sutura-exec-*` name in `sutura-app`'s NORMAL
+dependency tree, and `sutura-app` was `FederatedPlan::combine`'s only caller.
+
+| Seam                                               | Verdict                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sutura-app` calling into `sutura-exec-datafusion` | Refused by name. A dev-dependency is exempt from that rule, and a combiner is not test support. The implementation does live in that crate - reached through the port from the composition root, never from `sutura-app`.                                                                                                                                             |
+| a new **prefix-free** crate                        | PASSED, and that was the problem: the rule named `sutura-exec-*` rather than *an engine*, so this put DataFusion in `sutura-app`'s tree by picking a name the rule does not match. A gate end-run is not a design - so the rule now names the PROPERTY, as a `FORBIDDEN_EDGES` row forbidding `datafusion` in `sutura-app`'s normal tree. This seam is refused today. |
+| a second **driven port**                           | The established shape, the one ADR 0007 designed, and what is BUILT: `sutura_domain::plan::FederationCombiner` with `sutura-exec-datafusion::DataFusionCombiner` as its first implementor.                                                                                                                                                                            |
 
 **The byte budget survives, and this is the mechanism.** 0007 decided the working-set bound is
 applied *as rows are converted*, because 0009's Decision 3 put the engine's memory pool on what its

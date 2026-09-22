@@ -1,5 +1,13 @@
-//! The broker a served `BigQuery` deployment impersonates through: a verified subject in, the
-//! principal a source declared for that subject out.
+//! The broker a served `BigQuery` deployment impersonates through: a verified subject in, that
+//! subject's own verified assertion out.
+//!
+//! **Both halves of the declared map are read, which is what `telekom/sutura#929` F3 changed.** Its
+//! KEYS decide WHETHER a caller may be served here; its VALUES name the account that caller's
+//! question is to execute as, carried on [`Presented::SubjectToken`] and interpolated by
+//! [`crate::adbc`] into the credential document's `service_account_impersonation_url` (see
+//! [`DeclaredPrincipals::target`]). The chain is *this subject's own assertion federates to the
+//! pool's principal, and that principal then impersonates the declared account* - so the pool
+//! principal is the one holding the binding and the caller is never the deployment.
 //!
 //! **Why this is the only broker this crate carries.** It used to sit beside an EXCHANGING one -
 //! `sts::WorkloadIdentityBroker`, which handed the caller's own assertion to a token service and
@@ -31,12 +39,18 @@
 //!
 //! # The limit, beside the claim
 //!
-//! This broker decides WHETHER this caller may be served at a source and presents the caller's own
-//! verified assertion for it. It does not decide WHO the caller becomes at the data system - the
-//! declared pool resolves that, so the accounts named in `impersonate`'s VALUES are read by nothing
-//! (see [`DeclaredPrincipals::names`]). And nothing here proves Google accepted the assertion: that
-//! is leg 2, it needs a hosted run, and `docs/where-identity-is-proven.md` records the venue as
-//! `wired`.
+//! This broker decides WHETHER this caller may be served at a source, presents the caller's own
+//! verified assertion for it, and names the account the question is to run as. What it CANNOT check
+//! is that the named account is **reachable**: no type, lint, hook or gate in this repository sees a
+//! live IAM policy, and there is no boot-time probe to add - the driver's token fetch is lazy,
+//! `AdbcBigQuery::probe` opens no connection and reads no credential, and a boot-time mint would
+//! need a caller's assertion, which boot does not have. A declared account the pool principal may
+//! not impersonate therefore surfaces as `AdbcError::Adbc` on the FIRST QUESTION BY THAT SUBJECT and
+//! never at boot. What is refused here is the account's SHAPE ([`DeclaredPrincipals::parse`]), which
+//! is a different claim.
+//!
+//! And nothing here proves Google accepted the assertion or the second hop: that is leg 2, it needs
+//! a hosted run, and `docs/where-identity-is-proven.md` records the venue as `wired`.
 
 use std::collections::BTreeMap;
 
@@ -49,9 +63,10 @@ use sutura_domain::source::SharedIdentityDeclared;
 
 /// Why a declared impersonation map is not one a source can be served under.
 ///
-/// One variant, and an enum for the reason every other error in this crate is one: a second reason
-/// has somewhere to go.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+/// Two variants, and the second one is the reason the enum was one from the start: an empty
+/// declaration can serve nobody, and a declared ACCOUNT this transport cannot name in a request is
+/// the same class of defect one level down.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NoDeclaredPrincipals {
     /// The declaration named no subject at all.
     #[error(
@@ -60,6 +75,50 @@ pub enum NoDeclaredPrincipals {
          source `shared-service-user` with an acknowledgement"
     )]
     Empty,
+    /// A declared target is not a shape this transport can name in an impersonation URL.
+    ///
+    /// **A parse refusal and not a warning, because the value selects an ACCOUNT.** It is
+    /// interpolated into one path segment of `service_account_impersonation_url`, so a value
+    /// carrying `/` re-points that segment at a different account - and
+    /// `PrincipalName::parse` accepts `/`, since it is the parser every principal identifier in
+    /// the domain shares and a role name is not an email. The narrowing belongs to the crate that
+    /// SENDS the value, which is this one.
+    #[error(
+        "`{target}` is declared as an impersonation target and is not a service-account address \
+         this adapter can name in a request - at most 254 characters of letters, digits and \
+         `. - _`, with exactly one `@`"
+    )]
+    NotAServiceAccount {
+        /// The value as declared. Not a secret - a service-account address is what an operator has
+        /// to read back to fix the declaration, and `PrincipalName`'s own doc says why it is not
+        /// redacted.
+        target: PrincipalName,
+    },
+}
+
+/// Is this a service-account address this transport can name in an impersonation URL?
+///
+/// **The send-side half of a value configuration already parsed**, for the reason
+/// [`crate::transport::ProjectId`] and [`crate::adbc::WorkloadPool`] are both parsed twice: a check
+/// belongs where the risk is, and the risk here is one path segment of a URL that decides which
+/// account a question runs as. The accepted set is the printable ASCII a service-account address is
+/// built from, so nothing that could close a JSON string, add a URL segment or carry a query can
+/// exist in a value that reaches the document.
+///
+/// Called from [`DeclaredPrincipals::parse`], where a bad declaration is a STARTUP failure, and
+/// again from `crate::adbc::identity` before the interpolation, because [`Presented`] is a public
+/// port and this broker is not the only thing that can construct one.
+pub(crate) fn names_a_service_account(target: &PrincipalName) -> bool {
+    /// RFC 5321's mailbox length, which is what `sutura_config` bounds the same value by.
+    const MOST: usize = 254;
+
+    let raw = target.as_str();
+    !raw.is_empty()
+        && raw.chars().count() <= MOST
+        && raw.matches('@').count() == 1
+        && raw
+            .chars()
+            .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_' | '@'))
 }
 
 /// The subjects one source may be asked as, and the account each of them resolves to.
@@ -77,36 +136,50 @@ impl DeclaredPrincipals {
     ///
     /// **Keyed on the FULL verified subject and never on the masked
     /// [`SubjectId`](sutura_domain::identity::SubjectId)**, for the reason `sutura_config`'s own
-    /// declaration gives: which declared account a caller may become is an authorization decision,
-    /// and a masked key hands a declared subject's account to every undeclared caller that shares
-    /// its mask.
+    /// declaration gives: whether a caller may be served at this source at all is an authorization
+    /// decision, and a masked key admits every undeclared caller that shares a declared subject's
+    /// mask - which, since the pool resolves whoever is admitted to a principal of its own, is an
+    /// undeclared caller reading rows as somebody.
+    ///
+    /// **And the VALUES are narrowed here**, which is what makes this a parsed type rather than a
+    /// non-empty map: what a value of this type now means is *a non-empty map whose accounts this
+    /// transport can name in an impersonation URL*. Refused at the boundary that can turn it into a
+    /// startup failure, through `sutura_cli`'s `build_broker`.
     ///
     /// # Errors
     ///
-    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody.
+    /// [`NoDeclaredPrincipals::Empty`] for a declaration naming nobody, and
+    /// [`NoDeclaredPrincipals::NotAServiceAccount`] for a declared account this adapter cannot put
+    /// in a request.
     pub fn parse(declared: BTreeMap<SubjectKey, PrincipalName>) -> Result<Self, NoDeclaredPrincipals> {
         if declared.is_empty() {
             return Err(NoDeclaredPrincipals::Empty);
         }
+        if let Some(target) = declared.values().find(|target| !names_a_service_account(target)) {
+            return Err(NoDeclaredPrincipals::NotAServiceAccount { target: target.clone() });
+        }
         Ok(Self(declared))
     }
 
-    /// Does this source's declaration name this subject at all?
+    /// The account this source is to execute this subject's questions as, if it declares the
+    /// subject at all.
     ///
-    /// `false` is not a fallback - it is the answer for every caller a deployment did not name, and
+    /// `None` is not a fallback - it is the answer for every caller a deployment did not name, and
     /// [`DeclaredPrincipalBroker::mint`] turns it into a refusal.
     ///
-    /// **The KEY is what is read, and the declared account beside it is NOT SENT ANYWHERE TODAY.**
-    /// With workload-identity federation the pool resolves a subject to its own principal, so there
-    /// is no per-subject account for this adapter to name - the value would become a
-    /// `service_account_impersonation_url` on the credential document, which is a follow-up rather
-    /// than something built here. Recorded as a dead declared value rather than left for a reader
-    /// to discover: `sources.<alias>.workload_identity.impersonate`'s keys decide authorization and
-    /// its values decide nothing.
+    /// **Both halves of the entry are read, and the VALUE is what this returns.** The key decides
+    /// authorization and the account beside it decides which principal the question runs as: it
+    /// rides on [`Presented::SubjectToken`] and becomes the credential document's
+    /// `service_account_impersonation_url`, so changing a declared account changes which account a
+    /// caller's question executes as. A round of this adapter read the key and dropped the value,
+    /// which accepted a security-critical setting and then ignored it.
+    ///
+    /// Returning the account rather than a `bool` is what makes that mechanical: there is no
+    /// arrangement of this signature in which the value is unread and the caller still compiles.
     #[inline]
     #[must_use]
-    pub fn names(&self, subject: &SubjectKey) -> bool {
-        self.0.contains_key(subject)
+    pub fn target(&self, subject: &SubjectKey) -> Option<&PrincipalName> {
+        self.0.get(subject)
     }
 
     /// How many subjects this source declares. Never zero.
@@ -133,8 +206,13 @@ pub enum DeclaredPrincipalsUnusable {
     },
 }
 
-/// Presents the principal a source declared for the asking subject, and the operator's witness for a
-/// shared one.
+/// Presents the asking subject's own verified assertion at a source that declares it, beside the
+/// account declared for that subject - and the operator's witness for a shared one.
+///
+/// **The assertion AND the account, because either alone loses the property.** The assertion is
+/// what the caller possesses and what the pool verifies; the account is what a deployment declared
+/// this caller's questions should run as, and a broker that presented only the assertion ran every
+/// declared caller as one pool principal whatever the map said.
 ///
 /// **Both maps, because one plan may read one of each and a broker is per answer rather than per
 /// source** - the reason `docs/adr/0008` part 4 gives for a broker being per answer at all.
@@ -230,14 +308,16 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // verified subject, and a verified caller this source does not name, are told the same
             // thing: this source cannot be asked as you. Neither is widened, and the refusal names
             // the SOURCE and never the subject - `Minted::Refused` carries one field for that reason.
-            if !key.is_some_and(|key| principals.names(key)) {
+            let Some(target) = key.and_then(|key| principals.target(key)) else {
                 return Ok(Minted::Refused { source: source.clone() });
-            }
-            // **The asking subject's OWN assertion, and that is the whole of leg 2.** The transport
-            // puts it behind a workload-identity credential document, so Google's token service
-            // verifies it and the source executes as whatever principal the pool resolves the
-            // subject to. What this broker decides is only WHETHER this caller may be served here;
-            // WHO they become is the pool's, which is why nothing per-subject is minted.
+            };
+            // **The asking subject's OWN assertion, plus the account declared beside that
+            // subject.** The transport puts the assertion behind a workload-identity credential
+            // document, so Google's token service verifies it and resolves the subject to the
+            // pool's principal - and that principal then impersonates `target`, which is what makes
+            // the map's VALUES decide something. Both halves travel because a transport with only
+            // the assertion runs every declared caller as one pool principal, and one with only the
+            // account has nothing the subject possesses in the chain.
             let Some(assertion) = assertion else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
@@ -251,6 +331,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 source.clone(),
                 Presented::SubjectToken {
                     material: assertion.clone(),
+                    impersonate: Some(target.clone()),
                 },
             ));
             deadlines.push(expires);

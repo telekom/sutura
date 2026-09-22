@@ -46,7 +46,7 @@ naming the key, not an override that silently did not happen.
 
 sutura has a request context and a credential broker now, and a deployment that declares
 `security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
-the part that matters: **no adapter in this build can carry a per-subject credential.** Every
+the part that matters: **no PUBLISHED adapter can carry a per-subject credential.** Every
 question executes with a credential a broker minted, and what that credential says is *the identity
 this process holds for that source*. `AGENTS.md` records which half is mechanised, and
 `examples/README.md` explains why single-player makes "every query runs as the calling
@@ -936,7 +936,7 @@ Where a load reads from.
 
 A value rather than a set of arguments, for one reason: the process environment is global, and
 `std::env::set_var` is `unsafe` in this edition - so a test that wanted to exercise the variable
-layer by setting variables could not be written under `unsafe_code = "forbid"`. Supplying the
+layer by setting variables could not be written under this crate's root `forbid(unsafe_code)`. Supplying the
 variables as a map makes that layer a pure function of its input, and
 `Sources::from_process_environment` is the one place that reads the real environment.
 
@@ -1508,8 +1508,9 @@ rather than a missing required one** - it selects the reader's own recommended d
 (`sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}`),
 which this crate does not depend on that adapter crate to name. The composition root is
 where a declared zero is refused - `sutura_catalog_datahub::http::ReadBounds::parse` is the
-single owner of that range, the same split `BytesBilledCeiling::parse` holds for `BigQuery`'s
-ceiling.
+single owner of that range. This used to cite `BytesBilledCeiling::parse` as the same split
+for `BigQuery`'s ceiling; that type is deleted and its range is now owned by nobody, so the
+`DataHub` bounds are the only live example of the split.
 
 ```rust
 pub fn with_datahub_reader(self, endpoint: String, token_file: PathBuf, metric_property: String) -> Result<Self, InvalidCatalogSettings>
@@ -4758,9 +4759,9 @@ convenience, and nothing needs to clone a startup refusal.
   document shape has no `scopes` member and the driver's own scope option means
   service-account impersonation, so `scope` is declared and sent by nothing - measured against
   the pinned sources at `WorkloadIdentity::scope`. So of the three keys: `audience` is read,
-  `impersonate`'s KEYS decide which callers may be served at all, and `scope` plus
-  `impersonate`'s VALUES are read by nothing - see
-  `sutura_exec_bigquery::DeclaredPrincipals::names` for the second of those.
+  `impersonate`'s KEYS decide which callers may be served at all, its VALUES name the account
+  each caller's questions execute as, and `scope` alone is read by nothing - see
+  `sutura_exec_bigquery::DeclaredPrincipals::target` for the values.
 - `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
 
   Refused rather than ignored, for the reason every key a kind has no use for is refused: a
@@ -5349,19 +5350,31 @@ on this side: an operator who means a loopback TCP dial writes `127.0.0.1` or `:
 ### Module `workload_identity`
 
 The token-exchange setup one `impersonation-at-source` source declares.
-The token-exchange setup one `impersonation-at-source` source declares.
+The Workload Identity Federation setup one `impersonation-at-source` source declares.
 
-**This is the tape a subject's own credential is exchanged against** - RFC 8693 handed to a
-Workload Identity Federation provider. A source that executes as the asking subject has to say
-*which* provider receives the subject's token and *what the exchanged credential may do*, and
-both are that source's declaration rather than this process's guess. See `docs/adr/0008` and the
-issue that wired the adapter that presents one.
+**This process performs no exchange.** `audience` names the pool a subject's own assertion is
+federated against, and the federating is Google's token service's, driven by the driver from the
+`external_account` document `sutura_exec_bigquery`'s ADBC transport builds. A source that
+executes as the asking subject has to say *which* pool receives that assertion, and that is the
+source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
+sixth amendment.
 
-The two newtypes are declared here, in the settings tree that owns the value, and the broker that
-performs the exchange holds its own copies in the adapter that links it - the same reason
-`BillingProject` is checked both here and in the transport that interpolates
-it: an adapter may not depend on the settings tree, so the format is checked where it is declared
-AND where it is sent.
+**What each declared value actually reaches.** `audience` is sent. `scope` is parsed and sent
+nowhere: the credential document has no `scopes` member, and the driver's own scope option
+selects the DELETED principal-switch mechanism rather than this one. `impersonate`'s KEYS decide
+which subjects a source may be served for, and since `telekom/sutura#929` F3 its VALUES name the
+account each of those subjects executes as - sent as the credential document's
+`service_account_impersonation_url`, so changing one changes which account a caller's questions
+run as.
+`expected_issuer`/`expected_audience` are REFUSED at boot by
+`sutura_cli::serve::broker` - the RFC 8693 hop that checked them is deleted
+(`docs/adr/0034`, both amendments), and a declaration nothing reads is a control that reads as
+being in place.
+
+The two newtypes are declared here, in the settings tree that owns the value, and the adapter
+that sends `audience` holds its own copy - the same reason `BillingProject` is checked both
+here and in the transport that interpolates it: an adapter may not depend on the settings tree,
+so the format is checked where it is declared AND where it is sent.
 
 #### `struct WifAudience`
 
@@ -5369,7 +5382,8 @@ AND where it is sent.
 pub struct WifAudience
 ```
 
-The audience a subject token is exchanged for: a workload identity provider resource.
+The pool a subject's own assertion is federated against: a workload identity provider
+resource.
 
 ##### Methods
 
@@ -5399,7 +5413,8 @@ exist here. Bounded in length, because it is a foreign string heading for a requ
 pub struct WifScope
 ```
 
-The OAuth scope the exchanged credential is minted for.
+The OAuth scope an operator declares for the federated credential. Sent by nothing - see
+`WorkloadIdentityConfig::scope`.
 
 ##### Methods
 
@@ -5429,29 +5444,28 @@ it belongs in a request and a refusal should never log it raw.
 pub struct WorkloadIdentityConfig
 ```
 
-The token-exchange setup a `impersonation-at-source` source needs.
+The Workload Identity Federation setup a `impersonation-at-source` source needs.
 
-**`impersonate` is the second hop, telekom/sutura#376's iamcredentials step, and it is additive.**
-An entry with an empty map keeps today's behaviour exactly: a bare RFC 8693 exchange, presented as
-the caller's own federated credential. A subject present as a key is the ONLY way a source ever
-asks Google's `iamcredentials.generateAccessToken` for anything - there is no fallback to the
-deployment's own identity for a caller absent from the map, because the broker that reads this
-refuses such a caller before any network call rather than answering as the process.
+**`impersonate` decides WHO MAY BE SERVED, and nothing else.** A subject present as a key is the
+only caller a source may be asked as; a caller absent from it is refused by
+`sutura_exec_bigquery::DeclaredPrincipalBroker` before any network call rather than answered as
+the process. **And the declared account beside each key decides WHO that caller becomes**: it
+is sent as the credential document's `service_account_impersonation_url`, so the pool resolves
+the subject to its own principal and that principal then impersonates this account
+(`telekom/sutura#929` F3 - a round of this adapter read the keys and ignored the values). An
+empty map, and an account this adapter cannot name in a request, are both refused where they
+can become a startup failure, by `DeclaredPrincipals::parse`.
 
-**`expected_issuer` and `expected_audience` name what the pool itself trusts, and both are the
-missing link telekom/sutura#817 names.** Leg 1 (who is asking) verifies a document against
-`security.inbound`'s issuer and audience; the exchange hands that *same* subject token to
-Google STS for this pool. Unless the pool's trusted issuer and its STS audience are the very
-values leg 1 verifies, the two trust roots are unconnected by construction - a document leg 1
-accepts is one the pool declines. Declaring them beside the exchange makes the link mechanical:
-the broker refuses a boot whose leg 1 can never satisfy the stated pool, and a runtime cell
-asserts the asserted document actually carries them before it is offered to a real STS.
+**`expected_issuer` and `expected_audience` are refused at boot.** They named what the pool
+itself trusts, so that a document leg 1 accepts could not be one the pool declines -
+telekom/sutura#817's seam. The mechanism that compared them was the RFC 8693 hop and its claim
+check, both deleted (`docs/adr/0034`, both amendments), so `sutura_cli::serve::broker` refuses a
+source declaring either, naming both keys. They stay parsed and refusable rather than dropped so
+that a deployment which once declared them fails loudly; whether the settings tree should keep
+them at all is an owner decision `docs/adr/0034` does not take.
 
-**Both are `Option`, and absent keeps today's deployment exactly.** A source that declares no
-expectation still exchanges as before; the seam only graduates a deployment that writes the two
-roots down. That is deliberate: the pool expectation is a value an operator has to know (it is
-this deployment's own pool configuration), and failing an existing bare-exchange deployment over
-a value it never wrote would be the same over-reach `impersonate` is careful not to commit.
+**Both are still `Option` and a PAIR**, refused unless both or neither are present - a lone
+value would be half a comparison even once something compares them again.
 
 ##### Methods
 
@@ -5465,13 +5479,15 @@ The provider audience.
 pub const fn expected_audience(&self) -> Option<&WifAudience>
 ```
 
-The audience the pool accepts, if the declaration named one - `None` keeps the bare exchange.
+The audience the pool accepts, if the declaration named one. `Some` is refused at boot,
+for `WorkloadIdentityConfig::expected_issuer`'s reason.
 
 ```rust
 pub const fn expected_issuer(&self) -> Option<&crate::IssuerUrl>
 ```
 
-The issuer the pool trusts, if the declaration named one - `None` keeps the bare exchange.
+The issuer the pool trusts, if the declaration named one. `Some` is refused at boot -
+nothing compares it; see the type's own doc.
 
 ```rust
 pub const fn impersonate(&self) -> &std::collections::BTreeMap<sutura_domain::identity::SubjectKey, WorkloadIdentitySa>
@@ -5536,12 +5552,15 @@ Removing the key is a settings break and a follow-up; misreporting it is a defec
 pub struct WorkloadIdentitySa
 ```
 
-The service account a declared subject's exchanged credential is impersonated into.
+The service account an operator declares beside a subject in `impersonate`.
 
-**Checked here, and checked again where it is sent.** The same reason `WifAudience` gives:
-A consumer that impersonates a service account interpolates this value into its request
-path and may not depend on this crate, so the format is validated once at declaration and once at
-the adapter that sends it.
+**Parsed here and parsed AGAIN by the crate that sends it.** It is interpolated into one path
+segment of the credential document's `service_account_impersonation_url`, which decides which
+account the question runs as, so the check belongs where the risk is as well as where the value
+is declared - `sutura_exec_bigquery::principal::names_a_service_account` applies the same rule at
+parse and at send. That is deliberate duplication, not drift: the domain's
+`PrincipalName::parse` between them accepts `/`, `:` and `?`, because it is the parser every
+principal identifier shares.
 
 ##### Methods
 

@@ -5,14 +5,16 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 
 # Federating across different data systems
 
-Status: accepted, and **partly built** - amended three times, in place, by the blocks below. *Nothing
+Status: accepted, and **partly built** - amended five times, in place, by the blocks below. *Nothing
 here is built* was the status when this was written and is corrected rather than left: the splitter,
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
 once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
-chain; *Fourth amendment, 2026-09-22* is the one that closes the largest absence this record carried -
-**the second driven port designed below is BUILT**). What is still unbuilt is track 1 beyond the
-dialects that ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
+chain; *Fourth amendment, 2026-09-21* retires the working-set and deadline figures against the
+records that now carry them; *Fifth amendment, 2026-09-22* is the one that closes the largest absence
+this record carried - **the second driven port designed below is BUILT**). What is still unbuilt is
+track 1 beyond the dialects that ship. It decides a shape and an order; the code it led to is cited
+beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
@@ -50,7 +52,7 @@ a pure domain function that no adapter was on the path of, so the second driven 
 designed did not exist.
 **[Arrow and DataFusion override the hand-written combiner](0039-arrow-and-datafusion-override-the-hand-written-combiner.md)
 restores the original decision**: the combiner is DataFusion, so that a later multi-node move adopts
-a mechanism instead of redeveloping one. *Fourth amendment, 2026-09-22* is that decision built -
+a mechanism instead of redeveloping one. *Fifth amendment, 2026-09-22* is that decision built -
 `sutura_domain::plan::FederationCombiner`, implemented by `sutura_exec_datafusion::DataFusionCombiner`
 and wired at the composition root - and the hand-written function is deleted.
 `datafusion-federation` is **still not** the mechanism: 0039's step 4 is blocked ahead of an upstream
@@ -101,7 +103,7 @@ credential; and the results are joined and re-aggregated above the port. This is
 results above the port.** An intermediate revision said the combiner was the DOMAIN's, on the
 evidence of `sutura_domain::plan::FederatedPlan::combine` - a pure domain function with no adapter on
 its path, which meant `LocalService` was generic in one adapter type and the second driven port
-designed below did not exist. *Fourth amendment, 2026-09-22* built the port: the domain declares
+designed below did not exist. *Fifth amendment, 2026-09-22* built the port: the domain declares
 `FederationCombiner` and names no engine, `sutura-exec-datafusion` implements it over a real
 `DataFusion` plan, `LocalService` is generic in both, and the pure function is deleted. **The reason
 the combiner had to be OURS rather than a framework's is the paragraph that follows and it is
@@ -506,7 +508,7 @@ plan shapes the port carries went from one to two; the protocol did not move.
 combine needs DataFusion, `sutura-app` may not name a framework, so the domain declares a port beside
 `Warehouse` and `SemanticCatalog` and a crate above it implements the combine over DataFusion, with
 `LocalService` generic in both. That is `sutura_domain::plan::FederationCombiner`,
-`sutura_exec_datafusion::DataFusionCombiner`, and `LocalService<W, S, B, C>` - see *Fourth amendment,
+`sutura_exec_datafusion::DataFusionCombiner`, and `LocalService<W, S, B, C>` - see *Fifth amendment,
 2026-09-22*.
 
 **What landed FIRST, and for a while, was a pure domain function** -
@@ -549,7 +551,8 @@ Why not move the port to Arrow first, which is the direction [Connectors: Arrow 
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
 and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
 engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
-which copies every buffer, or the C data interface, which `unsafe_code = "forbid"` puts out of reach.
+which copies every buffer, or the C data interface, which `forbid(unsafe_code)` at every crate root
+puts out of reach.
 ADR 0006 built both of those walls.
 
 **This has since been attempted, and the split is a TIMING constraint with an expiry, not an
@@ -1217,7 +1220,34 @@ of a declared chain*, and the at-most-five-legs bound is unchanged because a rem
 lookup leg is reached through its chain's LAST hop's model, which is the same one remote model the
 bound counted.
 
-## Fourth amendment, 2026-09-22: the second driven port is built, and DataFusion combines
+## Fourth amendment, 2026-09-21: *the value of the working-set ceiling, and of the deadline* is retired
+
+**The *what is explicitly not decided* bullet of that name is spent, and one half of it was stale
+rather than merely open.** It says `0009` carries *a provisional 1 GB and a provisional three
+minutes*. The shipped deadline has been **30 seconds** for as long as `defaults.yaml` has carried
+the key; three minutes was what the plan predicted and never what shipped, so this record has been
+asking for a measurement of a number nothing enforced. Left above as written, per the amendment
+convention; this is the correction.
+
+**Both halves are now measured, and both are recorded where the bound lives** - in
+[0009](0009-the-plan-from-one-source-to-many.md), whose first amendment carries the working-set
+envelope (largest operator-reservation peak 1.37% of the 1 GiB default, on a named host) and whose
+third carries the deadline (the whole answer path over the single-source example corpus, medians of
+755.9 microseconds and 1.453 milliseconds against a 29-second execution budget, by `just bench` on a
+host whose load was below its core count). Neither measurement moved its
+default, and both say so rather than leaving the reader to infer it.
+
+**What this record still wants back is narrower than the retired bullet, and it is unchanged by
+either run.** The measurement it asks for above - *how much of a distinct-key leg the engine's memory
+pool can actually see* - is answered only for the shape the small corpus produces: `0009`'s first
+amendment records that the distinct-key case is REFUSED before execution in two-source topology and
+therefore contributed a zero operator peak, so the pull-up's cost at the grain this record reasons
+about is still unobserved. And the deadline figure is from an in-process engine over local files: the
+federated and networked legs this record exists for are not measured, which is exactly where a
+deadline is the bound that binds. Those two remain open under *what is explicitly not decided*; the
+VALUES of the two bounds do not.
+
+## Fifth amendment, 2026-09-22: the second driven port is built, and DataFusion combines
 
 **The design this record wrote down and then recorded as unbuilt is built, unchanged in shape.** The
 domain declares `plan::FederationCombiner` beside `Warehouse` and `SemanticCatalog`;

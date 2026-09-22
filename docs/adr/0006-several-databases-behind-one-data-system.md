@@ -233,7 +233,8 @@ and again on the way in. The Arrow C data interface is version-stable across maj
 **at these pins there is nothing to call it with**: the pinned duckdb crate has no
 `ArrowArrayStream` surface at all - checked, zero occurrences in its source - only a `stream_arrow`
 returning batches of the older Arrow. Obtaining a C stream therefore means raw FFI through
-`libduckdb-sys`, and `unsafe_code = "forbid"` means first-party code cannot write it. Precise about
+`libduckdb-sys`, and `forbid(unsafe_code)` at every crate root means first-party code cannot write
+it. Precise about
 the Arrow side: its reader's `try_new` is safe and only `from_raw` is `unsafe`, so the ban bites on
 getting the stream out of the driver rather than on Arrow's own API.
 
@@ -505,7 +506,7 @@ that resolve to one subject are then allowed and two subjects are refused, which
 was always meant. **That check cannot be written today, and the reason has narrowed since this was
 written:** the types now exist - `sutura_domain::identity` holds the principal chain, the request context and the
 `CredentialBroker` port, and `Warehouse::execute` takes a credential minted for the source it reads.
-What is still missing is a second identity for two sources to resolve to: no adapter in this build can
+What is still missing is a second identity for two sources to resolve to: no published adapter can
 carry a per-subject credential, so every leg presents the identity this deployment holds for that
 source and a set keyed on identity would hold one element for a reason that has nothing to do with the
 asker.
@@ -584,7 +585,8 @@ the domain query type and the wire body, with a test that provokes it.
   correct answer and no diagnostic. Anything rendering per source needs that to be observable.
 - **The Arrow major gap is a live constraint on one implementation of the built route.** Putting the
   driver's own batches into the engine's session does not compile at these pins, and the two bridges
-  are a copy per buffer or raw FFI that `unsafe_code = "forbid"` bans. It does not constrain sending a
+  are a copy per buffer or raw FFI that `forbid(unsafe_code)` at every crate root bans. It does not
+  constrain sending a
   whole rendered leg to an adapter, which is what the port already carries.
 - **Two costs are inherited rather than retired.** Which artifact links a native driver - nixpkgs has
   no musl `libduckdb`, and the cross-built artifacts link the engine alone for that reason - and how a

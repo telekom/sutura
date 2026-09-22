@@ -16,8 +16,8 @@ says why they look the way they do.
     semantic compiler and executor over local files, served over HTTP - behind a token that
     authenticates the DEPLOYMENT, unless the deployment declares `security.inbound` and verifies a
     caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
-    exist now; what does not is an adapter that can carry a per-subject credential, so every question
-    still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+    exist now; what no published build has is an adapter that can carry a per-subject credential, so
+    every question there still reads as one identity. No Arrow result envelope. Sections that describe something enforced
     today say so inside the section, and [What exists today](#what-exists-today) is the inventory.
     **Do not deep-link a section of this page as evidence that a control is in place.**
 
@@ -346,8 +346,9 @@ arrangement of guards there can be an authority. Two mechanisms now, stated apar
   grain check closed a real gap - a `Day`-grain plan over the anchor's range used to pass and come
   back as a series rather than the one certified number.
 
-*Not built:* an adapter that can carry a per-subject credential. Both in this build declare that they
-have nowhere for one to arrive, and the broker that ships mints from configuration. So the identity a
+*Not built for any PUBLISHED build:* an adapter that can carry a per-subject credential. Both
+adapters a published binary links declare that they have nowhere for one to arrive, and the broker
+that ships mints from configuration. The default-off `bigquery` feature builds one that does. So the identity a
 leg presents is *the one this deployment holds for that source*, acknowledged by an operator and
 recorded on the answer - which is honest and is not impersonation. Against a local file the property
 is trivially satisfied and buys nothing, since a file has no login. What the port bought is that the

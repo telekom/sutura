@@ -202,6 +202,21 @@ fn the_embedded_default_ceiling_is_the_number_the_type_declares() {
     assert_eq!(WorkingSetCeiling::DEFAULT_BYTES, 1024 * 1024 * 1024);
 }
 
+#[test]
+fn the_embedded_default_timeout_is_the_number_the_type_declares() {
+    // The ceiling above had this holding and the deadline had none: its value lived only in
+    // `defaults.yaml`, with no constant to cite and nothing comparing the two. That is how ADR
+    // 0007 and ADR 0009 could both carry `three minutes` against a shipped thirty seconds -
+    // `github.com/telekom/sutura#140`. The limit of this cell, stated where it is claimed: it
+    // holds the two SHIPPED sites against each other. A number restated in prose is still held by
+    // a reader.
+    let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
+    assert_eq!(settings.server().request_timeout().seconds(), RequestTimeout::DEFAULT_SECONDS);
+    // Spelled out, for the reason the ceiling's own cell spells a gibibyte out: a change to the
+    // default is then visible in this diff and not only in the constant.
+    assert_eq!(RequestTimeout::DEFAULT_SECONDS, 30);
+}
+
 // ------------------------------------------------------ per-value refusals ----
 
 #[test]

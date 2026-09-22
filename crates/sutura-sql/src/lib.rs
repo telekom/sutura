@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Rendering: a `QueryPlan` becomes one statement in one dialect.
 //!
 //! Three modules and one type. `dialect` names the data systems we render for and owns the two
