@@ -16,7 +16,7 @@
 //!
 //! `29138 - 22765` is that one customer's June revenue, counted a second time. **Neither answer was
 //! refused**, and which one a deployment gets depends on where the dimension model sits rather than
-//! on the question. [`FederatedFailure::AmbiguousLink`](crate::plan::FederatedFailure::AmbiguousLink)
+//! on the question. [`FederatedAnswerRefusal::AmbiguousLink`](crate::plan::FederatedAnswerRefusal::AmbiguousLink)
 //! covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
 //! in a column the question projects, and the `GROUP BY` has already removed them when they agree.
 //!

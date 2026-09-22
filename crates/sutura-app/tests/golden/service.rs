@@ -123,6 +123,7 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &elsewhere,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -164,6 +165,7 @@ fn a_refused_question_never_reaches_the_data_system() {
             &crate::adapters::a_caller(),
             &crate::adapters::shared_credential(),
             &fake,
+            &sutura_domain::plan::RefusingCombiner,
             1 << 30,
             crate::adapters::deadline(),
             &sutura_app::SpendLedger::no_budget(),
@@ -198,6 +200,7 @@ fn a_working_set_exhaustion_wins_over_a_result_too_large_when_an_adapter_reports
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &both,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -232,6 +235,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &exhausted,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -258,6 +262,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &broken,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -293,6 +298,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &too_wide,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -330,6 +336,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &at_the_cap,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -360,6 +367,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &heavy,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -386,6 +394,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &light,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -417,6 +426,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &would_not_fit,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -442,6 +452,7 @@ fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &broken,
+        &sutura_domain::plan::RefusingCombiner,
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -596,10 +607,11 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
     // rule must not become a restriction on what a question may ask for. So the internal labels moved
     // into a namespace no identifier can spell, and this test asks the question that used to collide.
     //
-    // Through the real splitter and the real combiner, because that pair is the defect: the domain's
-    // own suite hands `combine` hand-built leg results, so nothing there can see a label the SPLITTER
-    // chose. Executing the legs is `#325`'s F5 and a separate slice; the rows here are the identity
-    // fixture that shows the join found its column.
+    // Through the real splitter and the real combiner, because that pair is the defect: a suite that
+    // hands the combiner hand-built leg results cannot see a label the SPLITTER chose. Executing the
+    // legs is `#325`'s F5 and a separate slice; the rows here are the identity fixture that shows the
+    // join found its column. The combiner is `sutura-exec-datafusion`'s since `docs/adr/0039`
+    // step 3, so this cell now reaches a real `DataFusion` plan.
     use sutura_domain::pinned::SemanticCatalog as _;
     use sutura_domain::warehouse::{RowSet, Value};
 
@@ -645,9 +657,20 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
     )
     .expect("a lookup result under the lookup leg's own labels");
 
-    let answer = plan
-        .combine(&fact, &lookup, 1 << 20)
-        .expect("a question whose dimension is named like the remote join column still combines");
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let fact = sutura_domain::plan::LegResult::of(
+        plan.fact(),
+        sutura_domain::warehouse::arrow::of_row_set(&fact).expect("a leg result converts"),
+    );
+    let lookup = sutura_domain::plan::LegResult::of(
+        plan.lookup(),
+        sutura_domain::warehouse::arrow::of_row_set(&lookup).expect("a leg result converts"),
+    );
+    let legs = sutura_domain::plan::Legs::of(&fact, &lookup).expect("one of each is a pair");
+    let answer = sutura_domain::plan::FederationCombiner::combine(&combiner, &plan, legs, 1 << 20)
+        .expect("a question whose dimension is named like the remote join column still combines")
+        .to_rows()
+        .expect("the combined answer decodes");
     assert_eq!(
         answer.columns(),
         &["customer_key", "region", "period", "recurring_revenue"],
@@ -665,7 +688,10 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
 
     // And the labels themselves, which is the report the combine's refusal is downstream of: two
     // columns under one label in either leg, and a public dimension that lost its own name.
-    for (side, labels) in [("fact", fact.columns()), ("lookup", lookup.columns())] {
+    for (side, labels) in [
+        ("fact", plan.fact().result_labels()),
+        ("lookup", plan.lookup().result_labels()),
+    ] {
         let distinct: std::collections::BTreeSet<&String> = labels.iter().collect();
         assert_eq!(
             distinct.len(),
@@ -674,9 +700,9 @@ fn a_dimension_named_like_the_remote_join_column_still_answers() {
         );
     }
     assert!(
-        fact.columns().contains(&String::from("customer_key")),
+        plan.fact().result_labels().contains(&String::from("customer_key")),
         "the public dimension keeps its own name: {:?}",
-        fact.columns()
+        plan.fact().result_labels()
     );
 }
 

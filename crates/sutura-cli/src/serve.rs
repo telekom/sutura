@@ -703,30 +703,45 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
+    // The combiner, built once for this replica - the served root's half of `docs/adr/0007`'s
+    // second driven port. Built here rather than handed in, for the reason the audit sink is: which
+    // implementor a process holds is a property of the BUILD, and this is the build.
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
+        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
     match catalogs {
-        catalog::OpenedCatalogs::Markdown(catalogs) => {
-            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| {
-                    Arc::new(
-                        service
-                            .with_spend_ledger(spend_ledger(spend_budget))
-                            .with_row_ceiling(row_ceiling),
-                    ) as Serving
-                })
-                .map_err(flatten)
-        }
+        catalog::OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        )
+        .map(|service| {
+            Arc::new(
+                service
+                    .with_spend_ledger(spend_ledger(spend_budget))
+                    .with_row_ceiling(row_ceiling),
+            ) as Serving
+        })
+        .map_err(flatten),
         #[cfg(feature = "datahub")]
-        catalog::OpenedCatalogs::Datahub(catalogs) => {
-            LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
-                .map(|service| {
-                    Arc::new(
-                        service
-                            .with_spend_ledger(spend_ledger(spend_budget))
-                            .with_row_ceiling(row_ceiling),
-                    ) as Serving
-                })
-                .map_err(flatten)
-        }
+        catalog::OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
+            catalogs,
+            engines,
+            TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        )
+        .map(|service| {
+            Arc::new(
+                service
+                    .with_spend_ledger(spend_ledger(spend_budget))
+                    .with_row_ceiling(row_ceiling),
+            ) as Serving
+        })
+        .map_err(flatten),
     }
 }
 

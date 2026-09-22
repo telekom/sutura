@@ -193,6 +193,11 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
+# `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
+# suite composes services that answer single-source questions, where a combiner that answered would
+# be inventing a federated answer nothing reads.
+sutura-domain = { workspace = true, features = ["fixtures"] }
 # `tests/example.rs` runs `examples/single-player` and pins what came out. Snapshots rather than
 # hand-written expectations, for the reason the rest of the repo uses them: a typed expectation
 # asserts what somebody wished the generator did. Every test in it runs in the default build: the

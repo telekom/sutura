@@ -607,12 +607,19 @@ fn app_with_a_spend_ceiling(settings: sutura_config::Settings) -> axum::Router {
         posture,
         result,
     });
-    let service = crate::surface::LocalService::start(&catalog_of(bundle()), warehouses, sink(), broker(), 1 << 30)
-        .expect("the test bundle validates")
-        .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
-            budget.ceiling_bytes(),
-            budget.window(),
-        ))));
+    let service = crate::surface::LocalService::start(
+        &catalog_of(bundle()),
+        warehouses,
+        sink(),
+        broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates")
+    .with_spend_ledger(sutura_app::SpendLedger::new(Some(sutura_app::SpendBudget::new(
+        budget.ceiling_bytes(),
+        budget.window(),
+    ))));
     crate::router(&state_over(Arc::new(service), settings)).expect("the test router assembles")
 }
 

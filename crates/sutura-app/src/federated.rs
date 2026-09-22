@@ -31,7 +31,7 @@ use std::time::Instant;
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{FederatedAnswerRefusal, FederatedFailure, FederatedPlan, RowCeiling};
+use sutura_domain::plan::{FederatedPlan, FederationCombiner, LegResult, Legs, RowCeiling};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::{ExecutedAs, UniformlyExecuted};
 use sutura_domain::warehouse::deadline::Deadline;
@@ -51,26 +51,28 @@ pub(crate) fn source_unavailable(source: &SourceName) -> ToolOutcome {
 
 /// The two shapes a leg's execution can fail as: a governance refusal (the same predicates the mono
 /// path asks of its own `execute`) or a real failure that leaves as an error.
-pub(crate) enum LegError<E, Q> {
+pub(crate) enum LegError<E, Q, C> {
     /// The predicates said this is a bound, so the caller learns a refusal rather than a retryable
     /// `503`.
     Refusal(RefusalReason),
     /// Anything else - a dead data system, a mis-wired source - leaves as the typed error.
-    Failure(ServiceError<E, Q>),
+    Failure(ServiceError<E, Q, C>),
 }
 
-impl<E, Q> From<ServiceError<E, Q>> for LegError<E, Q> {
-    fn from(error: ServiceError<E, Q>) -> Self {
+impl<E, Q, C> From<ServiceError<E, Q, C>> for LegError<E, Q, C> {
+    fn from(error: ServiceError<E, Q, C>) -> Self {
         Self::Failure(error)
     }
 }
 
 /// The leg execution's return type, named so `run_leg`'s signature is not a `type_complexity`
 /// finding.
-pub(crate) type LegResult<W, B> = Result<ResultBatches, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+pub(crate) type LegAnswer<W, B, C> =
+    Result<ResultBatches, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
 /// The leg pre-flight's return type, named for the same `type_complexity` reason [`LegResult`] is.
-pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+pub(crate) type LegPreflight<W, B, C> =
+    Result<PreFlight, LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
@@ -88,20 +90,22 @@ pub(crate) type LegPreflight<W, B> = Result<PreFlight, LegError<<W as Warehouse>
 /// carries the usual row cap - unless the plan carries case 2's `top`
 /// (`github.com/telekom/sutura#777`), in which case `row_ceiling` bounds the combined set BEFORE it
 /// is ranked, and the row cap below never runs for this answer at all.
-pub(crate) fn answer_federated<W, B>(
+pub(crate) fn answer_federated<W, B, C>(
     pinned: &PinnedDefinitions,
     plan: &FederatedPlan,
     context: &RequestContext,
     broker: &B,
     warehouses: &Warehouses<W>,
+    combiner: &C,
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
     row_ceiling: RowCeiling,
-) -> Answering<W, B>
+) -> Answering<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
+    C: FederationCombiner,
 {
     // Both data systems, so a missing one is the same refusal the mono path gives before any
     // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
@@ -138,14 +142,13 @@ where
             // The splitter refuses same-source legs, so a collision is a splitter invariant that
             // changed and nothing can answer for it.
             //
-            // A3: `plan.metric()` is the metric this whole `FederatedPlan` measures - `FederatedPlan`
-            // already carries it as its own field, so matching `plan.fact()` to reach it was
-            // guessing at a value already in hand, and the `LegPlan::Lookup` arm it needed to match
-            // against was a fabricated `"revenue"` literal nothing about this plan asserts.
-            return Err(ServiceError::Federated {
-                cause: FederatedFailure::DuplicateLabels {
-                    side: "fact",
-                    label: String::from(plan.metric().as_str()),
+            // It leaves as its OWN typed shape now. This arm used to mint a
+            // a `DuplicateLabels` combine failure - a failure about a leg RESULT - out of the
+            // plan's metric name, which said nothing true about what went wrong; the combine's
+            // failure vocabulary belongs to the combiner since `docs/adr/0039` step 3 anyway.
+            return Err(ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegsCollide {
+                    at: plan.fact().source().clone(),
                 },
             });
         }
@@ -192,7 +195,7 @@ where
     // Both legs pre-flighted before either one executes, and the pair's own estimates summed and
     // charged against the ledger BEFORE either `execute` runs - `docs/adr/0030`'s "all-or-nothing":
     // a two-source answer is refused as a whole rather than after one leg has already spent.
-    let fact_preflight = match dry_run_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
+    let fact_preflight = match dry_run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline) {
         Ok(preflight) => preflight,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
@@ -200,7 +203,7 @@ where
         Err(LegError::Failure(error)) => return Err(error),
     };
     // The SAME `Deadline`, shared rather than divided (`docs/adr/0029` decision 3).
-    let lookup_preflight = match dry_run_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+    let lookup_preflight = match dry_run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
         Ok(preflight) => preflight,
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
@@ -225,46 +228,48 @@ where
         }
     }
 
-    let fact = match run_leg::<_, B>(fact_warehouse, &credentials, plan.fact(), deadline) {
-        Ok(batches) => batches,
+    // **The legs' results never become rows, and that is `docs/adr/0039` step 2's whole point
+    // meeting step 3's.** Each `LegResult` is tagged with the side its own `LegPlan` names, so the
+    // pair the combiner receives cannot have the two legs swapped - which would group the fact
+    // leg's measure by the lookup leg's keys and answer a wrong number under a certified name.
+    let fact = match run_leg::<_, B, C>(fact_warehouse, &credentials, plan.fact(), deadline) {
+        Ok(batches) => LegResult::of(plan.fact(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    let lookup = match run_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
-        Ok(batches) => batches,
+    let lookup = match run_leg::<_, B, C>(lookup_warehouse, &credentials, plan.lookup(), deadline) {
+        Ok(batches) => LegResult::of(plan.lookup(), batches),
         Err(LegError::Refusal(reason)) => {
             return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
         }
         Err(LegError::Failure(error)) => return Err(error),
     };
-    // Two decodes, and they are the measurement `docs/adr/0039` step 3 exists to delete: the legs
-    // arrive as Arrow and the combiner in the domain reads rows, so a `BigQuery` leg's typed arrays
-    // become domain values here and a DataFusion combine would build batches from them again. The
-    // combiner port is what removes this pair.
-    let fact = fact.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
-    let lookup = lookup.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
+    let legs = Legs::of(&fact, &lookup).map_err(|cause| ServiceError::Miswired {
+        cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
+    })?;
 
-    // The row cap applies to the ANSWER, not to a leg - a leg carries none. The combiner checks the
-    // working-set ceiling as it groups; exhaustion here is a governance refusal, anything else the
-    // combiner reports is an internal defect.
-    let combined = match plan.combine(&fact, &lookup, working_set_bytes) {
-        Ok(rows) => rows,
-        Err(FederatedFailure::ResourcesExhausted { ceiling_bytes }) => {
-            return Ok(Answered::under(
-                &credentials,
-                ToolOutcome::Refusal {
-                    reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
-                },
-            ));
-        }
-        // D19 + A4: a deterministic combine failure - the same plan against the same rows fails
-        // again - is a governance refusal, not a data-system outage. `FederatedAnswerRefusal::of`
-        // is the total classification; `None` is left as the remaining wiring defects, which stay
-        // an internal `ServiceError` because no caller caused them and none can fix them.
-        Err(cause) => match FederatedAnswerRefusal::of(&cause) {
-            Some(federated) => {
+    // **The combine, through the port.** The row cap applies to the ANSWER and not to a leg - a leg
+    // carries none - and the two governance outcomes are taken off the combiner's error FIRST, in
+    // the order the mono path asks its own adapter: the ceiling, then a deterministic refusal about
+    // what the legs returned, then this workspace's own defect.
+    let assembled = match combiner.combine(plan, legs, working_set_bytes) {
+        Ok(batches) => batches,
+        Err(cause) => {
+            if let Some(ceiling_bytes) = combiner.working_set_exhausted(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                    },
+                ));
+            }
+            // D19 + A4: a deterministic combine failure - the same plan against the same legs fails
+            // again - is a governance refusal and not a data-system outage, so a caller is never
+            // told to retry one. `None` is this workspace's own wiring, which stays an internal
+            // `ServiceError` because no caller caused it and none can fix it.
+            if let Some(federated) = combiner.answer_not_well_formed(&cause) {
                 return Ok(Answered::under(
                     &credentials,
                     ToolOutcome::Refusal {
@@ -272,17 +277,21 @@ where
                     },
                 ));
             }
-            None => return Err(ServiceError::Federated { cause }),
-        },
+            return Err(ServiceError::Combine { cause });
+        }
     };
+    // The presentation edge for a two-source answer, and the only decode on this path: the legs
+    // stayed Arrow all the way into the combine, so one call turns the ANSWER into the rows the
+    // bounds below count and a caller reads.
+    let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // A `top` still needs ranking HERE, after the combine - `github.com/telekom/sutura#777`'s
     // case 2. `FederatedPlan::combine` sorts its own output ascending by key cell UNCONDITIONALLY
     // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
     // is taken once, above the combine.
     if let Some(top) = plan.top() {
-        return ranked_answer::<W, B>(plan, &combined, row_ceiling, top, &credentials, pinned, executed_as);
+        return ranked_answer::<W, B, C>(plan, &answer, row_ceiling, top, &credentials, pinned, executed_as);
     }
-    if exceeds_row_cap(combined.rows().len(), sutura_domain::plan::MAX_ROWS) {
+    if exceeds_row_cap(answer.rows().len(), sutura_domain::plan::MAX_ROWS) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
@@ -295,7 +304,7 @@ where
         ));
     }
     // The same third bound the mono-source path checks, over the COMBINED result.
-    if let Some(limit_bytes) = exceeds_response_bound(&combined) {
+    if let Some(limit_bytes) = exceeds_response_bound(&answer) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
@@ -309,12 +318,12 @@ where
         &credentials,
         ToolOutcome::Answer {
             provenance: pinned.provenance(executed_as),
-            rows: combined,
+            rows: answer,
         },
     ))
 }
 
-/// Either case's `top`, applied to an already-combined answer - split out of [`answer_federated`]
+/// Either case's `top`, applied to an already-answer answer - split out of [`answer_federated`]
 /// for `cargo xtask max-lines`'s per-function cap.
 ///
 /// The set BEFORE ranking, not after - the top ten of an arbitrary `row_ceiling` rows
@@ -323,7 +332,7 @@ where
 /// (`sutura_semantic::resolve`), so a `top.n()` this large could not have
 /// compiled at all - this is strictly about the WIDTH of the group-by beneath it, which `top.n()`
 /// says nothing about.
-fn ranked_answer<W, B>(
+fn ranked_answer<W, B, C>(
     plan: &FederatedPlan,
     combined: &RowSet,
     row_ceiling: RowCeiling,
@@ -331,10 +340,11 @@ fn ranked_answer<W, B>(
     credentials: &BoundToTheRequest,
     pinned: &PinnedDefinitions,
     executed_as: UniformlyExecuted,
-) -> Answering<W, B>
+) -> Answering<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
+    C: FederationCombiner,
 {
     if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), row_ceiling.get()) {
         return Ok(Answered::under(
@@ -346,8 +356,8 @@ where
             },
         ));
     }
-    let ranked = FederatedPlan::rank(combined, top).map_err(|_malformed| ServiceError::Federated {
-        cause: FederatedFailure::MalformedRow { side: "answer" },
+    let ranked = FederatedPlan::rank(combined, top).map_err(|cause| ServiceError::Miswired {
+        cause: crate::FederationMiswired::RankedAnswer { cause },
     })?;
     if let Some(limit_bytes) = exceeds_response_bound(&ranked) {
         return Ok(Answered::under(

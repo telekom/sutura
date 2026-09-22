@@ -251,6 +251,7 @@ fn app_over_a_refusing_broker() -> axum::Router {
         recording.warehouses,
         sink(),
         NothingForThisSubject { at: source() },
+        sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
     .expect("the test bundle validates: the anchor path takes no credential");
@@ -271,6 +272,7 @@ fn app_that_exchanges(
         recording.warehouses,
         sink(),
         ExchangesForTheAsker,
+        sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
     .expect("the test bundle validates");

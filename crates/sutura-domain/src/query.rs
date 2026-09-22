@@ -346,9 +346,9 @@ pub enum RefusalReason {
     /// as an HTTP `503` - "worth retrying", the status a data system that might come back
     /// produces. Neither is: the same plan against the same rows fails again, so retrying spends a
     /// caller's own budget on an answer that was never going to change.
-    /// [`crate::plan::FederatedAnswerRefusal::of`] is the total classification that decides
-    /// which [`FederatedFailure`](crate::plan::FederatedFailure) causes land here rather than
-    /// staying a wiring-defect `ServiceError`.
+    /// [`crate::plan::FederationCombiner::answer_not_well_formed`] is the predicate that decides
+    /// which of a combiner's own failures land here rather than staying a wiring-defect
+    /// `ServiceError`.
     ///
     /// Carries the classification and no cell: see [`FederatedAnswerRefusal`](crate::plan::FederatedAnswerRefusal)'s
     /// own note on why a join key or a float value never reaches this far.

@@ -194,10 +194,15 @@ answer's arithmetic is therefore: the same `Deadline` is handed to every leg, an
 computing a share. The refusal for a budget leg 1 spent names the same variant; which leg spent it is
 in the audit record's leg entries and not in the caller's sentence.
 
-**The combine is outside it.** `FederatedPlan::combine` is a pure function over rows already in
-memory, bounded by the working-set ceiling and not by time. The last thing the deadline bounds is the
-last leg; a combine that outruns the reply margin surfaces as the transport's `408`. Stated rather
-than closed, because the combine has no `.await` to land a cancellation on.
+**The combine is outside it, and `docs/adr/0039` step 3 did not change that.** The combine is a
+`DataFusion` plan over batches already in memory now - `sutura_domain::plan::FederationCombiner`,
+implemented in `sutura-exec-datafusion` - bounded by the working-set ceiling and not by time. The
+last thing the deadline bounds is the last leg; a combine that outruns the reply margin surfaces as
+the transport's `408`. Stated rather than closed: the port's signature carries no `Deadline`, so
+there is nowhere for a caller to hand one over, and the combiner's own `block_on` has no timeout
+around it. **Closing it is the same change the adapters' own deadlines were** - a
+`tokio::time::timeout` around the combine, which the engine's `Warehouse::execute` already does for a
+leg - and it is not made here.
 
 **Not taken: dividing the budget per leg.** A share per leg is a number with an assumption in it -
 that the legs are alike - and the wrong one refuses a question whose fast leg would have left its

@@ -132,6 +132,7 @@ fn run_question(bencher: divan::Bencher, name: &str) {
             &caller(),
             &fixture.broker,
             &fixture.warehouses,
+            &sutura_domain::plan::RefusingCombiner,
             WorkingSetCeiling::DEFAULT_BYTES,
             Deadline::opened_at(Instant::now(), fixture.budget),
             &SpendLedger::no_budget(),

@@ -10,8 +10,9 @@ here is built* was the status when this was written and is corrected rather than
 the leg types, the per-dialect rendering, the combine and the orchestrating call all exist,
 `sutura-exec-datafusion` executes a leg, and a deployment can hold two KINDS of data system at
 once (*Second amendment, 2026-09-16*; *Third amendment, 2026-09-19* widens a dimension's `via` to a
-chain). What is still unbuilt is track 1 beyond the dialects that
-ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
+chain; *Fourth amendment, 2026-09-22* is the one that closes the largest absence this record carried -
+**the second driven port designed below is BUILT**). What is still unbuilt is track 1 beyond the
+dialects that ship. It decides a shape and an order; the code it led to is cited beside each amendment. **Read
 *Amendment, 2026-09-16* before citing the `feat/source-registry` bullet under *The order, by
 branch*** - it names an absence that has since become false.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
@@ -41,20 +42,25 @@ asserted, and two open questions that were closed. **Each is rewritten below rat
 banner over a live design is the shape this repository has already paid for once, and a reader who
 opens this record in the middle has no way to know a banner exists at the top.
 
-**Amended a second time, and again in place - and that amendment is now REVERSED by owner
-instruction, so read this block as one paragraph rather than two.** This record originally decided
-*the combiner is DataFusion*. The second amendment said it was NOT, on the evidence of what had been
-built: the combine as built is `sutura_domain::plan::FederatedPlan::combine`, a pure domain function
-that no adapter is on the path of, so the second driven port this record designed did not exist.
+**Amended a second time, and again in place - and that amendment was REVERSED by owner
+instruction and has now been BUILT, so read this block as one paragraph rather than three.** This
+record originally decided *the combiner is DataFusion*. The second amendment said it was NOT, on the
+evidence of what had been built: the combine as built was `sutura_domain::plan::FederatedPlan::combine`,
+a pure domain function that no adapter was on the path of, so the second driven port this record
+designed did not exist.
 **[Arrow and DataFusion override the hand-written combiner](0039-arrow-and-datafusion-override-the-hand-written-combiner.md)
-restores the original decision**: the combiner is DataFusion, reached through
-`datafusion-federation` rather than written here, so that a later multi-node move adopts a mechanism
-instead of redeveloping one. What that record adds is where it lives - an ADAPTER crate, because
-`ALLOWED_IN_DOMAIN`'s line is *no runtime, no client, no engine* and DataFusion is an engine - and
-what it costs, per step, with the measurement that bounds each. **What survives every revision is the
-part that decided the shape:** per-source legs, each a whole mono-source plan, each rendered or built
-in its own adapter, joined and re-aggregated above the port. Only the identity of the thing above the
-port has moved, twice.
+restores the original decision**: the combiner is DataFusion, so that a later multi-node move adopts
+a mechanism instead of redeveloping one. *Fourth amendment, 2026-09-22* is that decision built -
+`sutura_domain::plan::FederationCombiner`, implemented by `sutura_exec_datafusion::DataFusionCombiner`
+and wired at the composition root - and the hand-written function is deleted.
+`datafusion-federation` is **still not** the mechanism: 0039's step 4 is blocked ahead of an upstream
+manifest change, so what is built is our own `DataFusion` plan behind that port, and the crate plugs
+in where the port already is. What that record adds is where the implementation lives - an ADAPTER
+crate, because `ALLOWED_IN_DOMAIN`'s line is *no runtime, no client, no engine* and DataFusion is an
+engine - and what it costs, per step, with the measurement that bounds each. **What survives every
+revision is the part that decided the shape:** per-source legs, each a whole mono-source plan, each
+rendered or built in its own adapter, joined and re-aggregated above the port. Only the identity of
+the thing above the port has moved, and it has moved back.
 
 That amendment is what permits `sutura-exec-datafusion` to declare
 `Warehouse::EXECUTES_LEGS`, and it is this record's own sentence that permits it rather than a new
@@ -91,14 +97,15 @@ dialect with its bind parameters and forced quoting intact, or built as a logica
 adapter is the engine itself; each executes through its own `Warehouse` adapter under its own
 credential; and the results are joined and re-aggregated above the port. This is the architecture.
 
-**Amended: the combiner is the DOMAIN's, not DataFusion's.** This paragraph said *DataFusion joins
-and re-aggregates the results above the port* and the next one said *the combiner is DataFusion*.
-Neither is how it landed: `sutura_domain::plan::FederatedPlan::combine` is a pure domain function
-and no adapter is on the combine path, so the second driven port this record designed below - *a
-crate above that port implements it over DataFusion* - was never built and `LocalService` is generic
-in one adapter type. **This is a correction of fact rather than a change of direction:** the reason
-the combiner had to be ours is unchanged and is the paragraph that follows; what moved is only where
-it lives, and it moved to the layer with the fewest dependencies rather than to a framework.
+**Amended twice and now CORRECT as originally written: DataFusion joins and re-aggregates the
+results above the port.** An intermediate revision said the combiner was the DOMAIN's, on the
+evidence of `sutura_domain::plan::FederatedPlan::combine` - a pure domain function with no adapter on
+its path, which meant `LocalService` was generic in one adapter type and the second driven port
+designed below did not exist. *Fourth amendment, 2026-09-22* built the port: the domain declares
+`FederationCombiner` and names no engine, `sutura-exec-datafusion` implements it over a real
+`DataFusion` plan, `LocalService` is generic in both, and the pure function is deleted. **The reason
+the combiner had to be OURS rather than a framework's is the paragraph that follows and it is
+unchanged** - what moved is the layer, and it moved to the one that can hold an engine.
 
 **The consequence worth naming, because it is the whole of `telekom/sutura#112`'s second blocker.**
 With the combine in the domain, *the engine belongs above the port* stops being a reason the engine
@@ -495,23 +502,33 @@ carries a WHOLE plan and returns a WHOLE result. It never carries a fragment.** 
 what gives up the guarantee that push-down is complete, and no shape here needs one. The number of
 plan shapes the port carries went from one to two; the protocol did not move.
 
-**A second driven port was designed here and is NOT what was built.** The design: the combine needs
-DataFusion, `sutura-app` may not name a framework, so the domain declares a port beside `Warehouse`
-and `SemanticCatalog` and a crate above it implements the combine over DataFusion, with
-`LocalService` generic in both. **What landed instead is a pure domain function** -
-`sutura_domain::plan::FederatedPlan::combine`, taking the legs' `RowSet`s and the `FederatedPlan` and
-returning the answer's `RowSet`, exactly the signature this port was to carry. It needs no framework,
-so it needs no port and no second implementor: `LocalService` is still generic in one adapter type,
-and no adapter is on the combine path. The refusals this paragraph wanted a fake combiner for - the
-working-set ceiling, the deadline, the answer's row cap - are provokable without a data system
-because the function is in the domain, which is the same property reached one layer lower.
+**A second driven port was designed here and is now BUILT, exactly as designed.** The design: the
+combine needs DataFusion, `sutura-app` may not name a framework, so the domain declares a port beside
+`Warehouse` and `SemanticCatalog` and a crate above it implements the combine over DataFusion, with
+`LocalService` generic in both. That is `sutura_domain::plan::FederationCombiner`,
+`sutura_exec_datafusion::DataFusionCombiner`, and `LocalService<W, S, B, C>` - see *Fourth amendment,
+2026-09-22*.
 
-**One sentence of this paragraph survives the correction and is load-bearing:**
+**What landed FIRST, and for a while, was a pure domain function** -
+`sutura_domain::plan::FederatedPlan::combine`, taking the legs' `RowSet`s and the `FederatedPlan` and
+returning the answer's `RowSet`, close to the signature this port now carries. The paragraph that
+recorded it argued that a function needing no framework needs no port, and that the refusals a fake
+combiner would have been for - the working-set ceiling, the answer's row cap - are provokable
+without a data system because the function is in the domain. **Both halves were true and the
+conclusion still went the wrong way**, which is the part worth keeping: the ceiling that a pure
+function can bound is the one it counts ITSELF, and a combine that walks rows one cell at a time is
+the hand row handling the owner instruction forbids. The port's ceiling is an operator reservation
+in a real engine, and it is provokable without a data system too - `sutura-exec-datafusion`'s own
+suite provokes it with a one-byte pool.
+
+**One sentence of this paragraph was always load-bearing and is now literally true:**
 `sutura-exec-datafusion` keeps its `Warehouse` impl for local files, because the engine is also a data
-source, and the combiner is separate from it. That is what makes the engine's leg capability an
-ordinary question about a data source rather than a contradiction of *the engine belongs above the
-port* - there is nothing above the port for it to be. An adapter never calls another adapter, and
-that is unchanged: the combine is called by `sutura-app`, above every adapter.
+source, and the combiner is a separate implementor of a separate port - in the same crate, sharing no
+state with it. That is what makes the engine's leg capability an ordinary question about a data source
+rather than a contradiction of *the engine belongs above the port*. An adapter never calls another
+adapter, and that is unchanged: the combine is driven by `sutura-app`, above every adapter, through a
+port `sutura-app` is generic in - so the application still names no engine, which
+`xtask check-boundaries`'s application rule holds.
 
 #### Where the `RowSet`-to-Arrow boundary lives
 
@@ -1199,3 +1216,60 @@ Two claims above narrow with this: *every join is exactly one hop* reads as *eve
 of a declared chain*, and the at-most-five-legs bound is unchanged because a remote dimension's
 lookup leg is reached through its chain's LAST hop's model, which is the same one remote model the
 bound counted.
+
+## Fourth amendment, 2026-09-22: the second driven port is built, and DataFusion combines
+
+**The design this record wrote down and then recorded as unbuilt is built, unchanged in shape.** The
+domain declares `plan::FederationCombiner` beside `Warehouse` and `SemanticCatalog`;
+`sutura-exec-datafusion` implements it as one logical plan - two in-memory tables, one join, one
+aggregate, one projection, one sort; `LocalService<W, S, B, C>` is generic in it and `sutura-app`
+names no engine; and a composition root chooses the implementor, exactly as it chooses a data
+adapter. `FederatedPlan::combine` and its re-aggregation module are deleted.
+
+**What that costs the port that was already here, because the two changes are one change.**
+`Warehouse::execute`'s currency is Arrow record batches - `docs/adr/0039` step 2's second half, which
+this amendment is the CONSUMER of: a combiner port taking `RowSet` and rebuilding batches to run a
+`DataFusion` plan would be hand row handling in reverse. *Where the `RowSet`-to-Arrow boundary lives*
+above is fully retired by that: there is no boundary left to place, because a leg's batches reach the
+combine untouched and the one decode happens once, above the port, on the ANSWER.
+
+**Four things the port is shaped by, each a mechanism rather than a convention.**
+
+- **The two legs cannot be swapped.** `LegResult::of` reads the side off the `LegPlan` the leg was
+  executed from, and `Legs::of` assigns by that tag rather than by argument position - so the
+  mistake that would group the fact leg's measure by the lookup leg's keys does not compile a wrong
+  answer, it does not exist. A combiner taking `(&ResultBatches, &ResultBatches)` would.
+- **Both classifying predicates are REQUIRED**, with no default body, unlike `Warehouse`'s four. An
+  implementor that inherited `None` for `working_set_exhausted` would turn a ceiling an operator
+  configured into the `503` a dead data system produces, with nothing in a diff to see.
+- **The refusal vocabulary stays the domain's.** `FederatedAnswerRefusal` is what a caller is told,
+  and the port asks the implementor a PREDICATE rather than taking a `RefusalReason` from it - so an
+  adapter cannot mint any refusal it likes from a failure of its own.
+- **The ceiling rides on the error.** A combiner's bound is a per-question argument rather than a
+  property of the adapter, so `CombineError::Exhausted` carries the number that fired; nothing else
+  in the process knows which call it was.
+
+**What the port did NOT buy, stated beside what it did.** `sutura-exec-datafusion`'s
+`IMPERSONATION` is still `NoPlaceForASubject`: one process, one operating-system identity, so a
+combine runs as the deployment and not as the asker. *Identity* above is unchanged and leg 2 is not
+what this buys. What the combiner carries per subject instead is an opaque
+`identity::ComputeContext` - a per-subject digest, because `datafusion-federation`'s provider
+equality is `name() == name() && compute_context() == compute_context()` and equal contexts are what
+its optimizer fuses into one federated node executed through ONE of them. Nothing in this build
+compares two contexts yet: that crate is step 4 of `docs/adr/0039` and is blocked ahead of an
+upstream manifest change. So the seam is where a provider plugs in, and the value reaching it is a
+digest rather than a person's identifier in `EXPLAIN` output.
+
+**Two refusals this record decided are gone, and both because the port made them unrepresentable
+rather than because they were traded away.** A leaf column mixing integer and real cells cannot
+exist: an Arrow column has one type. A leaf total past `i64::MAX` is **answered exactly** instead of
+refused - the combiner sums an exact leaf through a 256-bit accumulator and the interior renders a
+total that does not fit an `i64` as its exact text. The limit that replaces the second one is a
+WIDTH rather than a guard, and it is stated where the arm was: `DataFusion`'s own accumulator adds
+with wrapping arithmetic, measured in the pinned source.
+
+**And two refusals got stronger, which is the part of this amendment that is not a relocation.** A
+floating-point link key and two legs whose link columns can never match are decided from the legs'
+Arrow SCHEMAS now. The hand-written combine decided a link column's kind from the first non-null
+cell it happened to find, so two EMPTY legs whose link types can never agree were answered as *no
+rows* - a right-looking answer to a question that cannot have one.

@@ -430,12 +430,19 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             "a plan resolves to one source, a measure reads",
             "plan resolves to exactly one source, a measure reads",
         ],
-        // The combiner's declaration, which is what the sentence says does not exist. It is called
-        // from `sutura_app`'s federated path, but the declaration is the narrower fact and the one
-        // that retires the rule if federation is ever taken back out.
+        // The combiner PORT's declaration, which is what the sentence says does not exist. It is
+        // driven from `sutura_app`'s federated path and implemented in `sutura-exec-datafusion`,
+        // but the declaration is the narrower fact and the one that retires the rule if federation
+        // is ever taken back out.
+        //
+        // **MOVED, and the move is `docs/adr/0039` step 3 rather than a re-anchoring for
+        // convenience.** This was `plan/federated.rs`'s `pub fn combine(` - a pure domain function
+        // that walked rows - and that function is gone: the combine is a `DataFusion` plan in an
+        // adapter now. The port's own declaration is the closest thing to the old anchor, and it is
+        // the same narrowness: a tree with no `FederationCombiner` is a tree that combines nothing.
         evidence: &[Evidence {
-            path: "crates/sutura-domain/src/plan/federated.rs",
-            holds: "pub fn combine(",
+            path: "crates/sutura-domain/src/plan/federated/combiner.rs",
+            holds: "pub trait FederationCombiner",
         }],
         instead: "`sutura_app`'s federated answer path builds the second leg and \
                   `crates/sutura-domain/src/plan/federated.rs` declares what groups the \

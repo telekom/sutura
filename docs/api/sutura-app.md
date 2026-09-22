@@ -39,7 +39,7 @@ a framework type, so this crate still holds none.
 ## `enum ServiceError`
 
 ```rust
-pub enum ServiceError<E, M>
+pub enum ServiceError<E, M, C>
 ```
 
 Why the service could not produce an outcome.
@@ -63,15 +63,22 @@ boundary gate bans `anyhow` for, arrived at by a different route.
   build that cannot run a leg. `sutura_semantic::CompileFailure` keeps them apart and keeps the
   typed cause.
 - `Warehouse`
-- `Federated` - The federated combiner could not assemble the two legs' rows.
+- `Combine` - The federated combiner could not assemble the two legs' results.
 
-  **An internal defect rather than a refusal, for every arm but the two `answer_federated`
-  maps by name.** A correctly split and certified question should not make the combiner fail: a
-  missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
-  it leaves as a failure the transport answers like a data-system outage. The two the answer
-  path turns into refusals are the two governance outcomes - `FederatedFailure::ResourcesExhausted`,
-  refused as `RefusalReason::ResourcesExhausted`, and the row cap, refused as
-  `RefusalReason::ResultTooLarge`.
+  **Typed in the COMBINER's own error, which is what the port being a port buys.** `docs/adr/0039`
+  step 3 moved the combine into an adapter, so the cause is that implementor's type exactly as
+  `Self::Warehouse`'s is a data adapter's - and `sutura-app` still names no engine.
+
+  **An internal defect rather than a refusal, and only because the two governance outcomes are
+  taken off it FIRST.** `answer_federated` asks
+  `FederationCombiner::working_set_exhausted`
+  and then
+  `answer_not_well_formed`,
+  so what reaches here is a leg result that does not carry a label the plan named, or a plan
+  that would not build - this workspace's own wiring, which no caller caused and none can fix.
+- `Miswired` - The federated path's own wiring produced a shape it cannot answer for.
+
+  Every arm is unreachable through the one production splitter - see `FederationMiswired`.
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
 
   **Its own variant rather than a refusal, and its own variant rather than sharing the one
@@ -128,6 +135,37 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 
 `Debug`, `Display`, `Error`
 
+## `enum FederationMiswired`
+
+```rust
+pub enum FederationMiswired
+```
+
+The federated path's own wiring, in the three shapes it cannot answer for.
+
+**Every arm is unreachable through `sutura_semantic::plan::federated_plan`, the one production
+splitter, and each is typed anyway rather than assumed away.** A previous revision reached for
+a `DuplicateLabels` combine failure for the first of them - a failure about a leg RESULT, minted
+from a value that has nothing to do with one - which is the shape this enum replaces.
+
+### Variants
+
+- `LegsCollide` - The two legs named one data system, so the provenance record could not hold both.
+
+  `FederatedPlan::new` refuses same-source legs, so this is a splitter invariant that changed.
+- `LegsAreNotOneOfEach` - The two leg results did not resolve to one of each side.
+
+  `FederatedPlan::legs` returns the fact leg and the lookup leg by construction, so a pair
+  built from it is one of each.
+- `RankedAnswer` - Ranking a combined answer produced a row set whose rows contradict its own columns.
+
+  `FederatedPlan::rank` re-orders and truncates rows it was handed, so it cannot change a
+  width.
+
+### Implements
+
+`Debug`, `Display`, `Error`
+
 ## `struct Answered`
 
 ```rust
@@ -178,7 +216,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger, row_ceiling: sutura_domain::plan::RowCeiling) -> Answering<W, B>
+pub fn answer<W, B, C>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, combiner: &C, working_set_bytes: u64, deadline: sutura_domain::warehouse::deadline::Deadline, ledger: &SpendLedger, row_ceiling: sutura_domain::plan::RowCeiling) -> Answering<W, B, C>
 ```
 
 Answers one question, or says why it will not.
@@ -725,7 +763,7 @@ Why a service could not be started.
 ### `struct LocalService`
 
 ```rust
-pub struct LocalService<W, S, B>
+pub struct LocalService<W, S, B, C>
 ```
 
 The one implementation: a validated bundle, the data systems this process opened, and one audit
@@ -760,7 +798,7 @@ default rather than an omission this type should refuse to start without.
 #### Methods
 
 ```rust
-pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
+pub fn start<K>(catalog: &K, warehouses: Warehouses<W>, sink: S, broker: B, combiner: C, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads one catalog through its port, re-runs every anchor against `warehouse`, and returns a
@@ -772,7 +810,7 @@ case, so there is one code path to keep honest rather than a second one that hap
 serve.
 
 ```rust
-pub fn start_composed<C>(catalogs: &[C], warehouses: Warehouses<W>, sink: S, broker: B, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
+pub fn start_composed<K>(catalogs: &[K], warehouses: Warehouses<W>, sink: S, broker: B, combiner: C, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads every declared catalog through its port, composes them into one bundle, re-runs every
@@ -783,8 +821,11 @@ reads a catalog directory, never opens a data system and never decides where a r
 The buttons the serve/schema each press are the same, which is what keeps "the bundle this
 validates is the bundle this serves" true for N sources rather than for one.
 
-`C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
-startup failure is reported from wherever the composition root happens to be.
+`K::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
+startup failure is reported from wherever the composition root happens to be. The catalog's
+type parameter is `K` and not `C` because `C` is the combiner now: the two used to be the
+same letter, and the combiner is a property of the SERVICE while a catalog is a property of
+one call.
 
 ```rust
 pub const fn with_row_ceiling(self, row_ceiling: RowCeiling) -> Self

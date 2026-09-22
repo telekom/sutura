@@ -1,15 +1,24 @@
-//! The federated question: two legs, and the combine that happens above them.
+//! The federated question: two legs, the plan that names them, and the port the combine happens
+//! through.
 //!
-//! **This module gives [`crate::federation`] its caller.** Until now that module was "a
-//! classification and a rule, nothing executes it": `Descent::of` and `Federation::of` were total but
-//! nothing produced a [`crate::plan::LegPlan`] and nothing consumed the rows one returns. This module
-//! is the other half - the small, closed contract that a splitter fills with facts and this module's
-//! own [`FederatedPlan::combine`] turns back into rows.
+//! **This module gives [`crate::federation`] its caller.** `Descent::of` and `Federation::of` are
+//! total classifications that nothing used to execute; a [`FederatedPlan`] is the small, closed
+//! contract a splitter fills with facts, and [`combiner`]'s port is what turns two legs' results
+//! back into one answer's rows.
+//!
+//! **The combine used to be a method here and is not any more.** `docs/adr/0039` step 3 replaced
+//! `FederatedPlan::combine` - a pure domain function that walked rows one cell at a time - with a
+//! `DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
+//! leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
+//! four accessors [`FederatedPlan::bucket_label`], [`FederatedPlan::measure_label`],
+//! [`FederatedPlan::federation`] and [`FederatedPlan::include_unmatched`] exist because an
+//! implementor above this crate cannot read a private field. What is deliberately not published is
+//! anything a combiner could use to invent a column.
 //!
 //! **What the splitter and the combiner agree on, and it is one function.** A fact leg's terms are
 //! projected under labels, and the combiner has to find each term's column *by* its label - the
 //! mistake this design refuses to make is the two halves agreeing by review. [`labels`] is that one
-//! function: the splitter names the fact leg's terms with it and the combiner re-derives the same
+//! function: the splitter names the fact leg's terms with it and a combiner re-derives the same
 //! names from the same [`Federation`] and looks them up in the fact leg's result. There is no second
 //! copy of the naming rule to drift.
 //!
@@ -18,34 +27,30 @@
 //! an identifier is a label a legal dimension name can collide with - reproduced. [`InternalLabel`]
 //! is the type that cannot be spelled by one.
 //!
-//! **The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
-//! happens instead.** The [`Above`](crate::federation::Above) tree already carries the only
-//! [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
-//! above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
-//! the wrong number this shape exists to prevent.
+//! **The division cannot happen in a leg, and that survives the combine moving out.** The
+//! [`Above`](crate::federation::Above) tree carries the only
+//! [`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path, and
+//! [`FederatedPlan::federation`] hands a combiner that tree rather than a per-leg guard - a guard
+//! applied inside a leg is the wrong number this shape exists to prevent.
 //!
-//! **What this module will not do, because `combine` cannot express it.** The re-aggregation
-//! `combine` performs covers the leaves a *decomposable* measure produces - a re-aggregating
-//! [`Sum`](crate::model::Aggregate::Sum), [`Min`](crate::model::Aggregate::Min) or
-//! [`Max`](crate::model::Aggregate::Max) over already-aggregated leg columns. A measure that does not
-//! decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
-//! slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
-//! have to re-count. The refusal names the aggregate.
+//! **What no combiner may be asked to express, and the refusal is here rather than there.** The
+//! re-aggregation above the legs covers the leaves a *decomposable* measure produces - a
+//! re-aggregating [`Sum`](crate::model::Aggregate::Sum), [`Min`](crate::model::Aggregate::Min) or
+//! [`Max`](crate::model::Aggregate::Max). A measure that does not decompose at all (an exact
+//! distinct count) has no re-aggregating function, so [`FederatedPlan::new`] refuses such a leaf
+//! before a plan exists and [`reaggregates`] is the whole statement of which do. That keeps an
+//! implementor's own unsupported-aggregate arm unreachable through this constructor.
 
-/// Everything above the legs: how a leaf column is re-aggregated, and the division that follows.
+/// The second driven port, and the pair of leg results it takes.
 ///
-/// Split out when this file reached the unexemptable 1000-line gate, along the seam the module
-/// already had rather than wherever the counter fell. It declares no test module of its own and
-/// took none with it - every assertion this module ever made is still in `tests.rs` - because a
-/// test module declared from a file `test-causality` reverts is never compiled, and the proof it
-/// then reports is vacuous.
-mod reaggregate;
+/// `docs/adr/0007` designed it here and recorded that it was not built; step 3 of
+/// `docs/adr/0039` is what builds it.
+pub mod combiner;
 
-/// What a combine can fail with, and the classification that tells a caller-facing refusal apart
-/// from this workspace's own wiring defect.
+/// The deterministic refusals a federated answer can carry.
 ///
-/// Split out when this file reached the unexemptable 1000-line gate, along a concept seam rather
-/// than the counter's own fall - see the module's own header for why this pair is one subject.
+/// A combiner's own error is classified into one by
+/// [`FederationCombiner::answer_not_well_formed`].
 mod failure;
 
 /// The reserved label namespace, and the one function that assigns it.
@@ -56,8 +61,6 @@ mod failure;
 /// proof it then reports is vacuous - every assertion about it is in `tests.rs`.
 pub mod label;
 
-use std::collections::BTreeMap;
-
 use crate::federation::Federation;
 use crate::model::{Aggregate, MetricName, SourceName};
 use crate::plan::PlanBucket;
@@ -66,9 +69,32 @@ use crate::plan::leg::LegPlan;
 use crate::query::{Top, TopBy, TopDirection};
 use crate::warehouse::{MalformedRowSet, RowSet, Value};
 
-pub use failure::{FederatedAnswerRefusal, FederatedFailure};
+/// Whether a re-aggregating function exists for `aggregate` at all.
+///
+/// **The one question a plan asks about the combine, and it stays here rather than moving to the
+/// combiner with everything else.** It is a property of the closed [`Aggregate`] vocabulary, not of
+/// an engine: a distinct count has no function that adds per-group distinct counts back up, whatever
+/// executes the combine. [`FederatedPlan::new`] refuses a carried leaf this answers `false` for, so
+/// no plan a combiner receives names one - which is why a combiner's own unsupported-aggregate arm
+/// is unreachable through this constructor rather than absent.
+///
+/// Named arms rather than a wildcard, so a seventh [`Aggregate`] has to answer here.
+const fn reaggregates(aggregate: Aggregate) -> bool {
+    match aggregate {
+        // Sums add; a minimum is its own re-aggregation, and so is a maximum. A pushed-down `Count`
+        // re-aggregates with a `Sum`, which `Carried::combine` already resolves before this is asked.
+        Aggregate::Sum | Aggregate::Min | Aggregate::Max => true,
+        // A mean of means is not the mean, and no function adds exact distinct counts back up. The
+        // splitter decomposes an `Avg` into a sum and a count, so `Avg` never reaches a leaf.
+        Aggregate::Count | Aggregate::Avg | Aggregate::CountDistinct => false,
+    }
+}
+
+pub use combiner::{FederationCombiner, LegResult, Legs, LegsAreNotOneOfEach};
+#[cfg(any(test, feature = "fixtures"))]
+pub use combiner::{NothingCombined, RefusingCombiner};
+pub use failure::FederatedAnswerRefusal;
 pub use label::{InternalLabel, labels};
-use reaggregate::{Leaves, reaggregates};
 
 /// The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
 /// another, linked by a single column.
@@ -110,7 +136,7 @@ pub struct FederatedPlan {
     keys: Vec<AnswerKey>,
     /// The federated `top`, ranked above the combine - `github.com/telekom/sutura#777`'s case 2,
     /// the only case the splitter can produce: a `top` not pushed to a fact leg ranks and
-    /// truncates the combined answer after [`combine`](Self::combine) returns it. `None` when the
+    /// truncates the combined answer after the combiner returns it. `None` when the
     /// question carries no `top`.
     top: Option<Top>,
 }
@@ -285,7 +311,7 @@ impl FederatedPlan {
     }
 
     /// Attaches the federated `top` - `github.com/telekom/sutura#777` - so
-    /// [`combine`](Self::combine)'s caller knows the answer still needs ranking and truncating
+    /// the combiner's caller knows the answer still needs ranking and truncating
     /// after the legs are joined.
     ///
     /// A builder rather than a constructor argument, for
@@ -334,6 +360,43 @@ impl FederatedPlan {
     pub fn keys(&self) -> &[AnswerKey] {
         &self.keys
     }
+
+    /// The label the fact leg projected its time bucket under, which the answer groups by.
+    ///
+    /// **Four accessors arrived with the combiner port and this is the first of them.** The combine
+    /// used to be a method here and read these fields directly; an implementor above this crate
+    /// cannot, so the plan publishes what a combine needs and nothing more. What is deliberately
+    /// NOT published is anything a combiner could use to invent a column: every one of these is a
+    /// label the splitter already assigned or a tree it already built.
+    #[inline]
+    pub fn bucket_label(&self) -> &str {
+        self.bucket.label()
+    }
+
+    /// The label the answer's measure is emitted under - the metric's own certified name.
+    #[inline]
+    pub fn measure_label(&self) -> &str {
+        self.measure_label.as_str()
+    }
+
+    /// The combine tree above the legs, and the metric that names its leaves.
+    ///
+    /// Every leaf it carries has a re-aggregating function, because [`Self::new`] refused a plan
+    /// whose leaf did not - so an implementor's own unsupported-aggregate arm is unreachable
+    /// through this constructor rather than absent.
+    #[inline]
+    pub const fn federation(&self) -> &Federation {
+        &self.federation
+    }
+
+    /// Whether a fact row with no lookup row survives with null remote keys.
+    ///
+    /// LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
+    /// published here so a combiner does not have to guess. `docs/adr/0009` decides the direction.
+    #[inline]
+    pub const fn include_unmatched(&self) -> bool {
+        self.include_unmatched
+    }
 }
 
 /// Why a federated plan could not be built.
@@ -377,295 +440,18 @@ fn leg_has_key(leg: &LegPlan, label: &str) -> bool {
     leg.keys().iter().any(|key| key.label() == label)
 }
 
-/// The column positions [`FederatedPlan::combine`] needs, resolved once.
-///
-/// Resolved together so every label lookup happens in one place and the rest of the combine reads by
-/// position. The maps are owned, so this struct does not borrow from either result set.
-struct LegIndexes {
-    fact_join: usize,
-    lookup_join: usize,
-    bucket: usize,
-    fact_index: BTreeMap<String, usize>,
-    lookup_columns: Vec<(String, usize)>,
-    lookup_pos: BTreeMap<String, usize>,
-    leaf_indexes: Vec<usize>,
-    leaf_labels: Vec<String>,
-    /// One all-null remote row, as the one-element slice a LEFT-retained fact row is projected
-    /// against - the stand-in for a lookup row that is not there.
-    ///
-    /// **Resolved here rather than built in [`FederatedPlan::project`], which runs once per distinct
-    /// link value.** Only the unmatched arm reads it, so building it there allocated one throwaway
-    /// `Vec<Value>` per matched link value and one per INNER miss as well. `docs/adr/0009`'s
-    /// working-set ceiling makes link cardinality the axis that matters, which is what makes an
-    /// allocation per link value a correctness question here rather than a style one.
-    unmatched: [Vec<Value>; 1],
-}
-
-impl LegIndexes {
-    fn resolve(plan: &FederatedPlan, fact: &RowSet, lookup: &RowSet) -> Result<Self, FederatedFailure> {
-        let mut fact_index: BTreeMap<String, usize> = BTreeMap::new();
-        let mut lookup_columns: Vec<(String, usize)> = Vec::new();
-        for key in &plan.keys {
-            match key.side() {
-                LegSide::Fact => {
-                    fact_index.insert(String::from(key.label()), column_index(fact, key.label(), "fact")?);
-                }
-                LegSide::Lookup => lookup_columns.push((String::from(key.label()), column_index(lookup, key.label(), "lookup")?)),
-            }
-        }
-        let lookup_pos: BTreeMap<String, usize> = lookup_columns
-            .iter()
-            .enumerate()
-            .map(|(index, (label, _))| (label.clone(), index))
-            .collect();
-        let leaf_labels: Vec<String> = labels(&plan.federation).into_iter().map(InternalLabel::label).collect();
-        let leaf_indexes: Vec<usize> = leaf_labels
-            .iter()
-            .map(|label| column_index(fact, label, "fact"))
-            .collect::<Result<_, _>>()?;
-        // Both legs project the link under the one internal label, so this is the scheme's constant
-        // rather than a field either leg could have spelled differently.
-        let link = InternalLabel::Link.label();
-        let unmatched = [vec![Value::Null; lookup_columns.len()]];
-        Ok(Self {
-            fact_join: column_index(fact, &link, "fact")?,
-            lookup_join: column_index(lookup, &link, "lookup")?,
-            bucket: column_index(fact, plan.bucket.label(), "fact")?,
-            fact_index,
-            lookup_columns,
-            lookup_pos,
-            leaf_indexes,
-            leaf_labels,
-            unmatched,
-        })
-    }
-
-    /// One answer key's cell, read from whichever leg's result owns it.
-    fn read_cell(&self, key: &AnswerKey, fact_row: &[Value], remote: &[Value]) -> Result<Value, FederatedFailure> {
-        match key.side() {
-            LegSide::Fact => {
-                let index = self
-                    .fact_index
-                    .get(key.label())
-                    .copied()
-                    .ok_or_else(|| FederatedFailure::MissingColumn {
-                        side: "fact",
-                        label: String::from(key.label()),
-                    })?;
-                cell(fact_row, index, "fact", key.label()).cloned()
-            }
-            LegSide::Lookup => {
-                let index = self
-                    .lookup_pos
-                    .get(key.label())
-                    .copied()
-                    .ok_or_else(|| FederatedFailure::MissingColumn {
-                        side: "lookup",
-                        label: String::from(key.label()),
-                    })?;
-                cell(remote, index, "lookup", key.label()).cloned()
-            }
-        }
-    }
-}
-
-/// The scalar kind a link cell can carry once a floating-point one is already refused.
-///
-/// `"integer"` and `"text"`, not the [`Value`] variant name: this reaches
-/// [`FederatedFailure::LinkTypeMismatch`], which a caller reads, and a caller-facing word for a
-/// scalar kind is prose this workspace already has a place for rather than a Rust identifier
-/// leaking into a message.
-const fn link_kind(value: &Value) -> Option<&'static str> {
-    match value {
-        Value::Integer(_) => Some("integer"),
-        Value::Text(_) => Some("text"),
-        // `Null` decides nothing about the column's kind, and `Real` is refused by the float-key
-        // rule wherever a row actually joins - this classification runs before either leg's rows
-        // are walked, so it must not pre-empt that refusal by treating a real as a kind of its own.
-        Value::Null | Value::Real(_) => None,
-    }
-}
-
-/// The first non-null, non-real kind a leg's link column carries, or `None` if it carries none.
-///
-/// One pass, no allocation, stopping at the first row that decides it - cheap enough to run before
-/// the join even considers a leg empty of matchable keys.
-fn dominant_link_kind(rows: &RowSet, join_index: usize) -> Option<&'static str> {
-    rows.rows().iter().find_map(|row| row.get(join_index).and_then(link_kind))
-}
-
-/// Refuses two legs whose link columns can never produce a match, because the join key `key_cell_str`
-/// builds is prefixed by scalar kind (`"I:"` vs `"T:"`) precisely so an integer and a text carrying
-/// the same digits never false-match.
-///
-/// **The defect this closes.** That prefix is correct for two sources that share a kind and wrong
-/// data - it must not false-match `Integer(1001)` against `Text("1002")` and it does not. But
-/// applied to two sources whose link columns disagree in KIND, every row on both legs misses by
-/// construction, and the combine used to return that silently: an empty INNER answer, or a LEFT
-/// answer whose every fact row survived with a null remote side - both a wrong answer that looks
-/// like a right one, which is worse than the refusal this function raises instead. Checked before
-/// either leg's rows are walked into the join, so a mismatch is refused before it can produce either
-/// silent shape.
-fn refuse_link_type_mismatch(fact: &RowSet, lookup: &RowSet, indexes: &LegIndexes) -> Result<(), FederatedFailure> {
-    let fact_kind = dominant_link_kind(fact, indexes.fact_join);
-    let lookup_kind = dominant_link_kind(lookup, indexes.lookup_join);
-    if let (Some(fact_kind), Some(lookup_kind)) = (fact_kind, lookup_kind)
-        && fact_kind != lookup_kind
-    {
-        return Err(FederatedFailure::LinkTypeMismatch { fact_kind, lookup_kind });
-    }
-    Ok(())
-}
-
-/// Every fact row, split by whether its link value can match a lookup row at all.
-///
-/// A `Null` link matches nothing - `NULL = NULL` is not true in SQL - so a null-keyed fact row is
-/// **unmatched by construction** rather than unmatched by lookup, and the join kind decides it
-/// exactly as it decides an unmatched non-null key: retained with null remote keys under LEFT,
-/// dropped under INNER. Dropping it here instead lost the row and its measure under BOTH kinds,
-/// which is the defect this shape exists so that no caller can reintroduce - a row that reaches
-/// neither half does not exist. A real link is refused by the float-key rule before either.
-fn fact_rows(fact: &RowSet, fact_join: usize) -> Result<FactRows<'_>, FederatedFailure> {
-    let mut rows = FactRows {
-        linked: BTreeMap::new(),
-        unlinkable: Vec::new(),
-    };
-    for row in fact.rows() {
-        let Some(link) = row.get(fact_join) else {
-            continue;
-        };
-        match link_key(link)? {
-            Some(key) => rows.linked.entry(key).or_default().push(row),
-            None => rows.unlinkable.push(row),
-        }
-    }
-    Ok(rows)
-}
-
-/// The remote keys each link value maps to, refusing a link with more than one lookup row.
-///
-/// More than one row for one link would double every measure, so it is refused rather than
-/// certified.
-///
-/// **D8: the one allocation in `combine` sized by a LEG's own row count rather than by the
-/// answer's, so it is charged against `budget` as it clones each row's key columns** - the working
-/// set `docs/adr/0009` bounds is the whole of what a combine holds, not only the rows the answer
-/// finally emits. Everything else `combine` builds before this either borrows (`fact_rows`) or is
-/// sized by the key list rather than by a row count (`LegIndexes::resolve`'s own maps).
-fn lookups_by_link(
-    lookup: &RowSet,
-    lookup_join: usize,
-    lookup_columns: &[(String, usize)],
-    budget: &mut ByteBudget,
-    byte_budget: u64,
-) -> Result<RemoteByLink, FederatedFailure> {
-    let mut by_link: RemoteByLink = BTreeMap::new();
-    for row in lookup.rows() {
-        let Some(link) = row.get(lookup_join) else {
-            continue;
-        };
-        let Some(key) = link_key(link)? else {
-            continue;
-        };
-        let remote: Option<Vec<Value>> = lookup_columns
-            .iter()
-            .map(|(label, index)| cell(row, *index, "lookup", label).cloned().ok())
-            .collect();
-        let Some(remote) = remote else {
-            continue;
-        };
-        budget.add(remote.iter().map(value_bytes).sum(), byte_budget)?;
-        let entry = by_link.entry(key.clone()).or_default();
-        if !entry.is_empty() {
-            return Err(FederatedFailure::AmbiguousLink { key });
-        }
-        entry.push(remote);
-    }
-    Ok(by_link)
-}
-
 #[expect(
     clippy::multiple_inherent_impl,
-    reason = "the accessor impl and the combiner impl span one type, kept apart for readability"
+    reason = "the accessor impl and the RANK, which is a property of the answer's own column order \
+              rather than of a plan's fields, span one type and are kept apart for readability"
 )]
 impl FederatedPlan {
-    /// Turns one result per leg into one answer's rows.
-    ///
-    /// The fact and lookup results are joined on the recorded link column, grouped by the answer's
-    /// keys - in the order the question asked them, matching the mono path - and the bucket,
-    /// re-aggregated by each leaf's own [`Carried::combine`](crate::federation::Carried::combine),
-    /// and only then divided through the [`Above`](crate::federation::Above) tree. Those last two
-    /// steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
-    /// grouping and the budget are this file's.
-    ///
-    /// `byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
-    /// the answer materialised here is counted as it is built, and a question that would cross it is
-    /// refused as [`FederatedFailure::ResourcesExhausted`] rather than truncated, so a caller never
-    /// reads a result that stopped early as a result that returned.
-    pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure> {
-        distinct_columns(fact, "fact")?;
-        distinct_columns(lookup, "lookup")?;
-
-        // D8: the budget is built before anything it will count is. `lookups_by_link` is the one
-        // allocation here that scales with a LEG's own row count rather than with the answer's -
-        // it clones every lookup row's key columns into `RemoteByLink` - so it is charged as it
-        // clones them, not after. `LegIndexes::resolve` and `fact_rows` build no cell copies: the
-        // first is metadata sized by the key list, the second borrows the fact rows it groups.
-        let mut budget = ByteBudget::new(byte_budget);
-        let indexes = LegIndexes::resolve(self, fact, lookup)?;
-        refuse_link_type_mismatch(fact, lookup, &indexes)?;
-        let facts = fact_rows(fact, indexes.fact_join)?;
-        let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns, &mut budget, byte_budget)?;
-
-        let column_bytes: u64 = self.keys.iter().map(|key| key.label().len() as u64).sum::<u64>()
-            + self.bucket.label().len() as u64
-            + self.measure_label.as_str().len() as u64;
-        budget.add(column_bytes, byte_budget)?;
-
-        let groups = self.group_facts(&facts, &lookup_by_link, &indexes, &mut budget, byte_budget)?;
-
-        // Re-aggregate each leaf across its group, then walk the divide tree.
-        let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
-        for group in groups.into_values() {
-            let leaves = Leaves::of(&self.federation, &group.leaves, &self.metric)?;
-            let measure = leaves.measure(&self.metric)?;
-            let measure_bytes = value_bytes(&measure);
-            let mut row = group.cells;
-            row.push(measure);
-            budget.add(measure_bytes, byte_budget)?;
-            rows.push(row);
-        }
-
-        let mut columns: Vec<String> = self.keys.iter().map(|key| String::from(key.label())).collect();
-        columns.push(String::from(self.bucket.label()));
-        columns.push(String::from(self.measure_label.as_str()));
-
-        // The mono path's ordered-result contract, applied above the legs: ascending by each key
-        // cell **typed**, nulls last, in key order. Not by rendered text, so an integer key `10`
-        // orders after `9` rather than before it because `"10" < "9"`. `compare_cells` carries why
-        // the null placement is a contract, where the other half of it is written, and the half it
-        // does NOT reach - a text key is compared by bytes and the mono path's text order is the
-        // serving source's collation.
-        let key_width = columns.len().saturating_sub(1);
-        rows.sort_by(|a, b| {
-            for (a_cell, b_cell) in a.iter().zip(b).take(key_width) {
-                let order = compare_cells(a_cell, b_cell);
-                if order != std::cmp::Ordering::Equal {
-                    return order;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
-
-        RowSet::new(columns, rows).map_err(|_malformed| FederatedFailure::MalformedRow { side: "answer" })
-    }
-
-    /// Case 2's rank - `github.com/telekom/sutura#777`: [`Self::combine`] already sorted `combined`
+    /// Case 2's rank - `github.com/telekom/sutura#777`: a combiner already sorted `combined`
     /// ascending by its own key cells, nulls last; this re-sorts it by `top`'s own criterion,
     /// stably, so two rows tied on that criterion keep the key order they already have, and then
     /// keeps `top.n()` of them.
     ///
-    /// **The column position, not a label lookup.** [`Self::combine`]'s own doc states the answer's
+    /// **The column position, not a label lookup.** [`FederationCombiner::combine`]'s own doc states the answer's
     /// column order - every key, then the bucket, then the measure - so [`TopBy::Metric`] is the
     /// last column and [`TopBy::Period`] the one before it, by construction rather than by name.
     /// That is a property of every [`FederatedPlan`]'s own combined answer rather than of one
@@ -692,229 +478,6 @@ impl FederatedPlan {
         });
         rows.truncate(usize::try_from(top.n().get()).unwrap_or(usize::MAX));
         RowSet::new(columns, rows)
-    }
-
-    /// Project every joined fact row into answer groups, counting the working set as it goes.
-    ///
-    /// This is the join and the grouping, kept out of [`FederatedPlan::combine`] so one function does
-    /// not carry both the whole loop and the budget.
-    ///
-    /// **Both halves of [`FactRows`] are walked, and the second is why.** A keyed row with no lookup
-    /// row and a null-keyed row that could never have one are the same unmatched outcome, so both go
-    /// through [`FederatedPlan::project`] with no remote rows and `include_unmatched` decides them
-    /// together. A null-keyed row is never MATCHED to a null-linked lookup row: `lookups_by_link`
-    /// keys nothing under a null, so the lookup side of that pair does not exist to be found.
-    fn group_facts(
-        &self,
-        facts: &FactRows<'_>,
-        lookup_by_link: &RemoteByLink,
-        indexes: &LegIndexes,
-        budget: &mut ByteBudget,
-        byte_budget: u64,
-    ) -> Result<GroupMap, FederatedFailure> {
-        let mut groups: GroupMap = BTreeMap::new();
-        for (link_key, rows) in &facts.linked {
-            self.project(rows, lookup_by_link.get(link_key), indexes, budget, byte_budget, &mut groups)?;
-        }
-        self.project(&facts.unlinkable, None, indexes, budget, byte_budget, &mut groups)?;
-        Ok(groups)
-    }
-
-    /// Project one link value's fact rows against the remote rows they joined to.
-    ///
-    /// `matched` is `None` for a fact row with no lookup row, whether because its key found none or
-    /// because it had no key: LEFT projects it once against null remote keys, INNER drops it. The
-    /// matched rows are BORROWED - the join copies a remote row into an answer group and nowhere
-    /// else, which is the only place `docs/adr/0009`'s working set may grow.
-    fn project(
-        &self,
-        fact_rows: &[&Vec<Value>],
-        matched: Option<&RemoteRows>,
-        indexes: &LegIndexes,
-        budget: &mut ByteBudget,
-        byte_budget: u64,
-        groups: &mut GroupMap,
-    ) -> Result<(), FederatedFailure> {
-        let remote_rows: &[Vec<Value>] = match matched {
-            Some(rows) => rows,
-            // Built once by `LegIndexes::resolve`, not here: this function runs once per distinct
-            // link value and the other two arms never read it. See the field.
-            None if self.include_unmatched => &indexes.unmatched,
-            None => return Ok(()),
-        };
-        for fact_row in fact_rows {
-            let bucket_cell = cell(fact_row, indexes.bucket, "fact", self.bucket.label())?.clone();
-            // D2: `cell` already refuses a missing column as `MissingColumn` - `unwrap_or(Value::Null)`
-            // used to swallow that refusal into a silent zero-length leaf instead of propagating it,
-            // the same fail-open `bucket_cell` above never had. `indexes.leaf_indexes` is resolved
-            // against this same `fact` RowSet, so this is unreachable by construction; propagated
-            // rather than defaulted so a future edit that breaks that pairing fails loudly.
-            let leaves: Vec<Value> = indexes
-                .leaf_indexes
-                .iter()
-                .zip(&indexes.leaf_labels)
-                .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned())
-                .collect::<Result<_, _>>()?;
-            for remote in remote_rows {
-                let mut cells = Vec::with_capacity(self.keys.len() + 1);
-                for key in &self.keys {
-                    cells.push(indexes.read_cell(key, fact_row, remote)?);
-                }
-                cells.push(bucket_cell.clone());
-                budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
-                budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
-                let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
-                groups
-                    .entry(map_key)
-                    .or_insert_with(|| Group {
-                        cells: cells.clone(),
-                        leaves: Vec::new(),
-                    })
-                    .leaves
-                    .push(leaves.clone());
-            }
-        }
-        Ok(())
-    }
-}
-
-/// The index of the column with `label` in `rows`.
-fn column_index(rows: &RowSet, label: &str, side: &'static str) -> Result<usize, FederatedFailure> {
-    rows.column_index(label).ok_or_else(|| FederatedFailure::MissingColumn {
-        side,
-        label: String::from(label),
-    })
-}
-
-/// Refuse a leg result whose columns are not all distinctly labelled.
-///
-/// A duplicate label is the one shape the combiner cannot disambiguate - two leaf columns under one
-/// name, or a key colliding with a leaf - so it is caught at the boundary rather than allowed to
-/// answer a wrong number.
-fn distinct_columns(rows: &RowSet, side: &'static str) -> Result<(), FederatedFailure> {
-    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-    for name in rows.columns() {
-        if !seen.insert(name.as_str()) {
-            return Err(FederatedFailure::DuplicateLabels {
-                side,
-                label: name.clone(),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// The key a link cell joins on, or `None` for a null link.
-///
-/// A `Null` link never joins (`NULL = NULL` is not true in SQL), and a real link is refused - the
-/// ADR's float-key rule, because formatting a float into equality lets distinct values collide.
-/// Text and integer links are keyed by their typed text, so `Integer(1001)` and `Text("1001")` do
-/// not false-match across two sources.
-fn link_key(value: &Value) -> Result<Option<String>, FederatedFailure> {
-    match value {
-        Value::Null => Ok(None),
-        Value::Real(v) => Err(FederatedFailure::FloatLinkKey { value: v.get() }),
-        Value::Integer(_) | Value::Text(_) => Ok(Some(key_cell_str(value))),
-    }
-}
-
-/// The remote-key rows one link value maps to.
-///
-/// A named alias because it appears in a signature the complexity threshold in `clippy.toml`
-/// rejects spelled out, and naming it says which of the two `Vec`s is the row.
-type RemoteRows = Vec<Vec<Value>>;
-
-/// One link value's remote-key rows.
-type RemoteByLink = BTreeMap<String, RemoteRows>;
-
-/// The fact rows that share one link value, addressed by reference so the join clones nothing.
-///
-/// A link value is shared by several fact rows (one per local-key group), each still owned by the
-/// fact result this function borrows for its own duration.
-type FactByLink<'a> = BTreeMap<String, Vec<&'a Vec<Value>>>;
-
-/// Every fact row of a combine, in the two groups the join treats differently.
-///
-/// Two fields rather than one map, because *no lookup row for this key* and *no key at all* are
-/// the same OUTCOME reached two ways, and a map keyed by link value cannot hold the second. See
-/// [`fact_rows`] for why the second is unmatched rather than absent.
-struct FactRows<'a> {
-    /// Rows whose link value is a key, grouped by it.
-    linked: FactByLink<'a>,
-    /// Rows whose link value is null, so no key exists to look up.
-    unlinkable: Vec<&'a Vec<Value>>,
-}
-
-/// One final answer's group: its key cells (as they should appear in the answer) and every fact
-/// row's leaf values that joined to it.
-struct Group {
-    cells: Vec<Value>,
-    leaves: Vec<Vec<Value>>,
-}
-
-/// All of a combine's groups, keyed by the typed form of their key cells.
-type GroupMap = BTreeMap<Vec<String>, Group>;
-
-/// A group-key cell ordered and distinguished by type.
-///
-/// The map is keyed on this rather than on [`Value::render`], because a null and a text cell that
-/// happens to read "null" would otherwise be one group - and they are not the same answer.
-fn key_cell_str(value: &Value) -> String {
-    match value {
-        Value::Null => String::from("N"),
-        Value::Integer(v) => format!("I:{v}"),
-        Value::Real(v) => format!("R:{}", v.get()),
-        Value::Text(v) => format!("T:{v}"),
-    }
-}
-
-/// One cell by column index, with a named error for a read that cannot happen.
-///
-/// `column_index` validates that the column exists, and [`RowSet::new`] guarantees every row has as
-/// many cells as columns, so this is always `Some`; the `MissingColumn` fallback is how a typed arm
-/// stands in for the case the type has already ruled out, rather than an `index` panicking.
-fn cell<'a>(row: &'a [Value], index: usize, side: &'static str, label: &str) -> Result<&'a Value, FederatedFailure> {
-    row.get(index).ok_or_else(|| FederatedFailure::MissingColumn {
-        side,
-        label: String::from(label),
-    })
-}
-
-/// `docs/adr/0009`'s byte budget over the answer `combine` materialises.
-///
-/// A running total with a ceiling: the budget never goes backward, and an overflow of the total (or
-/// a total that passes the ceiling) is refused as [`FederatedFailure::ResourcesExhausted`] rather
-/// than saturated. The ceiling is carried to the error so a caller can report the number that fired.
-struct ByteBudget {
-    /// What a row set may not exceed.
-    ceiling: u64,
-    /// The bytes counted so far.
-    used: u64,
-}
-
-impl ByteBudget {
-    const fn new(ceiling: u64) -> Self {
-        Self { ceiling, used: 0 }
-    }
-
-    const fn add(&mut self, bytes: u64, ceiling: u64) -> Result<(), FederatedFailure> {
-        self.used = match self.used.checked_add(bytes) {
-            Some(total) => total,
-            None => return Err(FederatedFailure::ResourcesExhausted { ceiling_bytes: ceiling }),
-        };
-        if self.used > self.ceiling {
-            return Err(FederatedFailure::ResourcesExhausted { ceiling_bytes: ceiling });
-        }
-        Ok(())
-    }
-}
-
-/// A conservative estimate of one cell's size in memory, for the working-set budget.
-const fn value_bytes(value: &Value) -> u64 {
-    match value {
-        Value::Null => 1,
-        Value::Integer(_) | Value::Real(_) => 8,
-        Value::Text(v) => v.len() as u64,
     }
 }
 

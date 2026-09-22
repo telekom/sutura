@@ -5,8 +5,9 @@ description: Owner instruction overriding ADR 0007's second amendment and the un
 
 # Arrow and DataFusion override the hand-written combiner
 
-Status: **accepted by owner instruction**, overriding two records. This one is partly built and says
-which parts, per step, beside each measurement.
+Status: **accepted by owner instruction**, overriding two records. Steps 1, 2, 3 and 5 are BUILT;
+step 4 is blocked ahead of an upstream manifest change. Each step says which parts, beside each
+measurement.
 
 What it overrides:
 
@@ -25,13 +26,13 @@ What it overrides:
 The instruction is one direction with five things that must all end up true, and they are written
 here because no single step below satisfies more than two of them:
 
-|   | Requirement                                                                             | Where it stands                                                                 |
-| - | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| a | **Arrow native**                                                                        | Step 2. The engine already is internally; the port is not.                      |
-| b | **DataFusion native**                                                                   | Step 2 makes the combiner reachable; step 3 is the combiner.                    |
-| c | **DataFusion so federation arrives later** rather than being redeveloped for multi-node | Groundwork only. `datafusion-federation` is the mechanism and step 4 adopts it. |
-| d | **Always impersonation-capable**                                                        | Unchanged by this record and constrained by it: see *What this does not buy*.   |
-| e | **ADBC**                                                                                | Built. `sutura-exec-bigquery`'s `adbc` transport is the only BigQuery mode.     |
+|   | Requirement                                                                             | Where it stands                                                                                                                                               |
+| - | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a | **Arrow native**                                                                        | **Built.** Step 2, both halves: the interior names the array types and `Warehouse::execute`'s currency is record batches.                                     |
+| b | **DataFusion native**                                                                   | **Built.** Step 3: the combine is one `DataFusion` logical plan behind a driven port.                                                                         |
+| c | **DataFusion so federation arrives later** rather than being redeveloped for multi-node | Groundwork, plus the seam. `datafusion-federation` is the mechanism, step 4 adopts it, and step 5's per-subject context is wired where its provider plugs in. |
+| d | **Always impersonation-capable**                                                        | Unchanged by this record and constrained by it: see *What this does not buy*.                                                                                 |
+| e | **ADBC**                                                                                | Built. `sutura-exec-bigquery`'s `adbc` transport is the only BigQuery mode.                                                                                   |
 
 **No hand row handling is the standing rule this comes from**: `DataFusion`, Arrow, Arrow Flight or
 ADBC, and nothing that walks a result one cell at a time. That rule is what makes the blast radius
@@ -126,10 +127,30 @@ to be. `sutura-exec-bigquery`'s own decoder had a schema pass that closed it and
 It is in `ResultBatches::to_rows` now, which is the shape of this whole step: a check that existed
 once and applied to one adapter now exists once and applies to all of them.
 
-**Not built: the port's signature.** `Warehouse::execute` still returns a `RowSet`, so an adapter
-converts at its own boundary rather than the caller converting at the presentation edge. What the
-built half changes is that there is nothing left to RELOCATE when it moves - one decode, in the
-interior, called by every adapter whose driver speaks Arrow.
+**Built: the port's signature, and step 3 is the consumer that made it worth paying for.**
+`Warehouse::execute` returns `ResultBatches`. `ResultBatches::to_rows` is called once, at the
+presentation edge in `sutura_app::answer`, so a decode failure that used to arrive wrapped in an
+adapter's own error is `ServiceError::Unreadable` for every adapter at once.
+
+**What that costs, because this record counted only the half that gains.** Two adapters stop
+converting: `sutura-exec-bigquery` hands the ADBC driver's typed arrays straight through and the
+engine returns the batches it collected. FOUR start - `DuckDB`, `Postgres`, Oracle and `ClickHouse`
+speak rows, so on a SINGLE-source answer each now pays `arrow::of_row_set` out and `to_rows` back for
+data that never left the process. The conversion did not disappear; it moved to the adapter that owns
+the row-speaking driver, which is where a federated leg's cost had to be paid anyway.
+
+**And one measurement refuted this record's argument for the row builder's inference limit.**
+`arrow_column` said a mixed column round-trips as text and that no source produces one, *because a
+data system declares a column's type*. A data system does - and a row-speaking adapter maps it PER
+CELL: `DuckDB` and `Postgres` both answer a whole number that fits an `i64` as `Value::Integer` and
+one that does not as exact `Value::Text`, so one column arrives mixed. Two conformance corpus cases
+are exactly that shape (`wide-total-by-day`, `overflowing-integer-total-by-day`) and the first run of
+the port change failed them on the production path, with `Integer(15)` rendered to `Text("15")`. So
+`arrow_column` gained a `Decimal128(38, 0)` arm for a column mixing `Integer` with exact integral
+text, which round-trips both halves because `to_rows`'s zero-scale arm widens a value that fits an
+`i64` and leaves one that does not as its exact text - the pairing `sutura-exec-bigquery`'s
+conformance fake already declared by hand. An all-TEXT column is never promoted, deliberately: a
+postal code of `"01234"` would lose its leading zero.
 
 **One row-handling path in `sutura-exec-bigquery` is deliberately untouched**, because it is not a
 result decode: `importer.rs` renders a fixture CSV's cells into `GoogleSQL` literals behind the
@@ -206,25 +227,51 @@ this was scoped, one is what makes step 2 possible at all, and the last is what 
   format rather than a runtime, a client or an engine, which is the line
   `xtask/src/boundaries/edges.rs` actually draws - and this record is what authorises the entry.
 
-## Step 3, decided and not built here: the combiner is a DataFusion plan
+## Step 3, decided and BUILT: the combiner is a DataFusion plan behind a driven port
 
-`sutura_domain::plan::FederatedPlan::combine` is replaced by a DataFusion plan over the two legs'
-batches, built in an **adapter** crate. `-domain` keeps the plan type and the port and names no
-engine: `ALLOWED_IN_DOMAIN`'s stated line is *no runtime, no client, no engine*, and DataFusion is an
-engine. Step 2's Arrow port is what makes that seam possible without an adapter calling an adapter -
-`sutura-app` calls the combiner, above every adapter, exactly as it calls `combine` today.
+`sutura_domain::plan::FederatedPlan::combine` is deleted and replaced by a `DataFusion` plan over the
+two legs' batches: two in-memory tables, one join, one aggregate, one projection, one sort.
 
-**The byte budget must survive, and this is the mechanism.** 0007 decided the working-set bound is
+**A PORT, and this step's first revision got that wrong.** It said the combine is *built in an
+adapter crate* and that *`sutura-app` calls the combiner, above every adapter, exactly as it calls
+`combine` today* - which is the shape `xtask check-boundaries`'s application rule refuses: an
+application that names an engine is an application whose adapters are no longer a property of the
+build. So the seam is the one `docs/adr/0007` designed and recorded as unbuilt:
+`sutura_domain::plan::FederationCombiner` is declared in the domain beside `Warehouse` and
+`SemanticCatalog`, `sutura-exec-datafusion::DataFusionCombiner` implements it,
+`LocalService<W, S, B, C>` is generic in it, and a composition root chooses the implementor.
+`-domain` names no engine: `ALLOWED_IN_DOMAIN`'s stated line is *no runtime, no client, no engine*,
+and DataFusion is one. Arrow is a data FORMAT, which is why `ResultBatches` may be the currency on
+both sides of that signature - the argument is step 2's and was paid there. `docs/adr/0007`'s
+*Fourth amendment* carries the four mechanisms the port's shape is held by.
+
+**The byte budget survives, and this is the mechanism.** 0007 decided the working-set bound is
 applied *as rows are converted*, because 0009's Decision 3 put the engine's memory pool on what its
-own operators reserve and a finished `RowSet` is invisible to it. Under a DataFusion combiner the
+own operators reserve and a finished `RowSet` is invisible to it. Under the DataFusion combiner the
 join build side, the aggregate state and the sort - which is where the hand-written combine's
-`ByteBudget` actually spends - become operator reservations, so the bound is
-`sutura-exec-datafusion`'s existing `GreedyMemoryPool` set to the leg budget, never spilling.
-**Stated as a limit rather than a claim:** that pool does not count the final materialisation of the
-answer, so the budget moves from covering every byte to covering the operators plus whatever the
-conversion boundary still counts. A combiner that changed the bound's reach without saying so would
-be the defect; if the residual gap is not acceptable the answer is a counted conversion beside the
-pool, not a wider claim.
+`ByteBudget` actually spent - ARE operator reservations: `crate::pool::environment` sizes a
+`GreedyMemoryPool` to this call's own ceiling, with temporary files disabled so nothing spills, and
+`pool::exhausted` recognises the refusal through the wrapping the engine adds. That is why the
+combiner holds no session and builds one per combine - a pool is a property of a `RuntimeEnv` and the
+ceiling is a per-question argument - and why `CombineError::Exhausted` carries the number that fired:
+nothing else in the process knows which call it was.
+
+**Stated as a limit rather than a claim, and the reach MOVED rather than widened.** That pool does not
+count the in-memory tables the legs are registered as (they are batches the caller already holds, and
+registering them copies no buffer), and it does not count `collect()` materialising the answer. The
+hand-written combine counted the answer's own cells and none of the operators. So neither bound is a
+superset of the other, and what still bounds the ANSWER's size is `plan::MAX_ROWS` and the response
+bound, both applied by `sutura_app::federated` over the combined result. If the residual gap is not
+acceptable the answer is a counted conversion beside the pool, not a wider claim.
+
+**Two refusals are gone and two got stronger, and each is a consequence of the port rather than a
+trade.** A leaf column mixing integer and real cells is not representable - an Arrow column has one
+type. A leaf total past `i64::MAX` is answered EXACTLY rather than refused, through a 256-bit
+accumulator, because `DataFusion`'s own sum accumulator adds with `add_wrapping` (measured in the
+pinned 55.1.0 source) so the accumulator's width is the bound and a `checked_add`-and-refuse is not
+available. A floating-point link key and two legs whose link types can never match are decided from
+the legs' SCHEMAS now, so two EMPTY legs are judged too - the hand-written combine read the first
+non-null cell it found and answered such a pair as *no rows*.
 
 ## Step 4, not built and blocked ahead of its caller: `datafusion-federation`
 
@@ -255,11 +302,18 @@ lockfile entries; adopting it after costs three.
 Its `compression` half is no longer part of that argument: this record turns the feature on
 deliberately, so unification can no longer bring it in as a surprise.
 
-## Step 5, not built: a per-subject compute context, wired
+## Step 5, built as the seam a provider plugs into: a per-subject compute context, wired
 
-`feat/datafusion-combiner-0007` holds a reviewed `ComputeContext` that nothing calls. It stays there
-rather than being taken into this change, because the only caller it can have is step 4's provider -
-and landing it now would be the orphaned dead code it was held back to avoid.
+`identity::ComputeContext` is taken verbatim from `feat/datafusion-combiner-0007`, where it was held
+back as orphaned dead code, and `DataFusionCombiner::for_subject` is its caller.
+
+**What that is worth today, stated before the property it carries.** This build depends on no
+federation provider - step 4 is blocked ahead of an upstream manifest change, and
+`cargo xtask unused-deps` would fail a declared dependency no crate names - so nothing in this
+process compares two contexts. What the wiring buys is that the seam exists where a provider plugs
+in, and that the value reaching it is a digest: `ComputeContext::of` takes a `Subject` and there is
+no other constructor, so a provider written against this cannot publish a raw one. The combiner's own
+`Debug` prints whether a context is held and never its value.
 
 **The property it holds, recorded here so step 4 does not have to rediscover it.**
 `datafusion-federation`'s provider equality is `name() == name() && compute_context() ==
@@ -299,13 +353,15 @@ measurement rather than this feature flag.
 
 ## What this does not buy
 
-**Requirement (d) is unchanged by every step above, and an Arrow port does not advance it.**
-`sutura-exec-datafusion`'s `IMPERSONATION` is `NoPlaceForASubject` - one process, one
-operating-system identity - so a leg it executes, including a combine, runs as the deployment and not
-as the asker. What "always impersonation-capable" constrains is the shape: the combiner may not
+**Requirement (d) is unchanged by every step above, and neither the Arrow port nor the combiner
+port advances it.** `sutura-exec-datafusion`'s `IMPERSONATION` is `NoPlaceForASubject` - one process,
+one operating-system identity - so a leg it executes, including a combine, runs as the deployment and
+not as the asker. What "always impersonation-capable" constrains is the shape: the combiner may not
 become a place where two subjects' rows meet under one credential, which is why step 5's context is a
-per-subject digest rather than a convenience. `docs/where-identity-is-proven.md` remains the record of
-which venue may be cited for which identity claim, and no step here changes a row in it.
+per-subject digest rather than a convenience. **And the digest is not yet a control**, because
+nothing compares two of them in this build - step 4 is what would. `docs/where-identity-is-proven.md`
+remains the record of which venue may be cited for which identity claim, and no step here changes a
+row in it.
 
 **Compressed sources are not a performance decision.** Nothing here measures read throughput for a
 compressed file against a plain one, and the codecs differ by more than a constant. What is decided

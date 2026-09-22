@@ -39,8 +39,11 @@ mod anchor_tests;
 
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::federated::{
-    AnswerKey, FederatedAnswerRefusal, FederatedFailure, FederatedPlan, FederatedPlanError, InternalLabel, LegSide, labels,
+    AnswerKey, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner, InternalLabel, LegResult, LegSide,
+    Legs, LegsAreNotOneOfEach, labels,
 };
+#[cfg(any(test, feature = "fixtures"))]
+pub use crate::plan::federated::{NothingCombined, RefusingCombiner};
 pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};

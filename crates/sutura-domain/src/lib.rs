@@ -39,7 +39,7 @@
 //! - [`plan`] is what we decided to execute, and the artifact the execution port speaks in.
 //! - [`federation`] is how a measure survives being computed in pieces: which aggregates descend
 //!   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
-//!   and the combiner ([`plan::FederatedPlan::combine`]) both call it, and since
+//!   and the combiner (behind [`plan::FederationCombiner`]) both call it, and since
 //!   `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
 //!   two-source question end to end - so this is a classification on the answer path rather than
 //!   one with no production caller, which is what this line used to say.

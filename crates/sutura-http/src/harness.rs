@@ -398,8 +398,15 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     // after `start`, because `start` re-executes every anchor.
     let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 2\n");
     let (engine, held) = warehouse_that_can_be_held();
-    let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1 << 30)
-        .expect("the test bundle validates");
+    let service = LocalService::start(
+        &catalog_of(bundle()),
+        engine,
+        sink(),
+        crate::testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
     let app = crate::router(&crate::testing::state_over(Arc::new(service), settings)).expect("the test router assembles");
     held.arm();
 
@@ -480,6 +487,7 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
                 fake_warehouse(),
                 sink(),
                 crate::testing::broker(),
+                sutura_domain::plan::RefusingCombiner,
                 1 << 30,
             )
             .expect("the test bundle validates"),

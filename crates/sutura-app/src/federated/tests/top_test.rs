@@ -9,12 +9,13 @@
 
 use super::*;
 
-/// Case 2 - `github.com/telekom/sutura#777`: `region` is `AnswerKey::lookup`, so the rank happens
-/// above the combine. `federated_plan()`'s own combined answer has two groups (`A`/`north` sums
-/// to 300, `B`/`north` to 50), and asking for the top one must return `A` alone, ranked - not the
-/// two groups `FederatedPlan::combine`'s own ascending-by-key sort would otherwise leave in place.
-#[test]
-fn a_federated_answer_ranks_the_combine_for_case_2_and_keeps_only_top_n() {
+/// One case-2 answer, over the two leg-executing fakes and a chosen `top` row ceiling.
+///
+/// **One builder rather than three copies, and `check-jscpd` is why**: the three cells below differ
+/// in the ceiling and in what they assert, and the setup around them was byte-identical once the
+/// combiner became an argument. `row_ceiling` is the only knob, because it is the only thing
+/// `github.com/telekom/sutura#777`'s refusal reads.
+fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome {
     let fact_source = SourceName::parse("facts").expect("a test source");
     let lookup_source = SourceName::parse("geo").expect("a test source");
     let shared = shared();
@@ -36,20 +37,30 @@ fn a_federated_answer_ranks_the_combine_for_case_2_and_keeps_only_top_n() {
         sutura_domain::query::TopDirection::Desc,
     );
     let plan = federated_plan().with_top(top);
-
-    let outcome = answer_federated(
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    answer_federated(
         &bundle(),
         &plan,
         &asked_by_a_person(),
         &broker,
         &warehouses,
+        &combiner,
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        row_ceiling,
     )
-    .expect("a federated answer with a case-2 top is not an error")
-    .into_outcome();
+    .expect("a case-2 top is answered or refused, never an error")
+    .into_outcome()
+}
+
+/// Case 2 - `github.com/telekom/sutura#777`: `region` is `AnswerKey::lookup`, so the rank happens
+/// above the combine. `federated_plan()`'s own combined answer has two groups (`A`/`north` sums
+/// to 300, `B`/`north` to 50), and asking for the top one must return `A` alone, ranked - not the
+/// two groups `FederatedPlan::combine`'s own ascending-by-key sort would otherwise leave in place.
+#[test]
+fn a_federated_answer_ranks_the_combine_for_case_2_and_keeps_only_top_n() {
+    let outcome = case_two_outcome(sutura_domain::plan::RowCeiling::DEFAULT);
 
     let ToolOutcome::Answer { rows, .. } = outcome else {
         panic!("a within-ceiling case-2 top is answered, not {outcome:?}");
@@ -69,42 +80,8 @@ fn a_federated_answer_ranks_the_combine_for_case_2_and_keeps_only_top_n() {
 /// after this proves the ceiling is what fires it, not the presence of `top` alone.
 #[test]
 fn a_combined_set_at_the_ceiling_refuses_a_case_2_top_rather_than_ranking_it() {
-    let fact_source = SourceName::parse("facts").expect("a test source");
-    let lookup_source = SourceName::parse("geo").expect("a test source");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        fact_source,
-        shared.clone(),
-        federated_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        lookup_source,
-        shared,
-        federated_lookup_rows(),
-    ))
-    .expect("two sources, one registry");
-    let broker = crate::tests_support::CountingBroker::default();
-    let top = sutura_domain::query::Top::new(
-        sutura_domain::query::TopN::parse(1).expect("one is a row count"),
-        sutura_domain::query::TopBy::Metric,
-        sutura_domain::query::TopDirection::Desc,
-    );
-    let plan = federated_plan().with_top(top);
     let ceiling = sutura_domain::plan::RowCeiling::parse(1).expect("one is a row ceiling");
-
-    let outcome = answer_federated(
-        &bundle(),
-        &plan,
-        &asked_by_a_person(),
-        &broker,
-        &warehouses,
-        FEDERATED_BUDGET,
-        test_deadline(),
-        &SpendLedger::no_budget(),
-        ceiling,
-    )
-    .expect("a refusal is not an error")
-    .into_outcome();
+    let outcome = case_two_outcome(ceiling);
 
     assert!(
         matches!(
@@ -122,41 +99,7 @@ fn a_combined_set_at_the_ceiling_refuses_a_case_2_top_rather_than_ranking_it() {
 /// testing the ceiling comparison and not merely "a case-2 `top` always refuses".
 #[test]
 fn the_same_combined_set_under_a_wide_enough_ceiling_answers_instead() {
-    let fact_source = SourceName::parse("facts").expect("a test source");
-    let lookup_source = SourceName::parse("geo").expect("a test source");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        fact_source,
-        shared.clone(),
-        federated_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        lookup_source,
-        shared,
-        federated_lookup_rows(),
-    ))
-    .expect("two sources, one registry");
-    let broker = crate::tests_support::CountingBroker::default();
-    let top = sutura_domain::query::Top::new(
-        sutura_domain::query::TopN::parse(1).expect("one is a row count"),
-        sutura_domain::query::TopBy::Metric,
-        sutura_domain::query::TopDirection::Desc,
-    );
-    let plan = federated_plan().with_top(top);
-
-    let outcome = answer_federated(
-        &bundle(),
-        &plan,
-        &asked_by_a_person(),
-        &broker,
-        &warehouses,
-        FEDERATED_BUDGET,
-        test_deadline(),
-        &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeiling::DEFAULT,
-    )
-    .expect("an answer is not an error")
-    .into_outcome();
+    let outcome = case_two_outcome(sutura_domain::plan::RowCeiling::DEFAULT);
 
     assert!(
         matches!(outcome, ToolOutcome::Answer { .. }),

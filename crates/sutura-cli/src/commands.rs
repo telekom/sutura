@@ -486,7 +486,8 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse, the audit sink
 /// and the broker are the three collaborators every command here composes. Generic in the warehouse
 /// since the `bigquery` feature landed; the other two are this binary's own choice and never vary.
-pub(crate) type Composed<W> = LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker>;
+pub(crate) type Composed<W> =
+    LocalService<W, TracingAuditSink, sutura_config::StaticCredentialBroker, sutura_exec_datafusion::DataFusionCombiner>;
 
 /// Starts the service over what a command opened, and refuses a bundle the engine cannot serve.
 ///
@@ -534,11 +535,17 @@ where
     let spend_ledger = sutura_app::SpendLedger::new(
         spend_budget.map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
     );
+    // **The composition root is where the combiner is chosen**, which is the whole point of
+    // `docs/adr/0007`'s second driven port: `sutura-app` is generic in it and names no engine, and
+    // this binary already links the one implementor.
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
+        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
     let service = LocalService::start(
         catalog,
         opened.engines,
         TracingAuditSink::new(),
         opened.broker,
+        combiner,
         runtime.working_set().bytes().get() as u64,
     )
     .map(|service| service.with_spend_ledger(spend_ledger).with_row_ceiling(row_ceiling))

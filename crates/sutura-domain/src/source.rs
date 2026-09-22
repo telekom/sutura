@@ -650,7 +650,7 @@ impl ExecutedAs {
     ///
     /// Consumes and returns, so a record is built in one expression and there is no half-built state
     /// for something else to read. The federated answer path constructs the second leg here and
-    /// groups the two in [`crate::plan::federated::FederatedPlan::combine`], so the shape of this
+    /// groups the two in the combiner behind [`crate::plan::FederationCombiner`], so the shape of this
     /// record is what decides whether a leg can be added without moving the digest - which is why it
     /// was settled before an answer format shipped rather than after.
     ///

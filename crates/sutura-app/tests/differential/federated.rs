@@ -374,7 +374,16 @@ fn tables_on(data: &Path, name: &SourceName, pinned: &PinnedDefinitions) -> Vec<
 }
 
 /// One answer, computed through the whole service path.
-fn answered<W>(side: &Side<W>, query: &Query, name: &str) -> Result<ToolOutcome, String>
+///
+/// The combiner is a parameter rather than built here, because `clippy::unwrap_in_result` is denied
+/// in a `Result`-returning body and a combiner's construction is fallible. Its caller holds one for
+/// the length of a comparison, which is also the honest shape: a deployment builds one.
+fn answered<W>(
+    side: &Side<W>,
+    query: &Query,
+    name: &str,
+    combiner: &sutura_exec_datafusion::DataFusionCombiner,
+) -> Result<ToolOutcome, String>
 where
     W: sutura_domain::warehouse::Warehouse,
 {
@@ -384,6 +393,7 @@ where
         &a_caller(),
         &shared_credential(),
         &side.warehouses,
+        combiner,
         BUDGET,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -483,8 +493,9 @@ where
         let Split::Yes(federated) = split_or_not(&name, &query, one.bundle.get(), two.bundle.get()) else {
             continue;
         };
-        let from_one = answered(one, &query, &name);
-        let from_two = answered(two, &query, &name);
+        let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+        let from_one = answered(one, &query, &name, &combiner);
+        let from_two = answered(two, &query, &name, &combiner);
         let outcome = match federated {
             Federated::Split => match (from_one, from_two) {
                 (
@@ -757,7 +768,8 @@ fn a_subgroup_with_no_denominator_is_null_and_its_neighbours_are_not() {
     let two = two_sources(bundle(&derived().two_source));
     let name = "two-source-a-zero-denominator-in-one-subgroup";
     let query = derived_question(name);
-    let outcome = answered(&two, &query, name).unwrap_or_else(|e| panic!("{e}"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let outcome = answered(&two, &query, name, &combiner).unwrap_or_else(|e| panic!("{e}"));
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
         panic!("{name}: a supported two-source question is answered, not {outcome:?}");
     };

@@ -22,7 +22,6 @@ use super::{BUDGET, bundle, posture, source, tables_on};
 use crate::adapters::{BrokerCannotFail, deadline};
 use crate::adapters::{a_caller, shared_credential};
 use sutura_app::ServiceError;
-use sutura_domain::plan::FederatedFailure;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::UnreadableCell;
 use sutura_exec_datafusion::DataFusionError;
@@ -111,21 +110,31 @@ impl Census {
     }
 }
 
-fn expected_failure(name: &str, error: &ServiceError<DataFusionError, BrokerCannotFail>) -> bool {
+fn expected_failure(
+    name: &str,
+    error: &ServiceError<DataFusionError, BrokerCannotFail, sutura_exec_datafusion::CombineError>,
+) -> bool {
     if !EXPECTED_FAILURES.contains(&name) {
         return false;
     }
     match error {
-        // Through the source chain since `docs/adr/0039`: the engine wraps the interior's own
-        // `UnreadableCell`, so the column this matches on is the one place it is named.
+        // **The mono path's shape since `docs/adr/0039` step 2's second half**: the port's currency
+        // is Arrow, so the decode happens above every adapter and the interior's own `UnreadableCell`
+        // arrives as the application's failure rather than wrapped in the engine's.
+        ServiceError::Unreadable {
+            cause: UnreadableCell::NotFinite { column, .. },
+        } => column == EXPECTED_METRIC,
+        // The engine's own wrapper, kept because `verify_anchor` still reads rows inside the adapter.
         ServiceError::Warehouse {
             cause: DataFusionError::Unreadable {
                 cause: UnreadableCell::NotFinite { column, .. },
             },
         } => column == EXPECTED_METRIC,
-        ServiceError::Federated {
-            cause: FederatedFailure::NonFinite { metric },
-        } => metric.as_str() == EXPECTED_METRIC,
+        // **The FEDERATED path's shape since step 3**: the combiner takes the refusal itself, so a
+        // non-finite measure never reaches here as a failure at all - it is
+        // `RefusalReason::FederatedAnswerNotWellFormed`, which the census counts as refused rather
+        // than failed. The arm this replaces matched `ServiceError::Federated`, which no longer
+        // exists.
         _ => false,
     }
 }

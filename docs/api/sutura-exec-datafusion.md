@@ -333,6 +333,31 @@ parsed once, in `sutura_config::WorkingSetCeiling`, against the memory the proce
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.
 
+## `use CombineError`
+
+Why a combine could not be assembled.
+
+Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
+engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
+driver's metadata and a label the splitter assigned - and never a cell.
+
+## `use DataFusionCombiner`
+
+The combiner: a tokio runtime, and a bounded session built per combine.
+
+**It holds no session, and that is the whole reason the ceiling is a real bound.** A
+`GreedyMemoryPool` is installed on a `RuntimeEnv` and a `RuntimeEnv` is installed on a
+`SessionContext`, so a combiner that kept one session would have to fix the ceiling at
+construction - and the ceiling is what a deployment configures per question. One session per
+combine also means a combine's registered tables cannot outlive it, which is what keeps one
+caller's leg results out of another's session.
+
+**What it does NOT hold is an identity, and that is not an omission.** `crate::pool`'s process
+is one operating-system identity, so a combine runs as the deployment. What the combiner carries
+per subject instead is a `ComputeContext` - see
+`Self::for_subject`.
+
 ## Module `measurement`
 
 Opt-in peak recording for measurement-only children, excluded from default builds.

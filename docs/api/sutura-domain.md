@@ -48,7 +48,7 @@ types it speaks in:
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `federation` is how a measure survives being computed in pieces: which aggregates descend
   into a leg, which one descends decomposed, and which needs its rows pulled up. The splitter
-  and the combiner (`plan::FederatedPlan::combine`) both call it, and since
+  and the combiner (behind `plan::FederationCombiner`) both call it, and since
   `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS` a published build answers a
   two-source question end to end - so this is a classification on the answer path rather than
   one with no production caller, which is what this line used to say.
@@ -2738,6 +2738,25 @@ secret comes into existence.
 #### Implements
 
 `Clone`, `Debug`
+
+### `use ComputeContext`
+
+An opaque, stable discriminator for *which caller, on which data system* a federated leg runs as.
+
+**There is one constructor and it takes the subject, so a context with no subject in it is not a
+value this type has.** That is the mechanism rather than a convention: the field is private, no
+`From`, `Default` or `parse` exists, and `Self::of` cannot be called without a `Subject` in
+hand. A future `FederationProvider::compute_context` that returns `self.context.as_str()` is
+therefore subject-bearing by construction, and one that returns `None` or a constant does not
+type-check against this type at all.
+
+Equality and ordering are over the digest, which is what the optimizer's comparison needs: equal
+for one caller's repeated scans of one source, unequal for two callers or two sources.
+
+**No `serde` derive, deliberately.** Nothing in `crate::identity`'s principal half is
+serializable, for that module's stated reason - a type that can be read off the wire is a caller
+stating its own identity - and a compute context is derived from a verified subject. It reaches a
+remote as plan text, which is the adapter's business, not a wire shape this type owns.
 
 ### `use Agreed`
 
@@ -6507,38 +6526,37 @@ One group-by key of the answer: which leg owns it, and the label it carries in t
 
 ### `use FederatedAnswerRefusal`
 
-A federated answer that could not be computed as asked, classified apart from a wiring defect.
+A federated answer that could not be computed as asked, told apart from a wiring defect.
 
-**D19 + A4: every arm here is deterministic.** The same plan against the same data refuses
-again, which is the opposite of what `sutura_app::ServiceError::Federated` used to mean once it
-reached a transport: an HTTP `503`, the status a data system that might come back produces.
-`Self::of` is the total function that decides which arms count - the wiring defects
-(`MissingColumn`, `DuplicateLabels`, `UnsupportedAggregate`, `MalformedRow`,
-`LeafCursorExhausted`) are a defect in this workspace's own splitter, not a caller's, and stay a
-`ServiceError`; `FederatedFailure::ResourcesExhausted` already has its own
-`RefusalReason` variant and is handled before this classification
-runs.
+**Every arm here is deterministic.** The same plan against the same legs refuses again, which is
+the opposite of what a data-system failure means to a transport: a caller told `503` retries,
+and a retry against any of these returns the same refusal. The implementor's own error type is
+where the detail lives; this is what a caller is told.
 
-**Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see
-`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
-discriminant.
+**Carries no cell.** A join key and a leaf value are exactly the caller data this workspace
+never puts in a message a caller or an agent reads - `telekom/sutura#929`'s D6 named the case, a
+join key that could be a customer identifier - so every arm is a bare discriminant. The
+combiner's own error may carry an Arrow TYPE, which is a driver's metadata rather than anybody's
+data.
 
-### `use FederatedFailure`
+# Two arms were removed with the hand-written combine, and both for the same kind of reason
 
-Why a federated answer could not be assembled.
+`MixedNumericLeaf` refused a leaf column carrying both integer and real cells, because
+`RowSet` constrains a row's width and nothing about its cells. **An
+Arrow column has ONE type**, so the shape is not representable at the port any more and an arm
+for it would be a refusal nothing can provoke.
 
-The shape failures are defects in this workspace's own wiring - a leg result missing a column
-`super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
-variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
-value for.
-
-**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
-key is exactly the kind of cell this workspace treats as caller data - the finding named a case
-where it could be a customer identifier - and `Display` is what every logger and every future
-refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
-from interpolating it instead, which is why this is held by review at any new call site rather
-than by the compiler.
+`Overflow` refused a leaf total that crossed an `i64`. That refusal lost the answer, and the
+combiner does not need it: it sums an exact integral leaf as a 256-bit decimal, and
+`ResultBatches::to_rows` widens a zero-scale value
+that fits an `i64` back to an integer and renders one that does not as its exact text. So a
+total past `i64::MAX` comes back **exact** where it used to be refused. **The limit that
+replaces it, stated where the arm was:** `DataFusion`'s own sum accumulator adds with wrapping
+arithmetic (`add_wrapping`, measured in the pinned 55.1.0 source, and its upstream documentation
+says an overflow wraps rather than erroring), so the bound is the accumulator's width and not a
+refusal. A 256-bit accumulator over leaf values a `Decimal128` column can hold needs on the
+order of `10^38` rows to wrap, which no row ceiling in this workspace permits - but it is a
+width, not a guard, and a combiner that narrowed the accumulator would silently lose that.
 
 ### `use FederatedPlan`
 
@@ -6561,6 +6579,46 @@ be reconstructed from its serialized form and no field here is a request a calle
 ### `use FederatedPlanError`
 
 Why a federated plan could not be built.
+
+### `use FederationCombiner`
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
 
 ### `use InternalLabel`
 
@@ -6658,9 +6716,34 @@ columns become one. `metric__{n}` over a 63-character metric name is 66 characte
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
 `usize` can index is 27 characters.
 
+### `use LegResult`
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
 ### `use LegSide`
 
 Which leg's result an answer key is read from.
+
+### `use Legs`
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+### `use LegsAreNotOneOfEach`
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
 
 ### `use labels`
 
@@ -6674,6 +6757,27 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### `use NothingCombined`
+
+What `RefusingCombiner` answers with.
+
+### `use RefusingCombiner`
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
 
 ### `use ResultLabel`
 
@@ -7265,18 +7369,27 @@ the number, and an out-of-range index is out of order as well.
 
 ### Module `federated`
 
-The federated question: two legs, and the combine that happens above them.
+The federated question: two legs, the plan that names them, and the port the combine happens
+through.
 
-**This module gives `crate::federation` its caller.** Until now that module was "a
-classification and a rule, nothing executes it": `Descent::of` and `Federation::of` were total but
-nothing produced a `crate::plan::LegPlan` and nothing consumed the rows one returns. This module
-is the other half - the small, closed contract that a splitter fills with facts and this module's
-own `FederatedPlan::combine` turns back into rows.
+**This module gives `crate::federation` its caller.** `Descent::of` and `Federation::of` are
+total classifications that nothing used to execute; a `FederatedPlan` is the small, closed
+contract a splitter fills with facts, and `combiner`'s port is what turns two legs' results
+back into one answer's rows.
+
+**The combine used to be a method here and is not any more.** `docs/adr/0039` step 3 replaced
+`FederatedPlan::combine` - a pure domain function that walked rows one cell at a time - with a
+`DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
+leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
+four accessors `FederatedPlan::bucket_label`, `FederatedPlan::measure_label`,
+`FederatedPlan::federation` and `FederatedPlan::include_unmatched` exist because an
+implementor above this crate cannot read a private field. What is deliberately not published is
+anything a combiner could use to invent a column.
 
 **What the splitter and the combiner agree on, and it is one function.** A fact leg's terms are
 projected under labels, and the combiner has to find each term's column *by* its label - the
 mistake this design refuses to make is the two halves agreeing by review. `labels` is that one
-function: the splitter names the fact leg's terms with it and the combiner re-derives the same
+function: the splitter names the fact leg's terms with it and a combiner re-derives the same
 names from the same `Federation` and looks them up in the fact leg's result. There is no second
 copy of the naming rule to drift.
 
@@ -7285,19 +7398,19 @@ result carries public dimension labels beside the internal ones, so an internal 
 an identifier is a label a legal dimension name can collide with - reproduced. `InternalLabel`
 is the type that cannot be spelled by one.
 
-**The division cannot happen in a leg, and `combine` is where it
-happens instead.** The `Above` tree already carries the only
-`ZeroDenominator` in the federated path; this module walks it
-above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
-the wrong number this shape exists to prevent.
+**The division cannot happen in a leg, and that survives the combine moving out.** The
+`Above` tree carries the only
+`ZeroDenominator` in the federated path, and
+`FederatedPlan::federation` hands a combiner that tree rather than a per-leg guard - a guard
+applied inside a leg is the wrong number this shape exists to prevent.
 
-**What this module will not do, because `combine` cannot express it.** The re-aggregation
-`combine` performs covers the leaves a *decomposable* measure produces - a re-aggregating
-`Sum`, `Min` or
-`Max` over already-aggregated leg columns. A measure that does not
-decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
-slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
-have to re-count. The refusal names the aggregate.
+**What no combiner may be asked to express, and the refusal is here rather than there.** The
+re-aggregation above the legs covers the leaves a *decomposable* measure produces - a
+re-aggregating `Sum`, `Min` or
+`Max`. A measure that does not decompose at all (an exact
+distinct count) has no re-aggregating function, so `FederatedPlan::new` refuses such a leaf
+before a plan exists and `reaggregates` is the whole statement of which do. That keeps an
+implementor's own unsupported-aggregate arm unreachable through this constructor.
 
 #### `struct FederatedPlan`
 
@@ -7324,28 +7437,41 @@ be reconstructed from its serialized form and no field here is a request a calle
 ##### Methods
 
 ```rust
-pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure>
+pub fn bucket_label(&self) -> &str
 ```
 
-Turns one result per leg into one answer's rows.
+The label the fact leg projected its time bucket under, which the answer groups by.
 
-The fact and lookup results are joined on the recorded link column, grouped by the answer's
-keys - in the order the question asked them, matching the mono path - and the bucket,
-re-aggregated by each leaf's own `Carried::combine`,
-and only then divided through the `Above` tree. Those last two
-steps belong to `reaggregate`, reached as `Leaves::of` and `Leaves::measure`; the join, the
-grouping and the budget are this file's.
-
-`byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
-the answer materialised here is counted as it is built, and a question that would cross it is
-refused as `FederatedFailure::ResourcesExhausted` rather than truncated, so a caller never
-reads a result that stopped early as a result that returned.
+**Four accessors arrived with the combiner port and this is the first of them.** The combine
+used to be a method here and read these fields directly; an implementor above this crate
+cannot, so the plan publishes what a combine needs and nothing more. What is deliberately
+NOT published is anything a combiner could use to invent a column: every one of these is a
+label the splitter already assigned or a tree it already built.
 
 ```rust
 pub const fn fact(&self) -> &LegPlan
 ```
 
 The fact leg.
+
+```rust
+pub const fn federation(&self) -> &Federation
+```
+
+The combine tree above the legs, and the metric that names its leaves.
+
+Every leaf it carries has a re-aggregating function, because `Self::new` refused a plan
+whose leaf did not - so an implementor's own unsupported-aggregate arm is unreachable
+through this constructor rather than absent.
+
+```rust
+pub const fn include_unmatched(&self) -> bool
+```
+
+Whether a fact row with no lookup row survives with null remote keys.
+
+LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
+published here so a combiner does not have to guess. `docs/adr/0009` decides the direction.
 
 ```rust
 pub fn keys(&self) -> &[AnswerKey]
@@ -7364,6 +7490,12 @@ pub const fn lookup(&self) -> &LegPlan
 ```
 
 The lookup leg.
+
+```rust
+pub fn measure_label(&self) -> &str
+```
+
+The label the answer's measure is emitted under - the metric's own certified name.
 
 ```rust
 pub const fn metric(&self) -> &MetricName
@@ -7392,12 +7524,12 @@ for the two legs to disagree about, and the constructor requires both legs to pr
 pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
 ```
 
-Case 2's rank - `github.com/telekom/sutura#777`: `Self::combine` already sorted `combined`
+Case 2's rank - `github.com/telekom/sutura#777`: a combiner already sorted `combined`
 ascending by its own key cells, nulls last; this re-sorts it by `top`'s own criterion,
 stably, so two rows tied on that criterion keep the key order they already have, and then
 keeps `top.n()` of them.
 
-**The column position, not a label lookup.** `Self::combine`'s own doc states the answer's
+**The column position, not a label lookup.** `FederationCombiner::combine`'s own doc states the answer's
 column order - every key, then the bucket, then the measure - so `TopBy::Metric` is the
 last column and `TopBy::Period` the one before it, by construction rather than by name.
 That is a property of every `FederatedPlan`'s own combined answer rather than of one
@@ -7425,7 +7557,7 @@ pub const fn with_top(self, top: Top) -> Self
 ```
 
 Attaches the federated `top` - `github.com/telekom/sutura#777` - so
-`combine`'s caller knows the answer still needs ranking and truncating
+the combiner's caller knows the answer still needs ranking and truncating
 after the legs are joined.
 
 A builder rather than a constructor argument, for
@@ -7524,40 +7656,125 @@ Why a federated plan could not be built.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `use FederationCombiner`
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
+
+#### `use LegResult`
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
+#### `use Legs`
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+#### `use LegsAreNotOneOfEach`
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
+
+#### `use NothingCombined`
+
+What `RefusingCombiner` answers with.
+
+#### `use RefusingCombiner`
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
+
 #### `use FederatedAnswerRefusal`
 
-A federated answer that could not be computed as asked, classified apart from a wiring defect.
+A federated answer that could not be computed as asked, told apart from a wiring defect.
 
-**D19 + A4: every arm here is deterministic.** The same plan against the same data refuses
-again, which is the opposite of what `sutura_app::ServiceError::Federated` used to mean once it
-reached a transport: an HTTP `503`, the status a data system that might come back produces.
-`Self::of` is the total function that decides which arms count - the wiring defects
-(`MissingColumn`, `DuplicateLabels`, `UnsupportedAggregate`, `MalformedRow`,
-`LeafCursorExhausted`) are a defect in this workspace's own splitter, not a caller's, and stay a
-`ServiceError`; `FederatedFailure::ResourcesExhausted` already has its own
-`RefusalReason` variant and is handled before this classification
-runs.
+**Every arm here is deterministic.** The same plan against the same legs refuses again, which is
+the opposite of what a data-system failure means to a transport: a caller told `503` retries,
+and a retry against any of these returns the same refusal. The implementor's own error type is
+where the detail lives; this is what a caller is told.
 
-**Carries no cell.** `AmbiguousLink`'s join key and `FloatLinkKey`'s value are exactly the
-caller data this workspace never puts in a message a caller or an agent reads - see
-`FederatedFailure`'s own header for D6, the case that named it. Every arm here is a bare
-discriminant.
+**Carries no cell.** A join key and a leaf value are exactly the caller data this workspace
+never puts in a message a caller or an agent reads - `telekom/sutura#929`'s D6 named the case, a
+join key that could be a customer identifier - so every arm is a bare discriminant. The
+combiner's own error may carry an Arrow TYPE, which is a driver's metadata rather than anybody's
+data.
 
-#### `use FederatedFailure`
+# Two arms were removed with the hand-written combine, and both for the same kind of reason
 
-Why a federated answer could not be assembled.
+`MixedNumericLeaf` refused a leaf column carrying both integer and real cells, because
+`RowSet` constrains a row's width and nothing about its cells. **An
+Arrow column has ONE type**, so the shape is not representable at the port any more and an arm
+for it would be a refusal nothing can provoke.
 
-The shape failures are defects in this workspace's own wiring - a leg result missing a column
-`super::labels` named, or a row narrower than its result's own columns. The `NonFinite`
-variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
-value for.
-
-**D6: `AmbiguousLink`'s `Display` does not interpolate `key`.** A join
-key is exactly the kind of cell this workspace treats as caller data - the finding named a case
-where it could be a customer identifier - and `Display` is what every logger and every future
-refusal surface reads. The field stays for equality in tests; nothing here stops a future arm
-from interpolating it instead, which is why this is held by review at any new call site rather
-than by the compiler.
+`Overflow` refused a leaf total that crossed an `i64`. That refusal lost the answer, and the
+combiner does not need it: it sums an exact integral leaf as a 256-bit decimal, and
+`ResultBatches::to_rows` widens a zero-scale value
+that fits an `i64` back to an integer and renders one that does not as its exact text. So a
+total past `i64::MAX` comes back **exact** where it used to be refused. **The limit that
+replaces it, stated where the arm was:** `DataFusion`'s own sum accumulator adds with wrapping
+arithmetic (`add_wrapping`, measured in the pinned 55.1.0 source, and its upstream documentation
+says an overflow wraps rather than erroring), so the bound is the accumulator's width and not a
+refusal. A 256-bit accumulator over leaf values a `Decimal128` column can hold needs on the
+order of `10^38` rows to wrap, which no row ceiling in this workspace permits - but it is a
+width, not a guard, and a combiner that narrowed the accumulator would silently lose that.
 
 #### `use InternalLabel`
 
@@ -7667,6 +7884,232 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+#### Module `combiner`
+
+The second driven port, and the pair of leg results it takes.
+
+`docs/adr/0007` designed it here and recorded that it was not built; step 3 of
+`docs/adr/0039` is what builds it.
+The second driven port: what joins and re-aggregates two legs, above every adapter.
+
+# Why this is a port and not a function
+
+`docs/adr/0007` designed it here and recorded that it was not what got built: *"the combine
+needs `DataFusion`, `sutura-app` may not name a framework, so the domain declares a port beside
+`Warehouse` and `SemanticCatalog` and a crate above it implements the combine over
+`DataFusion`"*. What landed instead was `FederatedPlan::combine`, a pure domain function that
+walked rows by hand. `docs/adr/0039-arrow-and-datafusion-override-the-hand-written-combiner.md`
+step 3 reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
+Flight or ADBC* - so this is the port arriving, not a new invention.
+
+A path in backticks rather than a Markdown link, and that is not style: `just api` republishes
+this header at `docs/api/sutura-domain.md`, where `mkdocs --strict` resolves a relative link
+against the PUBLISHED page's directory rather than this file's - and fails the build.
+
+**The domain names no engine, and that is the constraint the trait is shaped by.**
+`xtask/src/boundaries/edges.rs`'s `ALLOWED_IN_DOMAIN` is an allowlist over this crate's whole
+transitive tree and its line is *no runtime, no client, no engine*. `DataFusion` is an engine, so
+the trait lives here and its implementor lives in an adapter. Arrow is a data FORMAT, which is
+why `ResultBatches` may be the currency on both sides of this
+signature - the argument is
+`crate::warehouse::arrow`'s and it was paid there.
+
+# What the shape buys, which is that the two legs cannot be swapped
+
+A combiner taking `(&ResultBatches, &ResultBatches)` has two arguments of one type whose swap
+compiles and answers a wrong number under a certified metric name - the fact leg's measure
+grouped by the lookup leg's keys. `Legs` makes the swap unrepresentable rather than reviewed:
+each leg's result is tagged with the side by `LegResult::of`, which reads it off the
+`LegPlan` the leg was executed from and takes no side from its caller, and `Legs::of`
+assigns by that tag rather than by argument position. So the two can be handed over in either
+order and a pair that is not one of each does not build a value.
+
+##### `struct LegResult`
+
+```rust
+pub struct LegResult
+```
+
+One leg's result, tagged with the side the `LegPlan` it was executed from named.
+
+**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+`Legs` exists to make unrepresentable one level up.
+
+###### Methods
+
+```rust
+pub const fn batches(&self) -> &ResultBatches
+```
+
+The batches, as the leg's adapter handed them over.
+
+```rust
+pub const fn of(plan: &LegPlan, batches: ResultBatches) -> Self
+```
+
+One executed leg's result, under the side its plan names.
+
+```rust
+pub const fn side(&self) -> LegSide
+```
+
+Which leg this result came from.
+
+###### Implements
+
+`Clone`, `Debug`
+
+##### `struct Legs`
+
+```rust
+pub struct Legs<'a>
+```
+
+Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+
+Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+so an owned pair would say *moved* about something that is shared either way.
+
+###### Methods
+
+```rust
+pub const fn fact(self) -> &'a ResultBatches
+```
+
+The metric's own leg: its keys, its time bucket and its carried leaves.
+
+```rust
+pub const fn lookup(self) -> &'a ResultBatches
+```
+
+The second data system's leg: the remote keys the answer groups by.
+
+```rust
+pub const fn of(one: &'a LegResult, other: &'a LegResult) -> Result<Self, LegsAreNotOneOfEach>
+```
+
+The pair, assigned by each result's own tag rather than by the order they arrive in.
+
+# Errors
+
+`LegsAreNotOneOfEach` when both results name the same side.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`
+
+##### `struct LegsAreNotOneOfEach`
+
+```rust
+pub struct LegsAreNotOneOfEach
+```
+
+Two leg results that name the same side, so there is no pair to combine.
+
+Unreachable through `sutura_app`'s federated path, which builds one `LegResult` per
+`FederatedPlan::legs` entry and that method returns the two variants by construction. Typed
+anyway rather than assumed away: it is the one thing `Legs::of` cannot answer, and a silent
+choice between two facts would combine a leg with itself.
+
+###### Methods
+
+```rust
+pub const fn both(self) -> LegSide
+```
+
+The side both results claimed.
+
+An accessor rather than a `pub` field, which `xtask check-boundaries`'s API-shape rule holds
+for every library type here: a public field lets a struct literal build the value the
+constructor would have rejected, and this one is only ever minted by `Legs::of`.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+##### `trait FederationCombiner`
+
+```rust
+pub trait FederationCombiner
+```
+
+Joins two legs' results and re-aggregates the answer above them.
+
+**The second driven port, declared beside `Warehouse` and
+`SemanticCatalog`**, and the module header is why it is a port.
+`sutura_app::federated::answer_federated` is the driver; a crate above this one implements it.
+An adapter never calls another adapter and this does not change that: the combine is called from
+the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
+
+# Every method is required, and that is the mechanism
+
+`Warehouse` defaults its four classifying predicates, because an
+adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
+implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
+inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
+produces - with nothing in a diff to see. So `Self::working_set_exhausted` and
+`Self::answer_not_well_formed` have no default body: a second implementor has to write both
+arms where a reviewer reads them.
+
+# What the domain may ask about an implementor's error, and why it is two predicates
+
+`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
+not grow* from *the plan would not build*. The two questions split the same way the query path's
+already do:
+
+* `Self::working_set_exhausted` is the governance bound -
+  `RefusalReason::ResourcesExhausted`, which
+  carries the ceiling an operator configured.
+* `Self::answer_not_well_formed` is a deterministic refusal about the DATA the legs returned -
+  `RefusalReason::FederatedAnswerNotWellFormed`.
+  The same plan against the same rows refuses again, which is what makes it a refusal rather
+  than a retryable failure.
+
+Both are predicates rather than conversions, for the reason
+`Warehouse::working_set_exhausted` gives:
+an implementor that could return a `RefusalReason` could mint any
+of them from a failure of its own. Everything else leaves as the implementor's typed error and
+reaches a caller as this workspace's own defect.
+
+##### `struct RefusingCombiner`
+
+```rust
+pub struct RefusingCombiner
+```
+
+A combiner that answers nothing, for a transport's own tests.
+
+**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+transport would write its own, and two copies of a fake are two things to keep in step.
+
+**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+test asks a two-source question - the adapters those suites register are mono fakes - so a
+combiner that produced rows would be inventing an answer nothing reads. A combine that is
+reached through this fake is a test that has drifted into the federated path, and it fails
+loudly rather than passing over a fabricated number.
+
+Behind `fixtures`, so nothing published holds it.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
+
+##### `struct NothingCombined`
+
+```rust
+pub struct NothingCombined
+```
+
+What `RefusingCombiner` answers with.
+
+###### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### Module `label`
 
@@ -7994,10 +8437,9 @@ The label the answer's measure carries: the metric's own certified name.
 One source's share of a federated question, and the only thing the port can be handed.
 
 **The shapes and their closure.** `sutura_semantic::federated_plan` produces one of these,
-`sutura_app::answer_federated` hands it to an adapter, and
-`FederatedPlan::combine` - a function in this crate -
-assembles the two results; `sutura-sql` renders a leg per dialect and `sutura-exec-datafusion`
-builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
+`sutura_app::answer_federated` hands it to an adapter, and the combiner behind
+`FederationCombiner` assembles the two results; `sutura-sql`
+renders a leg per dialect and `sutura-exec-datafusion` builds one as a logical plan. `.agents/skills/sutura/query-surface` carries which of those a
 published artefact reaches, and this module says the shape rather than the state.
 `docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
 `docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
@@ -8865,9 +9307,9 @@ somebody else's input.
   as an HTTP `503` - "worth retrying", the status a data system that might come back
   produces. Neither is: the same plan against the same rows fails again, so retrying spends a
   caller's own budget on an answer that was never going to change.
-  `crate::plan::FederatedAnswerRefusal::of` is the total classification that decides
-  which `FederatedFailure` causes land here rather than
-  staying a wiring-defect `ServiceError`.
+  `crate::plan::FederationCombiner::answer_not_well_formed` is the predicate that decides
+  which of a combiner's own failures land here rather than staying a wiring-defect
+  `ServiceError`.
 
   Carries the classification and no cell: see `FederatedAnswerRefusal`'s
   own note on why a join key or a float value never reaches this far.
@@ -10373,7 +10815,7 @@ A second leg, for a federated answer.
 
 Consumes and returns, so a record is built in one expression and there is no half-built state
 for something else to read. The federated answer path constructs the second leg here and
-groups the two in `crate::plan::federated::FederatedPlan::combine`, so the shape of this
+groups the two in the combiner behind `crate::plan::FederationCombiner`, so the shape of this
 record is what decides whether a leg can be added without moving the digest - which is why it
 was settled before an answer format shipped rather than after.
 
@@ -11613,7 +12055,7 @@ row for a customer key the dimension table already had:
 
 `29138 - 22765` is that one customer's June revenue, counted a second time. **Neither answer was
 refused**, and which one a deployment gets depends on where the dimension model sits rather than
-on the question. `FederatedFailure::AmbiguousLink`
+on the question. `FederatedAnswerRefusal::AmbiguousLink`
 covers half the shape and only on the federated side: it fires when the duplicate rows DISAGREE
 in a column the question projects, and the `GROUP BY` has already removed them when they agree.
 

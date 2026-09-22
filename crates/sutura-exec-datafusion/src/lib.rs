@@ -819,6 +819,18 @@ impl Warehouse for DataFusionWarehouse {
     // question was too wide when what happened was an engine failure.
 }
 
+/// The combiner: two legs' Arrow batches joined and re-aggregated by one `DataFusion` plan -
+/// `docs/adr/0039` step 3, and `docs/adr/0007`'s second driven port arriving.
+///
+/// Its own module rather than part of the `Warehouse` impl, and `docs/adr/0007` is the sentence:
+/// *`sutura-exec-datafusion` keeps its `Warehouse` impl for local files, because the engine is also
+/// a data source, and the combiner is a separate implementor of a separate port.* One crate, two
+/// ports, no shared state between them - the combiner holds no session, because its ceiling is a
+/// per-question argument.
+mod combine;
+
+pub use crate::combine::{CombineError, DataFusionCombiner};
+
 /// How wide the engine runs, in its own file for the same reason.
 #[cfg(test)]
 mod width_tests;

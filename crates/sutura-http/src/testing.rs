@@ -861,8 +861,15 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    let service = crate::surface::LocalService::start(&catalog_of(pinned), warehouses, sink(), broker, 1 << 30)
-        .expect("the test bundle validates");
+    let service = crate::surface::LocalService::start(
+        &catalog_of(pinned),
+        warehouses,
+        sink(),
+        broker,
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
     let mut state = state_over(Arc::new(service), settings);
     if let Some(gate) = gate {
         state = state.with_inbound_identity(Arc::new(gate));

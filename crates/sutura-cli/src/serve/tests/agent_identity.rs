@@ -373,6 +373,7 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
             warehouses,
             sutura_runtime::TracingAuditSink::new(),
             broker,
+            sutura_domain::plan::RefusingCombiner,
             1 << 30,
         )
         .expect("the priced test bundle validates")

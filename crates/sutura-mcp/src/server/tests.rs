@@ -101,8 +101,12 @@ where
 
 /// What `certified_service` hands back: the real application over a fake data system, with the
 /// audit sink every `LocalService` now requires.
-type CertifiedService =
-    LocalService<testing::FakeWarehouse, std::sync::Arc<testing::CountingSink>, testing::GrantsTheSharedIdentity>;
+type CertifiedService = LocalService<
+    testing::FakeWarehouse,
+    std::sync::Arc<testing::CountingSink>,
+    testing::GrantsTheSharedIdentity,
+    sutura_domain::plan::RefusingCombiner,
+>;
 
 /// A service over the real application, so an answer here is an answer the anchor certified.
 fn certified_service() -> CertifiedService {
@@ -120,6 +124,7 @@ fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
         testing::fake_warehouse(),
         std::sync::Arc::clone(&sink),
         testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
     .expect("the fixture bundle validates");

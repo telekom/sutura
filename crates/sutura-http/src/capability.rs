@@ -418,6 +418,7 @@ mod tests {
             crate::testing::fake_warehouse(),
             crate::testing::sink(),
             crate::testing::broker(),
+            sutura_domain::plan::RefusingCombiner,
             1 << 30,
         )
         .expect("the test bundle validates");

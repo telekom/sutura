@@ -32,9 +32,15 @@ use secrecy::{ExposeSecret as _, SecretString};
 // `pub mod` would have given two - `identity::principal::PrincipalChain` and
 // `identity::PrincipalChain` - and a second path to a type is a second name for it in every doc
 // comment that mentions it.
+/// The value a federation boundary keys per-caller isolation on. Beside `principal` rather than in
+/// `crate::federation`, because it is the only reader of the unmasked `SubjectKey` and that read
+/// stays inside the module that owns it: `SubjectKey::feed` is `pub(super)`, so no other module of
+/// this crate can reach the full value at all.
+mod compute_context;
 mod credential;
 mod principal;
 
+pub use crate::identity::compute_context::ComputeContext;
 pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,

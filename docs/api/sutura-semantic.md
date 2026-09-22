@@ -58,7 +58,8 @@ A refusal is a variant here rather than an `Err`, which is the same choice
   set by its rarest variant makes every refusal carry the cost of an answer.
 - `Federated` - The question resolved to two data systems, split into a fact leg and a lookup leg.
 
-  The two legs execute against their own sources and `FederatedPlan::combine` turns the rows
+  The two legs execute against their own sources and the combiner behind
+  `FederationCombiner` turns the batches
   back into one answer above them.
 - `Refused` - The question was refused, and this is why.
 

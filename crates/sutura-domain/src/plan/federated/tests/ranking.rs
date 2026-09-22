@@ -3,10 +3,15 @@
 //! fixture (`metric`) exactly as these tests read it before the move.
 
 use super::*;
+use crate::catalog::TIME_BUCKET_LABEL;
+use crate::query::{Top, TopBy, TopDirection, TopN};
+use crate::warehouse::{RowSet, Value};
 
 /// One combined answer, ranked and truncated - `github.com/telekom/sutura#777`'s case 2. Built
-/// directly rather than through [`FederatedPlan::combine`], because `rank`'s own contract is
-/// about the ORDER a already-combined answer comes back in, not about the join.
+/// directly rather than through a combiner, because `rank`'s own contract is about the ORDER an
+/// already-combined answer comes back in, not about the join - which is why `rank` stayed in the
+/// domain when `docs/adr/0039` step 3 moved the combine out: it reads the answer's own column
+/// order and no engine.
 fn ranked(top: Top) -> RowSet {
     let combined = RowSet::new(
         vec![

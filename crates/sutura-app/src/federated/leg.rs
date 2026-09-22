@@ -14,6 +14,7 @@
 use std::time::Instant;
 
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker};
+use sutura_domain::plan::FederationCombiner;
 use sutura_domain::plan::{Executable, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound};
 use sutura_domain::warehouse::Warehouse;
@@ -21,18 +22,19 @@ use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::{ServiceError, deadline_exceeded, now_in_unix_seconds};
 
-use super::{LegError, LegPreflight, LegResult};
+use super::{LegAnswer, LegError, LegPreflight};
 
 /// Pre-flights one leg against its own adapter, under that source's own presented credential.
-pub(crate) fn dry_run_leg<W, B>(
+pub(crate) fn dry_run_leg<W, B, C>(
     warehouse: &W,
     credentials: &BoundToTheRequest,
     leg: &LegPlan,
     deadline: Deadline,
-) -> LegPreflight<W, B>
+) -> LegPreflight<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
+    C: FederationCombiner,
 {
     let presented = credentials
         .presented_for(leg.source())
@@ -72,10 +74,16 @@ where
 /// The same guards `execute_leg` applied run here for the same reasons: the credential is still
 /// usable this instant, checked again here because a deadline that ages out during the OTHER leg's
 /// own dry run is caught by this leg's own `still_usable_at`.
-pub(crate) fn run_leg<W, B>(warehouse: &W, credentials: &BoundToTheRequest, leg: &LegPlan, deadline: Deadline) -> LegResult<W, B>
+pub(crate) fn run_leg<W, B, C>(
+    warehouse: &W,
+    credentials: &BoundToTheRequest,
+    leg: &LegPlan,
+    deadline: Deadline,
+) -> LegAnswer<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
+    C: FederationCombiner,
 {
     let presented = credentials
         .presented_for(leg.source())

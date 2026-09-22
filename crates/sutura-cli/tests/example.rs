@@ -525,6 +525,7 @@ mod tests {
                 &a_caller(),
                 &single_user_broker(),
                 &warehouse,
+                &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
                 1 << 30,
                 deadline(),
                 &sutura_app::SpendLedger::no_budget(),
