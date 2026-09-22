@@ -1,4 +1,15 @@
-#![cfg(target_os = "linux")]
+// The MODULE compiles everywhere and only the measurements are Linux-only, because the file-wide
+// `#![cfg(target_os = "linux")]` this replaces made it invisible to every check a non-Linux host can
+// run: `just ci` reads `builtins.currentSystem`, `builders` is empty here, so `checks.x86_64-linux.*`
+// cannot be built at all. `telekom/sutura#929` is the cost - two compile errors reached CI's clippy
+// leg through a clean merge while every local `just validate` reported the clippy leg green, and both
+// verdicts were true: the darwin one compiled this file down to nothing. Type-checking is
+// target-independent, `/proc` is not, so gating the tests and not the module keeps the measurement
+// Linux-only and puts the types back under the local gate.
+#![cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "the measurements this module supports only run on Linux")
+)]
 
 //! Fresh-child bounded measurements over every executable real federated-corpus topology.
 //!
@@ -24,7 +35,7 @@ use crate::adapters::{a_caller, shared_credential};
 use sutura_app::ServiceError;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::UnreadableCell;
-use sutura_exec_datafusion::DataFusionError;
+use sutura_exec_datafusion::{CombineError, DataFusionError};
 
 const MEASURE_BOUNDS_CASE: &str = "MEASURE_BOUNDS_CASE";
 const CHILD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,7 +49,7 @@ const EXPECTED_FAILURES: [&str; 2] = [
 ];
 const EXPECTED_METRIC: &str = "revenue_per_churned_subscription";
 
-type MeasurementResult = Result<ToolOutcome, ServiceError<DataFusionError, BrokerCannotFail>>;
+type MeasurementResult = Result<ToolOutcome, ServiceError<DataFusionError, BrokerCannotFail, CombineError>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Topology {
@@ -110,10 +121,7 @@ impl Census {
     }
 }
 
-fn expected_failure(
-    name: &str,
-    error: &ServiceError<DataFusionError, BrokerCannotFail, sutura_exec_datafusion::CombineError>,
-) -> bool {
+fn expected_failure(name: &str, error: &ServiceError<DataFusionError, BrokerCannotFail, CombineError>) -> bool {
     if !EXPECTED_FAILURES.contains(&name) {
         return false;
     }
@@ -121,11 +129,14 @@ fn expected_failure(
         // **The mono path's shape since `docs/adr/0039` step 2's second half**: the port's currency
         // is Arrow, so the decode happens above every adapter and the interior's own `UnreadableCell`
         // arrives as the application's failure rather than wrapped in the engine's.
+        //
+        // The second pattern is the engine's own wrapper, kept because `verify_anchor` still reads
+        // rows inside the adapter. One arm rather than two because `clippy::match_same_arms` is
+        // denied and both shapes carry the same finding - the two patterns are what this asserts.
         ServiceError::Unreadable {
             cause: UnreadableCell::NotFinite { column, .. },
-        } => column == EXPECTED_METRIC,
-        // The engine's own wrapper, kept because `verify_anchor` still reads rows inside the adapter.
-        ServiceError::Warehouse {
+        }
+        | ServiceError::Warehouse {
             cause: DataFusionError::Unreadable {
                 cause: UnreadableCell::NotFinite { column, .. },
             },
@@ -240,12 +251,17 @@ fn execute(case: Case) -> Measurement {
         .nth(case.question)
         .expect("the measurement case names a corpus question");
     let mut census = Census::default();
+    // The real combiner, for the same reason the differential suite uses one: the child measures
+    // the production federated path, and a stub that never assembles would make the two-source
+    // topology's census and peak describe a path no deployment runs.
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
     let result = sutura_app::answer(
         &bundle,
         &question,
         &a_caller(),
         &shared_credential(),
         &warehouses,
+        &combiner,
         BUDGET,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
@@ -324,6 +340,7 @@ fn run_child(case: Case) -> String {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn every_corpus_question_has_one_fresh_child_outcome_in_each_topology() {
     if let Some(case) = Case::selected() {
         let measurement = execute(case);
@@ -392,6 +409,7 @@ fn every_corpus_question_has_one_fresh_child_outcome_in_each_topology() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn result_census_covers_each_question_once_per_topology() {
     let questions = every_question().len();
     let cases = cases();
@@ -407,6 +425,7 @@ fn result_census_covers_each_question_once_per_topology() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn widest_left_join_shape_executes_in_both_topologies() {
     let question = every_question()
         .iter()
@@ -419,6 +438,7 @@ fn widest_left_join_shape_executes_in_both_topologies() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn the_distinct_key_refusal_has_no_execution_peak() {
     let question = every_question()
         .iter()
@@ -433,6 +453,7 @@ fn the_distinct_key_refusal_has_no_execution_peak() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn rss_high_water_and_ratio_are_machine_readable() {
     assert_eq!(rss_high_water_from("VmHWM:\t42 kB\n"), Some(42 * 1024));
     assert_eq!(rss_high_water_from("VmRSS:\t42 kB\n"), None);
