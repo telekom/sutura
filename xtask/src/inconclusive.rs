@@ -37,11 +37,13 @@
 //!   no run of this repository. This holds that the code path exists and is not a suppression; that
 //!   it works is `Verdict::exit_code`'s unit test plus the measurement that `nix run` and `just`
 //!   both propagate 3 unchanged.
-//! * **A gate other than `test-causality`.** `Verdict::Inconclusive` is available to every task in
-//!   the registry, and only this one returns it today - `check-default-features`, the other gate
-//!   `ci.yml` reaches through a flake app, has no inconclusive answer to give, so its step is not a
-//!   site and owes exit 3 nothing. When a second gate does return it, its invocations join
-//!   [`NEEDLES`] and the list grows - which is the same decision made once more, out loud.
+//! * **A gate other than these two.** `Verdict::Inconclusive` is available to every task in the
+//!   registry; `test-causality` and `check-claim-mutation-kills` (`causality::rot::run` reuses
+//!   `claim::run` wholesale, so it inherits the same `BuildFailed`-only non-verdict) are the two
+//!   that return it today - `check-default-features`, the other gate `ci.yml` reaches through a
+//!   flake app, has no inconclusive answer to give, so its step is not a site and owes exit 3
+//!   nothing. A THIRD gate that returns it joins [`NEEDLES`] the same way, and the list grows
+//!   again - which is the same decision made once more, out loud.
 
 use std::path::Path;
 
@@ -53,10 +55,13 @@ use crate::workflows::sources::{Source, ci_sources};
 ///
 /// The xtask task name covers `cargo run -p xtask -- test-causality` however the profile and flags
 /// are spelled; the flake app is the form CI reads, and it is a different string because `nix run`
-/// is the boundary the exit code crosses there. `just causality` is deliberately NOT a needle: the
-/// recipe body is one of these two, and matching the recipe name as well would make an `echo` that
-/// names it for a reader look like an invocation - `ci.yml` prints exactly that sentence.
-const NEEDLES: &[&str] = &["test-causality", "nix run .#causality"];
+/// is the boundary the exit code crosses there. `check-claim-mutation-kills` is the same task-name
+/// shape as `test-causality` - `causality::rot::run` reuses `claim::run` wholesale and inherits its
+/// `Inconclusive` arm with it, so its own justfile line needs the same needle. `just causality` is
+/// deliberately NOT a needle: the recipe body is one of these, and matching the recipe name as
+/// well would make an `echo` that names it for a reader look like an invocation - `ci.yml` prints
+/// exactly that sentence.
+const NEEDLES: &[&str] = &["test-causality", "nix run .#causality", "check-claim-mutation-kills"];
 
 /// What a venue does with exit 3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

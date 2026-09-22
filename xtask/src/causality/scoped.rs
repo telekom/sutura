@@ -125,6 +125,21 @@ impl Scoped {
     pub(crate) fn filterset(&self) -> String {
         self.tests.iter().map(AddedTest::term).collect::<Vec<String>>().join(" + ")
     }
+
+    /// Every one of `tests` as its own claim, with no diff behind it at all.
+    ///
+    /// `pub(super)` for `super::rot` (`github.com/telekom/sutura#950`): re-verifying a COMMITTED
+    /// mutation asks about a cell a past commit's trailer already proved once, and there is no
+    /// diff to scan for it a second time - [`Scan::of`] is the only other constructor and it is
+    /// diff-shaped throughout. `silent` and `ignored` are empty by construction: both describe
+    /// what a DIFF failed to name, which does not apply to a name this already has in hand.
+    pub(super) const fn of_named(tests: Vec<AddedTest>) -> Self {
+        Self {
+            tests,
+            silent: Vec::new(),
+            ignored: Vec::new(),
+        }
+    }
 }
 
 /// What scanning the diff's test files found.
