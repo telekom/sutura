@@ -63,6 +63,8 @@
 //! Both attribute lists live THERE, in one file, because a name this cannot extract from a marker
 //! it accepts is exactly the disagreement that would reopen the unfiltered run.
 
+use std::collections::BTreeSet;
+
 use crate::causality::attributes::{attached, declares_a_test, item_below};
 use crate::causality::diff::ChangedFile;
 use crate::causality::features::{Because, Enabled};
@@ -75,7 +77,7 @@ use crate::causality::regions::{AddedLine, PostImage};
 /// The second field is the change: the printed sentence used to ASSERT that the declared module's
 /// own file names the tests, and nothing read whether that file was in the diff. It is resolved
 /// now, so a declaration this cannot account for is [`Scan::Enabled`] rather than a pass.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Silent {
     /// The provable file that named nothing.
     pub(crate) path: String,
@@ -139,6 +141,26 @@ impl Scoped {
             silent: Vec::new(),
             ignored: Vec::new(),
         }
+    }
+
+    /// A COPY of this scope with the named tests removed, for the composite half of
+    /// `github.com/telekom/sutura#954`.
+    ///
+    /// The claim arm and the ordinary proof used to be mutually exclusive: a diff with a
+    /// `Claim-Cell:` trailer went wholly to the claim, and any other added test in the range was
+    /// refused (`Undeclared`). Issue #954 moved that refusal OUT - a declaration answers for the
+    /// tests its own commit added, and the rest are still the ordinary proof's to run. This is
+    /// the seam that composes the two: the claim arm proves the declared set, and the ordinary
+    /// proof proves what is left. `None` when nothing remains, so the caller can keep the claim
+    /// verdict alone; the `silent`/`ignored` lists are carried because the two halves are still
+    /// reported from one diff, and dropping a named-but-ignored test here would un-print it.
+    pub(crate) fn minus(&self, names: &BTreeSet<String>) -> Option<Self> {
+        let kept: Vec<AddedTest> = self.tests.iter().filter(|one| !names.contains(one.name())).cloned().collect();
+        (!kept.is_empty()).then_some(Self {
+            tests: kept,
+            silent: self.silent.clone(),
+            ignored: self.ignored.clone(),
+        })
     }
 }
 

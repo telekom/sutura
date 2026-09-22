@@ -20,12 +20,17 @@
 //! test pinning existing behaviour, no trailer) still reaches the normal proof and its
 //! green-against-base refusal unchanged.
 //!
-//! THE CLAIM IS RANGE-WIDE, mirroring `super::relocation::Claim::of`: [`Claim::of`] reads every
-//! message in `base..HEAD`, because the range is what merges, so the range is the unit. And the
-//! declaration must be a BIJECTION with the diff's added tests - a declared test the diff did not
-//! add, or an added test not declared, is refused - for the same reason every claim here is
-//! checked rather than believed: a trailer that names something other than what the diff added is
-//! a trailer over a different diff.
+//! THE BIJECTION IS PER COMMIT, and is a bijection in one direction only. [`Claim::of`] reads
+//! `base..HEAD`'s messages NUL-delimited PER COMMIT, so a declaration is tied to the commit that
+//! carried it and answers for the tests THAT commit added ([`validate`]/[`Cause::NotAdded`]).
+//! The old range-wide unity was the bug `github.com/telekom/sutura#954`: one legitimate declaring
+//! commit made every OTHER added test in the range read as undeclared (measured `×135` on #929).
+//! The reverse direction - an added test no declaration names - is NOT a refusal here: a real
+//! branch commonly lands ordinary red-on-base tests beside a claim cell (measured on `main`:
+//! `f14e8a3a` declared one of three added tests), and those are proven by the ordinary base/head
+//! proof after the claim arm (the composite in `super::run`), not refused. `super::rot`'s
+//! synthetic bare `Claim-Cell:` stream is read under an empty commit name and skips the
+//! per-commit check, because it has no diff to be held against.
 //!
 //! THE MUTATION IS ONE COMMITTED PATCH PER CELL, under `devco/claim-mutations/`. A patch file is
 //! reviewable in the diff and byte-reproducible; it is read at RUNTIME from the checkout (so it
@@ -74,6 +79,8 @@ use std::process::Command;
 
 use crate::Verdict;
 use crate::causality::base;
+use crate::causality::diff::{self, ChangedFile};
+use crate::causality::names::Ident;
 use crate::causality::place::AddedTest;
 use crate::causality::regions::{PostImage, TestScope, cfg_test_regions as test_regions, item_end, scope as test_scope};
 use crate::causality::runner::{Tree, cargo_test};
@@ -86,38 +93,113 @@ pub(super) const MUTATIONS_DIR: &str = "devco/claim-mutations";
 /// The commit trailer that declares a claim cell.
 const TRAILER: &str = "Claim-Cell:";
 
+/// A declaring commit object name paired with the cells its own message named.
+///
+/// Named so the per-commit scope (`github.com/telekom/sutura#954`) is one readable unit instead
+/// of a bare tuple type repeated across `Claim`'s field, its accessor and `Claim::of`'s builder.
+pub(super) type CommitCells = Vec<(String, Vec<String>)>;
+
 #[cfg(test)]
 mod probe;
-
-/// What the commit messages in the measured range DECLARED.
+/// What the commit messages in the measured range DECLARED, scoped per commit.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Claim {
     /// The test-fn names the trailers named, deduplicated and sorted.
     cells: Vec<String>,
+    /// The cells each commit in the range declared, keyed by commit object name.
+    ///
+    /// THE PER-COMMIT HALF OF THE SCOPE. `validate` needs to know which tests a declaration
+    /// ANSWERS for - the ones the declaring COMMIT added - rather than every test the whole range
+    /// added. A declaration on one commit must not be held against a sibling commit's own added
+    /// tests (`github.com/telekom/sutura#954`), so this map is what ties a cell back to the
+    /// commit whose message carried it. The flat `cells` list stays for the kill loop and for
+    /// `super::rot`'s synthetic claim; this map is what the bijection is checked through.
+    by_commit: CommitCells,
+}
+
+#[cfg(test)]
+impl Claim {
+    /// A claim carrying only the flat cell list, with no declaring commits.
+    ///
+    /// The patch-validation half of `validate` reads `cells` and never consults per-commit
+    /// `by_commit`; the tests that drive it build this minimal shape and leave the per-commit
+    /// `NotAdded` loop (which would otherwise shell out to git for every declared commit) a
+    /// no-op.
+    fn test(cells: Vec<String>) -> Self {
+        Self {
+            cells,
+            by_commit: Vec::new(),
+        }
+    }
 }
 
 impl Claim {
     /// The claim `log` carries, if it carries one.
     ///
+    /// `log` is `worktree::messages`' NUL-delimited per-commit stream: for each commit, the
+    /// declaration is read from THAT commit's own message, so a declaration answers for the
+    /// commit that carries it and not for its neighbours (`github.com/telekom/sutura#954`).
+    ///
+    /// A stream with NO NUL at all is not a commit log but a bare `Claim-Cell:` body -
+    /// the shape [`super::rot`] fabricates, re-proving every COMMITTED mutation with no commit
+    /// to key on. It is read the same way, under an empty commit name, and `validate` skips
+    /// empty-keyed declarations in the per-commit `NotAdded` loop: a synthetic claim has no diff
+    /// to be held against, only patches to re-verify. A NUL-free string never occurs in a real
+    /// single-commit range (`-z` always emits at least the terminating NUL), so the empty name
+    /// is unambiguous.
+    ///
     /// A TRAILER WITH NO NAME IS NO CLAIM, which is the fail-closed direction: it leaves the run
     /// exactly as it was, so a malformed declaration buys nothing. Requiring a name is what stops
     /// the trailer being copied forward onto an unrelated commit without being obviously wrong to
     /// a reviewer - [`Cause::NotAdded`] refuses a name the diff did not add.
+    ///
+    /// TIGHTENED: a declared name must be a valid Rust identifier ([`Ident::parse`]). The old
+    /// scan matched ANY line whose trimmed form started with `Claim-Cell:`, so a commit merely
+    /// DISCUSSING claim cells in prose declared one. Every real cell this tree commits is a bare
+    /// identifier, so the tightening drops a prose mention and keeps every declaration.
     pub(super) fn of(log: &str) -> Option<Self> {
-        let cells: Vec<String> = log
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix(TRAILER))
-            .map(|rest| String::from(rest.trim()))
-            .filter(|name| !name.is_empty())
+        let pairs = {
+            let from_stream = worktree::commit_logs(log);
+            if from_stream.is_empty() && !log.is_empty() {
+                vec![("", log)]
+            } else {
+                from_stream
+            }
+        };
+        let per_commit: CommitCells = pairs
+            .into_iter()
+            .filter_map(|(commit, message)| {
+                let cells: Vec<String> = message
+                    .lines()
+                    .filter_map(|line| line.trim().strip_prefix(TRAILER))
+                    .map(|rest| String::from(rest.trim()))
+                    .filter(|name| Ident::parse(name).is_some())
+                    .collect::<BTreeSet<String>>()
+                    .into_iter()
+                    .collect();
+                (!cells.is_empty()).then_some((String::from(commit), cells))
+            })
+            .collect();
+        let cells: Vec<String> = per_commit
+            .iter()
+            .flat_map(|(_, cells)| cells.iter().cloned())
             .collect::<BTreeSet<String>>()
             .into_iter()
             .collect();
-        (!cells.is_empty()).then_some(Self { cells })
+        (!cells.is_empty()).then_some(Self {
+            cells,
+            by_commit: per_commit,
+        })
     }
 
     /// The declared test-fn names.
     pub(super) fn cells(&self) -> &[String] {
         &self.cells
+    }
+
+    /// Each declaring commit and the cells its own message named.
+    pub(super) const fn by_commit(&self) -> &CommitCells {
+        &self.by_commit
     }
 }
 
@@ -126,10 +208,9 @@ impl Claim {
 pub(super) enum Cause {
     /// The trailer names a test the diff did not ADD.
     NotAdded(String),
-    /// A test the diff added was not declared. The bijection failing this direction.
-    Undeclared(String),
     /// No mutation patch lives at `devco/claim-mutations/<cell>.patch`.
     MissingPatch(String),
+
     /// The patch touches a file the repo classifies as test-bearing at HEAD (or one this diff
     /// itself added as a test file). A mutation edits PRODUCTION code only.
     TouchesTests { cell: String, path: String },
@@ -520,22 +601,35 @@ pub(super) fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), Stri
 /// and comes back to meet the next one. The git-backed checks ([`apply_git`]) are the third
 /// layer and run only for a cell whose earlier checks passed, because a missing patch or a
 /// test-file touch makes a dry apply either impossible or pointless.
-fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> Vec<Cause> {
+///
+/// THE BIJECTION IS PER COMMIT (`github.com/telekom/sutura#954`), with a deliberate asymmetry.
+/// Each DECLARING commit must name tests IT added - a cell whose declaring commit added no such
+/// test is [`Cause::NotAdded`]. But the reverse direction, an added test the range never
+/// declared, is NOT a refusal here: a real branch commonly adds ordinary red-on-base tests
+/// beside a claim cell (measured on `main`: `f14e8a3a` declared one of three added tests), and
+/// those tests are proven by the ordinary base/head proof after the claim arm, not refused.
+/// `claim.rs`'s own header always said an undeclared claim cell "still reaches the normal proof
+/// and its green-against-base refusal unchanged" - this is that sentence made real.
+fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
     let mut causes: Vec<Cause> = Vec::new();
-    let added_set: BTreeSet<&str> = added.iter().copied().collect();
     let declared_set: BTreeSet<&str> = claim.cells().iter().map(String::as_str).collect();
-    // Bijection, both directions: the declaration must name exactly what the diff added.
-    for cell in claim.cells() {
-        if !added_set.contains(cell.as_str()) {
-            causes.push(Cause::NotAdded(cell.clone()));
-        }
-    }
-    for name in added {
-        if !declared_set.contains(name) {
-            causes.push(Cause::Undeclared((*name).to_owned()));
-        }
-    }
+    // range's added set is not the unit - a declaration on one commit must not be held against a
+    // sibling commit's tests, which is exactly the bug #954 measured (`×135` undeclared on #929).
+    // An EMPTY commit key is `super::rot`'s SYNTHETIC bare-stream claim, which has no diff to be
+    // held against - only patches to re-verify - so its declarations skip this check entirely.
     let read = head_reader(wt);
+    for (commit, declared) in claim.by_commit() {
+        if commit.is_empty() {
+            continue;
+        }
+        let added: Vec<String> = commit_added_names(wt, commit, &read).unwrap_or_default();
+        let added_set: BTreeSet<&str> = added.iter().map(String::as_str).collect();
+        for cell in declared {
+            if !added_set.contains(cell.as_str()) && declared_set.contains(cell.as_str()) {
+                causes.push(Cause::NotAdded(cell.clone()));
+            }
+        }
+    }
     for cell in claim.cells() {
         // The patch is read from the HEAD worktree, not the caller's working tree - an UNCOMMITTED
         // patch is not the range the trailer declared, so it is not under review.
@@ -598,6 +692,35 @@ fn validate(wt: &Path, claim: &Claim, added: &[&str], test_files: &[String]) -> 
         }
     }
     causes
+}
+
+/// The tests ONE commit's own diff added, by name.
+///
+/// `read` is the HEAD post-image the single-commit diff's `AddedLine` numbers are resolved
+/// against - a changed file always exists at HEAD when the range reaches it. `OK(empty)` for a
+/// commit whose diff added no named test, which a declaration over it must then answer as
+/// [`Cause::NotAdded`]; `None` when the commit's diff cannot be read at all (an unnameable hash),
+/// fail-closed in the direction that refuses.
+///
+/// INSEPARABLE IS NOT EMPTY. A declaring commit whose added test shares a file with its own
+/// implementation change (`github.com/telekom/sutura#837`'s shape) is still a commit that ADDED
+/// the test - `causality.rs`'s own `NotSeparable` arm `Scan::of`s the inseparable file list and
+/// builds the `Scoped` the claim arm runs from. Empty would falsely `NotAdded` every cell of an
+/// inseparable declaring commit, which is exactly the shape `f61bcf28` (and this gate's own
+/// inseparable fixture) declares in.
+fn commit_added_names(wt: &Path, commit: &str, read: &crate::causality::regions::PostImage<'_>) -> Option<Vec<String>> {
+    use crate::causality::plan::Plan;
+    use crate::causality::scoped::Scan;
+    let files: Vec<ChangedFile> = diff::commit_additions(wt, commit)?;
+    let (test_files, scannable) = match crate::causality::plan::plan(&files, read) {
+        Plan::Separable(separable) => (separable.test_files, files),
+        Plan::NotSeparable { files: inseparable, .. } => (inseparable, files),
+        Plan::NotRequired => return Some(Vec::new()),
+    };
+    match Scan::of(&scannable, &test_files, read) {
+        Scan::Runnable(scoped) => Some(scoped.tests().iter().map(AddedTest::name).map(String::from).collect()),
+        _ => Some(Vec::new()),
+    }
 }
 
 /// Apply one cell's mutation in the isolated target, run the cell, restore, and require it dead.
@@ -729,8 +852,9 @@ impl Caller {
             "The trailer is a CLAIM and this is the check that holds it. A claim cell is an",
             "added test pinning behaviour the base tree already provides, proved only by a",
             "committed mutation at `devco/claim-mutations/<test-fn-name>.patch` that makes the",
-            "test FAIL. Fix or drop the declaration - the undeclared path is unchanged and still",
-            "refuses a test that is green against the base behaviour.",
+            "test FAIL. Fix or drop the declaration - the undeclared path is unchanged: an added",
+            "test no declaration names still reaches the ordinary proof and its green-against-base",
+            "refusal.",
         ],
     };
 }
@@ -744,9 +868,7 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
         eprintln!("xtask {}: could not create a claim worktree: {e}", caller.task);
         return Verdict::Fail;
     }
-
-    let added: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
-    let causes = validate(&wt, claim, &added, test_files);
+    let causes = validate(&wt, claim, test_files);
     if !causes.is_empty() {
         worktree::remove_worktree(root, &wt);
         return report_refused(&causes, caller);
@@ -821,9 +943,6 @@ fn cause_line(cause: &Cause) -> String {
     match cause {
         Cause::NotAdded(cell) => {
             format!("  not added:   {cell}  (the trailer names it; the diff added no such test)")
-        }
-        Cause::Undeclared(cell) => {
-            format!("  not declared: {cell}  (the diff added it and no {TRAILER} names it)")
         }
         Cause::MissingPatch(cell) => {
             format!("  no patch:    {MUTATIONS_DIR}/{cell}.patch  (a claim cell needs a killing mutation)")
