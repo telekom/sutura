@@ -1,8 +1,9 @@
 //! Does every reader of `image-digests.txt` anchor on the record kind? A gate that says it must.
 //!
-//! The release path writes one small file naming every image it pushed, and its grammar is:
-//! a `#` comment header, then records of three whitespace-separated fields - `leaf` or `list`,
-//! a variant name, and a reference that is a repository and a digest with NO tag between them.
+//! The release path writes one small file naming every image and chart it pushed, and its
+//! grammar is: a `#` comment header, then records of three whitespace-separated fields -
+//! `leaf`, `list` or `chart`, a variant name, and a reference that is a repository and a digest
+//! with NO tag between them.
 //!
 //! **Six readers re-implement that grammar across `grep`, `awk` and Rust, and nothing related
 //! them.** Five anchor on the record kind, so they skip the header *as a side effect*; the sixth
@@ -81,10 +82,20 @@ const HANDLES: [&str; 3] = ["dist/image-digests.txt", "IMAGE_DIGESTS", "digests-
 ///
 /// **This list IS the grammar's "anchor on the record kind"**, so a correct read written a
 /// spelling this list does not hold is refused until the spelling is added - the safe direction,
-/// and the opposite of `codegen::CODEGEN_BACKEND`'s exact-name limit. Both kinds are present
-/// although only three of the four forms are live: a two-kind grammar that permits an anchor on
-/// one kind and not the other reads as an oversight rather than as a decision.
-const ANCHORS: [&str; 4] = ["'^leaf '", "'^list '", "$1 == \"leaf\"", "$1 == \"list\""];
+/// and the opposite of `codegen::CODEGEN_BACKEND`'s exact-name limit. All three kinds are
+/// present in both forms although not every form is live yet: a grammar that permits an anchor
+/// on one kind and not another reads as an oversight rather than as a decision. `chart` joined
+/// `leaf`/`list` with `.github/actions/publish-chart` (#149 branch 4): the file's producer,
+/// `release.yml`'s `Push the images` step, is unchanged, and that action appends one `chart`
+/// record to the same file rather than writing a second one.
+const ANCHORS: [&str; 6] = [
+    "'^leaf '",
+    "'^list '",
+    "'^chart '",
+    "$1 == \"leaf\"",
+    "$1 == \"list\"",
+    "$1 == \"chart\"",
+];
 
 /// Whole-file uses: the line reaches the file and takes no field out of it.
 ///
@@ -196,7 +207,7 @@ fn scan(label: &str, text: &str, used: &mut [bool; DECLARED.len()]) -> Found {
             continue;
         }
         found.problems.push(format!(
-            "{label}:{}  reads the image-record file without anchoring on a record kind. `image-digests.txt` carries a `#` comment header INSIDE the signed asset, so a reader that treats every line as a record refuses on line 1 - which is what cost a release. Anchor the read on `leaf`/`list` with one of {}, or declare it in xtask/src/workflows/image_records.rs as a use that takes no field",
+            "{label}:{}  reads the image-record file without anchoring on a record kind. `image-digests.txt` carries a `#` comment header INSIDE the signed asset, so a reader that treats every line as a record refuses on line 1 - which is what cost a release. Anchor the read on `leaf`/`list`/`chart` with one of {}, or declare it in xtask/src/workflows/image_records.rs as a use that takes no field",
             index.saturating_add(1),
             ANCHORS.join(", ")
         ));

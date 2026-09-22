@@ -24,3 +24,18 @@ keywords:
 maintainers:
   - name: the sutura authors
     url: https://github.com/telekom/sutura
+# Artifact Hub listing metadata - #149 branch 4. Keys read off
+# https://artifacthub.io/docs/topics/annotations/helm/ at implementation time, not from memory:
+# a wrong key fails silently as a missing listing field rather than as an error, per the
+# owner's own warning on #149. `license` and `links` are the two documented keys this chart
+# has real values for; no `maintainers` override (the block above already carries no personal
+# name or email) and no signing-related key - that page names `signKey` for a GPG-signed
+# `.prov` file, which this chart does not produce, and no Helm-chart-kind annotation
+# advertising cosign/Sigstore verification was found there, so none is asserted.
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/telekom/sutura
+    - name: support
+      url: https://github.com/telekom/sutura/issues

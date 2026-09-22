@@ -62,15 +62,45 @@ both the `startupProbe` (with a generous failure budget: anchor verification aga
 networked source is a round trip per anchor) and the `livenessProbe`, and configures no
 `readinessProbe`.
 
+## Resource limits size the runtime
+
+Setting `resources.limits.cpu`/`.memory` derives `runtime.engineWorkerThreads` /
+`workingSetMaxBytes` when those are left empty - `templates/_helpers.tpl`'s
+`sutura.engineWorkerThreads`/`workingSetMaxBytes`, exercised by
+`testdata/values/resource-limits.yaml`. A CPU limit rounds up to a whole thread; a memory limit
+keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does not count
+(the process's own RSS) so it trips before the kernel OOM-kills the container at the cgroup
+limit - `docs/serving.md`'s "422 rather than 503" distinction. Setting either `runtime.*` key
+directly always overrides the derivation.
+
 ## What is not in this branch
 
-- `runtime.engineWorkerThreads` / `runtime.workingSetMaxBytes` are plain values here, not
-  derived from `resources.limits`. A template that computes them from the container's own CPU
-  and memory limits - closing the two traps `docs/serving.md` documents by name - is a separate,
-  later change.
-- `runtime.engineWorkerThreads`/`workingSetMaxBytes` staying plain values (above) is the only
-  gap left in `checks.helm-chart`: `helm lint`, the refusal render, and a golden `helm template`
-  snapshot per `charts/sutura/testdata/values/*.yaml` (diffed and validated by `kubeconform`
-  against two pinned Kubernetes versions) all run today - see `nix/helm-chart.nix`.
 - No Ingress: this chart declares no opinion about how traffic reaches the cluster edge: set
   `security.tlsTermination: ingress` and bring your own.
+
+## Distribution
+
+Published as an OCI artefact on `ghcr.io`, beside the images - owner decision on #149, recorded
+so it is not re-derived: same registry, same auth as `sutura`'s own images, no second
+distribution surface. A tagged release pushes `sutura-<version>.tgz` (version = the release tag)
+with the SAME pinned `helm` `checks.helm-chart` lints and renders this chart with, and signs the
+pushed reference with `cosign` the way every image reference already is -
+`.github/workflows/release.yml`.
+
+```
+helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
+```
+
+**Artifact Hub indexes it for discovery; it does not host it.** Two things only a human with
+console access can do, and CI cannot fake either:
+
+1. Register `oci://ghcr.io/telekom/charts/sutura` as a repository in the Artifact Hub console,
+   signed in as the owning account. That alone makes verified-publisher status available -
+   nothing here needs to *claim* a repository nobody else has added.
+2. Commit the `repositoryID` Artifact Hub then issues into `charts/sutura/artifacthub-repo.yml`
+   (that key only - no `owners` block: `AGENTS.md` refuses a name or email in this public repo,
+   and a console-registered repository has nothing to claim). Once that file exists,
+   `release.yml` pushes it under the registry's `artifacthub.io` tag on every subsequent
+   release; until it exists, that step logs why it did nothing and does not fail the release.
+3. Make the `ghcr.io/telekom/charts` package publicly readable - private by default even for a
+   public repository, and the most likely reason a first attempt looks broken.

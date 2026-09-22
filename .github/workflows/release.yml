@@ -646,6 +646,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           docker logout ghcr.io
 
+      # THE CHART: packaged, pushed as an OCI artefact beside the images, signed the same way,
+      # and its Artifact Hub metadata pushed if registered - see the action's own header.
+      - name: Package, push and sign the chart
+        uses: ./.github/actions/publish-chart
+        with:
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+
       # Everything published so far becomes verifiable here: a Sigstore signature per release
       # asset and per image reference, each leaf image's CycloneDX SBOM attached as a cosign
       # attestation, and SLSA provenance for the assets and for the two manifest lists.

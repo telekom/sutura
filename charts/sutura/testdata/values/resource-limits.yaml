@@ -1,0 +1,14 @@
+# `resources.limits.cpu`/`.memory` set, `runtime.engineWorkerThreads`/`workingSetMaxBytes`
+# left empty - exercises `templates/_helpers.tpl`'s derivation (#149 branch 3) rather than an
+# operator-set override. `1500m` rounds UP to 2 threads (`ceil`, never truncate a fractional
+# core to zero); `2Gi` (2147483648 bytes) derives to 1610612736 bytes at the chart's 75%
+# headroom - both chosen to divide evenly so the golden is not a rounding artefact.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  tlsTermination: ingress
+resources:
+  limits:
+    cpu: 1500m
+    memory: 2Gi
