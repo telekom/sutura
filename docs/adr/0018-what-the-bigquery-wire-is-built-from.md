@@ -1463,3 +1463,55 @@ a boot-time mint would need a caller's assertion that boot does not have. An acc
 declared, well-formed and not reachable surfaces as `AdbcError::Adbc` on the first question by that
 subject, never at boot. `scope` still reaches nothing: the document has no `scopes` member, and the
 library sends `cloud-platform` to the STS leg and the caller's own scopes to the impersonation call.
+
+## Twelfth amendment, 2026-09-22: deferred table validation is an accepted decision, with its operational semantics written down
+
+`telekom/sutura#929`'s re-review asked for the *could not be ASKED* answer to stop being a
+described behaviour and become an explicit acceptance decision. The behaviour does not change; what
+changes is that the trade is recorded as a decision with its refusal semantics stated, rather than
+as a paragraph in `docs/serving.md` that a reader may take for an unfinished edge.
+
+**The decision. A boot that cannot ASK a data system about the catalog's tables serves anyway, and
+the catalog is trusted for metadata until the first question against that source.** Accepted, not
+deferred.
+
+**What is deferred, exactly.** Existence of the tables a bundle names on a source whose listing did
+not come back - the case the amendment above classifies as *unreachable, undecodable, or a dataset
+that is not there*. Only that case. The other four answers are startup refusals and stay refusals:
+a table the data system says it does not have, a listing an identity was not allowed to read, a
+listing short of its own total (`Unaccounted`), and a source the catalog reads with no entry
+declaring it. `PreFlight::NotAsked` - every non-`bigquery` adapter's answer - is not this case
+either and was never a refusal.
+
+**Why, and the number is the argument.** A deployment cannot ask a data system about fifty thousand
+tables at startup. The two alternatives were both priced and both rejected here: refusing to start
+whenever a data system is briefly unreachable makes an availability incident out of a transient
+one, and a `skip_preflight` key is a control that is off in exactly the deployment that most needs
+it. The same reasoning the amendment above applies to `Unaccounted` applies in reverse: warning
+where the tree refuses today would be a loosening, and refusing where the tree warns today would be
+a tightening nobody has priced against a real catalog.
+
+**What an operator sees instead of a refusal.** A `WARN` on the startup log naming the source and
+the tables it could not account for, and the process serves. That line is the whole signal; there is
+no second one later, and nothing re-asks. A deployment that wants boot-time certainty gets it by
+authoring an anchor on the metrics that matter - an anchor re-executes at boot and covers both
+halves a listing cannot (the model's columns, and whether the boot identity may read the table).
+
+**When the failure surfaces.** On the **first question against that source**, as that source's own
+error, not at boot and not on a health probe. A mistyped `table:` is a query-time failure for every
+caller who asks a metric that reads it, indefinitely, until somebody reads the `WARN` or the first
+failure.
+
+**What is explicitly NOT promised.** That a green boot means the catalog matches the data system.
+That the `WARN` is escalated, retried, re-asked, or reflected in readiness - it is not, on any of
+the four. That a pre-flight which DID succeed establishes anything beyond table existence: not the
+model's columns, and not that a question's identity may read the table. And that any adapter other
+than `bigquery` asks at all.
+
+**Held by, and the limit on it.** The classification is held by `sutura_app::preflight::ask`'s
+exhaustive match over `TablesPresent` with no wildcard arm - which is what made both composition
+roots fail to compile until each decided - and by the cells the amendment above names. **No
+mechanism holds the sentences in this amendment**: that the `WARN` is the only signal, that nothing
+re-asks, and that readiness ignores it are properties of code that no gate reads as prose. A change
+that started re-asking, or that escalated the `WARN`, would leave this amendment wrong and green.
+Stated here rather than asserted as enforced.

@@ -8,6 +8,30 @@
 //! reads and no HTTP route exposes (`ACCEPTS_RAW_STATEMENTS` is `false`), so it can only be asked
 //! here. WHICH ROWS a caller sees needs the served surface and is not asked at all yet.
 //!
+//! **Why the served half is still absent, measured rather than deferred** (`telekom/sutura#929`'s
+//! re-review asked for it). Over the served surface a caller's capabilities are decided by the
+//! `scope` claim of the token leg 1 verified, and a verified caller whose token names no capability
+//! scope may invoke nothing - `sutura_http::capability`'s own header states it and
+//! `sutura_http::inbound::tests::router`'s no-scope cell holds it. The SAME token - the leg-1
+//! caller token, out of the `Authorization` header - is what `DeclaredPrincipalBroker` federates,
+//! so ONE credential has to satisfy BOTH the capability gate and the identity pool's provider.
+//! Neither candidate reachable from here does:
+//!
+//! * a Google-issued ID token satisfies the POOL only. `nix/bigquery-mint-assertion.sh` asks for a
+//!   `target_audience` and asks for no scope, and nothing in the settings tree supplies one on a
+//!   caller's behalf (`security.inbound` has no scope key), so such a caller answers `403`
+//!   `insufficient_scope` before any source is asked.
+//! * the Keycloak tier's tokens satisfy the GATE only - they carry this surface's scopes, and the
+//!   tier serves them over a loopback listener with a throwaway CA, which Google's token service
+//!   cannot fetch a key set from.
+//!
+//! So the served leg needs an issuer whose tokens carry this surface's capability scopes AND whose
+//! key set the pool's provider can reach, which is what
+//! `docs/where-identity-is-proven.md`'s served-binary row now names in its cost cell and is not
+//! something this repository can mint. **Adding a settings key that granted capabilities to a
+//! scopeless verified caller would close this by weakening the fail-closed gate, and is not on the
+//! table here.**
+//!
 //! # Why it is `#[ignore]`d and why it FAILS rather than skips
 //!
 //! It needs a real project, a real driver `.so` and two real service accounts the running identity
@@ -27,15 +51,16 @@
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
 //! two accounts' grants.
 //!
-//! **What it now CAN establish and deliberately does not.** Since `telekom/sutura#929` F3 the
-//! credential document names the account declared for the subject as its
-//! `service_account_impersonation_url`, so `SESSION_USER()` should read as that exact address and
-//! equality against it is available for the first time. This leg still asserts only *two subjects,
-//! two distinct principals, neither of them the deployment's*, because a stronger expectation
-//! written here would be a claim nobody has run: the address is supplied from the environment, so
-//! an equality assertion that has never executed would read as a proven binding and is not one. The
-//! two addresses ARE required from the environment now, which is what makes each subject's document
-//! name a different account rather than both naming one.
+//! **What it asserts since `telekom/sutura#929`'s re-review: EXACT equality, not merely a
+//! difference.** The credential document names the account declared for the asking subject as its
+//! `service_account_impersonation_url` (F3), so `SESSION_USER()` is that exact address and nothing
+//! else. A round of this file asserted only *two subjects, two distinct principals* on the grounds
+//! that a stronger expectation nobody had run would read as a proven binding - and the re-review
+//! rejected that trade: `assert_ne!` passes over a deployment where the declared values are ignored
+//! and the pool happens to resolve two subjects to two principals of its own, which is exactly the
+//! *accepted and then ignored* defect F3 fixed. So the expectation is now the mechanism's own, and
+//! it is still an expectation: **nobody has dispatched this leg**, so what changed is what a green
+//! run would establish, never that one happened.
 
 #![cfg(feature = "adbc")]
 
@@ -139,14 +164,20 @@ mod declared_principal {
         // subjects resolve to two distinct BigQuery principals, observed at the data system rather
         // than at a seam.
         //
-        // **What the oracle now returns, and why the expectation changed with the mechanism.** The
-        // credential document names no `service_account_impersonation_url`, so the credential IS the
-        // principal the pool resolved the subject to and `SESSION_USER()` reads as that. An earlier
-        // round of this cell compared the answer to the service-account address `impersonate`
-        // declared, and its comment said a `principal://` string would mean the hop did not happen -
-        // both of which were true of the DELETED principal switch and neither of which is true here.
-        // So this asserts what the mechanism actually produces: two subjects, two distinct
-        // principals, from the subjects' own assertions.
+        // **The account-binding oracle, asserted as an EQUALITY since `telekom/sutura#929`'s
+        // re-review.** The credential document names the declared account as its
+        // `service_account_impersonation_url`, so the second hop's output is that account and
+        // `SESSION_USER()` is that exact address. The two `assert_ne!`s below are kept beside the
+        // equalities rather than replaced by them, and they are not redundant: they refuse a
+        // MISCONFIGURED venue (one assertion presented twice, one address declared twice) with a
+        // message naming the configuration, where two equalities against one address would both
+        // pass and the leg would report a proven binding over one subject.
+        //
+        // **Why `assert_ne!` alone was not enough, which is the re-review's point.** It passes over
+        // a deployment that ignores the declared values entirely and lets the pool resolve each
+        // subject to its own principal - two distinct answers, neither of them the account the
+        // operator declared. That is the *security-critical setting accepted and then ignored*
+        // shape F3 fixed, and only an equality can see it.
         let first_assertion = required("SUTURA_BQ_ASSERTION_A");
         let second_assertion = required("SUTURA_BQ_ASSERTION_B");
         assert_ne!(
@@ -161,7 +192,17 @@ mod declared_principal {
         );
         let ran_as_first = executed_as(&first_assertion, &first_account);
         let ran_as_second = executed_as(&second_assertion, &second_account);
-        assert!(!ran_as_first.trim().is_empty(), "the dataset named no identity at all");
+        assert_eq!(
+            ran_as_first.trim(),
+            first_account.trim(),
+            "the first subject's question did not run as the account declared for it, so the declared \
+             target principal is a setting this deployment accepted and then did not apply"
+        );
+        assert_eq!(
+            ran_as_second.trim(),
+            second_account.trim(),
+            "the second subject's question did not run as the account declared for it"
+        );
         assert_ne!(
             ran_as_first, ran_as_second,
             "both subjects resolved to one principal, which is the shared-identity outcome wearing leg 2's name"

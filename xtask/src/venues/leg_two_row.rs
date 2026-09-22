@@ -23,6 +23,14 @@ use super::page::{self, CITABLE};
 /// **Anchors and not whole cells**, so a reworded claim still resolves - and if an anchor stops
 /// matching, [`citable_in`] answers `None` and its caller fails closed rather than reading an
 /// absent row as *not proven*, which would be a rule passing for the wrong reason.
+///
+/// **WHICH gate refuses that, measured on 2026-09-22, because three readers in one session got it
+/// wrong in the same direction.** Renaming BOTH anchors past their rows leaves `check-venues` at
+/// **exit 0** - it reads the matrix's shape and vocabulary, and a claim row is free to be reworded -
+/// and fails `check-guidance` at **exit 1** with *the leg-2 rows could not be read, so is leg 2
+/// proven has no answer to hold a page to*. So the protection on these two anchors lives on the
+/// gate that CONSUMES this answer and never on the gate that parses the page. A change relying on
+/// `check-venues` to catch a renamed anchor is relying on nothing.
 const LEG_TWO_ROWS: &[&str] = &[
     "resolve to two distinct",
     "executes as a verified human caller through the declared per-source map",

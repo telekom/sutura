@@ -1,5 +1,15 @@
 //! The value a federation boundary keys per-caller isolation on.
 //!
+//! **What this build does NOT contain, first, because everything below reads as if it did.**
+//! `datafusion-federation` is not a dependency of this workspace and no crate here names it -
+//! `cargo xtask unused-deps` would fail one that did - so nothing in this process compares two
+//! contexts, nothing pushes a sub-plan down to a remote, and there is no multi-node execution. What
+//! ships is a DataFusion-native LOCAL combine (`sutura_exec_datafusion::combine`) plus the provider
+//! seam a federation provider would plug into. The reasoning below is about that crate's rule
+//! because the seam is shaped to it (`docs/adr/0039` step 4, not built and blocked ahead of its
+//! caller); it is a design constraint this type is built to satisfy in advance, never a hazard this
+//! build is exposed to today.
+//!
 //! **This type exists because of one line of third-party source, and the line is a comparison.**
 //! `datafusion-federation`'s optimizer decides which table scans belong to one remote by comparing
 //! providers, and provider equality is `name() == name() && compute_context() == compute_context()`
@@ -25,8 +35,9 @@
 //!   logs a plan. A raw subject there is a person's identifier in plan text.
 //!
 //! A digest satisfies both, which is why this is a digest and not the subject. It also has to be
-//! **stable**: two scans for the SAME caller on the same source must still compare equal, or
-//! legitimate push-down is lost and one source's answer arrives as several.
+//! **stable**: two scans for the SAME caller on the same source must still compare equal, or the
+//! legitimate fusion a federation provider would perform is lost and one source's answer arrives as
+//! several. Nothing in this build performs it yet, per the paragraph above.
 //!
 //! **What it is NOT, stated beside the claim rather than left to be discovered.** This is a plain
 //! SHA-256 over low-entropy inputs. It stops a subject appearing VERBATIM in plan text and it gives

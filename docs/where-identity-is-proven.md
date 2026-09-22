@@ -139,7 +139,7 @@ column only points a reader of the venues table at it.
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
 | **A real enterprise identity provider** | in process, on the paths that touch it - the OIDC contract this product depends on, against the real Keycloak the tier boots inside the job | nothing for the contract: the row above IS a real enterprise provider. A hosted tenant, and somebody to configure it, for the provider-specific residual alone | `just keycloak-served-test` | - |
 | **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a workload-identity pool whose provider trusts the issuer that mints each subject's assertion, one principal per subject with its own dataset grants, and somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the principal the pool resolves that subject to" |
-| **A served binary under a verified human caller** | nowhere yet | everything the row above needs, plus an IdP issuing the subjects the declared map names and a served deployment to ask through | not built | "that a human subject's own identity reaches the source" |
+| **A served binary under a verified human caller** | nowhere yet | everything the row above needs, plus a served deployment to ask through and an IdP whose tokens carry this surface's capability scopes AND whose key set the identity pool's provider can reach - one credential has to satisfy both, and this section says which two candidates each satisfy only one | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -588,9 +588,14 @@ The oracle is unchanged - `SELECT SESSION_USER()`, read through
 `sutura_exec_bigquery::SessionUser`. What it returns is now predictable in principle: the credential
 document names the declared account as its service-account impersonation URL, so the token the
 driver holds is that account's and `SESSION_USER()` should read that exact address. **What the cells
-assert is still only that the two answers DIFFER and that neither is the deployment's own**, and
-that is a deliberate under-assertion: nobody has dispatched this workflow, so an equality against a
-declared address would be an expectation that has never executed reading as a proven binding. The
+assert since telekom/sutura#929's re-review is EXACT equality with the account declared for each
+subject**, plus that the two answers differ and that neither is the deployment's own. A round of
+this page recorded the equality as a deliberate under-assertion - nobody had dispatched the
+workflow, so an expectation that has never executed would read as a proven binding - and the
+re-review rejected that trade for a reason that survives the argument: a difference alone passes
+over a deployment that ignores the declared values and lets the pool resolve each subject to some
+principal of its own, which is the *accepted and then ignored* defect F3 fixed. The equality is
+still an expectation and not a result: no run has been observed. The
 settings shape is the declared `workload_identity` block - `audience` (the pool), the `impersonate`
 map whose KEYS decide which subjects may be served and whose VALUES name the account each of them
 executes as, and `scope`, which reaches nothing: the credential document has no `scopes` member,
@@ -605,9 +610,27 @@ two service accounts with their own keys - each bound `roles/iam.workloadIdentit
 account, as the stack provisions them - the pool's audience, and `SUTURA_BQ_DATASET`. The two
 account ADDRESSES are needed again since `telekom/sutura#929` F3, and the job reads them out of the
 two keys' own `client_email` rather than from a new secret: each subject's credential document has
-to name a DIFFERENT account, or both questions run as one principal whatever the mechanism did. The
-cells still compare the two answers against each other rather than against a declared address.
-**Nobody has dispatched it**, which is why that venue says `wired` and not `yes`.
+to name a DIFFERENT account, or both questions run as one principal whatever the mechanism did. Each
+answer is now compared against the address declared for that subject as well as against the other
+answer. **Nobody has dispatched it**, which is why that venue says `wired` and not `yes`.
+
+**Why this half is still `not built`, and it is a measurement rather than a backlog entry.** Over
+the served surface a caller's capabilities come from the `scope` claim of the token leg 1 verified,
+and a verified caller whose token names no capability scope may invoke nothing: `sutura_http`'s own
+capability module states it beside the code and a router cell in that crate holds it. The SAME
+token is what the declared-principal broker federates to the identity pool, so the caller credential
+has to satisfy the capability gate and the pool's provider at once. Neither token this repository can
+obtain does both. The assertions telekom/sutura#376's mint script asks Google for are ID tokens with
+a target audience and no scope, and nothing in the settings tree supplies a scope on a caller's
+behalf - `security.inbound` has no such key - so a Google-issued caller reaches `403`
+`insufficient_scope` before any source is asked. The Keycloak tier's tokens carry this surface's
+scopes and are served over a loopback listener with a throwaway CA, which Google's token service
+cannot fetch a key set from. **So the cost cell's *an IdP issuing the subjects the declared map
+names* is load-bearing and specific: an issuer whose tokens carry this surface's capability scopes
+AND whose key set the pool's provider can reach.** That is an owner-provisioned tenant, not
+something this repository can mint, and it is why the row is `not built` rather than `unrun`.
+**Adding a settings key that granted capabilities to a scopeless verified caller would close this
+by weakening the fail-closed gate, and is not on the table here.**
 
 The second half - this venue - is still only described, and it is a served deployment that:
 

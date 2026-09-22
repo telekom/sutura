@@ -229,6 +229,12 @@ alternative to the `WARN` is either refusing to start whenever a data system is 
 or a `skip_preflight` key set in exactly the deployment that most needs the check. Read the startup
 log: the `WARN` names the source and the tables it could not account for.
 
+**It is an accepted decision and not an unfinished edge**, and `docs/adr/0018`'s twelfth amendment
+is the record: what is deferred, why the fifty-thousand-table number is the argument, what an
+operator sees instead, that the failure surfaces on the first question against that source rather
+than at boot or on a readiness probe, what is explicitly not promised, and which of those sentences
+no mechanism holds.
+
 **Two further limits on the three refusing answers.** What a pre-flight establishes is that a table
 EXISTS - not that the model's columns are on it, and not that a question's identity may read it; an
 anchor is what covers both, for the metrics that have one. And exactly one adapter asks at all -
