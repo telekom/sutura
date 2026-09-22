@@ -24,8 +24,8 @@
 //! delegation, and the row ceiling that replaced the page bound.
 
 use super::{
-    BigQueryError, Broken, Executable, Paged, Recording, Warehouse as _, impersonating_posture, leg_of, one_column, open, plan,
-    shared_posture, test_deadline,
+    Broken, Executable, Paged, Recording, Warehouse as _, impersonating_posture, leg_of, one_column, open, plan, shared_posture,
+    test_deadline,
 };
 
 #[test]
