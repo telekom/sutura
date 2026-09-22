@@ -175,11 +175,18 @@ and its comment is the strongest sentence in that file: not calling a parser is 
 having one is a property. Adopting federation compiles `datafusion-sql` and a second SQL parser -
 `sqlparser 0.62.0`, beside `polyglot-sql` - into the shipped binary.
 
-**A licence the allowlist does not carry comes back with it.** The default features include
-`compression`, which brings `bzip2 0.6.1` and through it `libbz2-rs-sys`, whose registry licence
-field is `bzip2-1.0.6`. `deny.toml` allows eight licences and that is not one of them, and
-`unused-allowed-license = "deny"` means the list is exactly the graph rather than a wish list. Not
-run: `cargo deny` over the probe. What was checked is the licence string and the allowlist.
+**A licence the allowlist did not carry used to come back with it, and that half of this
+measurement is now spent.** The default features include `compression`, which brings `bzip2 0.6.1`
+and through it `libbz2-rs-sys`, whose registry licence field is `bzip2-1.0.6`. When this was written
+`deny.toml` allowed eight licences and that was not one of them, and
+`unused-allowed-license = "deny"` means the list is exactly the graph rather than a wish list - so
+adopting federation would have meant accepting a licence for a feature nobody had asked for. **Since
+[Arrow and DataFusion override the hand-written combiner](0039-arrow-and-datafusion-override-the-hand-written-combiner.md)
+that feature is on deliberately and the licence is allowed**, for a compressed CSV or NDJSON source
+this runtime reads; `cargo deny check licenses` was run over the enabled feature rather than left
+unrun over the probe, which is what the sentence this replaces said it had not done. What survives
+of this paragraph is the direction of the argument, not its conclusion: the *second parser* cost in
+the paragraph above is unchanged and is the one that still bites.
 
 ### What the pushed-down half executes, and what it does not prune
 

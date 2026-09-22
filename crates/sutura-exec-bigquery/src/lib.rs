@@ -15,15 +15,18 @@
 //! - the rendering, through `sutura-sql` in [`Dialect::BigQuery`], so no second set of quoting and
 //!   placeholder decisions exists here;
 //! - the refusal of a federated leg, because there is no combiner above it;
-//! - the value mapping, which is where a wrong number would come from;
+//! - handing the driver's Arrow batches to the interior's own decode, which is where a wrong
+//!   number would come from and which is no longer this crate's code (`docs/adr/0039`);
 //! - the boot pre-flight, which asks each dataset once - not once per model - whether it holds the
 //!   tables the bundle names, so a mistyped table name costs a boot refusal here as it already does
 //!   on a `files` deployment rather than a failed answer for whoever asks first.
 //!
 //! **A limit of that mapping, stated because it decides what a time column on this source is:**
-//! [`transport::FieldType`] reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
-//! as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
-//! answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
+//! `sutura_domain::warehouse::arrow` maps `Date32` and refuses every timestamp type, so a
+//! `TIMESTAMP` or `DATETIME` column is refused NAMING its Arrow type and fails the answer - the
+//! correct and loud outcome. A time column therefore has to be a `DATE` here. The refusal moved
+//! there with the rest of the mapping (`docs/adr/0039`); it used to be this crate's own
+//! `FieldType::Unmapped` over a type NAME the deleted HTTP transport read out of a JSON schema.
 //!
 //! The **transport** - one [`transport::JobTransport`] that executes the statement - is [`adbc`],
 //! behind the default-off `adbc` feature: it loads the self-built `libadbc_driver_bigquery.so`
@@ -109,11 +112,9 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::preflight::TablesPresent;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
-
-mod rowset;
 
 mod preflight;
 
@@ -144,7 +145,7 @@ pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
 mod principal;
 pub use principal::{DeclaredPrincipalBroker, DeclaredPrincipals, DeclaredPrincipalsUnusable, NoDeclaredPrincipals};
 
-use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobRows, JobTransport, ProjectId};
+use crate::transport::{DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.
 ///
@@ -213,79 +214,28 @@ where
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// A column came back as a type this adapter does not map.
+    /// A result column could not be read as a domain value.
     ///
-    /// It NAMES the type rather than answering null, which is the whole reason
-    /// [`FieldType::Unmapped`](crate::transport::FieldType::Unmapped) carries the endpoint's own
-    /// spelling.
-    #[error("column {column} came back as {named}, which this adapter does not map")]
-    UnmappedType { column: String, named: String },
-    /// A cell declared `INT64` did not parse as one.
+    /// **This one variant replaces seven**, and `docs/adr/0039` is the record. The seven were an
+    /// unmapped type, an `INT64` that did not parse, a `FLOAT64` that did not parse, a `BOOL` that
+    /// was neither spelling, a non-finite double, a date that did not parse, and a row whose width
+    /// disagreed with the schema. Every one of them existed because the deleted HTTP wire transport
+    /// received each value as TEXT whatever its declared type was, so "declared an integer" and
+    /// "parses as an integer" were two separate facts this adapter had to check. The ADBC driver
+    /// hands back typed Arrow arrays, so there is no text to re-parse and no place for those four
+    /// parse failures to occur; what remains is the interior's own mapping and its errors.
     ///
-    /// **Two variants rather than one carrying a `&'static str`, because the CAUSE differs.** The
-    /// endpoint sends every value as text, so "declared an integer" and "parses as an integer" are
-    /// two facts, and the standard-library error that says why is worth keeping on the chain.
-    #[error("column {column} is declared INT64 and its value did not parse as one")]
-    NotAnInteger {
-        column: String,
+    /// The column is named one level down, on `UnreadableCell`, which is where every adapter now
+    /// names it.
+    #[error("a result column could not be read as a domain value")]
+    Unreadable {
         #[source]
-        cause: core::num::ParseIntError,
+        cause: sutura_domain::warehouse::UnreadableCell,
     },
-    /// A cell declared `FLOAT64` did not parse as one.
-    #[error("column {column} is declared FLOAT64 and its value did not parse as one")]
-    NotADouble {
-        column: String,
-        #[source]
-        cause: core::num::ParseFloatError,
-    },
-    /// A cell declared `BOOL` was neither `true` nor `false`.
-    ///
-    /// No `#[source]`: there is no parse behind it, because the check is a comparison against the two
-    /// spellings the endpoint documents. A variant with an invented cause would be worse than none.
-    #[error("column {column} is declared BOOL and its value was neither true nor false")]
-    NotABool { column: String },
-    /// A double came back non-finite.
-    ///
-    /// **What this arm actually guards, on THIS target, is narrower than the two SQL adapters
-    /// agreeing.** In `GoogleSQL` the `/` operator raises on a zero divisor for every numeric type -
-    /// only `IEEE_DIVIDE` answers `inf`/`NaN` - so an unguarded zero-division ratio fails at the
-    /// service first, as [`Self::Endpoint`] with the same `503` as a dead data system. What reaches
-    /// this arm is a non-finite value STORED in a `FLOAT64` column, and the check keeps that stored
-    /// `Infinity` from answering a real under a certified metric name. It is `sutura-exec-duckdb`'s
-    /// same arm that gives `zero_denominator: fails` its meaning, because there the unguarded `/`
-    /// does answer `inf`; the sentence that credits this arm with the ratio case belongs to `DuckDB`.
-    #[error("column {column} came back as a non-finite number")]
-    NotFinite {
-        column: String,
-        #[source]
-        cause: NotFinite,
-    },
-    /// A cell declared as a date did not parse as one.
-    #[error("column {column} is declared a date and its value did not parse as one")]
-    NotADate {
-        column: String,
-        #[source]
-        cause: sutura_domain::calendar::InvalidDate,
-    },
-    /// A row had more or fewer cells than the schema had columns.
-    ///
-    /// Distinct from [`Self::Shape`]: this one is the ENDPOINT disagreeing with itself, caught before
-    /// a row is built, so the position of the offending row is reportable.
-    #[error("row {row} came back with {cells} cells and the schema declared {columns} columns")]
-    RowWidth { row: usize, cells: usize, columns: usize },
-    /// The endpoint delivered a page whose row count is not what it reported as total.
-    ///
-    /// `jobs.query` answers one page at a time, and completeness is stated as `totalRows` beside the
-    /// rows - never by the rows alone. A first page, or an incomplete job's empty `rows`, would read
-    /// to `answer()` as *under the cap, not truncated*: a wrong number under a certified name, through
-    /// the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
-    /// reported total is refused here, at the seam, rather than certified.
-    #[error("the endpoint delivered {delivered} rows and reported {total} total")]
-    Incomplete { delivered: usize, total: usize },
     /// The identity read came back as something other than one row of one text cell.
     ///
-    /// Its own variant rather than [`Self::RowWidth`] or [`Self::Shape`], because what a caller does
-    /// about it is different: those two are a result set this adapter could not map, and this is
+    /// Its own variant rather than [`Self::Unreadable`], because what a caller does about it is
+    /// different: that one is a result set this workspace could not map, and this is
     /// *the endpoint did not tell us who ran the job* - which for the one caller that asks
     /// ([`BigQueryWarehouse::session_user`](crate::BigQueryWarehouse::session_user)) is the whole
     /// answer rather than a cell of it.
@@ -295,12 +245,6 @@ where
     /// refusal that quoted what came back would be the disclosure the read exists to check for.
     #[error("the identity read answered {rows} row(s) of {columns} column(s), which is not one identity")]
     NoIdentityInTheAnswer { rows: usize, columns: usize },
-    /// The result set could not be built.
-    #[error("the rows did not form a result set")]
-    Shape {
-        #[source]
-        cause: MalformedRowSet,
-    },
 }
 
 /// A `BigQuery` dataset, behind the [`Warehouse`] port.
@@ -571,16 +515,21 @@ where
     /// # Errors
     ///
     /// [`BigQueryError::Endpoint`] where the endpoint did not answer,
-    /// [`BigQueryError::Incomplete`] where the page and the reported total disagree, and
+    /// [`BigQueryError::Unreadable`] where the one cell is not a text this workspace maps, and
     /// [`BigQueryError::NoIdentityInTheAnswer`] where the answer is not one row of one text cell.
     /// Nothing here quotes what came back: see that variant.
     pub fn session_user(&self, presented: &Presented) -> Mapped<SessionUser, T::Error> {
         identity_read::session_user(self, presented)
     }
-    /// A job's result, as a domain result set. The mapping itself is [`crate::rowset`], which is
-    /// where a wrong number would come from; this is the seam the port's methods call.
-    fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
-        rowset::rows(answered)
+    /// A job's result, as a domain result set.
+    ///
+    /// **One line, and `docs/adr/0039` is why it is one line.** This used to call a `rowset` module
+    /// of this crate's own - a schema pass over six `FieldType`s and a `parse::<i64>()` per cell, on
+    /// top of a transport that had already cast every Arrow column to `Utf8`. The driver speaks
+    /// Arrow on the interior's own major, so the mapping is
+    /// `sutura_domain::warehouse::ResultBatches::to_rows` and this adapter has none.
+    fn rows(answered: &ResultBatches) -> Mapped<RowSet, T::Error> {
+        answered.to_rows().map_err(|cause| BigQueryError::Unreadable { cause })
     }
 
     /// Whether an adapter error wraps the configured transport REFUSING: answered for the
@@ -597,15 +546,7 @@ where
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
-            | BigQueryError::UnmappedType { .. }
-            | BigQueryError::NotAnInteger { .. }
-            | BigQueryError::NotADouble { .. }
-            | BigQueryError::NotABool { .. }
-            | BigQueryError::NotFinite { .. }
-            | BigQueryError::NotADate { .. }
-            | BigQueryError::RowWidth { .. }
-            | BigQueryError::Incomplete { .. }
-            | BigQueryError::Shape { .. } => false,
+            | BigQueryError::Unreadable { .. } => false,
         }
     }
 }
@@ -826,15 +767,7 @@ where
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
-            | BigQueryError::UnmappedType { .. }
-            | BigQueryError::NotAnInteger { .. }
-            | BigQueryError::NotADouble { .. }
-            | BigQueryError::NotABool { .. }
-            | BigQueryError::NotFinite { .. }
-            | BigQueryError::NotADate { .. }
-            | BigQueryError::RowWidth { .. }
-            | BigQueryError::Incomplete { .. }
-            | BigQueryError::Shape { .. } => false,
+            | BigQueryError::Unreadable { .. } => false,
         }
     }
 
@@ -852,43 +785,37 @@ where
     /// bound, and both of the shapes that says so used to leave here as `BigQueryError` and reach a
     /// caller as `503`: a status that invites a retry returning the same page.
     ///
-    /// Two arms answer `true`, and the third case in the same variant deliberately does not:
+    /// One arm answers `true` today, and the arm that used to be beside it went with the paging it
+    /// described:
     ///
     /// - `Endpoint` asks the transport, because the page token is a fact about the wire document and
-    ///   `T::Error` is the transport's own type. See `JobTransport::result_did_not_fit`.
-    /// - `Incomplete` where the delivered count is **below** the reported total: this is NOT the
-    ///   documented paging shape - that is `MoreThanOnePage`, which `complete` refuses at the wire.
-    ///   It is a reply that states *total N*, carries no page token, and delivered fewer - the
-    ///   endpoint contradicting itself. Answered `true` defensively, because the caller cannot get
-    ///   the rest of this reply whatever it retries.
-    /// - `Incomplete` where delivered is **above** the total is NOT this, and calling it a governance
-    ///   refusal would tell a caller not to retry a defect a retry might well not repeat.
+    ///   `T::Error` is the transport's own type. See `JobTransport::result_did_not_fit`. Under the
+    ///   ADBC transport this is also where the ROW CEILING arrives -
+    ///   `AdbcError::Unannounced(UnannouncedBatch::OverBound { .. })` is a result that genuinely did
+    ///   not fit, and `AdbcBigQuery`'s own predicate is what says so.
+    /// - **`Incomplete` is gone, not relaxed.** It compared a delivered page's count against the
+    ///   endpoint's `totalRows`, which only the deleted HTTP wire transport reported; `docs/adr/0039`
+    ///   records why an ADBC read's completeness is the full drain instead. There is no longer a
+    ///   shape in which this adapter's own error says *the reply was cut short*.
     ///
     /// Exhaustive with no wildcard arm, so a variant added to `BigQueryError` has to be decided here
     /// rather than inheriting `false`.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         match *error {
             BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
-            BigQueryError::Incomplete { delivered, total } => delivered < total,
             // `NoIdentityInTheAnswer` joins the `false` group rather than getting an arm of its
             // own: the identity read projects ONE cell, so there is no narrower page to ask for and
             // a retry returns the same shape. `clippy::match_same_arms` is denied here and is right
             // to be - an arm whose body is identical to the group's is a distinction a reader is
-            // invited to look for and will not find.
+            // invited to look for and will not find. `Unreadable` is the same: a column whose type
+            // this build does not map is not a reply that was too big.
             BigQueryError::NoIdentityInTheAnswer { .. }
             | BigQueryError::NoPrincipalSwitch { .. }
             | BigQueryError::Render { .. }
             | BigQueryError::UnresolvableConnection { .. }
             | BigQueryError::LegWithoutCombiner { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
-            | BigQueryError::UnmappedType { .. }
-            | BigQueryError::NotAnInteger { .. }
-            | BigQueryError::NotADouble { .. }
-            | BigQueryError::NotABool { .. }
-            | BigQueryError::NotFinite { .. }
-            | BigQueryError::NotADate { .. }
-            | BigQueryError::RowWidth { .. }
-            | BigQueryError::Shape { .. } => false,
+            | BigQueryError::Unreadable { .. } => false,
         }
     }
 }

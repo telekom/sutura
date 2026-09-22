@@ -178,21 +178,22 @@ fn single_user_acknowledgement() -> Result<sutura_domain::source::SharedIdentity
     .map_err(|cause| render(&cause))?;
     Ok(sutura_domain::source::SharedIdentityDeclared::of(reason))
 }
-/// Registers one model's file, preferring Parquet.
+/// Registers one model's file: Parquet first, then CSV or NDJSON, plain or compressed.
+///
+/// **The candidate names come from the engine** - `sutura_exec_datafusion::candidates` - rather
+/// than being spelled here, so a format or a codec this build reads cannot be one a deployment
+/// never looks for. The message names every name that was tried, because that is the only thing an
+/// operator can act on.
 fn attach(engine: &DataFusionWarehouse, model: &ModelName, table: &TableName, data: &Path) -> Result<(), String> {
-    let parquet = data.join(format!("{table}.parquet"));
-    if parquet.is_file() {
-        return engine.attach_parquet(table, &parquet).map_err(|cause| render(&cause));
+    let mut tried = Vec::new();
+    for name in sutura_exec_datafusion::candidates(table) {
+        let candidate = data.join(name);
+        if candidate.is_file() {
+            return engine.attach_file(table, &candidate).map_err(|cause| render(&cause));
+        }
+        tried.push(candidate.display().to_string());
     }
-    let csv = data.join(format!("{table}.csv"));
-    if csv.is_file() {
-        return engine.attach_csv(table, &csv).map_err(|cause| render(&cause));
-    }
-    Err(format!(
-        "model {model} needs {} or {}, and neither is there",
-        csv.display(),
-        parquet.display()
-    ))
+    Err(format!("model {model} needs one of {}, and none is there", tried.join(", ")))
 }
 
 #[cfg(test)]
@@ -357,10 +358,12 @@ mod tests {
     #[test]
     fn a_model_with_no_file_behind_it_gets_no_engine() {
         // The attach step runs per model AFTER the source is accepted, so this arm is reachable only
-        // by a catalog this command can otherwise open. Both candidate paths are asserted because the
-        // message is the only thing an operator can act on: that neither extension is present is the
-        // failure, and naming the two that were looked for is the difference between a fixable
-        // message and "and neither is there".
+        // by a catalog this command can otherwise open. Four candidate paths are asserted because
+        // the message is the only thing an operator can act on: that no candidate is present is the
+        // failure, and naming the ones that were looked for is the difference between a fixable
+        // message and "and none is there". The compressed and NDJSON names are in the list because
+        // the engine reads them, and this test is what holds the deployment's search equal to
+        // `sutura_exec_datafusion::candidates` rather than to a list spelled here.
         let error = open_engine(
             &bundle_over(&[("orders", BUILT_IN_SOURCE, "fct_order")]),
             &nothing_declared(),
@@ -371,8 +374,18 @@ mod tests {
         )
         .map(|_| ())
         .expect_err("a model with no file behind it must not open");
-        assert!(error.contains("fct_order.csv"), "the CSV path is missing: {error}");
+        // The separator is part of the needle on purpose: a bare `fct_order.csv` is a substring of
+        // `fct_order.csv.bz2` one line down, and `check-expect-thresholds` refuses that pair.
+        assert!(error.contains("fct_order.csv,"), "the plain CSV path is missing: {error}");
         assert!(error.contains("fct_order.parquet"), "the Parquet path is missing: {error}");
+        assert!(
+            error.contains("fct_order.csv.bz2"),
+            "the compressed CSV path is missing: {error}"
+        );
+        assert!(
+            error.contains("fct_order.ndjson.gz"),
+            "the compressed NDJSON path is missing: {error}"
+        );
         assert!(error.contains("model orders"), "the model is not named: {error}");
     }
 }

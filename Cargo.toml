@@ -187,6 +187,26 @@ bytes = "1"
 # The `Sink` API `CopyInSink` drives a text `COPY` through; already in the graph as a
 # tokio-postgres dependency, so naming it adds no supply-chain surface.
 futures-util = "0.3"
+# Writing the compressed fixtures the engine's `compression` feature reads back, in DEV-dependencies
+# and nowhere else - nothing this workspace ships compresses anything. Both were already in
+# `Cargo.lock` before they were named here (`flate2` through `libduckdb-sys`'s build script, `bzip2`
+# through the engine's own `async-compression`), so neither adds a lockfile entry or a licence. One
+# writer per codec that has an end-to-end cell: `docs/adr/0039` says which two those are and why the
+# other two are parse-only.
+flate2 = "1"
+bzip2 = "0.6"
+# Arrow at the hexagon's interior - `docs/adr/0039`, and `crates/sutura-domain/Cargo.toml` carries
+# the argument and the measured cost. The major is the ENGINE's: `datafusion` resolves 59.2.0 and so
+# does `adbc_core`, so these unify with both and add no lockfile entry. `devco/arrow-majors-allow`
+# is where the surviving 58 major (the `duckdb` crate's) is explained; `cargo xtask check-arrow` is
+# what fails when a row there stops matching the lock.
+arrow-array = "59"
+arrow-schema = "59"
+# `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
+# `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
+# `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
+# dependency, so this is a new edge and not a new crate.
+arrow-buffer = "59"
 # TLS for a Postgres SOURCE connection: `MakeRustlsConnect`, which turns a `rustls::ClientConfig`
 # into the connector `tokio-postgres::Config::connect` wants. This is the first thing in the
 # workspace that must VERIFY a peer's chain - see `docs/adr/0010` - so the trust store is declared
@@ -285,17 +305,23 @@ duckdb = "1.10505"
 # `default-features = false` is a supply-chain decision rather than tuning, and two of the omissions
 # were measured with `cargo deny` rather than reasoned about:
 #
-#   * `compression` and `avro` are OFF because each one pulls `bzip2`, whose licence is not on the
-#     allowlist in `deny.toml` - and that allowlist is `unused-allowed-license = "deny"`, so
-#     accepting either would mean adding a licence at the moment a feature nobody asked for needed
-#     one. Each was enabled in turn to confirm which of them carries it.
+#   * `avro` is OFF. `compression` used to be off beside it and is now ON, which is a decision
+#     rather than a drift: `docs/adr/0039` records it. Both pull `bzip2`, whose licence was not on
+#     `deny.toml`'s allowlist - and that allowlist is `unused-allowed-license = "deny"`, so the
+#     entry could not be added ahead of a feature that needed it. A compressed CSV or NDJSON source
+#     is now a stated capability (`crates/sutura-exec-datafusion/src/attach.rs`), so the licence
+#     entry is there for something this runtime reads rather than for feature unification. `avro`
+#     stays off because nothing reads one; enabling it would need the same argument made again.
+#     Compressed PARQUET was never on this line - Parquet carries its codecs inside the file and the
+#     `parquet` feature's own codecs read them - so `compression` buys the plain-text half only.
 #   * `sql` is OFF on purpose, and it is the strongest statement in this manifest: that adapter
 #     never parses SQL, so the parser is not compiled into the binary at all. Not calling it would
 #     have been a convention; not having it is a property.
 #
-# What is ON: `parquet`, for the Parquet attach affordance, and `datetime_expressions`, for the date
-# truncation every plan needs for its time bucket. CSV needs no feature - it is unconditional.
-datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions"] }
+# What is ON: `parquet`, for the Parquet attach affordance; `datetime_expressions`, for the date
+# truncation every plan needs for its time bucket; and `compression`, for a compressed CSV or NDJSON
+# source. CSV and NDJSON themselves need no feature - they are unconditional.
+datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions", "compression"] }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`

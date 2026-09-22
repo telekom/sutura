@@ -9,12 +9,12 @@
 
 use sutura_domain::calendar::Date;
 use sutura_domain::identity::Secret;
-use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::{ParamValue, UnannouncedBatch};
 
 use adbc_core::Statement;
 
 use super::{AdbcBigQuery, AdbcError, DriverLocation, Impersonation};
-use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport as _, ProjectId};
+use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
 /// A path that names no driver, so a load reached here always fails.
 ///
@@ -428,5 +428,38 @@ fn a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal() {
     assert!(
         !sutura_domain::warehouse::Warehouse::preflight_was_refused(&warehouse, &refused),
         "a listing nothing refused must not become a startup refusal naming a missing grant: {refused:?}"
+    );
+}
+
+#[test]
+fn the_row_ceiling_is_a_size_bound_and_not_an_outage() {
+    // **What replaced the page bound, and it is the same argument one layer down.** `jobs.query`
+    // used to answer one page, so a result under the row cap could still be over the reply size, and
+    // both shapes that said so reached a caller as `503` - the status a dead endpoint produces,
+    // inviting a retry that returns the same page. An ADBC stream has no pages; what it has is
+    // `MOST_RESULT_ROWS`, and a stream refused for crossing it is equally a result that did not fit:
+    // the caller cannot get it whatever it retries.
+    //
+    // Asked of `AdbcBigQuery`'s own predicate, because that is where the port's default `false` was
+    // wrong. The transport holds this, not the adapter above it.
+    let over = AdbcError::Unannounced(UnannouncedBatch::OverBound {
+        most: super::MOST_RESULT_ROWS,
+    });
+    assert!(
+        JobTransport::result_did_not_fit(&endpoint(Impersonation::Disabled), &over),
+        "a stream over the ceiling is a result that did not fit"
+    );
+
+    // THE CONTROL, and without it this test says yes to everything: a batch that disagreed with its
+    // announced schema is the same variant and is NOT a size bound - no narrower request fixes a
+    // driver contradicting its own schema, and a retry may not repeat it.
+    let mislabelled = AdbcError::Unannounced(UnannouncedBatch::Mislabelled {
+        at: 0,
+        announced: String::from("orders Int64"),
+        delivered: String::from("refunds Int64"),
+    });
+    assert!(
+        !JobTransport::result_did_not_fit(&endpoint(Impersonation::Disabled), &mislabelled),
+        "a mislabelled batch is not a result that did not fit"
     );
 }

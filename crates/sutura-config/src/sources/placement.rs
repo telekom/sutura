@@ -310,7 +310,8 @@ pub enum PostgresDial {
 /// be skipped" look like the same sentence and are not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePlacement {
-    /// A directory of CSV or Parquet files, read by the in-process engine.
+    /// A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read
+    /// by the in-process engine.
     Files {
         /// Absolute, because a service's working directory is whatever its supervisor chose.
         data_dir: PathBuf,

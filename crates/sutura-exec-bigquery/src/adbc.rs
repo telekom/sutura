@@ -43,7 +43,6 @@
 //! here - stated with its limit in [`AdbcBigQuery`]'s own documentation.
 
 mod bind;
-pub mod decode;
 mod identity;
 // The driver this artefact carries, and the one `unsafe` in this workspace. `cfg`-gated by
 // `../../build.rs`, so a source build does not compile it - `cargo xtask check-unsafe` is what
@@ -65,8 +64,38 @@ use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 
-use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobRows, JobTransport};
-pub use decode::{MOST_RESULT_ROWS, Reported};
+use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
+
+use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport};
+
+/// How many rows this transport will materialise from one result stream before refusing.
+///
+/// **A ceiling on ROWS and not on BYTES, which is the limit this sentence used to overstate.** It
+/// was called a ceiling on this process's memory; a row count times an unbounded row width is not a
+/// memory bound, and what decides the width is the plan's projection - a property of the plans a
+/// deployment can ask, not of this constant. So what it holds is that a stream is FINITE: an
+/// unending driver is refused, a million very wide rows are not.
+///
+/// It is not a cap on an answer either, and that distinction decides the value.
+/// `sutura_domain::plan::MAX_ROWS` caps an answer and travels in the statement's own `LIMIT`; a
+/// federation LEG carries no `LIMIT` at all - `sutura_domain::plan::leg`'s header says so, because a
+/// leg is not an answer - so for a leg there is nothing in the statement bounding what the source
+/// may stream back, and the only thing between a driver that streams without end and this process is
+/// a number here. The refusal fires WHILE reading, in `Accumulating::push`, so it cannot be reached
+/// by first materialising the whole stream.
+///
+/// Two orders of magnitude above `MAX_ROWS`, because it has to refuse only a stream no plan could
+/// have asked for: a leg legitimately returns more rows than the one answer re-aggregated above it
+/// keeps. **The VALUE is held rather than commented** - review measured that raising it to
+/// `usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
+/// the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
+/// `tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
+///
+/// **The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
+/// caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
+/// batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
+/// puts it. A foreign driver is what a row ceiling exists for.
+pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
 /// Why the ADBC transport could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -80,9 +109,14 @@ pub enum AdbcError {
     /// A result batch could not be read from the stream.
     #[error("could not read a result batch: {0}")]
     Batch(#[source] arrow_schema::ArrowError),
-    /// The result set could not be decoded into the adapter's own shape.
-    #[error("could not decode the ADBC result set: {0}")]
-    Decode(#[source] decode::Decode),
+    /// A batch did not carry the fields the driver's own announced schema said it would.
+    ///
+    /// **The check is `sutura_domain::warehouse::Accumulating`'s and not this crate's**, which is
+    /// `docs/adr/0039`'s point: a foreign driver streaming over a C ABI is exactly the case to
+    /// refuse rather than trust, and the obligation is the same for every adapter that has one.
+    /// This variant also carries the row ceiling being reached - see [`MOST_RESULT_ROWS`].
+    #[error("the ADBC result stream did not match its announced schema: {0}")]
+    Unannounced(#[source] UnannouncedBatch),
     /// ADBC does not yet cover a port method this transport was asked for.
     #[error("ADBC transport cannot yet {0}")]
     Uncovered(&'static str),
@@ -312,14 +346,14 @@ impl AdbcBigQuery {
 impl JobTransport for AdbcBigQuery {
     type Error = AdbcError;
 
-    fn run(&self, request: &JobRequest<'_>) -> Result<JobRows, Self::Error> {
+    fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
         // `_source` is BOUND rather than discarded, and the underscore is the only thing about it
         // that is cosmetic: dropping it here would close the subject-token endpoint before the
         // driver's own lazy fetch reached it. It lives to the end of this function.
         let (_driver, mut stmt, _source) = self.connect(request)?;
         let reader = stmt.execute().map_err(AdbcError::Adbc)?;
-        let schema = reader.schema();
-        // **Decoded as each batch arrives, under a ceiling, and nothing collects the stream first.**
+        let announced = reader.schema();
+        // **Checked as each batch arrives, under a ceiling, and nothing collects the stream first.**
         // This used to push every `RecordBatch` into a `Vec` and then decode every row beside it -
         // two materialisations of the same result, neither bounded, both before anything downstream
         // could look at the working set. Review round 4 of `telekom/sutura#929` named exactly that.
@@ -327,20 +361,27 @@ impl JobTransport for AdbcBigQuery {
         // read, and a stream past [`MOST_RESULT_ROWS`] is refused at the batch that crosses the
         // line - so the rows past the ceiling are never held at all.
         //
+        // **What changed with `docs/adr/0039`:** the batches are KEPT as Arrow rather than decoded
+        // into this crate's own text rows. The check is the same check, in the interior now, so the
+        // engine's own collection goes through it too and there is no lenient second copy of it.
+        //
         // **The limit beside it:** the ceiling is a bound on THIS PROCESS, not the working-set
         // check `sutura_app` makes above. A leg carries no `LIMIT`, so this is the only number
         // standing between a driver that streams without end and this process's memory.
-        let mut decoding = decode::Decoding::of(&schema, MOST_RESULT_ROWS).map_err(AdbcError::Decode)?;
+        let mut accumulating = Accumulating::announcing(announced, MOST_RESULT_ROWS);
         for batch in reader {
-            decoding.push(&batch.map_err(AdbcError::Batch)?).map_err(AdbcError::Decode)?;
+            accumulating
+                .push(batch.map_err(AdbcError::Batch)?)
+                .map_err(AdbcError::Unannounced)?;
         }
-        // **A full drain IS completeness for ADBC**, and this passes `Unreported` unconditionally
-        // rather than *when the driver reports one*, which is what the comment here used to claim.
-        // Nothing reads the driver's schema metadata, so there is no total to hand in and
-        // `Decode::Incomplete` is reachable only from `decode`'s own tests; the loop above is what
-        // completeness rests on, because it consumes the reader to exhaustion and turns any error on
-        // the way into an `Err` instead of a short answer. `decode`'s header carries the limit.
-        decoding.finish(Reported::Unreported).map_err(AdbcError::Decode)
+        // **A full drain IS completeness for ADBC.** The wire transport that used to be here
+        // refused a first page by comparing a delivered count against the endpoint's own
+        // `totalRows`; an ADBC read streams the whole result, so completeness is the loop above
+        // consuming the reader to exhaustion and turning any error on the way into an `Err`
+        // instead of a short answer. Nothing reads the driver's schema metadata, so there is no
+        // reported total to compare against - and the `Reported`/`Incomplete` pair that existed to
+        // hold one is gone rather than left reachable only from its own tests.
+        Ok(accumulating.finish())
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
@@ -365,6 +406,36 @@ impl JobTransport for AdbcBigQuery {
     /// transport cannot do as a dry run it declined.
     fn declined_to_dry_run(&self, error: &Self::Error) -> bool {
         matches!(*error, AdbcError::NoDryRun)
+    }
+
+    /// `true` for the ROW CEILING alone, which is the one failure here that is a result not fitting.
+    ///
+    /// **The port's default is `false` and that was wrong for this transport once
+    /// [`MOST_RESULT_ROWS`] existed.** A stream refused for crossing the ceiling is exactly *the
+    /// result did not fit*: the caller cannot get it whatever it retries, and it is a governance
+    /// outcome rather than an outage - so leaving it at the default reached a caller as a `503`
+    /// inviting a retry that returns the same stream. The predicate is what makes
+    /// `BigQueryWarehouse::result_did_not_fit`'s own doc true, which is why it is here and not a
+    /// sentence there.
+    ///
+    /// Every other [`UnannouncedBatch`] is `false`, exhaustively and by NAME: a mislabelled or
+    /// mis-width batch is a driver disagreeing with its own announced schema, which no narrower
+    /// request fixes and which a retry may not repeat.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        match *error {
+            AdbcError::Unannounced(ref cause) => match *cause {
+                UnannouncedBatch::OverBound { .. } => true,
+                UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
+            },
+            AdbcError::Load(_)
+            | AdbcError::Adbc(_)
+            | AdbcError::Batch(_)
+            | AdbcError::Uncovered(_)
+            | AdbcError::NoDryRun
+            | AdbcError::Parameters { .. }
+            | AdbcError::SubjectSource { .. }
+            | AdbcError::NoRandomness { .. } => false,
+        }
     }
 
     fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {

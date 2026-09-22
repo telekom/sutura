@@ -38,17 +38,17 @@
 //! **No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
 //! separate recorder; ordinary adapter construction exports no live reservation reading. The
 //! `check-guidance` absence rule rejects a production `.memory_pool()` call.
-use std::path::Path;
+use std::sync::Arc;
 
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
-use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext};
+use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{QualifiedTable, SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{Accumulating, AnchorRows, RowSet, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -78,6 +78,24 @@ pub enum DataFusionError {
         #[source]
         cause: datafusion::error::DataFusionError,
     },
+    /// A path's outermost extension spells a compression codec this build cannot read.
+    ///
+    /// **A parse rather than a fallback, and the failure it replaces is silent.** Handing a
+    /// compressed file to the engine as plain text does not fail: the schema is inferred from the
+    /// codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+    /// that certainly names a codec and is not one this build compiled is refused by name.
+    ///
+    /// `crate::attach`'s `NEAR_MISSES` carries why this is a closed list rather than "anything
+    /// unrecognised": `orders.txt` is a CSV and must keep reading.
+    #[error("{path} names the compression suffix `{suffix}`, which this build does not read")]
+    UnknownCodec { path: String, suffix: String },
+    /// A path's extension names no format this engine reads.
+    ///
+    /// Raised by `attach_file`'s dispatch and by nothing else, so a composition root that offered a
+    /// candidate name outside `crate::attach::candidates` gets a refusal rather than a CSV read of
+    /// a file that is not one.
+    #[error("{path} names the format `{extension}`, and this engine reads Parquet, CSV and NDJSON")]
+    UnknownFormat { path: String, extension: String },
     #[error("could not register {path} as table {table}")]
     Attach {
         table: String,
@@ -120,45 +138,32 @@ pub enum DataFusionError {
         #[source]
         cause: datafusion::error::DataFusionError,
     },
-    /// A column came back as a type this adapter does not map.
+    /// A result column could not be read as a domain value.
     ///
-    /// An error rather than a stringified fallback, for the reason the `DuckDB` adapter gives: a
-    /// nested type rendered with `Debug` would flow into an answer looking like data, and an anchor
-    /// comparison against it would pass or fail for reasons nobody could read.
-    #[error("column {column} came back as {arrow_type}, which this adapter does not map")]
-    UnsupportedType { column: String, arrow_type: String },
-    /// The schema said one Arrow type and the array was another.
+    /// **Wrapped rather than restated, and that is `docs/adr/0039`'s point.** The mapping from an
+    /// Arrow array to a `Value` is `sutura_domain::warehouse::arrow`'s, shared with every adapter
+    /// whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
+    /// downcast, a non-finite double, a day count that is not a date, a result that is not
+    /// rectangular - are one cause with one set of messages instead of one copy per adapter.
     ///
-    /// Unreachable through the engine, and reported rather than skipped anyway: the alternative is
-    /// substituting a null for a value that exists.
-    #[error("column {column} did not downcast to {arrow_type}, though its schema says that is its type")]
-    Downcast { column: String, arrow_type: &'static str },
-    /// A floating-point column came back as a value that is not a number.
-    ///
-    /// **What `zero_denominator: fails` actually produces.** A ratio measure choosing that word is
-    /// translated as an unguarded division with the numerator cast to `Float64`, so the division is
-    /// IEEE float division: dividing by zero answers `inf` here rather than failing, and zero divided
-    /// by zero answers `NaN`. `Real` refuses all three, which is what makes the word `fails` true of
-    /// the metric that chose it instead of the string `inf` arriving under a certified name.
-    ///
-    /// The cause names which of the three it was; this variant names the column.
-    #[error("column {column} came back as a value that is not a finite number")]
-    NotFinite {
-        column: String,
+    /// The `#[source]` chain is what keeps the detail reachable: `sutura-app`'s bounds suite matches
+    /// `UnreadableCell::NotFinite`'s own column through it, which is what
+    /// `zero_denominator: fails` actually produces.
+    #[error("a result column could not be read as a domain value")]
+    Unreadable {
         #[source]
-        cause: sutura_domain::warehouse::NotFinite,
+        cause: sutura_domain::warehouse::UnreadableCell,
     },
-    /// A day number came back that is not a date this build can represent.
-    #[error("column {column} came back as a day number that is not a date")]
-    NotADate {
-        column: String,
+    /// A result batch did not carry the fields the schema it arrived under announced.
+    ///
+    /// Unreachable through this engine - it produces its own batches from its own plan - and kept
+    /// because the check is the shared one: `Accumulating` is the same guard a foreign ADBC driver's
+    /// stream goes through, and one path through it is what stops the engine's own collection being
+    /// the lenient copy.
+    #[error("a result batch did not match the schema it was announced under")]
+    Unannounced {
         #[source]
-        cause: sutura_domain::calendar::InvalidDate,
-    },
-    #[error("the result set was not rectangular")]
-    Shape {
-        #[source]
-        cause: MalformedRowSet,
+        cause: sutura_domain::warehouse::UnannouncedBatch,
     },
     /// The result schema is not the one the plan's labels describe.
     ///
@@ -242,6 +247,11 @@ mod translate;
 /// A result becomes domain rows here. The mirror half, which never reads a plan except for its
 /// labels.
 mod collect;
+
+/// A file becomes a table here: which formats this engine reads, and the codec parse that decides
+/// whether a `.csv.gz` is text or a refusal. `docs/adr/0039` is the record.
+mod attach;
+pub use crate::attach::{Codec, candidates};
 #[cfg(feature = "fixtures")]
 mod fixture;
 
@@ -265,7 +275,7 @@ pub mod pool;
 
 pub use crate::pool::WorkingSet;
 
-use crate::collect::{cell, outputs};
+use crate::collect::outputs;
 use crate::translate::{bucket_expression, column, key_counts, measure_expression, predicate, table_reference};
 
 /// An in-process engine, behind the [`Warehouse`] port.
@@ -468,54 +478,6 @@ impl DataFusionWarehouse {
         self.working_set
     }
 
-    /// Exposes a CSV file as a table. `DataFusion` handles inference.
-    pub fn attach_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let located = path.display().to_string();
-        self.register_csv(table, located, CsvReadOptions::new())
-    }
-
-    /// Exposes a deliberately simple conformance fixture CSV with exact shared types.
-    ///
-    /// Available only with the default-off `fixtures` feature.
-    #[cfg(feature = "fixtures")]
-    pub fn attach_fixture_csv(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let schema = fixture::schema(path).map_err(|cause| DataFusionError::Attach {
-            table: String::from(table.as_str()),
-            path: path.display().to_string(),
-            cause: datafusion::error::DataFusionError::External(Box::new(cause)),
-        })?;
-        self.register_csv(table, path.display().to_string(), CsvReadOptions::new().schema(&schema))
-    }
-
-    fn register_csv(&self, table: &TableName, located: String, options: CsvReadOptions<'_>) -> Result<(), DataFusionError> {
-        self.runtime()?
-            .block_on(self.context.register_csv(table_reference(table), located.as_str(), options))
-            .map_err(|cause| DataFusionError::Attach {
-                table: String::from(table.as_str()),
-                path: located,
-                cause,
-            })
-    }
-
-    /// Exposes a Parquet file as a table.
-    ///
-    /// The CSV affordance's twin, and why the `parquet` feature is on. Neither `compression` nor
-    /// `avro` is: each reintroduces a licence the supply-chain gate does not allow, and the
-    /// manifest's comment records which.
-    pub fn attach_parquet(&self, table: &TableName, path: &Path) -> Result<(), DataFusionError> {
-        let located = path.display().to_string();
-        self.runtime()?
-            .block_on(
-                self.context
-                    .register_parquet(table_reference(table), located.as_str(), ParquetReadOptions::default()),
-            )
-            .map_err(|cause| DataFusionError::Attach {
-                table: String::from(table.as_str()),
-                path: located,
-                cause,
-            })
-    }
-
     /// The plan, as a logical plan.
     ///
     /// The shape the SQL path renders, built as nodes instead: scan, joins, filter, aggregate,
@@ -635,7 +597,8 @@ impl DataFusionWarehouse {
             return Err(DataFusionError::SchemaMismatch { expected, actual });
         }
 
-        collected(frame, actual).await
+        drop(actual);
+        collected(frame).await
     }
 
     /// Counts a declared join key's values and its distinct values, in one aggregate.
@@ -655,8 +618,7 @@ impl DataFusionWarehouse {
             .execute_logical_plan(logical)
             .await
             .map_err(|cause| DataFusionError::Analyze { cause })?;
-        let labels = labels_of(&frame);
-        let rows = collected(frame, labels).await?;
+        let rows = collected(frame).await?;
         KeyUniqueness::read(&rows).map_err(|cause| DataFusionError::KeyCounts { cause })
     }
 }
@@ -674,24 +636,34 @@ fn labels_of(frame: &DataFrame) -> Vec<String> {
         .collect()
 }
 
-/// A frame's batches, as one result set under `labels`.
+/// A frame's batches, as one result set.
 ///
 /// **One collector for both the answer path and the boot probe**, so the Arrow-to-domain mapping
-/// cannot be one thing for a question and another for a check. `labels` is passed in rather than
-/// re-read because the answer path has already compared it against the plan's own.
-async fn collected(frame: DataFrame, labels: Vec<String>) -> Result<RowSet, DataFusionError> {
+/// cannot be one thing for a question and another for a check - and since `docs/adr/0039` it is not
+/// this crate's mapping at all: the batches go through `sutura_domain::warehouse::Accumulating` and
+/// are read back by its `to_rows`, the same function `sutura-exec-bigquery`'s ADBC stream uses.
+/// The engine had its own `cell` before that, which meant two implementations of one agreement.
+///
+/// **The row ceiling is `usize::MAX` here, and that is deliberate rather than an omission.** The
+/// bound that protects this process from a wide result is the memory pool in `crate::pool` - an
+/// operator reservation, which is what the engine's own plan spends - and `docs/adr/0009` puts it
+/// there. A second row-count ceiling on the engine's own output would bound the wrong thing and
+/// would refuse a legitimate answer the pool had already granted. A FOREIGN driver is the case the
+/// ceiling exists for, because nothing bounds what it streams; `MOST_RESULT_ROWS` in the `BigQuery`
+/// adapter is that caller. So `UnannouncedBatch::OverBound` is unreachable through this function.
+async fn collected(frame: DataFrame) -> Result<RowSet, DataFusionError> {
+    let announced = Arc::clone(frame.schema().inner());
     let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
-    let mut out: Vec<Vec<Value>> = Vec::new();
-    for batch in &batches {
-        for row in 0..batch.num_rows() {
-            let mut cells = Vec::with_capacity(batch.num_columns());
-            for (array, label) in batch.columns().iter().zip(labels.iter()) {
-                cells.push(cell(label, array.as_ref(), row)?);
-            }
-            out.push(cells);
-        }
+    let mut accumulating = Accumulating::announcing(announced, usize::MAX);
+    for batch in batches {
+        accumulating
+            .push(batch)
+            .map_err(|cause| DataFusionError::Unannounced { cause })?;
     }
-    RowSet::new(labels, out).map_err(|cause| DataFusionError::Shape { cause })
+    accumulating
+        .finish()
+        .to_rows()
+        .map_err(|cause| DataFusionError::Unreadable { cause })
 }
 
 impl Warehouse for DataFusionWarehouse {
@@ -838,13 +810,6 @@ impl Warehouse for DataFusionWarehouse {
     // question was too wide when what happened was an engine failure.
 }
 
-/// The half of the value mapping that is shared with the data source, in its own file.
-///
-/// Split out for the file-length gate rather than for taste: this one is already close to the
-/// 1000-line limit, and the gate's answer to that is to split the file, not to shorten the fix.
-#[cfg(test)]
-mod value_mapping_tests;
-
 /// How wide the engine runs, in its own file for the same reason.
 #[cfg(test)]
 mod width_tests;
@@ -862,7 +827,7 @@ pub(crate) use test_fixtures::{test_deadline, test_leg, test_posture};
 #[cfg(test)]
 use sutura_domain::calendar::{Date, TimeRange};
 #[cfg(test)]
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, TableName};
 #[cfg(test)]
 use sutura_domain::plan::{
     PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,

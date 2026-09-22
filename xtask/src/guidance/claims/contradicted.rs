@@ -144,10 +144,10 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                 holds: "DataFusionWarehouse::new",
             },
         ],
-        instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the CSV and \
-                  Parquet files in the directory it was given, Parquet preferred; \
-                  `sutura-exec-duckdb` is a DEV-dependency of `sutura-app`'s tests. \
-                  `docs/architecture.md`'s table is the inventory",
+        instead: "the engine ships. `sutura query` opens a `DataFusionWarehouse` over the Parquet, \
+                  CSV and NDJSON files in the directory it was given - each text format plain or \
+                  compressed, Parquet first; `sutura-exec-duckdb` is a DEV-dependency of \
+                  `sutura-app`'s tests. `docs/architecture.md`'s table is the inventory",
         only: &[],
         except: &[],
     },
@@ -255,10 +255,13 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         wordings: &["the database is built in memory"],
         evidence: &[Evidence {
             path: "crates/sutura-cli/src/sources/files.rs",
-            holds: "attach_parquet",
+            // The candidate names come from the engine since `docs/adr/0039`; the anchor moved with
+            // them, because `attach_parquet` is no longer called from this file at all.
+            holds: "sutura_exec_datafusion::candidates",
         }],
-        instead: "there is no database. The engine registers one file per model in process, \
-                  Parquet preferred over CSV, and reads it where it lies",
+        instead: "there is no database. The engine registers one file per model in process - \
+                  Parquet first, then CSV or NDJSON, plain or compressed - and reads it where it \
+                  lies",
         only: &[],
         except: &[],
     },

@@ -622,7 +622,7 @@ fn duck_types(path: &Path) -> Result<String, DuckDbError> {
 /// Arrow array - and neither crate may depend on the other: they are two implementors of one port,
 /// and a shared test helper would have to live in the domain, which is not allowed to know that
 /// either of them exists. So the agreement is asserted as the same expected column written out in
-/// both places: here, and in `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. The two
+/// both places: here, and in `crates/sutura-domain/src/warehouse/arrow/tests.rs`. The two
 /// test names quote each other, so a change to one that is not made to the other shows up as a
 /// failing assertion rather than as a disagreement nobody notices until an anchor stops
 /// reproducing.
@@ -701,8 +701,8 @@ mod tests {
 
     #[test]
     fn every_type_this_adapter_maps_answers_what_the_engine_answers() {
-        // The twin of `every_type_the_engine_maps_answers_what_the_data_source_answers` in
-        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. Same logical values, same
+        // The twin of `every_type_the_interior_maps_answers_what_the_data_source_answers` in
+        // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. Same logical values, same
         // expected column, one row per width - because a Parquet `INT32` column under a `min` or a
         // `max` used to answer here and error there.
         // Boundary values rather than round ones, written in hex where the decimal form is a bit
@@ -788,7 +788,7 @@ mod tests {
     fn a_non_finite_double_is_refused_here_because_it_is_refused_there() {
         // THE FINDING THIS ARM EXISTS FOR, and the twin of
         // `a_non_finite_double_is_refused_on_both_sides_of_the_port` in
-        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. This arm was `Value::Real(v)`
+        // `crates/sutura-domain/src/warehouse/arrow/tests.rs`. This arm was `Value::Real(v)`
         // on a raw `f64`, and the value that reached it was real: a ratio measure declaring
         // `zero_denominator: fails` renders as an unguarded division with the numerator cast to
         // `DOUBLE`, and `CAST(3 AS DOUBLE) / 0` in this data system is `inf`, not an error. So the

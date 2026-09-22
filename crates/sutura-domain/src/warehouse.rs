@@ -68,6 +68,14 @@ pub mod deadline;
 /// A result set, and an anchor's rows.
 pub mod rows;
 
+/// An Arrow result at the interior.
+///
+/// The schema guard a foreign driver needs, and the one place an Arrow array becomes a [`Value`].
+/// `docs/adr/0039` decides that the interior may name an Arrow array type; the module header
+/// carries the argument and where its checks stop.
+pub mod arrow;
+
+pub use arrow::{Accumulating, ResultBatches, UnannouncedBatch, UnreadableCell};
 pub use cell::{NotFinite, Real, Value};
 pub use rows::{AnchorRows, MalformedRowSet, RowSet};
 

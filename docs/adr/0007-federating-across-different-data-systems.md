@@ -1,6 +1,6 @@
 ---
 title: Federating across different data systems
-description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source legs rendered by sutura-sql and combined above the port - the three leg shapes and the two-variant plan type that expresses them, why the combiner is ours and not an unparser, why a compiled dialect is a golden and not a feature flag, where the RowSet-to-Arrow boundary lives and what the leg size bound does and does not reach, which of the six single-source assumptions each branch forces in what order, and why attaching several databases was declined outright rather than sequenced.
+description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source legs rendered by sutura-sql and combined above the port - the three leg shapes and the two-variant plan type that expresses them, why the combiner is DataFusion while the statement generator never is, why a compiled dialect is a golden and not a feature flag, where the RowSet-to-Arrow boundary lived before ADR 0039 moved the port to Arrow and what the leg size bound does and does not reach, which of the six single-source assumptions each branch forces in what order, and why attaching several databases was declined outright rather than sequenced.
 ---
 
 # Federating across different data systems
@@ -41,14 +41,20 @@ asserted, and two open questions that were closed. **Each is rewritten below rat
 banner over a live design is the shape this repository has already paid for once, and a reader who
 opens this record in the middle has no way to know a banner exists at the top.
 
-**Amended a second time, and again in place: the combiner is NOT DataFusion.** This record decided
-*the combiner is DataFusion* and that the engine belongs above the port. The combine as built is
-`sutura_domain::plan::FederatedPlan::combine`, a pure domain function that no adapter is on the path
-of - so the second driven port this record designed does not exist, and the sentence that named the
-framework is rewritten in *Track 2* below rather than left standing beside the code. **What survives
-unchanged is the part that decided the shape:** per-source legs, each a whole mono-source plan, each
-rendered or built in its own adapter, joined and re-aggregated above the port. Only the identity of
-the thing above the port moved.
+**Amended a second time, and again in place - and that amendment is now REVERSED by owner
+instruction, so read this block as one paragraph rather than two.** This record originally decided
+*the combiner is DataFusion*. The second amendment said it was NOT, on the evidence of what had been
+built: the combine as built is `sutura_domain::plan::FederatedPlan::combine`, a pure domain function
+that no adapter is on the path of, so the second driven port this record designed did not exist.
+**[Arrow and DataFusion override the hand-written combiner](0039-arrow-and-datafusion-override-the-hand-written-combiner.md)
+restores the original decision**: the combiner is DataFusion, reached through
+`datafusion-federation` rather than written here, so that a later multi-node move adopts a mechanism
+instead of redeveloping one. What that record adds is where it lives - an ADAPTER crate, because
+`ALLOWED_IN_DOMAIN`'s line is *no runtime, no client, no engine* and DataFusion is an engine - and
+what it costs, per step, with the measurement that bounds each. **What survives every revision is the
+part that decided the shape:** per-source legs, each a whole mono-source plan, each rendered or built
+in its own adapter, joined and re-aggregated above the port. Only the identity of the thing above the
+port has moved, twice.
 
 That amendment is what permits `sutura-exec-datafusion` to declare
 `Warehouse::EXECUTES_LEGS`, and it is this record's own sentence that permits it rather than a new
@@ -105,11 +111,17 @@ that argument. **The limit that travels with it:** two data systems are not two 
 engine's `IMPERSONATION` is `NoPlaceForASubject`, so every leg it runs runs under one
 operating-system identity - *Identity* below is unchanged, and leg 2 is not what this buys.
 
-**The generator is never DataFusion.** `datafusion-federation`'s route -
-DataFusion's unparser rendering the pushed statement - is declined, and this is the sentence that
-keeps the invariants: a value from a question never reaches a statement as text, because every leg is
-a `GeneratedQuery` with statement and parameters in separate fields; and no SECOND parser enters the
-closure. Stating that precisely, because an overstated control is itself the defect here:
+**The generator is never DataFusion, and that survives the combiner becoming DataFusion - the two
+sentences are about different things and mixing them is how the invariant would be lost.**
+`datafusion-federation`'s route - DataFusion's unparser rendering the pushed statement - stays
+declined for the statement that reaches a data system, and this is the sentence that keeps the
+invariants: a value from a question never reaches a statement as text, because every leg is a
+`GeneratedQuery` with statement and parameters in separate fields; and no SECOND parser enters the
+closure. `polyglot-sql` remains the generator for every dialect, Oracle included.
+[ADR 0039](0039-arrow-and-datafusion-override-the-hand-written-combiner.md) step 4 carries what
+adopting that crate for PUSHDOWN would cost against this paragraph - the `sql` feature back on, a
+second parser and an unparser in the closure - and puts an upstream manifest change ahead of it
+rather than trading the sentence away. Stating that precisely, because an overstated control is itself the defect here:
 `polyglot-sql` IS a parser and is already in the closure, the golden suite parses every statement it
 pins, and `sutura_sql::expression` parses at load. What holds is narrower and still worth having -
 nothing parses on the QUERY PATH, and `datafusion`'s `sql` feature stays off, so no second parser and
@@ -504,8 +516,17 @@ that is unchanged: the combine is called by `sutura-app`, above every adapter.
 #### Where the `RowSet`-to-Arrow boundary lives
 
 **Every leg crosses it, so the record has to say where it is rather than leaving it to whoever writes
-the combine.** The decision: **the port's currency stays `RowSet` for the first federated milestone,
-and the conversion to Arrow lives in exactly one function inside the combiner crate.**
+the combine.** The decision was: **the port's currency stays `RowSet` for the first federated
+milestone, and the conversion to Arrow lives in exactly one function inside the combiner crate.**
+
+**That decision is superseded in place by
+[ADR 0039](0039-arrow-and-datafusion-override-the-hand-written-combiner.md) step 2: the port's
+currency becomes Arrow record batches and the domain names the Arrow array types.** So there is no
+boundary left for this section to place - the conversion moves to the presentation edge, and an
+adapter whose driver already speaks Arrow stops converting at all. Two of the three walls this
+section put up have been re-measured and only one still stands, which is why the paragraphs below are
+kept rather than deleted: they are the reason the port change is safe to make now and were not when
+this was written.
 
 Why not move the port to Arrow first, which is the direction [Connectors: Arrow Flight, not a driver per data system](../architecture.md#connectors-arrow-flight-not-a-driver-per-data-system) records:
 `arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
@@ -518,9 +539,18 @@ ADR 0006 built both of those walls.
 **This has since been attempted, and the split is a TIMING constraint with an expiry, not an
 architectural one.** `duckdb` is the only consumer holding `arrow` back at 58; the rest of the
 `datafusion` family already sits on `59.2.0`. Upstream merged "Update Arrow to 59" into `duckdb-rs` on
-2026-09-02 - **unreleased**, the newest release predates it - so this closes on `duckdb-rs`'s own
-schedule and needs no decision here. Both walls stay up until it ships either way: deciding an Arrow
-port here would still be deciding a record 0009 already says wants its own.
+2026-09-02 - still **unreleased** as of 2026-09-21, when `index.crates.io` was read: the newest
+release, `1.10505.0`, is the pin and declares `arrow ^58`. So this closes on `duckdb-rs`'s own
+schedule and needs no decision here.
+
+**What that expiry does and does not gate, corrected against the measurement.** It does NOT gate the
+port: `devco/arrow-majors-allow`'s own test is *whether any first-party crate names the type*, and
+`sutura-exec-duckdb` converts through the domain's row vocabulary and names none - so an Arrow-typed
+port leaves the 58 major a duplicate rather than making it a type boundary. What it gates is one
+adapter being Arrow-NATIVE: until that release, `sutura-exec-duckdb` is the one adapter that must
+keep building rows by hand. And the first wall in the paragraph above - *`arrow` is a framework the
+domain may not name* - is the one ADR 0039 removes by decision, on the argument that Arrow is a data
+format rather than a runtime, a client or an engine.
 
 **What that costs, and it is a real number rather than a shrug.** The engine's own leg pays Arrow into
 `RowSet` in `sutura-exec-datafusion`'s `collect.rs` and then `RowSet` back into Arrow in the combiner -
