@@ -53,11 +53,16 @@ secrecy = { workspace = true }
 # with `datafusion`'s and with `adbc_core`'s, and a batch crosses from either with no conversion.
 # NO new lockfile entry: both were already resolved at 59.2.0 before this edge existed.
 #
-# The cost is 22 crates the boundary allowlist now carries, including a time-zone database
-# (`chrono`, `iana-time-zone`) and an entropy source (`getrandom`, via `ahash` via `hashbrown`).
-# Neither is reachable from this crate's code; `xtask/src/boundaries/edges.rs` is where that is
-# arguable in a diff, and `devco/arrow-majors-allow` is where the 58/59 split's own row records what
-# naming the type does and does not change.
+# The cost is 64 crates the boundary allowlist now carries, of which `cargo tree -p sutura-domain
+# --all-features` compiles 21 - and under the workspace-unified resolve `just test` and `just lint`
+# use, more than that, because `adbc_core` turns `arrow-array`'s optional `chrono-tz` on for the one
+# `arrow-array` the graph shares. So the number depends on the venue, and both are in
+# `xtask/src/boundaries/edges.rs`, which is also where this is arguable in a diff. Two of them
+# perform OS I/O: a time-zone database (`chrono` -> `iana-time-zone`) and an entropy source
+# (`arrow-array` -> `ahash` -> `getrandom`). Neither is reachable from this crate's code, and
+# because that is a claim about current use rather than a mechanism, `clippy.toml` bans the clock
+# and entropy entry points by name. `devco/arrow-majors-allow` is where the 58/59 split's own row
+# records what naming the type does and does not change.
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 sha2 = { workspace = true }

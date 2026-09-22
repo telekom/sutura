@@ -461,6 +461,13 @@ fn authenticated(head: &str, wanted: &str, secret: &str) -> bool {
 /// than the switch this path replaced.
 fn unguessable() -> Result<String, AdbcError> {
     let mut bytes = [0_u8; 16];
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one entropy read this workspace makes on purpose: two unguessable per-request \
+                  values authorising the driver's loopback fetch of a subject's assertion. \
+                  `clippy.toml` bans all four of getrandom's entry points so that this site is the \
+                  only one, and a second is a visible diff"
+    )]
     getrandom::fill(&mut bytes).map_err(|cause| AdbcError::NoRandomness { cause })?;
     Ok(bytes.iter().fold(String::with_capacity(32), |mut hex, byte| {
         // `fold` rather than `map(format!).collect()`, which `clippy::format_collect` refuses: one

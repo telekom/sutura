@@ -12,10 +12,17 @@ names its dependencies by.
 
 Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
-is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
-`thiserror` and their proc-macro support, plus the `serde_json` and `sha2` that the definition
-digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
-and no SQL parser anywhere in this crate, `expression` included.
+is worth more as a check than as a sentence in a design document. The allowlist is `serde`,
+`thiserror` and their proc-macro support, the `serde_json` and `sha2` the definition digest
+needs, `secrecy`/`zeroize` for `identity::Secret`, and - since `docs/adr/0039` - Arrow, which
+brought the whole of `warehouse::arrow` and 64 further crates in its closure. So *and nothing
+else* is no longer the shape of this list, and the hand-written calendar in `calendar` is now
+held by a narrower argument than it was: `chrono` IS in the closure, reached through
+`arrow-array`, and the reason `calendar` does not use it is that a date this domain accepts is
+a parsed value with its own refusals rather than whatever a general calendar library will
+represent - plus a wall clock in a query planner answers a different thing at midnight, which
+`clippy.toml` bans by name rather than leaving to this paragraph. What is still absent outright
+is a SQL parser: nowhere in this crate, `expression` included.
 
 **Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
