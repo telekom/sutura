@@ -374,6 +374,30 @@ pub enum SourcePlacement {
         /// How the channel to this source is secured.
         transport: SourceTransport,
     },
+    /// A `ClickHouse` database, reached over its HTTP interface.
+    ///
+    /// **The static-credential half, and the same shape [`Self::Postgres`] takes**: one endpoint
+    /// under the identity the deployment declared, the password read from a FILE at boot and never
+    /// written in the settings tree. There is no `unix_socket` and no `database` key, and both
+    /// absences are deliberate rather than pending: `ClickHouse`'s HTTP interface is dialled over
+    /// TCP only, and `sutura_exec_clickhouse::transport::Http` sends no `database` parameter - so a
+    /// `database:` here would be a key an operator wrote and the deployment reads past, which is
+    /// exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
+    ClickHouse {
+        /// The host its HTTP interface is served on. A non-loopback host with no TLS declared is
+        /// refused at parse, the same fail-closed rule [`Self::Postgres`] is held to.
+        host: HostName,
+        /// The port that interface listens on - `8123` plaintext and `8443` TLS by `ClickHouse`'s
+        /// own convention, declared rather than defaulted because a deployment behind a proxy
+        /// publishes neither.
+        port: u16,
+        /// The user to present over HTTP Basic authentication.
+        user: String,
+        /// The file that user's password is read from at boot.
+        password_file: PathBuf,
+        /// How the channel to this source is secured.
+        transport: SourceTransport,
+    },
 }
 
 impl SourcePlacement {
@@ -389,6 +413,7 @@ impl SourcePlacement {
             Self::Files { .. } => SourceKind::Files,
             Self::BigQuery { .. } => SourceKind::BigQuery,
             Self::Postgres { .. } => SourceKind::Postgres,
+            Self::ClickHouse { .. } => SourceKind::ClickHouse,
         }
     }
 }

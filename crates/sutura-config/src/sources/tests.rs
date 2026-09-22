@@ -450,7 +450,9 @@ fn a_bigquery_source_declares_its_billing_project_and_dataset() {
             assert_eq!(credential_file, std::path::Path::new("/etc/sutura/bigquery.json"));
             assert_eq!(*max_bytes_billed, 1024 * 1024 * 1024);
         }
-        super::placement::SourcePlacement::Files { .. } | super::placement::SourcePlacement::Postgres { .. } => {
+        super::placement::SourcePlacement::Files { .. }
+        | super::placement::SourcePlacement::Postgres { .. }
+        | super::placement::SourcePlacement::ClickHouse { .. } => {
             panic!("the entry declared kind: bigquery");
         }
     }

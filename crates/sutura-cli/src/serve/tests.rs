@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use sutura_config::EngineWorkers;
 use sutura_domain::model::TableName;
 
-use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine};
+use super::files::Opened;
+use super::{ENGINE_SOURCE, OpenedSources, open_engine};
 
 fn tables(names: &[&str]) -> BTreeSet<TableName> {
     names
@@ -77,6 +78,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::BigQuery(_)) => panic!("expected the file engine, got the BigQuery arm"),
         #[cfg(feature = "postgres")]
         Ok(OpenedSources::Postgres(_)) => panic!("expected the file engine, got the Postgres arm"),
+        #[cfg(feature = "clickhouse")]
+        Ok(OpenedSources::ClickHouse(_)) => panic!("expected the file engine, got the ClickHouse arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
