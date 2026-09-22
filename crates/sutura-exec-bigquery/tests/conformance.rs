@@ -38,12 +38,20 @@
 //! is the only honest shape left, and it is honest BECAUSE the transport is canned rather than
 //! silently claiming a live one.
 //!
-//! # Leg declaration: `refuses_legs`
+//! # Leg declaration: `executes_legs`
 //!
-//! `BigQueryWarehouse` leaves `Warehouse::EXECUTES_LEGS` at the domain default (`false`) -
-//! `BigQueryWarehouse::render`'s `Executable::Leg` arm answers `BigQueryError::LegWithoutCombiner`
-//! for every leg, transport untouched, exactly `sutura-exec-postgres`'s own shape and for the same
-//! reason: a leg arriving here needs a combiner above it that nothing builds yet.
+//! `BigQueryWarehouse` declares `Warehouse::EXECUTES_LEGS` since `telekom/sutura#929` - its
+//! `Executable::Leg` arm renders through `sutura_sql::generate_leg` at `Dialect::BigQuery`, so
+//! `sutura_app::federated`'s per-leg capability gate no longer refuses a two-source question
+//! naming this adapter. [`Canned`] therefore precomputes the corpus's one LEG as well as its
+//! whole-plan cases - through `generate_leg`, the same function the adapter renders through - and
+//! `a_leg_is_executed` asks this adapter to reach the answer the whole-plan path reaches.
+//!
+//! **What that is worth, and it is narrower than the other bound adapters' `executes_legs`:** the
+//! two in-process engines execute their legs for real, and this one round-trips a rendered leg past
+//! a lookup table. What it does establish is the claim the refusal used to make impossible - that a
+//! leg rendered for this dialect arrives at the transport as one job, with this adapter's own
+//! request shape. Nothing here executes a leg against a dataset.
 //!
 //! # `PRICES_DRY_RUN`, exercised in the pack for the first time
 //!
@@ -80,7 +88,7 @@ mod conformance {
     use sutura_exec_bigquery::transport::{
         DatasetAddress, DatasetId, DryRunEstimate, HeldTables, JobRequest, JobTransport, ListingTotal, ProjectId,
     };
-    use sutura_sql::{Dialect, generate};
+    use sutura_sql::{Dialect, generate, generate_leg};
 
     /// The statement and its bound values, exactly as [`JobRequest`] carries them apart - the
     /// no-injection shape every real transport is handed, and the shape [`Canned`] keys on so a
@@ -282,6 +290,11 @@ mod conformance {
     impl Canned {
         /// Renders every corpus case once, through the same function the adapter renders through,
         /// and remembers each one's answer under the exact request it will be asked for.
+        /// The LEG is precomputed beside them, through `generate_leg` rather than `generate` -
+        /// the same split `BigQueryWarehouse::render` makes. Its expected rows are the
+        /// `total-by-region-and-day` case's own (`corpus::leg_case`), which is what makes
+        /// `a_leg_is_executed` a claim that the leg path reaches the whole-plan path's answer
+        /// rather than a smoke test over this lookup table.
         fn from_corpus() -> Self {
             let mut answers = BTreeMap::new();
             for case in corpus::cases() {
@@ -289,6 +302,9 @@ mod conformance {
                 let key = key_of(rendered.sql(), rendered.params());
                 drop(answers.insert(key, canned_rows(case.expected())));
             }
+            let leg = corpus::leg_case();
+            let rendered = generate_leg(leg.leg(), Dialect::BigQuery).expect("the corpus leg renders for BigQuery");
+            drop(answers.insert(key_of(rendered.sql(), rendered.params()), canned_rows(leg.expected())));
             Self { answers }
         }
     }
@@ -336,9 +352,10 @@ mod conformance {
         Fixture::standing(warehouse)
     }
 
-    // `refuses_legs`, because this adapter leaves `EXECUTES_LEGS` at its default - see this file's
-    // header. The tag and the constant are torn apart by a `const` assertion inside the expansion,
-    // so tagging it the other way does not build.
+    // `executes_legs`, because this adapter declares `EXECUTES_LEGS` (`telekom/sutura#929`) - see
+    // this file's header. The tag and the constant are torn apart by a `const` assertion inside the
+    // expansion, so tagging it the other way does not build; it was `refuses_legs` until the
+    // constant flipped, and that assertion is what refused the stale tag.
     //
     // The emitted names are `conformance::bigquery::<behaviour>`, which is what makes this adapter's
     // tier selectable on its own.
@@ -346,6 +363,6 @@ mod conformance {
         adapter: bigquery,
         warehouse: sutura_exec_bigquery::BigQueryWarehouse<crate::conformance::Canned>,
         open: crate::conformance::open,
-        refuses_legs,
+        executes_legs,
     }
 }

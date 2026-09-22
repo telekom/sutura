@@ -109,3 +109,61 @@ not decide*.
   mixing two DEV-ONLY adapters that both execute a leg, since no two SHIPPED kinds both do). A
   served deployment mixing real linked kinds and answering a federated question over the wire is
   not exercised here.
+
+## Amendment, 2026-09-22: `BigQuery`'s `EXECUTES_LEGS` is promoted, so two impersonating legs federate
+
+*What this does not decide* above says *promoting `sutura-exec-bigquery`'s `EXECUTES_LEGS` - it
+stays at the port's default*. `telekom/sutura#929` promotes it. `BigQueryWarehouse::render`'s
+`Executable::Leg` arm renders through `sutura_sql::generate_leg` at `Dialect::BigQuery` - the same
+function `sutura-exec-duckdb` renders a leg through - and the adapter declares
+`Warehouse::EXECUTES_LEGS = true`, so `sutura_app::federated`'s per-leg capability gate no longer
+refuses a two-source question naming a `bigquery` source.
+
+**Why this adapter and not another.** It is the only one declaring
+`ImpersonationCapability::PerSubjectCredential`, so it is the only one where a two-source answer can
+have a SUBJECT on each half rather than one operating-system identity on both. That is the owner's
+requirement for federation: every leg executes as the same caller, each source minting its own
+leg-2 credential for that subject.
+
+**The single mint does not collapse, and that was verified rather than assumed.**
+`answer_federated` mints ONCE over a `SourceSet` spanning both legs, which is the shape a
+cross-source identity defect would hide in. `DeclaredPrincipalBroker::mint` walks `sources.iter()`
+and looks each source up in its own `DeclaredPrincipals`, so the account is resolved per
+`(source, subject)` pair: two sources declaring the same subject to two different accounts are
+minted two `Presented::SubjectToken`s carrying the caller's one assertion and two different
+`impersonate` values. Held by
+`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`, which also
+asserts that a subject one of the two sources does not declare refuses the whole answer rather than
+being served the other source's account.
+
+**The refusal this replaces is deleted, not left unreachable.** `BigQueryError::LegWithoutCombiner`
+and its three exhaustive `false` arms are gone - nothing constructed it once the arm rendered, and
+`dead_code` is denied in this workspace, so leaving it would not have compiled. A leg with no
+combiner above it is still refused one layer up and before any credential is minted: the capability
+gate in `sutura_app::federated` is what decides whether a leg may run at all.
+
+**Two of this record's other bullets are narrowed rather than reversed.** *A mixed-posture answer's
+reachability* said no shipped combination can put two different postures on one federated answer
+*because* `BigQuery` was `PerSubjectCredential` without `EXECUTES_LEGS`. The conclusion still holds
+and the reason no longer does: what makes it unreachable from a release is that no published
+artefact links the adapter (`checks.shipped-features` reads that off the artefact). A
+`--features bigquery` build DOES now reach the posture comparison, so a `files` leg beside an
+impersonating `bigquery` leg is refused as `LegsDecideIdentityDifferently` rather than as
+`FederationNotExecutable`. `ExecutedAs::uniform` is untouched: refusing that mix is correct, because
+adding rows a shared identity may see to rows the asker may see is a total no identity is entitled
+to. And *the three type-level consts this enum still lies about* is unchanged - `executes_legs` was
+already the instance method, which is exactly what lets `AnyWarehouse` answer it per variant.
+
+**What this amendment may NOT be cited for.** No federated answer has been produced against a real
+`BigQuery` dataset. `crates/sutura-app/tests/golden/dialects.rs` still declares `Dialect::BigQuery`
+as `Evidence::RenderOnly`, and that declaration is checked against the tree, so it expires if an
+execution golden ever arrives. The claim available here is: **the leg renders correctly for the
+dialect, and the transport submits it with the subject's own credential and the configured
+`maximumBytesBilled` ceiling.** Neither row of `docs/where-identity-is-proven.md`'s leg-2 pair moves.
+The ceiling half is carried by construction rather than by a leg-specific call site -
+`AdbcBigQuery::run` is the only caller of `connect` and `connect` the only caller of `prepared`,
+which is where the option is set - so what was missing was a leg reaching the transport at all, and
+`a_federated_leg_is_submitted_as_the_asking_subject_at_this_sources_own_declared_account` is the
+cell that says it does. ADBC prices no dry run, so `docs/adr/0030`'s all-or-nothing charge sums two
+`PreFlight::NotAsked` legs and charges nothing: `governance.per_replica_spend_ceiling` bounds a
+federated `BigQuery` answer exactly as little as it bounds a mono one.

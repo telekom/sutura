@@ -184,7 +184,9 @@ async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes(
     // 409 from `answer_federated`'s own gate, not an adapter's typed refusal surfacing as the 503
     // reserved for a retryable outage, and not `SourceUnavailable` for a source this fixture never
     // opened. `sutura-exec-datafusion` declares the constant now, so the shipped engine no longer
-    // reaches this branch; `sutura-exec-bigquery` and any adapter taking the default still do.
+    // reaches this branch, and `sutura-exec-bigquery` stopped reaching it with `telekom/sutura#929`;
+    // what still does is `sutura-exec-postgres`, `sutura-exec-clickhouse`, `sutura-exec-oracle` and
+    // this fake.
     let app = over(
         two_source_bundle(),
         two_source_fake_warehouse(),
