@@ -7,9 +7,9 @@ description: One absolute deadline per answer, opened by the transport and carri
 
 Status: **accepted; the record, port signature and refusal have landed. The engine returns at a
 cooperative yield after its deadline and drops the rows future; Postgres stops its certified path
-with `statement_timeout`; BigQuery sends the port deadline NOWHERE - the second amendment below
-retracts this line's earlier `timeoutMs`/`jobTimeoutMs` claim, which was the deleted HTTP wire's.
-The
+with `statement_timeout`; BigQuery bounds the JOB at the service with what is left of the port
+deadline, as the ADBC driver's `bigquery.query.job_timeout` - the third amendment below is that
+mechanism, and it supersedes the second amendment's *sends it nowhere*. The
 table states each mechanism and its limits. Postgres's raw SQL path has no per-request deadline and
 remains bounded by its connect-time ceiling.** Four accepted
 records lean on this being decided - [0007](0007-federating-across-different-data-systems.md),
@@ -287,3 +287,59 @@ test fake. So for BigQuery this decision's in-process half holds (a question who
 is refused before the call) and its at-the-source half reaches nothing: **a running BigQuery job is
 not cancelled, and nothing bounds how long it takes.** `docs/serving.md`'s
 `server.request_timeout_seconds` row says the same thing where an operator reads it.
+
+## Third amendment, 2026-09-22: BigQuery bounds the job at the service again, over ADBC
+
+The second amendment recorded a gap: the port's `Deadline` reached `JobRequest` and the one
+`JobTransport` implementor never read it, so a caller's wait was bounded and the job behind it was
+not. That gap is closed, and by a mechanism rather than by a sentence - round 8 of
+`telekom/sutura#929` refused *documented* as an outcome for it.
+
+**What was built.** `sutura_exec_bigquery::adbc::deadline` turns `JobDeadline::Port` into the pinned
+driver's `bigquery.query.job_timeout` statement option, set in `adbc::prepared` beside the
+bytes-billed ceiling - the one chokepoint every statement routes through. The driver's own option
+table (`go/driver.go`'s `OptionQueryJobTimeout`, assigned by `go/statement.go`'s `SetOptionInt` to
+`queryConfig.JobTimeout` in milliseconds) is where the key, the type and the unit were read off; the
+flake pins that source, so all three move with the pin. The value is what is LEFT of the deadline at
+submit, ceiling-rounded to whole milliseconds, not the budget the request opened with.
+
+**Which of BigQuery's two time fields, and why it matters.** `queryConfig.JobTimeout` is the job
+configuration's `jobTimeoutMs`: the SERVICE ends the job at that bound. It is not the query API's
+`timeoutMs`, which bounds only how long the service waits before replying and leaves the job
+running - and the pinned driver exposes no option for that one at all, so there was nothing to
+choose between.
+
+**A spent deadline is REFUSED, not submitted unbounded.** The Go client reads
+`queryConfig.JobTimeout = 0` as *unset*, so a spent deadline has no positive bound to derive and the
+only alternative to refusing is an unbounded job on behalf of a caller no longer owed an answer.
+`AdbcError::DeadlineSpent` is that refusal, it fires before the driver `.so` is loaded, and
+`JobTransport::deadline_exceeded` answers `true` for it alone - so it leaves as
+`RefusalReason::DeadlineExceeded` and a `422`, not the retryable `503` an outage produces.
+
+**What a cancellation path would have added, and why it is not here.** The pinned driver implements
+one (`go/statement_cancel.go`'s `Cancel`, reaching `jobs.cancel`) and `adbc_core::Statement::cancel`
+exposes it. `JobTransport::run` is synchronous and blocks inside `ManagedStatement::execute`, so
+calling it needs a second thread holding the same `&mut` statement and nothing in
+`adbc_driver_manager` makes that sound. The job timeout needs no second thread and bounds the job at
+the service either way.
+
+**Limits, stated where the claim is.**
+
+- **The boot path is still unbounded in time.** `JobDeadline::Boot` - `verify_anchor`, the identity
+  read, a fixture load or drop - has no caller to derive a bound from, and this crate depends on no
+  settings crate, so there is no configured number to use instead. Those calls carry the money bound
+  and no time bound.
+- **It is the service's clock, not this process's.** The two are not synchronised, so a job may be
+  ended slightly after this deployment has stopped waiting.
+- **Work already done is already billed**, and this bound does not refund it.
+  `bigquery.query.max_bytes_billed` remains the separate bound in the separate unit; neither
+  substitutes for the other, which is *A cost budget is a different bound* above, unchanged.
+- **Only the already-spent half is reported as a deadline.** A job the service ends at its own bound
+  fails inside the driver and arrives as an opaque `AdbcError::Adbc`, whose message shape nothing
+  here has measured against a real endpoint - so `deadline_exceeded` answers `false` for it, per this
+  record's own rule that an implementor unable to tell its own timeout from another failure must.
+  **Only a hosted run can settle that the job actually stops**, and that it stops billing: what a
+  local suite proves is that the option, with the derived value, is on the statement the driver is
+  handed.
+- **The dry-run path sends no bound**, because the ADBC transport has no dry run to bound - it
+  answers `NoDryRun` before opening anything.

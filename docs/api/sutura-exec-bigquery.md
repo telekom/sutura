@@ -522,6 +522,19 @@ Why the ADBC transport could not answer.
   **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
   constant available here would be written into the same document the driver reads, so the
   fetch would authenticate against a value any local process could guess.
+- `DeadlineSpent` - The port's deadline was already spent, so there is no positive time bound to submit the job with.
+
+  **A refusal and not a submit, which is the whole of `telekom/sutura#929`'s eighth round.**
+  The driver's job timeout is an integer of milliseconds and the Go client reads a zero as
+  *unset*, so the only alternative to refusing here is asking the service to run a job with no
+  time bound at all on behalf of a caller who is no longer owed an answer.
+
+  **It carries nothing.** A duration here would be `Duration::ZERO` or a negative overrun -
+  neither tells an operator anything the configured budget does not, and
+  `sutura_domain::query::RefusalReason::DeadlineExceeded` is what names the budget one layer up.
+  `JobTransport::deadline_exceeded` is what routes it there: this variant alone answers
+  `true`, so the outcome is a `422` naming the budget rather than the retryable `503` a dead
+  endpoint produces.
 
 #### Implements
 
@@ -797,8 +810,23 @@ reads as exactly the regression it would be.
 
 #### Variants
 
-- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the transport that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
-- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no TIME bound at all: the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the three an impersonating leg chains for the credential document (`adbc::identity`'s `credential_options`), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. **It is not the only bound, and the earlier *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is why it is not in the list above.
+- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm.
+
+  **The ADBC transport CONSUMES it**, since round 8 of `telekom/sutura#929`: what is left of it
+  at submit is sent as the driver's `bigquery.query.job_timeout`, so the service ends the job at
+  that bound whether or not this process is still waiting - and a deadline already spent is
+  refused rather than submitted with no bound at all. `crate::adbc::deadline` is the mechanism
+  and carries what the bound reaches and what it does not. The sentence this replaces said the
+  only transport that ever opened a window from this value was the deleted HTTP wire.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm.
+
+  **This arm is the one that carries NO time bound, and that is where the limit now lives.**
+  `Self::Port` derives `bigquery.query.job_timeout` from what is left of the caller's
+  deadline; a boot-path call has no caller to derive one from, and this crate depends on no
+  settings crate, so there is no configured number here to use instead. A boot-path job is
+  therefore bounded in MONEY - `bigquery.query.max_bytes_billed` is set on every statement this
+  transport submits, whichever arm it carries - and in nothing else. `crate::adbc::deadline`'s
+  header states the same limit where the mechanism is.
 
 #### Implements
 

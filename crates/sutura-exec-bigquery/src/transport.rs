@@ -53,20 +53,25 @@ pub enum ParameterMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobDeadline {
     /// A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and
-    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the transport
-    /// that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
+    /// only this arm.
+    ///
+    /// **The ADBC transport CONSUMES it**, since round 8 of `telekom/sutura#929`: what is left of it
+    /// at submit is sent as the driver's `bigquery.query.job_timeout`, so the service ends the job at
+    /// that bound whether or not this process is still waiting - and a deadline already spent is
+    /// refused rather than submitted with no bound at all. `crate::adbc::deadline` is the mechanism
+    /// and carries what the bound reaches and what it does not. The sentence this replaces said the
+    /// only transport that ever opened a window from this value was the deleted HTTP wire.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
-    /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
-    /// under its own configured bounds instead*, and this process configures no TIME bound at all:
-    /// the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the
-    /// three an impersonating leg chains for the credential document (`adbc::identity`'s
-    /// `credential_options`), and none of them is a window - so whatever window exists is the
-    /// driver's own default and is not ours to state. **It is not the only bound, and the earlier
-    /// *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every
-    /// statement this transport submits, which bounds what a job may SPEND and says nothing about
-    /// how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is
-    /// why it is not in the list above.
+    /// the identity read build this arm.
+    ///
+    /// **This arm is the one that carries NO time bound, and that is where the limit now lives.**
+    /// [`Self::Port`] derives `bigquery.query.job_timeout` from what is left of the caller's
+    /// deadline; a boot-path call has no caller to derive one from, and this crate depends on no
+    /// settings crate, so there is no configured number here to use instead. A boot-path job is
+    /// therefore bounded in MONEY - `bigquery.query.max_bytes_billed` is set on every statement this
+    /// transport submits, whichever arm it carries - and in nothing else. `crate::adbc::deadline`'s
+    /// header states the same limit where the mechanism is.
     Boot,
 }
 
@@ -139,16 +144,16 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` names which clock this call answers to - see [`JobDeadline`] - and no
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`] - and the shipping
     /// implementor reads it.** A leg `Warehouse::dry_run`/`execute` builds carries
     /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no
     /// caller and no request timeout to read one from - `docs/adr/0029` calls that the boot path -
-    /// so they pass `JobDeadline::Boot`. **What used to consume the distinction is gone**: the HTTP
-    /// wire derived `timeoutMs`/`jobTimeoutMs` from the `Port` arm, and the one transport left
-    /// ignores the field, so the two arms are a record of provenance rather than a bound. Kept
-    /// because a call site that wrote `Boot` for a request-time leg is still the regression
-    /// [`JobDeadline`]'s own doc describes, and [`JobRequest::deadline`] is how a cell reads it -
-    /// which is the only reader there is.
+    /// so they pass `JobDeadline::Boot`. The distinction is CONSUMED again: `crate::adbc::deadline`
+    /// turns the `Port` arm into the driver's `bigquery.query.job_timeout` or into a refusal, and
+    /// the `Boot` arm into no time bound at all. So a call site that wrote `Boot` for a request-time
+    /// leg is now the regression [`JobDeadline`]'s own doc describes AND a job the service is never
+    /// asked to stop. This paragraph read *no implementor reads it* until round 8 of
+    /// `telekom/sutura#929`.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
@@ -818,11 +823,15 @@ pub trait JobTransport {
     /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
     /// call sent anything?
     ///
-    /// **One half and not two.** This used to read *or the service stopping the job at
-    /// `jobTimeoutMs`*; that was an HTTP `jobs.query` request parameter, deleted with that transport
-    /// and not replaced, so no implementor asks any service to stop anything. The predicate stays
-    /// because a transport that COULD would answer it here, and because the arm below still has the
-    /// already-spent half to report.
+    /// **Still one half, and it is worth being exact about which now that the other half exists.**
+    /// The ADBC transport DOES ask the service to bound the job - it sends the driver's
+    /// `bigquery.query.job_timeout` - so this predicate could in principle report both. It reports
+    /// only the already-spent half: a job the service ends at that bound fails inside the driver and
+    /// arrives as an opaque `AdbcError::Adbc`, whose message shape nothing here has measured against
+    /// a real endpoint, and this trait's own rule below is that an implementor which cannot tell its
+    /// own timeout from another failure answers `false`. The sentence this replaces said no
+    /// implementor asks any service to stop anything, which was true until round 8 of
+    /// `telekom/sutura#929`.
     ///
     /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
     /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,

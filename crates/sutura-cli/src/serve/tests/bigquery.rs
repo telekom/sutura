@@ -151,14 +151,13 @@ fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_
 // `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
 // `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
 // `QueryDeadline::within_request_timeout` divided that number by the two calls one answer makes and
-// found nothing left. `docs/adr/0029` retired that arithmetic, and its second amendment retired the
-// replacement too: a request-time job CARRIES the port's own `Deadline` and sends it nowhere, so
-// there is no per-call job budget to divide and a ten-second `server.request_timeout_seconds` is a
-// usable (if narrow) caller budget over an unbounded job. This comment read *derives
-// `timeoutMs`/`jobTimeoutMs` from the port's own `Deadline`* until #929's eighth round; those were
-// `jobs.query` request parameters and went with the HTTP transport. The refusal this test held is
+// found nothing left. `docs/adr/0029` retired that arithmetic and nothing replaced it at boot: a
+// request-time job carries the port's own `Deadline` and derives the job's time bound from what is
+// LEFT of it per call, so there is no per-call job budget to divide in advance and a ten-second
+// `server.request_timeout_seconds` is simply a narrow caller budget. The refusal this test held is
 // gone with the arithmetic that produced it; deleted rather than adapted, because there is no
-// boot-time number left to test.
+// boot-time number left to test. What the per-call bound is, and what it does not reach, is
+// `sutura_exec_bigquery::adbc::deadline`'s own header.
 
 #[test]
 fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {

@@ -729,14 +729,13 @@ where
     /// that line. `estimated_bytes` carries whatever `totalBytesProcessed` the endpoint reported for
     /// THIS statement - `docs/adr/0030` decides the shape; nothing here sums or refuses against it.
     ///
-    /// **The port's `Deadline` is CARRIED and nothing sends it anywhere; `docs/adr/0029`'s second
-    /// amendment.** This paragraph used to say the deadline was what `timeoutMs`/`jobTimeoutMs`
-    /// derived from, and it contradicted itself two lines later: those were `jobs.query` request
-    /// parameters on the HTTP wire, and the wire is deleted. `JobDeadline::Port(deadline)` below
-    /// still reaches [`transport::JobRequest`], and the ADBC transport's `run` never reads it - the
-    /// driver is given no bound by this process. **So what bounds a `BigQuery` call is in-process
-    /// only:** `sutura_app` refuses a question whose deadline is already spent, and the answer is
-    /// whatever the driver takes as long as it likes to produce. Nothing cancels a running job.
+    /// **The port's `Deadline` reaches the driver on the EXECUTE path and not on this one, and the
+    /// asymmetry is a property of the call rather than an omission.** `JobDeadline::Port(deadline)`
+    /// below reaches [`transport::JobRequest`], and the ADBC transport answers
+    /// [`adbc::AdbcError::NoDryRun`] before it opens anything at all - so there is no statement here
+    /// for a job timeout to bound. `docs/adr/0029`'s third amendment is the record. What bounds THIS
+    /// call is in-process: `sutura_app` refuses a question whose deadline is already spent before
+    /// reaching here. [`Self::execute`] is where the bound is sent.
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
         let query = self.render(executable)?;
@@ -764,15 +763,22 @@ where
         Ok(PreFlight::Accepted { estimated_bytes })
     }
 
-    /// Carries the port's `Deadline` into the job request, which sends it nowhere.
+    /// Carries the port's `Deadline` into the job request, which bounds the job at the service with
+    /// it.
     ///
-    /// `JobDeadline::Port(deadline)` reaches [`transport::JobRequest`] and [`Self::dry_run`]'s own
-    /// note above is what holds for this call too: the ADBC transport's `run` never reads the field,
-    /// so the driver is given no bound by this process and nothing cancels a running job. The
-    /// summary this replaces said the call *derived the job's own bounds* from the deadline, which
-    /// was the deleted HTTP wire's behaviour - `docs/adr/0029`'s second amendment is the record. What
-    /// does bound this call is in-process: `sutura_app` refuses a question whose deadline is already
-    /// spent before reaching here.
+    /// `JobDeadline::Port(deadline)` reaches [`transport::JobRequest`], and `crate::adbc::deadline`
+    /// turns what is left of it at submit into the driver's `bigquery.query.job_timeout` - the
+    /// service's own `jobTimeoutMs`, so the job is ended there whether or not this process is still
+    /// waiting. A deadline already spent is REFUSED before the driver is loaded rather than
+    /// submitted with no bound, because that option's zero reads as *unset*. `docs/adr/0029`'s third
+    /// amendment is the record; its second amendment recorded the gap this closes, when the field
+    /// reached the transport and nothing read it.
+    ///
+    /// **Two limits, beside the claim.** The bound is the service's clock and not this process's, so
+    /// a job may be ended slightly after this deployment stopped waiting, and work already done is
+    /// already billed - the bytes-billed ceiling is the separate bound in the separate unit. And
+    /// `sutura_app` still refuses a spent deadline before reaching here, which is the in-process
+    /// half this does not replace.
     fn execute(
         &self,
         executable: Executable<'_>,
@@ -846,10 +852,10 @@ where
     }
 
     /// Was this failure the port's own `Deadline` running out, found spent before the job was sent?
-    /// **Only that half: nothing asks the service to stop a job.** This summary line used to add *or
-    /// the service stopping it at `jobTimeoutMs`*, which contradicted the note two paragraphs down -
-    /// `jobTimeoutMs` was an HTTP `jobs.query` request parameter and went with that transport.
-    /// Delegates to the TRANSPORT, for the same
+    /// **Only that half, and the transport's own predicate says why:** the ADBC transport does ask
+    /// the service to bound the job at `jobTimeoutMs` now, but a job the service ends there arrives
+    /// as an opaque driver error whose shape nothing has measured against a real endpoint, so it
+    /// stays a transport failure rather than a claimed deadline. Delegates to the TRANSPORT, for the same
     /// reason [`Self::result_did_not_fit`] and [`Self::source_refused`] do: `Self::Error` is
     /// `BigQueryError::Endpoint` wrapping the transport's own type, and only the transport can read
     /// the wire-level shape. Every other variant is `false`, exhaustively: the transport is the

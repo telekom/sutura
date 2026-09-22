@@ -388,7 +388,7 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("a range is bindable");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts both calls");
+    super::prepared(&mut statement, &request, bound, a_gibibyte(), None).expect("the recording statement accepts both calls");
     assert_eq!(statement.queries, vec![String::from("SELECT ? AS region WHERE d >= ?")]);
     assert_eq!(
         statement.bound,
@@ -423,7 +423,11 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
         JobDeadline::Boot,
     );
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, None, a_gibibyte()).expect("the recording statement accepts the ceiling");
+    super::prepared(&mut statement, &request, None, a_gibibyte(), None).expect("the recording statement accepts the ceiling");
+    // The `None` job timeout is the BOOT path, and this equality is therefore also the other
+    // direction of the time bound: a boot-path call carries the money option and nothing else, so a
+    // transport that had started sending a time bound derived from something other than a caller's
+    // own deadline would redden here.
     assert_eq!(
         statement.integer_options,
         vec![(String::from("bigquery.query.max_bytes_billed"), 1024 * 1024 * 1024_i64)],
@@ -433,7 +437,7 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
     // constant that happens to match the fixture.
     let mut other = Recording::new();
     let tighter = super::BytesBilledCeiling::parse(4096).expect("four kibibytes is a usable ceiling");
-    super::prepared(&mut other, &request, None, tighter).expect("the recording statement accepts the ceiling");
+    super::prepared(&mut other, &request, None, tighter, None).expect("the recording statement accepts the ceiling");
     assert_eq!(
         other.integer_options,
         vec![(String::from("bigquery.query.max_bytes_billed"), 4096_i64)]
@@ -457,7 +461,7 @@ fn a_call_carrying_no_values_binds_nothing_at_all() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("no values is not a failure");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts the query");
+    super::prepared(&mut statement, &request, bound, a_gibibyte(), None).expect("the recording statement accepts the query");
     assert_eq!(statement.queries.len(), 1);
     assert!(
         statement.bound.is_empty(),
@@ -535,6 +539,102 @@ fn the_row_ceiling_is_a_size_bound_and_not_an_outage() {
         !JobTransport::result_did_not_fit(&endpoint(Impersonation::Disabled), &mislabelled),
         "a mislabelled batch is not a result that did not fit"
     );
+}
+
+#[test]
+fn every_request_time_statement_carries_the_job_timeout_beside_the_money_bound() {
+    // **THE CELL THE EIGHTH ROUND'S P1 ASKS FOR.** `execute` built `JobDeadline::Port(deadline)`
+    // and `prepared` set SQL, values and `max_bytes_billed` - so the caller's wait was bounded and
+    // the job behind it was not: the request could time out while the service kept running and
+    // billing the job.
+    //
+    // Asserted by the option's exact KEY, VALUE and UNIT, for the money bound's reason: a
+    // misspelled key is `NotImplemented` and fails loudly, but a key reaching a DIFFERENT option of
+    // the driver's own would set something else and leave the job unbounded. The unit is
+    // milliseconds because `go/statement.go`'s `SetOptionInt` multiplies this value by
+    // `time.Millisecond`.
+    //
+    // And it asserts BOTH options in order, which is what keeps this from being a licence to drop
+    // the money bound - the two are separate bounds in separate units and this cell dies if either
+    // one stops being sent.
+    let project = project();
+    let dataset = dataset();
+    let opened = std::time::Instant::now();
+    let budget = sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_secs(29))
+        .expect("twenty-nine seconds is a budget");
+    let request = JobRequest::new(
+        "SELECT total FROM t",
+        &[],
+        &project,
+        &dataset,
+        JobIdentity::Transport,
+        JobDeadline::Port(sutura_domain::warehouse::deadline::Deadline::opened_at(opened, budget)),
+    );
+    let job_timeout = super::deadline::job_timeout(request.deadline(), opened).expect("a fresh deadline is not spent");
+    let mut statement = Recording::new();
+    super::prepared(&mut statement, &request, None, a_gibibyte(), job_timeout)
+        .expect("the recording statement accepts both bounds");
+    assert_eq!(
+        statement.integer_options,
+        vec![
+            (String::from("bigquery.query.max_bytes_billed"), 1024 * 1024 * 1024_i64),
+            (String::from("bigquery.query.job_timeout"), 29_000_i64),
+        ],
+        "a request-time statement must carry the money bound AND the time bound"
+    );
+}
+
+#[test]
+fn a_spent_deadline_is_refused_before_the_driver_is_even_loaded() {
+    // **The refusal, over the path naming no `.so` - which is what makes the ORDER observable.**
+    // `a_request_this_transport_accepts_gets_as_far_as_the_driver_and_fails_there` is its negative
+    // control: an identical request with a deadline that has time left reaches `AdbcError::Load`, so
+    // `DeadlineSpent` here shows the guard answered first and no driver, connection or credential
+    // was opened for a caller no longer owed an answer.
+    //
+    // Refused rather than submitted with no bound, because the driver's job timeout is an integer of
+    // milliseconds and the Go client reads a zero as *unset*: a spent deadline has no positive bound
+    // to derive, so the only alternative to this refusal is an unbounded job.
+    let project = project();
+    let dataset = dataset();
+    let budget = sutura_domain::warehouse::deadline::Budget::parse(std::time::Duration::from_millis(1))
+        .expect("a millisecond is a budget");
+    let opened = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .expect("one second ago is representable");
+    let spent = sutura_domain::warehouse::deadline::Deadline::opened_at(opened, budget);
+    assert_eq!(
+        spent.remaining_at(std::time::Instant::now()),
+        None,
+        "the fixture must already be spent"
+    );
+    let request = JobRequest::new(
+        "SELECT 1",
+        &[],
+        &project,
+        &dataset,
+        JobIdentity::Transport,
+        JobDeadline::Port(spent),
+    );
+    let endpoint = endpoint(Impersonation::Disabled);
+    let refused = endpoint.run(&request).expect_err("a spent deadline cannot bound a job");
+    assert!(matches!(refused, AdbcError::DeadlineSpent), "{refused:?}");
+    // **And it leaves as the port's deadline rather than as an outage**, which is the half a
+    // predicate holds: `false` here reaches a caller as a `503` inviting a retry that will be
+    // refused identically.
+    assert!(
+        endpoint.deadline_exceeded(&refused),
+        "a spent deadline must be the port's deadline and not a transport failure"
+    );
+    // THE CONTROL on that predicate, so a cell over one answering `true` to everything cannot pass:
+    // the driver that could not be loaded is not a deadline, and neither is a refused listing.
+    let at = DatasetAddress::of(project.clone(), project.clone(), dataset.clone());
+    let listing = endpoint.list_tables(&at).expect_err("this transport cannot list a dataset");
+    assert!(!endpoint.deadline_exceeded(&listing), "{listing:?}");
+    // And the two other predicates this refusal reaches may not claim it either - it is neither a
+    // result that did not fit nor a dry run this transport declined.
+    assert!(!endpoint.result_did_not_fit(&refused), "{refused:?}");
+    assert!(!endpoint.declined_to_dry_run(&refused), "{refused:?}");
 }
 
 /// Both of this transport's own result ceilings, pinned in both directions.

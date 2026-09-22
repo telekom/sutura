@@ -44,6 +44,7 @@
 
 mod bind;
 mod ceiling;
+mod deadline;
 mod identity;
 // The driver this artefact carries, and the one `unsafe` in this workspace. `cfg`-gated by
 // `../../build.rs`, so a source build does not compile it - `cargo xtask check-unsafe` is what
@@ -211,6 +212,22 @@ pub enum AdbcError {
         /// for it would add a name that tells a reader nothing the message does not.
         cause: getrandom::Error,
     },
+    /// The port's deadline was already spent, so there is no positive time bound to submit the job
+    /// with.
+    ///
+    /// **A refusal and not a submit, which is the whole of `telekom/sutura#929`'s eighth round.**
+    /// The driver's job timeout is an integer of milliseconds and the Go client reads a zero as
+    /// *unset*, so the only alternative to refusing here is asking the service to run a job with no
+    /// time bound at all on behalf of a caller who is no longer owed an answer.
+    ///
+    /// **It carries nothing.** A duration here would be `Duration::ZERO` or a negative overrun -
+    /// neither tells an operator anything the configured budget does not, and
+    /// `sutura_domain::query::RefusalReason::DeadlineExceeded` is what names the budget one layer up.
+    /// [`JobTransport::deadline_exceeded`] is what routes it there: this variant alone answers
+    /// `true`, so the outcome is a `422` naming the budget rather than the retryable `503` a dead
+    /// endpoint produces.
+    #[error("the deadline was already spent, so no job time bound could be derived for this request")]
+    DeadlineSpent,
 }
 
 /// Puts the statement and its values on one prepared statement.
@@ -231,16 +248,26 @@ pub enum AdbcError {
 /// `None` binds nothing at all rather than an empty batch - [`bind`]'s own header has the driver's
 /// two code paths.
 ///
-/// **It also carries the MONEY bound, and this is the one place every statement passes through** -
+/// **It also carries the TWO BOUNDS, and this is the one place every statement passes through** -
 /// `AdbcBigQuery`'s `run` is the only caller of its [`connect`](AdbcBigQuery::connect), so a leg, a verified
-/// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
-/// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
-/// what the service does with it, and what it does not bound.
+/// anchor, an identity read and a fixture load all arrive here and none of them can opt out.
+///
+/// They are two bounds in two UNITS and neither substitutes for the other, which is why they are
+/// separate arguments rather than one policy struct. Both are sent rather than checked:
+///
+/// - **Money**, always: [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for what
+///   the service does with it, and what it does not bound.
+/// - **Time**, for a request-time call: [`deadline::JOB_TIMEOUT_OPTION`], derived once in
+///   [`connect`](AdbcBigQuery::connect) from what is left of the port's deadline. `None` is the boot
+///   path and nothing else - a SPENT deadline never reaches here, because
+///   [`deadline::job_timeout`] refuses it before the driver is loaded. That module's header carries
+///   what `jobTimeoutMs` bounds, what it does not, and what the boot path is therefore left without.
 fn prepared<S>(
     stmt: &mut S,
     request: &JobRequest<'_>,
     bound: Option<arrow_array::RecordBatch>,
     max_bytes_billed: BytesBilledCeiling,
+    job_timeout: Option<deadline::JobTimeout>,
 ) -> Result<(), AdbcError>
 where
     S: Statement,
@@ -250,6 +277,13 @@ where
         OptionValue::Int(max_bytes_billed.as_int()),
     )
     .map_err(AdbcError::Adbc)?;
+    if let Some(job_timeout) = job_timeout {
+        stmt.set_option(
+            OptionStatement::Other(deadline::JOB_TIMEOUT_OPTION.to_owned()),
+            OptionValue::Int(job_timeout.as_int()),
+        )
+        .map_err(AdbcError::Adbc)?;
+    }
     stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
     if let Some(batch) = bound {
         stmt.bind(batch).map_err(AdbcError::Adbc)?;
@@ -414,6 +448,12 @@ impl AdbcBigQuery {
         // identity must not reach `load`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
         let authentication = identity::authenticate(request.identity(), &self.impersonation)?;
+        // TIME second, and before anything is allocated or loaded: a request-time call submits the
+        // job with what is left of the port's deadline as the service's own `jobTimeoutMs`, and one
+        // whose deadline is already spent is REFUSED rather than submitted with no time bound. Read
+        // once here rather than in `prepared`, so the refusal lands before the `.so` is opened -
+        // `deadline`'s header carries what the bound reaches and what it leaves alone.
+        let job_timeout = deadline::job_timeout(request.deadline(), std::time::Instant::now())?;
         // The values, as the one batch this driver binds from - assembled before the `.so` is
         // loaded for the identity's reason: a request this transport cannot assemble must not open a
         // connection. `None` where a call carries no values, which is every boot-path call and a
@@ -435,7 +475,7 @@ impl AdbcBigQuery {
             .map_err(AdbcError::Adbc)?;
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
-        prepared(&mut stmt, request, bound, self.max_bytes_billed)?;
+        prepared(&mut stmt, request, bound, self.max_bytes_billed, job_timeout)?;
         Ok((driver, stmt, authentication.source))
     }
 }
@@ -519,6 +559,25 @@ impl JobTransport for AdbcBigQuery {
         matches!(*error, AdbcError::NoDryRun)
     }
 
+    /// `true` for [`AdbcError::DeadlineSpent`] alone: the port's own budget, found spent before the
+    /// job was submitted.
+    ///
+    /// **The port's default was `false` and that was the honest answer only while this transport
+    /// read no deadline at all.** It reads one now, so leaving the default would reach a caller as
+    /// `ServiceError::Warehouse` - a `503` inviting a retry - for the one failure that is neither an
+    /// outage nor a question anybody can narrow.
+    ///
+    /// **One half, and the limit is which:** the deadline found spent HERE. A job the service ends
+    /// at its own `jobTimeoutMs` fails inside the driver and arrives as [`AdbcError::Adbc`], whose
+    /// message shape this transport has not measured against a real endpoint - so it stays `false`,
+    /// which `JobTransport::deadline_exceeded`'s own doc is explicit is the required direction for a
+    /// transport that cannot tell its own timeout from another failure. What that costs is a job
+    /// stopped at the source reported as a transport failure rather than as a spent deadline; what
+    /// guessing would cost is a dropped connection telling a caller not to retry.
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(*error, AdbcError::DeadlineSpent)
+    }
+
     /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
     ///
     /// **The port's default is `false` and that was wrong for this transport once
@@ -552,7 +611,8 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::Parameters { .. }
             | AdbcError::SubjectSource { .. }
             | AdbcError::UnusableTarget
-            | AdbcError::NoRandomness { .. } => false,
+            | AdbcError::NoRandomness { .. }
+            | AdbcError::DeadlineSpent => false,
         }
     }
 

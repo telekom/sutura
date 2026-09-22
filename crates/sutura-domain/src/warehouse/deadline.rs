@@ -3,9 +3,13 @@
 //! The domain reads no clock - `crate::identity::Expiry::passed_by` is the precedent, and the same
 //! shape applies here: `now` arrives as an argument to [`Deadline::remaining_at`] rather than being
 //! read, so the one comparison this module makes lives here and not at whichever call site happens
-//! to hold a clock. `docs/adr/0029` is the record; this module is its first slice, carried by the
-//! port and enforced by Postgres (`SET LOCAL statement_timeout`) - the engine and BigQuery still
-//! accept the parameter and ignore it.
+//! to hold a clock. `docs/adr/0029` is the record; this module is its first slice. It is
+//! carried by the port and enforced at three data systems, each by that system's own mechanism:
+//! Postgres with `SET LOCAL statement_timeout`, `ClickHouse` with `max_execution_time`, and
+//! `BigQuery` over ADBC with the driver's `bigquery.query.job_timeout` statement option, which is
+//! the service's own `jobTimeoutMs`. The in-process engine stops at a cooperative yield rather than
+//! at the instant. **The limit, beside the claim:** an adapter's boot path has no caller to read a
+//! deadline from and is bounded by none of those.
 
 use std::time::{Duration, Instant};
 

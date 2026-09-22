@@ -82,9 +82,10 @@
 //!   port's own `Deadline` from it (`docs/adr/0029`), and the in-process engine gives up against
 //!   that deadline at a cooperative yield - so the engine on this transport already answers to this
 //!   key; before this change the *peer* was the only party in that arithmetic with no deadline at
-//!   all. This bullet used to say a `bigquery` job derived `timeoutMs`/`jobTimeoutMs` from it
-//!   directly; those were `jobs.query` request parameters on a transport that is deleted, and a
-//!   `BigQuery` job over ADBC is handed no bound at all.
+//!   all. A `BigQuery` job over ADBC answers to this key too, one step removed: the port's
+//!   `Deadline` opens from it, and what is left of that deadline at submit is sent as the driver's
+//!   `bigquery.query.job_timeout`. This bullet said such a job was handed no bound at all until
+//!   round 8 of `telekom/sutura#929`.
 //!
 //! The key's name says `server` and this transport binds no listener, which is the one argument
 //! against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
