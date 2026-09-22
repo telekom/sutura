@@ -797,7 +797,13 @@ pub trait JobTransport {
     }
 
     /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
-    /// call sent anything, or the service stopping the job at `jobTimeoutMs`?
+    /// call sent anything?
+    ///
+    /// **One half and not two.** This used to read *or the service stopping the job at
+    /// `jobTimeoutMs`*; that was an HTTP `jobs.query` request parameter, deleted with that transport
+    /// and not replaced, so no implementor asks any service to stop anything. The predicate stays
+    /// because a transport that COULD would answer it here, and because the arm below still has the
+    /// already-spent half to report.
     ///
     /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
     /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,

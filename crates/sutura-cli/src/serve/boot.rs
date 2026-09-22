@@ -62,9 +62,18 @@ use super::flatten;
 /// build a registry from a fake two hundred lines below. The second named the `BigQuerySource`
 /// alias's credential-shaped transport parameter, whose one public constructor read a file - and
 /// that died with the HTTP wire: the alias is `BigQueryWarehouse<adbc::AdbcBigQuery>` now and the
-/// driver authenticates itself, so nothing on the way to this function reads a credential at all.
-/// What `open_bigquery` still reads at boot is a driver path and the declared scope. **So take the
-/// gate's limit with the order:** it compares where three calls appear in this root's text, which
+/// driver authenticates itself, so nothing on the BIGQUERY way to this function reads a credential.
+/// What `open_bigquery` still reads at boot is a driver path and the declared scope.
+///
+/// **That qualifier is `telekom/sutura#929`'s eighth round, and without it the sentence was false.**
+/// It read *nothing on the way to this function reads a credential at all*, and a `postgres`
+/// deployment takes a way that does: `serve::run` -> `open_engine` -> `kind::open_postgres` ->
+/// `serve::postgres::build` -> `sutura_exec_postgres::connection::config`, whose
+/// `read_to_string(password_file)` is a credential read on a shipped path reached before this
+/// function. `serve::tests::postgres`'s
+/// `a_served_postgres_source_reads_the_password_file_the_deployment_declared` is what holds it -
+/// added in the same round, because the route had no cell at all and only the `sutura` command's
+/// twin did. **So take the gate's limit with the order:** it compares where three calls appear in this root's text, which
 /// catches a line moved during a restructure and not a pre-flight moved behind a condition the
 /// serving path does not take. `xtask::boot_order`'s header carries the other two limits.
 ///

@@ -77,3 +77,44 @@ fn a_postgres_source_configured_to_impersonate_refuses_at_boot() {
         "the capability cross-check fires before the password file is read: {error}"
     );
 }
+
+#[test]
+#[cfg(feature = "postgres")]
+fn a_served_postgres_source_reads_the_password_file_the_deployment_declared() {
+    // **A CREDENTIAL READ ON A SHIPPED PATH THAT NO CELL REACHED**, found by
+    // `telekom/sutura#929`'s eighth review round. `crate::sources::postgres`'s
+    // `a_declared_postgres_source_reaches_the_password_file_the_deployment_declared` holds the same
+    // read for the `sutura` COMMAND; the `sutura serve` route to it - `serve::run` ->
+    // `open_engine` -> `kind::open_postgres` -> `serve::postgres::build` ->
+    // `connection::config`'s `read_to_string(password_file)` - was reached by nothing, and a served
+    // deployment is the one that matters.
+    //
+    // It is also what makes `serve::boot`'s *nothing on the way to this function reads a credential
+    // at all* measurable rather than a sentence: that claim is about the BigQuery alias and it is
+    // false for a `postgres` deployment, which this cell is the evidence for.
+    //
+    // The posture is `shared-service-user`, deliberately and not `impersonation-at-source`: the
+    // capability cross-check the cell above holds fires FIRST on the impersonating arm, so only the
+    // shared arm gets as far as the file. The password file is a path that is not there, which is
+    // the furthest a test with no server can reach - a refusal naming that key is proof the
+    // composition read it.
+    let error = refusal(
+        opened_postgres(&postgres_entry("warehouse", "shared-service-user", "")),
+        "the declared password file is not there, so a served deployment does not start",
+    );
+    assert!(
+        error.contains("password_file"),
+        "the refusal must name the key that could not be read: {error}"
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    // NOT the neighbouring arms: this build linked the adapter, and a shared posture is accepted by
+    // `PostgresWarehouse::IMPERSONATION`, so neither of those refusals may be what this observed.
+    assert!(
+        !error.contains("--features postgres"),
+        "this build DID link the adapter: {error}"
+    );
+    assert!(
+        !error.contains("per-subject credential"),
+        "a shared posture is not a capability refusal: {error}"
+    );
+}

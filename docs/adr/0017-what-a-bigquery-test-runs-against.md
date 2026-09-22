@@ -1705,7 +1705,14 @@ one is the worse outcome: the bound belongs at the source system either way. So 
 with the limit written where it is read - `crates/sutura-config/src/sources/placement.rs`'s two field
 docs and `docs/serving.md`'s sources section - and removing them is its own decision.
 
-**What still bounds spend.** `governance.per_replica_spend_ceiling`, charged from the dry run's
-estimate, per subject, inside one replica's window (`sutura_app::SpendLedger`). It is a bound on what
-this process ADMITS, never on what BigQuery bills, and it is per replica - so N replicas are N
-ceilings.
+**What bounds spend: nothing in this repository, and `governance.per_replica_spend_ceiling` is not
+the replacement.** That ceiling is `sutura_app::SpendLedger`, charged from a dry run's estimate, per
+subject, inside one replica's window - a bound on what this process ADMITS, never on what BigQuery
+bills, and per replica, so N replicas would be N ceilings. **It is inert on a `BigQuery` source over
+ADBC.** No ADBC call prices a statement, so `AdbcBigQuery::validate` declines,
+`BigQueryWarehouse::dry_run` answers `PreFlight::NotAsked`, and a `None` estimate is *not counted*
+rather than *free*: nothing is charged and nothing is refused. Measured rather than inferred -
+neutralising the ledger's refusal killed only cells running over a priced fake, because no shipped
+transport can reach it. So a deployment's only real bound is at the source system, which is where the
+two required keys above already point. Retracting the claim is the correction here; inventing a
+ceiling this repository does not send would have been the defect.

@@ -752,8 +752,11 @@ where
         Self::refused_via(error, |cause| self.transport.job_was_refused(cause))
     }
 
-    /// Was this failure the port's own `Deadline` running out, either found spent before the job was
-    /// sent or the service stopping it at `jobTimeoutMs`? Delegates to the TRANSPORT, for the same
+    /// Was this failure the port's own `Deadline` running out, found spent before the job was sent?
+    /// **Only that half: nothing asks the service to stop a job.** This summary line used to add *or
+    /// the service stopping it at `jobTimeoutMs`*, which contradicted the note two paragraphs down -
+    /// `jobTimeoutMs` was an HTTP `jobs.query` request parameter and went with that transport.
+    /// Delegates to the TRANSPORT, for the same
     /// reason [`Self::result_did_not_fit`] and [`Self::source_refused`] do: `Self::Error` is
     /// `BigQueryError::Endpoint` wrapping the transport's own type, and only the transport can read
     /// the wire-level shape. Every other variant is `false`, exhaustively: the transport is the

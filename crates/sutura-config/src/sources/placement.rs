@@ -341,9 +341,14 @@ pub enum SourcePlacement {
         /// `Secret` has nothing to redact here. Reading it used to be the adapter's job at the line
         /// that opens the source; the ADBC driver authenticates itself, so the composition root
         /// passes the path nowhere (`sutura_cli::sources::bigquery` says so at its own boot line).
-        /// **Still required, still absolute, still checked to exist** - so an operator who removes
-        /// it gets a refusal about a key that changes nothing, which is a settings surface with no
-        /// mechanism behind it rather than a control.
+        /// **Still required and still checked to be ABSOLUTE - and not checked to exist**, which is
+        /// the correction `telekom/sutura#929`'s eighth review round made to this very paragraph.
+        /// `sources::parse_absolute` refuses `path.is_relative()` and returns; nothing stats the
+        /// file. Measured: adding `|| !path.exists()` to that predicate - a no-op if the claim had
+        /// held - produced 26 failures. So an operator who writes a path to a file that is not
+        /// there boots clean, and one who writes a relative path gets a refusal about a key that
+        /// changes nothing either way. A settings surface with no mechanism behind it rather than a
+        /// control, stated at both of the two things it does and does not check.
         credential_file: PathBuf,
         /// What the most one job may be billed for scanning WOULD be. **Required, unvalidated
         /// beyond fitting a `u64`, and sent to no data system.**
