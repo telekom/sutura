@@ -25,6 +25,14 @@ thiserror = { workspace = true }
 # reach for `tokio::sync::Mutex` instead. Already in `Cargo.lock` via other paths.
 parking_lot = { workspace = true }
 
+[dev-dependencies]
+# `sutura_conformance::corpus` supplies this crate's own unit test a real `LegPlan`, so the leg
+# rendering below is checked against the plan every bound adapter is held to rather than a
+# hand-built one nobody reviewed. `sutura-exec-clickhouse` and `sutura-exec-postgres` already take
+# this edge, so no new package enters the dev graph - and it is a DEV edge, so the harness rule
+# `xtask check-boundaries` holds (the harness reaches no adapter) is untouched.
+sutura-conformance = { workspace = true }
+
 [features]
 # THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own
 # `fixtures` feature, one size smaller: this adapter has no TLS or CSV-import module to gate

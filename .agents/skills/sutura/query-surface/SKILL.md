@@ -95,9 +95,15 @@ published build can reach a source of each kind - the only `PerSubjectCredential
 `FederationNotExecutable` before the postures are compared. #112's heterogeneous registry landed
 without changing this: `sutura-exec-bigquery`'s constant is untouched, so a shipped mix still
 cannot put two postures on one federated answer; (2) **no golden reaches the engine's leg path** -
-it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and none of them is
-what a release executes, and the conformance cell plus the differential are the whole of that
-path's evidence; (3) **one deployment still cannot get two genuinely different POSTURES onto one
+it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and the conformance
+cell plus the differential are the whole of THAT path's evidence. *None of those five is what a
+release executes* was the wording here and is spent: `sutura-exec-postgres` declares
+`EXECUTES_LEGS` and `nix/shipped.nix` carries the `postgres` feature, so the Postgres statements are
+the shape a published binary sends, and its conformance binding executes a leg against the
+provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
+rendered and gate-checked, never executed, which
+`crates/sutura-app/tests/differential/federated/leg_evidence.rs` holds as a typed declaration
+against `DataSystemUnderTest::available()`; (3) **one deployment still cannot get two genuinely different POSTURES onto one
 federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
 a closed enum over the adapters a build LINKED, erasing a heterogeneous `Warehouses<AnyWarehouse>`
 the way `sutura_app::warehouses`'s own header named as the remedy; `one_kind` is retired, and
