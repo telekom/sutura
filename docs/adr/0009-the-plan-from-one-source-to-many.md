@@ -828,3 +828,60 @@ one.
 - **The prose is held by a reader.** The two shipped copies of the value are held against each other
   by a test. A number restated in a record - here, or in `0007` - is held by nobody, which is the
   defect this amendment is correcting rather than one it closes.
+
+## Fourth amendment, 2026-09-22: the byte budget at the execution boundary is built, and it is one number short of what this record implied
+
+Decision 3 above names the bound that closes the gap the working-set ceiling leaves - *a byte budget
+at the execution boundary, applied as rows are converted rather than after a whole `RowSet` exists* -
+and assigns it to `feat/two-source-execution`. Round 7 of `telekom/sutura#929`'s review found it
+unbuilt on the engine's path and measured what that cost: `sutura-exec-datafusion` called
+`DataFrame::collect`, retained every batch, passed `usize::MAX` as its row ceiling, and then
+`ResultBatches::to_rows` allocated a second full copy as `Vec<Vec<Value>>`. So a caller controlling
+row WIDTH could exhaust the process outside every bound this record describes. This amendment records
+what was built, and the three places the record was under-specified.
+
+**Where it lives.** `sutura_domain::warehouse::Accumulating` - the accumulation guard that already
+applied a row ceiling and a name-and-type schema check before any value was read. It gains a
+`ResultBudget` in bytes, spent in `push` as each batch arrives, and both adapters that stream Arrow
+drive their reader straight into it. `DataFrame::collect` is gone from `sutura-exec-datafusion`:
+`execute_stream` plus `StreamExt::next` is what makes the budget a bound rather than a check after
+the spend.
+
+**Under-specified, first: *as rows are converted* is one step too late.** A budget spent during the
+conversion refuses halfway through the allocation it is protecting against. What was built charges
+the conversion at ACCUMULATION time instead - `RecordBatch::get_array_memory_size` counted twice,
+once for holding the batch and once for the owned copy `to_rows` will build, plus that copy's own
+structure of one `Vec` per row and one `Value` per cell. It is therefore stricter than this record
+asked for, and the refusal lands one batch before the peak rather than inside it.
+
+**Under-specified, second: this record never said what the budget's NUMBER is.** The decision is
+that the engine has no second key: `WorkingSet::result_budget` derives it from
+`runtime.working_set_max_bytes`, which is already mandatory and already checked at boot against the
+memory the process can reach, so it cannot be unset, cannot default to unlimited and cannot disagree
+with the number an operator tuned. **The arithmetic that follows is the part a reader of one number
+would get wrong: the operators may reserve up to the ceiling and one result may cost up to the
+ceiling, so a query's worst case is TWICE the configured value, not once.** The ADBC transport
+cannot derive it at all - an adapter does not depend on the settings crate - so
+`sutura_exec_bigquery::adbc::MOST_RESULT_BYTES` is a constant at a quarter of this record's
+provisional 1 GiB, and unlike the engine's it is **not** checked against the memory available.
+
+**Under-specified, third: the ceiling's own reach did not move as far as *the combine alone*
+suggested.** Decision 3 says *until it does, the honest scope of the working-set ceiling is the
+combine alone*. It is built now, and the honest scope is: the combine's operator reservations, plus
+the materialisation of the combined answer and of each leg the engine runs. What is still outside
+every bound here - stated because the first amendment named these as the paths its harness never
+observed - is a foreign driver's own buffering before the reader is drained, the per-batch transient
+(one batch arrives whole before it can be charged, so the budget is crossed by the engine's largest
+single batch before it is refused), and the three adapters that decode their driver's own vocabulary
+into a `RowSet` before any Arrow guard sees it.
+
+**What was measured, and what could not be.** The two budgets being one number has a consequence the
+implementation found rather than predicted: on the engine, the pool is the tighter of the two for any
+plan that aggregates, joins or sorts. Probed against the thousand-group fixture in
+`crates/sutura-exec-datafusion/src/pool/ceiling_tests.rs` at 64 KiB, 128 KiB, 192 KiB, 256 KiB,
+384 KiB, 512 KiB and 1 MiB, every ceiling came back as a refused operator reservation before a batch
+existed. So no *question* travelling the port can be shown refused by the budget rather than by the
+pool, and the cells that hold the budget are the domain guard's own and a bare scan collected
+directly - `crates/sutura-exec-datafusion/src/collect/budget_tests.rs` says so in its header rather
+than leaving the reader to infer coverage it does not have. The 1 GiB default is unchanged: nothing
+here is a measurement on a production-scale corpus, which is the first amendment's standing caveat.

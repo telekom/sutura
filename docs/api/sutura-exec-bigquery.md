@@ -695,12 +695,45 @@ have asked for: a leg legitimately returns more rows than the one answer re-aggr
 keeps. **The VALUE is held rather than commented** - review measured that raising it to
 `usize::MAX` left the whole suite green, because `delivered + n > usize::MAX` is never true and
 the refusal test passes its own ceiling in. Both bounds of that sentence are asserted by
-`tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap`.
+`tests::both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_derived_from` -
+which is where that sentence became true: it named a cell called
+`the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap` that no file in this
+tree ever defined, so for as long as the sentence stood the value was held by the sentence.
 
 **The engine passes `usize::MAX` deliberately**, and the contrast is the reason this is the
 caller's argument rather than the guard's default: `sutura-exec-datafusion` produces its own
 batches from its own plan and is bounded by its memory pool, which is where `docs/adr/0009`
 puts it. A foreign driver is what a row ceiling exists for.
+
+### `constant MOST_RESULT_BYTES`
+
+How many bytes this transport will spend holding and converting one result stream before
+refusing.
+
+**The bound `MOST_RESULT_ROWS` is not**, and round 7 of `telekom/sutura#929`'s review is the
+report: a row count cannot be a memory bound when the caller controls row WIDTH, so a million
+narrow rows and a few thousand very wide ones are the same number there and orders of magnitude
+apart here. Both apply - whichever is crossed first refuses - and the byte one is the one that
+protects the process.
+
+**A constant here and not a configured key, and the difference from the engine's own budget is
+worth stating.** `sutura-exec-datafusion` derives its budget from
+`runtime.working_set_max_bytes`, which the composition root has already checked at boot against
+the memory this process can reach. This crate depends on no settings crate - an adapter does not
+call another adapter, and nothing hands a transport that number - so the value is written here
+instead, and it is therefore **not checked against the memory available**: a container smaller
+than this ceiling can still be ended by a result under it.
+
+**The value, and why this one.** A quarter of `docs/adr/0009`'s provisional 1 GiB working set,
+so two federated legs plus the combine above them cannot each spend the whole of a query's
+provisional byte budget. It is provisional for exactly the reason that number is - 0009's
+amendment says the corpus it was measured on is too small to justify moving it, and it names
+driver buffering and row conversion as the paths its harness never observed. This is one of
+them.
+
+**The VALUE is held rather than commented**, because a ceiling nothing asserts can be raised to
+`usize::MAX` with a green suite - review measured exactly that happening to `MOST_RESULT_ROWS`.
+`tests::the_transports_byte_ceiling_is_a_quarter_of_the_provisional_working_set` is the cell.
 
 ## Module `transport`
 

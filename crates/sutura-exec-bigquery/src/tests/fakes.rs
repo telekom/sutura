@@ -476,7 +476,7 @@ pub(super) fn no_rows() -> ResultBatches {
 /// in `sutura_domain::warehouse::arrow`'s own table, against the same `DuckDB` twin.
 pub(super) fn one_column(array: ArrayRef) -> ResultBatches {
     let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new("value", array.data_type().clone(), true)]));
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1);
+    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), 1, roomy());
     let batch = RecordBatch::try_new(schema, vec![array]).expect("a one-column fixture batch is rectangular");
     accumulating.push(batch).expect("a fixture batch carries its own schema");
     accumulating.finish()
@@ -560,4 +560,12 @@ impl JobTransport for TimedOut {
     fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(BudgetSpent)
     }
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }

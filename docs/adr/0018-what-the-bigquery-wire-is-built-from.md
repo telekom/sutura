@@ -1227,9 +1227,13 @@ read was an unbounded double materialisation: every `RecordBatch` was collected 
 then every row decoded beside it, so a result was held twice before anything downstream could look
 at a working set - and a federation leg carries no `LIMIT` at all (`sutura_domain::plan::leg`'s own
 header says so, because a leg is not an answer), so nothing in the statement bounded what a driver
-could stream back. `crate::adbc::decode::Decoding` now takes one batch at a time off the driver's
-reader, so there is one materialisation; `crate::adbc::decode::MOST_RESULT_ROWS` is a ceiling
-enforced at the batch that crosses it, so the rows past it are never held; and the cast to text is
+could stream back. `sutura_domain::warehouse::Accumulating` - which `docs/adr/0039` step 2 made the
+interior's own guard, replacing the `crate::adbc::decode::Decoding` this sentence used to name -
+now takes one batch at a time off the driver's
+reader, so there is one materialisation; `crate::adbc::MOST_RESULT_ROWS` is a ceiling
+enforced at the batch that crosses it, so the rows past it are never held, and
+`crate::adbc::MOST_RESULT_BYTES` is the byte ceiling beside it (`docs/adr/0009`'s fourth amendment),
+because a row count is no bound at all on a result whose width the caller chooses; and the cast to text is
 one vectorised `arrow_cast::cast` per COLUMN per batch, where it used to sit inside the row loop and
 cast each column's whole array once per row of it.
 

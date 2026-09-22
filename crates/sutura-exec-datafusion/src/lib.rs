@@ -38,17 +38,15 @@
 //! **No production gauge reads the `DataFusion` pool.** Measurement-only children can opt into a
 //! separate recorder; ordinary adapter construction exports no live reservation reading. The
 //! `check-guidance` absence rule rejects a production `.memory_pool()` call.
-use std::sync::Arc;
-
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
-use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
+use datafusion::prelude::{SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable, LegPlan, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{Accumulating, AnchorRows, ResultBatches, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, ResultBatches, UnannouncedBatch, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -592,13 +590,13 @@ impl DataFusionWarehouse {
         // then the two are compared. Building the result set from `result_labels` directly would
         // make a projection that came back a different shape look correct.
         let expected = executable.result_labels();
-        let actual = labels_of(&frame);
+        let actual = collect::labels_of(&frame);
         if actual != expected {
             return Err(DataFusionError::SchemaMismatch { expected, actual });
         }
 
         drop(actual);
-        collected(frame).await
+        collect::collected(frame, self.working_set).await
     }
 
     /// Counts a declared join key's values and its distinct values, in one aggregate.
@@ -618,52 +616,12 @@ impl DataFusionWarehouse {
             .execute_logical_plan(logical)
             .await
             .map_err(|cause| DataFusionError::Analyze { cause })?;
-        let rows = collected(frame)
+        let rows = collect::collected(frame, self.working_set)
             .await?
             .to_rows()
             .map_err(|cause| DataFusionError::Unreadable { cause })?;
         KeyUniqueness::read(&rows).map_err(|cause| DataFusionError::KeyCounts { cause })
     }
-}
-
-/// The field names a frame's own schema carries, which is what a result set is labelled by.
-///
-/// Read off the frame rather than off whatever asked for it, so a projection that came back a
-/// different shape cannot be relabelled into the shape the caller wanted.
-fn labels_of(frame: &DataFrame) -> Vec<String> {
-    frame
-        .schema()
-        .fields()
-        .iter()
-        .map(|f| String::from(f.name().as_str()))
-        .collect()
-}
-
-/// A frame's batches, checked against the frame's own announced schema.
-///
-/// **One collector for the answer path, the boot probe and the combine**, so the schema check
-/// cannot be one thing for a question and another for a check. It no longer decodes: since
-/// `docs/adr/0039` step 2 the port's currency IS [`ResultBatches`], so the batches leave this crate
-/// as batches and `ResultBatches::to_rows` runs once, above the port - or, for the boot probe and
-/// the key-uniqueness probe, at the one call that needs rows and says so.
-///
-/// **The row ceiling is `usize::MAX` here, and that is deliberate rather than an omission.** The
-/// bound that protects this process from a wide result is the memory pool in `crate::pool` - an
-/// operator reservation, which is what the engine's own plan spends - and `docs/adr/0009` puts it
-/// there. A second row-count ceiling on the engine's own output would bound the wrong thing and
-/// would refuse a legitimate answer the pool had already granted. A FOREIGN driver is the case the
-/// ceiling exists for, because nothing bounds what it streams; `MOST_RESULT_ROWS` in the `BigQuery`
-/// adapter is that caller. So `UnannouncedBatch::OverBound` is unreachable through this function.
-async fn collected(frame: DataFrame) -> Result<ResultBatches, DataFusionError> {
-    let announced = Arc::clone(frame.schema().inner());
-    let batches = frame.collect().await.map_err(|cause| DataFusionError::Execute { cause })?;
-    let mut accumulating = Accumulating::announcing(announced, usize::MAX);
-    for batch in batches {
-        accumulating
-            .push(batch)
-            .map_err(|cause| DataFusionError::Unannounced { cause })?;
-    }
-    Ok(accumulating.finish())
 }
 
 impl Warehouse for DataFusionWarehouse {
@@ -812,12 +770,37 @@ impl Warehouse for DataFusionWarehouse {
         matches!(error, DataFusionError::DeadlineExceeded { .. })
     }
 
-    // `result_did_not_fit` is deliberately NOT overridden, and this is the adapter the default was
-    // written for. THE engine runs in this process: a logical plan is collected into batches in
-    // memory, so there is no reply, no page and no size a reply had to fit - the bound that exists
-    // here is the working-set ceiling above, which is a different bound counting a different thing
-    // and already has its own refusal. Answering `true` from anything here would tell a caller their
-    // question was too wide when what happened was an engine failure.
+    /// `true` for the MATERIALISATION BUDGET alone, which is the one failure here that is a result
+    /// not fitting.
+    ///
+    /// **This used to be the default, and the comment that took it said there was no size a reply
+    /// had to fit.** That was true of a reply and false of this process: `collected` holds the
+    /// engine's own batches and `ResultBatches::to_rows` copies them again, and round 7 of
+    /// `telekom/sutura#929`'s review measured that neither was bounded. Now
+    /// `WorkingSet::result_budget` bounds both, and a result refused for crossing it is exactly
+    /// *the result did not fit* - a governance outcome the caller cannot retry past, rather than an
+    /// outage. Leaving the default would reach that caller as a `503` inviting a retry that spends
+    /// the same budget in the same place.
+    ///
+    /// Every other [`UnannouncedBatch`](sutura_domain::warehouse::UnannouncedBatch) is `false`,
+    /// exhaustively and by NAME, for the reason the `BigQuery` transport's twin gives: a mislabelled
+    /// or mis-width batch is the engine disagreeing with its own announced schema, which no narrower
+    /// question fixes. `OverBound` is unreachable here - `collected` passes `usize::MAX` - and is
+    /// still named rather than wildcarded, so a row ceiling arriving later has to choose.
+    ///
+    /// **The limit, next to the claim:** this answers for the materialisation budget and not for
+    /// the working-set ceiling, which keeps its own predicate and its own refusal. A caller whose
+    /// operators were refused is told resources were exhausted; one whose result was refused is
+    /// told the result was too large. The two are different numbers' worth of the same bytes.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        let DataFusionError::Unannounced { ref cause } = *error else {
+            return false;
+        };
+        match *cause {
+            UnannouncedBatch::OverBudget { .. } => true,
+            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
+        }
+    }
 }
 
 /// The combiner: two legs' Arrow batches joined and re-aggregated by one `DataFusion` plan -

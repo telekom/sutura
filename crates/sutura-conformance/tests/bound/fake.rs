@@ -243,7 +243,7 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
             Arc::clone(&schema),
             vec![Arc::new(arrow_array::Float32Array::from(vec![Some(1.5_f32)]))],
         )?;
-        let mut accumulating = sutura_domain::warehouse::Accumulating::announcing(schema, 1);
+        let mut accumulating = sutura_domain::warehouse::Accumulating::announcing(schema, 1, roomy());
         accumulating.push(batch)?;
         Ok(accumulating.finish())
     }
@@ -305,4 +305,12 @@ impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(FakeFailure::NoAnchor)
     }
+}
+
+/// A materialisation budget no fixture in this file comes near.
+///
+/// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+/// cells own that - so a fixture that refused for crossing it would be testing its own size.
+const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+    sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }

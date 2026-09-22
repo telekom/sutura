@@ -247,6 +247,14 @@ mod conformance {
     /// Built through `Accumulating` for the reason production is: `ResultBatches` has no other
     /// constructor, so a fixture cannot hand back a result the announced-schema guard would have
     /// refused.
+    /// A materialisation budget no fixture in this file comes near.
+    ///
+    /// The bound under test here is never the byte budget - `sutura_domain::warehouse::arrow`'s own
+    /// cells own that - so a fixture that refused for crossing it would be testing its own size.
+    const fn roomy() -> sutura_domain::warehouse::ResultBudget {
+        sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
+    }
+
     fn canned_rows(expected: &RowSet) -> ResultBatches {
         let mut fields = Vec::with_capacity(expected.columns().len());
         let mut arrays = Vec::with_capacity(expected.columns().len());
@@ -256,7 +264,7 @@ mod conformance {
             fields.push(Field::new(label.as_str(), kind, true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), expected.rows().len().max(1));
+        let mut accumulating = Accumulating::announcing(Arc::clone(&schema), expected.rows().len().max(1), roomy());
         if expected.rows().is_empty() {
             return accumulating.finish();
         }

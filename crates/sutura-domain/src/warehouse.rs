@@ -95,7 +95,7 @@ pub mod rows;
 /// carries the argument and where its checks stop.
 pub mod arrow;
 
-pub use arrow::{Accumulating, ResultBatches, UnannouncedBatch, UnreadableCell};
+pub use arrow::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnreadableCell};
 pub use cell::{NotFinite, Real, Value};
 pub use rows::{AnchorRows, MalformedRowSet, RowSet};
 

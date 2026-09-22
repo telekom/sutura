@@ -536,3 +536,33 @@ fn the_row_ceiling_is_a_size_bound_and_not_an_outage() {
         "a mislabelled batch is not a result that did not fit"
     );
 }
+
+/// Both of this transport's own result ceilings, pinned in both directions.
+///
+/// **The row half was cited by `MOST_RESULT_ROWS`' own doc and did not exist.** That doc named
+/// `tests::the_transports_own_ceiling_is_two_orders_of_magnitude_above_the_answer_cap` as what held
+/// the value; nothing in this tree defines it, so the number was held by a sentence. The doc quoted
+/// the measurement that made it necessary - raising the constant to `usize::MAX` left the whole suite
+/// green, because `delivered + n > usize::MAX` is never true - and that measurement applies unchanged
+/// to the byte half, which is why both are here.
+///
+/// Asserted as a RELATION to `MAX_ROWS` and to `docs/adr/0009`'s provisional working set rather than
+/// as two literals: a cell repeating the constant passes whatever the constant becomes, which is the
+/// same nothing the missing cell was providing.
+#[test]
+fn both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_derived_from() {
+    // Two orders of magnitude above the ANSWER cap, because a leg legitimately returns more rows
+    // than the one answer re-aggregated above it keeps.
+    assert_eq!(
+        super::MOST_RESULT_ROWS,
+        usize::try_from(sutura_domain::plan::MAX_ROWS).expect("ten thousand fits a usize") * 100
+    );
+    // A quarter of 0009's provisional 1 GiB working set, so two legs plus the combine above them
+    // cannot each spend the whole of a query's provisional byte budget.
+    assert_eq!(super::MOST_RESULT_BYTES * 4, 1024 * 1024 * 1024);
+    // **Both equalities exclude `usize::MAX` by construction**, which is what makes them the fix for
+    // the measurement above rather than a restatement of it: neither derived value can be the
+    // saturating ceiling a suite cannot cross, so raising either constant to it fails here. Written
+    // as equalities and not as a `< usize::MAX` pair, which `clippy::assertions_on_constants`
+    // refuses - and rightly: an assertion the compiler folds away holds nothing.
+}

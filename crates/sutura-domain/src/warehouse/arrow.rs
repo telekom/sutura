@@ -82,6 +82,18 @@ pub enum UnannouncedBatch {
     /// caller is reading an answer or a federation leg, and only the caller knows which.
     #[error("a result stream carries more than {most} rows")]
     OverBound { most: usize },
+    /// The stream would cost more memory to hold and convert than the caller's budget allows.
+    ///
+    /// **The sibling of [`Self::OverBound`] counting what is actually scarce**, which round 7 of
+    /// `telekom/sutura#929`'s review is the report for: a row ceiling is not a memory bound when the
+    /// caller controls row WIDTH, so a million narrow rows and a thousand very wide ones are the
+    /// same number under [`Self::OverBound`] and orders of magnitude apart here.
+    ///
+    /// Carries the BUDGET and never the demand, for [`ResultBudget`]'s stated reason: the budget is
+    /// a number an operator configured and can act on, while what the question wanted is an
+    /// observation about one caller's data.
+    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
+    OverBudget { most_bytes: usize },
 }
 
 /// Why an Arrow array could not become a domain value.
@@ -127,29 +139,92 @@ fn descriptor(field: &arrow_schema::Field) -> String {
     format!("{name} {kind}")
 }
 
+/// How many bytes one result may cost to hold and to convert, together.
+///
+/// **A newtype for the unit, beside a `usize` row count that means something else entirely.**
+/// [`Accumulating::announcing`] takes both, and `docs/adr/0009`'s whole argument for retiring the
+/// per-leg row cap is that the two quantities are unrelated - so two bare integers there would be
+/// one bound and one number that looks like it. `NonZeroUsize` rather than `usize` because a zero
+/// budget refuses the empty result too, and an empty result is an answer.
+///
+/// **It parses nothing beyond non-zero, and where the range is parsed is the point.** The value a
+/// deployment runs with is `sutura_config::WorkingSetCeiling`, checked at boot against the memory
+/// the process can actually reach; this type is the unit that number travels in once an adapter has
+/// converted it. So there is no *unset* state to default: a call site that has no budget has no
+/// value of this type and does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResultBudget(core::num::NonZeroUsize);
+
+impl ResultBudget {
+    /// The budget, in bytes.
+    #[must_use]
+    pub const fn of_bytes(bytes: core::num::NonZeroUsize) -> Self {
+        Self(bytes)
+    }
+
+    /// The budget as a plain count, for the arithmetic that spends it.
+    #[inline]
+    #[must_use]
+    pub const fn bytes(self) -> usize {
+        self.0.get()
+    }
+}
+
+/// What holding this batch and converting it into domain rows will cost, in bytes.
+///
+/// [`RecordBatch::get_array_memory_size`] is Arrow's own measure and is the first of the three
+/// terms; it counts the arrays' BUFFERS, including the slack a buffer allocated with spare capacity
+/// carries, and does not count the `RecordBatch`'s own struct, its schema, or the `Vec` this
+/// accumulator holds the batches in.
+///
+/// It is counted TWICE, and the second count is the half review round 7 of `telekom/sutura#929`
+/// named: [`ResultBatches::to_rows`] builds a whole second copy as `Vec<Vec<Value>>`, so a budget
+/// charged for the batches alone understates the real peak by roughly a factor of two. The third
+/// term is that copy's own structure - one `Vec` per row plus one [`Value`] per cell - which is
+/// what makes a result of many narrow rows cost more here than its buffers suggest.
+///
+/// **It OVER-counts a fixed-width column, deliberately.** An `Int64` cell lands inline in a
+/// `Value::Integer` that the third term already charges for, so doubling the buffer charges it
+/// twice; a `Utf8` cell is cloned into an owned `String` whose heap really is a second copy of the
+/// same bytes. One rule that over-charges the narrow case is a stricter bound than two rules with a
+/// column-type branch in them, and stricter is the direction this budget fails in.
+fn materialised(batch: &RecordBatch) -> usize {
+    let arrays = batch.get_array_memory_size();
+    let cells = batch.num_columns().saturating_mul(core::mem::size_of::<Value>());
+    let converted = batch
+        .num_rows()
+        .saturating_mul(core::mem::size_of::<Vec<Value>>().saturating_add(cells));
+    arrays.saturating_mul(2).saturating_add(converted)
+}
+
 /// One result stream, checked against its announced schema batch by batch.
 ///
-/// **The accumulator exists so the schema check and the row ceiling fire WHILE the stream is read.**
-/// A driver's reader is driven straight into [`Self::push`], so a stream that will be refused is
-/// refused at the batch that crosses the line - not after every batch has been collected, which is
-/// the point at which the memory a ceiling protects has already been spent.
+/// **The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
+/// stream is read.** A driver's reader is driven straight into [`Self::push`], so a stream that will
+/// be refused is refused at the batch that crosses the line - not after every batch has been
+/// collected, which is the point at which the memory a ceiling protects has already been spent.
 #[derive(Debug)]
 pub struct Accumulating {
     announced: SchemaRef,
     most: usize,
+    budget: ResultBudget,
     batches: Vec<RecordBatch>,
     rows: usize,
+    bytes: usize,
 }
 
 impl Accumulating {
-    /// Starts reading a stream announced under `schema`, refusing past `most` rows.
+    /// Starts reading a stream announced under `schema`, refusing past `most` rows or `budget`
+    /// bytes of materialisation.
     #[must_use]
-    pub const fn announcing(schema: SchemaRef, most: usize) -> Self {
+    pub const fn announcing(schema: SchemaRef, most: usize, budget: ResultBudget) -> Self {
         Self {
             announced: schema,
             most,
+            budget,
             batches: Vec::new(),
             rows: 0,
+            bytes: 0,
         }
     }
 
@@ -186,6 +261,19 @@ impl Accumulating {
         if self.rows.saturating_add(arriving) > self.most {
             return Err(UnannouncedBatch::OverBound { most: self.most });
         }
+        // **Charged before the batch is retained, and charged for the conversion too.** The whole
+        // point of the budget is that it refuses while the result is still arriving: a check against
+        // the finished `Vec` would run at the moment the memory it protects has already been spent.
+        // `materialised` is what a batch costs to HOLD plus what `ResultBatches::to_rows` will
+        // spend copying it, so the refusal lands one batch before the peak rather than halfway
+        // through it - earlier than `docs/adr/0009` specified, against the same budget.
+        let spending = self.bytes.saturating_add(materialised(&batch));
+        if spending > self.budget.bytes() {
+            return Err(UnannouncedBatch::OverBudget {
+                most_bytes: self.budget.bytes(),
+            });
+        }
+        self.bytes = spending;
         self.rows = self.rows.saturating_add(arriving);
         self.batches.push(batch);
         Ok(())
@@ -196,6 +284,14 @@ impl Accumulating {
     #[must_use]
     pub const fn delivered(&self) -> usize {
         self.rows
+    }
+
+    /// What the accepted batches have already spent of the budget, which is what they cost to hold
+    /// and will cost to convert.
+    #[inline]
+    #[must_use]
+    pub const fn spent_bytes(&self) -> usize {
+        self.bytes
     }
 
     /// The checked result.
@@ -211,9 +307,13 @@ impl Accumulating {
 
 impl ResultBatches {
     /// A result with no rows, under a schema - what an adapter answers for an empty stream.
+    ///
+    /// The budget is the smallest one that exists and nothing is charged against it: no batch is
+    /// pushed, so no byte is spent. A caller-supplied budget here would be a parameter with nothing
+    /// to bound.
     #[must_use]
     pub fn none_under(schema: SchemaRef) -> Self {
-        Accumulating::announcing(schema, 0).finish()
+        Accumulating::announcing(schema, 0, ResultBudget::of_bytes(core::num::NonZeroUsize::MIN)).finish()
     }
 
     /// The schema every batch was checked against.
@@ -580,6 +680,12 @@ pub fn of_row_set(rows: &RowSet) -> Result<ResultBatches, MalformedRowSet> {
 /// [`MalformedRowSet::RowWidth`] for a ragged input, refused here rather than at the Arrow layer -
 /// `RecordBatch::try_new` would answer a different error for the same defect, and one of the two
 /// would be the one nobody had read.
+/// **It charges nothing against a [`ResultBudget`], and that is a limit rather than an oversight.**
+/// Its input is rows the caller already holds, so every byte this bound would refuse has been
+/// allocated before the call - a budget here would be a check after the spend, which is the exact
+/// shape [`Accumulating::push`] exists to avoid. The three adapters that reach here decode their own
+/// driver's vocabulary into a `RowSet` first and are therefore **outside the byte budget entirely**;
+/// bounding them means bounding their own decode loops, which is a change to each of them.
 pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches, MalformedRowSet> {
     use std::sync::Arc;
 
@@ -606,7 +712,13 @@ pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches,
         arrays.push(array);
     }
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let mut accumulating = Accumulating::announcing(Arc::clone(&schema), rows.len());
+    let mut accumulating = Accumulating::announcing(
+        Arc::clone(&schema),
+        rows.len(),
+        // The largest budget that exists, because the rows are already allocated - see the note on
+        // this function. Not a budget an adapter may pass: `ResultBudget` has no such constant.
+        ResultBudget::of_bytes(core::num::NonZeroUsize::MAX),
+    );
     if rows.is_empty() {
         return Ok(accumulating.finish());
     }
