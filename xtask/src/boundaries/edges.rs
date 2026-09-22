@@ -691,7 +691,17 @@ mod tests {
         .expect("fixture parses");
         // The prefix-free route asked of the RULE rather than of the walk: `reaches` reads the
         // entry's own `from`, so this is the finding's case end to end.
-        for edge in FORBIDDEN_EDGES.iter().filter(|edge| edge.from == "sutura-app") {
+        //
+        // The emptiness assertion is not ceremony - it is what stops the loop passing VACUOUSLY.
+        // Measured: with it absent, deleting the `sutura-app` row left this cell green, so the
+        // only thing holding the row would have been the `edge.forbidden` loop below, which a
+        // deletion also satisfies.
+        let application: Vec<&ForbiddenEdge> = FORBIDDEN_EDGES.iter().filter(|edge| edge.from == "sutura-app").collect();
+        assert!(
+            !application.is_empty(),
+            "no FORBIDDEN_EDGES row names `sutura-app`, so the prefix-free route this fixture builds is held by nothing"
+        );
+        for edge in application {
             assert!(
                 reaches(&meta, edge).expect("walk succeeds"),
                 "a prefix-free crate between sutura-app and {} must not hide the edge",
