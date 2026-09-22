@@ -137,13 +137,16 @@ column only points a reader of the venues table at it.
 | **A mock issuer in the sandbox** | in process, every run | nothing - no network, no docker, no secret | `just test`, `just validate` | - |
 | **A provisioned Postgres source** | in process, every run - against a real postmaster nix stands up in the same sandbox | nothing - no secret and no docker; `nix/postgres-tier.nix` says so in its own header | `just test`, `just validate` | - |
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
-| **A real enterprise identity provider** | nowhere yet | a provider to configure and somebody to configure it | not built | - |
+| **A real enterprise identity provider** | in process, on the paths that touch it - the OIDC contract this product depends on, against the real Keycloak the tier boots inside the job | nothing for the contract: the row above IS a real enterprise provider. A hosted tenant, and somebody to configure it, for the provider-specific residual alone | `just keycloak-served-test` | - |
 | **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a workload-identity pool whose provider trusts the issuer that mints each subject's assertion, one principal per subject with its own dataset grants, and somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the principal the pool resolves that subject to" |
 | **A served binary under a verified human caller** | nowhere yet | everything the row above needs, plus an IdP issuing the subjects the declared map names and a served deployment to ask through | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
-everything *around* it, and shrinks to the one job only it can do.
+everything *around* it, and shrinks to what only it can do - which, since the Keycloak tier landed, is
+narrower than a whole venue: the CONTRACT is exercised in process on every run of
+`just keycloak-served-test`, and what is left for a hosted tenant is one vendor's deviation from it.
+The two rows are that split and not a duplication.
 
 !!! warning "A green end-to-end suite is a transport claim, except where the mock issuer is in it"
 
@@ -186,8 +189,8 @@ everything *around* it, and shrinks to the one job only it can do.
 | The caller a signature established reaches the answer's own record | - | **yes**, on the spawned binary - the only venue that can see it | - | - | redundant | - | - |
 | An unverified caller on the agent surface (`/mcp`) is refused with the same `401` every forgery gets | - | **unrun** - the standing test is `sutura_http::inbound::tests::router::the_agent_route_refuses_an_unverified_caller_with_the_same_challenge_every_forgery_gets`, run under `just test` | - | - | - | - | - |
 | Two verified callers see two different tool lists on the agent surface | - | **unrun** - the standing test is `served.rs::two_verified_callers_over_the_composed_binary_see_two_different_tool_lists`, run under `just test` | - | - | - | - | - |
-| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | - | - | - |
-| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **only here** | - | - |
+| **A real IdP's own signature and JWKS verify through the composed binary - not #105's third-party-audience question** | - | no - it cannot generate an RSA key, so it is not a real provider for this claim either | - | **yes** | **yes** - the same run and the same tier, because the tier IS a real enterprise provider: this is the OIDC contract, and the five provider-specific deviations this venue's own section lists are what it does NOT reach | - | - |
+| **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **yes** - the same cell, restated here because *only here* was this column's answer while the tier beside it already said `yes`: a contradiction inside one row, corrected rather than left to a reader to spot. What a hosted tenant would add is a browser-delegated grant and a vendor's own `aud`/`azp` shape, not this claim | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
 | Whether a token exchange endpoint accepts what we send it | - | - | - | - | - | - | - |
 | **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **wired** - this is the row below in other words: a per-subject `external_account` document is built and the pool resolves it, and no run has been observed | - |
@@ -517,8 +520,33 @@ identity happened to be one of the two principals.
 
 ## A real enterprise identity provider
 
-Not built. Its job is the one row above that only it can answer, and keeping it to that row is the point
-of this page.
+**The row above IS one, and this row's job is the residual.** What this product depends on is the OIDC
+contract - an RS256 signature over a published JWKS, `iss`/`aud`/`exp`/`nbf`, `kid` selection, and an
+ID token's audience - and Keycloak speaks it. `nix/keycloak-tier.nix` boots a real one inside the job,
+`just keycloak-served-test` runs the cells that need it, and
+`crates/sutura-cli/tests/served/keycloak_test.rs`'s
+`a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused` is
+the standing cell. So *a real enterprise identity provider* is not an absent venue, and this section
+said it was - which is the same class of defect as an overstated control, one sign flipped: a
+restriction the code does not impose.
+
+**What a hosted tenant would add, concretely, because that is the part a reader will rely on.** Not
+the contract - five specific deviations from it, none of which a realm the tier boots can produce:
+
+1. **An issuer string that embeds a tenant identifier**, so `iss` comparison meets a value whose
+   shape a generated realm never takes.
+2. **Provider-specific `aud` and `azp` claim shapes** - a client id in `azp` with the resource in
+   `aud`, an `aud` array ordered by the provider, or a resource indicator the tier has no concept of.
+3. **Endpoint-version differences**, where one vendor's discovery document, JWKS path or token
+   endpoint behaves unlike the realm's.
+4. **Conditional access and MFA**, which change what a token carries and when one is issued at all -
+   the tier's password grant has neither.
+5. **Real JWKS rotation timing**, where a key is retired on the provider's own schedule rather than
+   on a script's - the refetch bound is exercised against the mock issuer, which is the only
+   scriptable venue, and never against a provider's own clock.
+
+None of the five is covered by anything in this tree, and none of them is the contract. Saying which
+is which is the whole reason this row survives as a separate one.
 
 ## A served binary under a verified human caller
 

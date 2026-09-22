@@ -19,9 +19,13 @@
 //! # What it holds, and the two limits beside it
 //!
 //! While no leg-2 row in the matrix carries a citable verdict, no page in scope may state one of
-//! [`WORDINGS`]. When a row moves to `yes`, `can` or `only here`, the claim becomes sayable and
-//! this rule stops applying - the same self-retiring shape a `Contradicted` row has, derived from
-//! the cell instead of from evidence files.
+//! [`WORDINGS`]. When a row moves to `yes` or `can`, the claim becomes sayable and this rule stops
+//! applying - the same self-retiring shape a `Contradicted` row has, derived from the cell instead
+//! of from evidence files. **Those two words and not three:** this sentence used to name `only
+//! here` as well, and `venues::page::CITABLE` is `["yes", "can"]` - its own doc says `only here`
+//! and `redundant` are deliberately absent, because they say WHICH venue owns a claim rather than
+//! that one has answered it. So the sentence described a wider retirement than the code performs,
+//! which for a self-retiring rule is the direction that matters.
 //!
 //! **It matches a literal, so a paraphrase escapes.** That is the limit the whole `claims` module
 //! records, and it is why [`WORDINGS`] carries every wording that was found rather than one: the
