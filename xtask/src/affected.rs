@@ -25,6 +25,13 @@
 //! nothing. Whatever `declared` holds is therefore the list of legs that can be switched on, and an
 //! empty one on a registry failure turned the guarantee above into a silent skip for every category
 //! the diff did not itself select.
+//!
+//! **There are TWO such boundaries, and the second is in YAML.** A `GITHUB_OUTPUT` line only
+//! reaches the job that wrote it; a leg in another job reads `needs.ci.outputs.<name>`, which
+//! renders `''` for any category the `ci` job does not re-publish under its own `outputs:`. The
+//! same absent-is-not-`false` failure, one boundary further out, and `ci-aggregate` reads that
+//! `''` too - so it agrees the skip was allowed. `every_emitted_category_is_republished_as_a_ci_job_output`
+//! holds the two lists together; nothing else does.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -505,12 +512,63 @@ macro_rules! registered {
         // `clippy::string_slice`, a restriction lint that only `-D warnings` surfaces.
         for after in ci.split(MARKER).skip(1) {
             let name: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-            // The area axis (`run_all`, `nix`, ...) comes from `changes.rs`; only these are ours.
-            if name == IDENTITY || name.starts_with("data_source_") || name.starts_with("catalog_") {
+            if is_category(&name) {
                 out.insert(name);
             }
         }
         out
+    }
+
+    /// Is this output name on the CATEGORY axis? The area axis (`run_all`, `nix`, ...) comes from
+    /// `changes.rs` and shares the same `steps.classify.outputs.` prefix, so both oracles below
+    /// need the same sieve. `core` is deliberately NOT a category: it gates nothing on its own.
+    fn is_category(name: &str) -> bool {
+        name == IDENTITY || name.starts_with("data_source_") || name.starts_with("catalog_")
+    }
+
+    /// The category names the `ci` JOB re-publishes as its own outputs, which is the only thing a
+    /// downstream job can read. Matched on `<name>: ${{ steps.classify.outputs.<..> }}`, keyed on
+    /// the name the job publishes rather than the one it reads, since those are what
+    /// `needs.ci.outputs.<name>` resolves against.
+    fn categories_the_ci_job_republishes(root: &Path) -> BTreeSet<String> {
+        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read .github/workflows/ci.yml");
+        ci.lines()
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(_, value)| value.contains("steps.classify.outputs."))
+            .map(|(name, _)| name.trim())
+            .filter(|name| is_category(name))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// A category the classifier emits and the `ci` job does not re-publish is unreachable to
+    /// every leg, and unreachably in the DANGEROUS direction: `needs.ci.outputs.<name>` renders
+    /// `''` rather than `false`, so a leg gated on it skips on every diff - `core` included - and
+    /// `ci-aggregate`, reading the same `''`, calls that skip allowed. The
+    /// cannot-disagree property the two share is exactly what would hide it.
+    ///
+    /// The expectation is NOT this module's own loop: the emitted set is derived from the crate
+    /// directories joined with the golden registry, and the subject is a hand-maintained YAML
+    /// list. Neither side can witness the other narrowing, which is the drift this asserts over.
+    #[test]
+    fn every_emitted_category_is_republished_as_a_ci_job_output() {
+        let root = crate::repo::root().expect("the repo root");
+        let republished = categories_the_ci_job_republishes(&root);
+        assert!(
+            republished.len() > 1,
+            "the oracle matched nothing in ci.yml, so this test would pass over anything: {republished:?}"
+        );
+        // An empty diff falls open to `core`, so every declared category is emitted - which is
+        // the set a leg could be gated on.
+        let cats = derive_from(&[], registry_categories(&root), &root);
+        assert!(cats.core, "an empty diff must fall open to core");
+        for name in emitted_names(&cats).iter().filter(|name| is_category(name)) {
+            assert!(
+                republished.contains(name),
+                "`classify` emits `{name}` and the `ci` job does not re-publish it, so \
+                 `needs.ci.outputs.{name}` renders '' and any leg gated on it skips silently"
+            );
+        }
     }
 
     /// The names the emission actually writes - parsed back out of the body, so the assertion is
