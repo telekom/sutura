@@ -490,7 +490,12 @@ fn head_reader(wt: &Path) -> impl Fn(&str) -> Option<String> + '_ {
 /// The patch is written to a temporary file rather than stdin: the patch is already a committed
 /// file this branch carries, so handing git its path keeps the invocation identical between the
 /// check and the run and lets the `--check` answer the run will rely on.
-fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), String> {
+///
+/// `pub(super)` for `super::rot`: the apply-only hygiene half of `github.com/telekom/sutura#950`
+/// re-checks every COMMITTED patch rather than only the one a diff's own trailer just declared,
+/// and it is the same `git apply --check` this module already runs - reusing it is what keeps the
+/// two from drifting into two spellings of one rule.
+pub(super) fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), String> {
     let mut command = Command::new("git");
     crate::repo::strip_git_env(&mut command);
     command.current_dir(wt).args(["apply"]);

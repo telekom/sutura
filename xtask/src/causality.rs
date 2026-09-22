@@ -114,6 +114,11 @@ mod remedies;
 // `reverted` sits after `remedies` alphabetically and after `regions` conceptually: it reads the
 // same post-image regions, and it is the last question asked before a green run becomes a verdict.
 mod reverted;
+// `pub(crate)` rather than private, like `attributes` and `regions` above and for the same
+// reason: `task_table` registers its two gates directly by fn pointer, and a second copy of "which
+// committed patch names which cell" inside `task_table` would be a second thing to keep in step
+// with `claim::MUTATIONS_DIR` - `github.com/telekom/sutura#950`.
+pub(crate) mod rot;
 mod runner;
 mod scoped;
 mod stack;
