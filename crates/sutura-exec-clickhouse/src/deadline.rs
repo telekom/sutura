@@ -20,8 +20,8 @@
 //!
 //! `Deadline::remaining_at` returning `None` when expired is read as *stop now*, never as *wait
 //! forever*: [`refuse_if_spent`] refuses locally before a request is ever sent, and
-//! [`max_execution_time_seconds`] answers `None` (which `crate::transport::Http::run` reads as
-//! *do not send the setting at all*) only after [`refuse_if_spent`] has already refused a spent
+//! [`max_execution_time_seconds`] answers `None` (which `crate::transport::request_settings` reads
+//! as *do not send the setting at all*) only after [`refuse_if_spent`] has already refused a spent
 //! deadline - there is no path where `None` reaches the wire as *no limit*. A `0` is never sent
 //! either: `ClickHouse` reads `max_execution_time = 0` as *no limit*, the same "zero reads as
 //! unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`. The
