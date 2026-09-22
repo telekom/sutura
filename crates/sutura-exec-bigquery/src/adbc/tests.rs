@@ -28,7 +28,13 @@ fn nowhere() -> DriverLocation {
 }
 
 fn endpoint(impersonation: Impersonation) -> AdbcBigQuery {
-    AdbcBigQuery::new(nowhere(), impersonation)
+    AdbcBigQuery::new(nowhere(), impersonation, a_gibibyte())
+}
+
+/// The money bound every cell here hands over, a gibibyte - the value `docs/adr/0017` uses and the
+/// one every fixture in this workspace writes.
+fn a_gibibyte() -> super::BytesBilledCeiling {
+    super::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling")
 }
 
 fn impersonating() -> Impersonation {
@@ -247,6 +253,14 @@ struct Recording {
     queries: Vec<String>,
     /// One entry per `bind`, each the batch's (column count, row count) and column types.
     bound: Vec<BoundBatch>,
+    /// Every integer option set on this statement, as `(key, value)` in order.
+    ///
+    /// **Recorded rather than refused, unlike every other `Optionable` method here**, because the
+    /// money bound is sent this way and a fake that errored on it would make
+    /// `every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling`
+    /// unwritable. A non-integer option is still `not_asked`: this transport sets exactly one
+    /// statement option and it is an integer.
+    integer_options: Vec<(String, i64)>,
 }
 
 impl Recording {
@@ -254,6 +268,7 @@ impl Recording {
         Self {
             queries: Vec::new(),
             bound: Vec::new(),
+            integer_options: Vec::new(),
         }
     }
 }
@@ -270,8 +285,14 @@ fn not_asked(what: &str) -> adbc_core::error::Error {
 impl adbc_core::Optionable for Recording {
     type Option = adbc_core::options::OptionStatement;
 
-    fn set_option(&mut self, _key: Self::Option, _value: adbc_core::options::OptionValue) -> adbc_core::error::Result<()> {
-        Err(not_asked("set an option"))
+    fn set_option(&mut self, key: Self::Option, value: adbc_core::options::OptionValue) -> adbc_core::error::Result<()> {
+        match value {
+            adbc_core::options::OptionValue::Int(value) => {
+                self.integer_options.push((key.as_ref().to_owned(), value));
+                Ok(())
+            }
+            _ => Err(not_asked("set a non-integer option")),
+        }
     }
 
     fn get_option_string(&self, _key: Self::Option) -> adbc_core::error::Result<String> {
@@ -367,12 +388,55 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("a range is bindable");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound).expect("the recording statement accepts both calls");
+    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts both calls");
     assert_eq!(statement.queries, vec![String::from("SELECT ? AS region WHERE d >= ?")]);
     assert_eq!(
         statement.bound,
         vec![(2, 1, vec![arrow_schema::DataType::Utf8, arrow_schema::DataType::Date32])],
         "the statement was bound with something other than this request's own values"
+    );
+}
+
+#[test]
+fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling() {
+    // **THE CELL THE P1 ASKS FOR.** `sources.<alias>.max_bytes_billed` was required at boot,
+    // parsed by nothing and sent nowhere, so the only key in the settings tree that spends money
+    // bounded nothing: a declared `0` and a declared `u64::MAX` both booted green over a source
+    // with no bound on bytes scanned at all.
+    //
+    // Asserted here rather than over a driver for `prepared`'s own reason - reaching the real
+    // `set_option` needs one - and asserted by the option's exact KEY and VALUE, because a
+    // misspelled key is not a refusal: the driver answers `NotImplemented` for an unknown statement
+    // option, which would fail the job loudly, but a key that reaches a DIFFERENT option of the
+    // driver's own would set something else and still bill the scan.
+    //
+    // Neutralise the `set_option` call in `prepared` - `if false { .. }`, `drop`, or a string value
+    // instead of an integer - and this cell is the only thing that reddens.
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new(
+        "SELECT total FROM t",
+        &[],
+        &project,
+        &dataset,
+        JobIdentity::Transport,
+        JobDeadline::Boot,
+    );
+    let mut statement = Recording::new();
+    super::prepared(&mut statement, &request, None, a_gibibyte()).expect("the recording statement accepts the ceiling");
+    assert_eq!(
+        statement.integer_options,
+        vec![(String::from("bigquery.query.max_bytes_billed"), 1024 * 1024 * 1024_i64)],
+        "the statement carried something other than this source's own `maximumBytesBilled`"
+    );
+    // And a DIFFERENT ceiling travels as itself, so the cell above cannot pass on a hard-coded
+    // constant that happens to match the fixture.
+    let mut other = Recording::new();
+    let tighter = super::BytesBilledCeiling::parse(4096).expect("four kibibytes is a usable ceiling");
+    super::prepared(&mut other, &request, None, tighter).expect("the recording statement accepts the ceiling");
+    assert_eq!(
+        other.integer_options,
+        vec![(String::from("bigquery.query.max_bytes_billed"), 4096_i64)]
     );
 }
 
@@ -393,7 +457,7 @@ fn a_call_carrying_no_values_binds_nothing_at_all() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("no values is not a failure");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound).expect("the recording statement accepts the query");
+    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts the query");
     assert_eq!(statement.queries.len(), 1);
     assert!(
         statement.bound.is_empty(),
@@ -428,6 +492,7 @@ fn a_listing_this_transport_cannot_do_is_a_warning_and_not_a_startup_refusal() {
         dataset(),
         nowhere(),
         Impersonation::Disabled,
+        a_gibibyte(),
     );
     let asked =
         std::iter::once(sutura_domain::model::QualifiedTable::parse("dim_customer").expect("a test table path parses")).collect();

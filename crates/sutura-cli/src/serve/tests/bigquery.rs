@@ -119,10 +119,34 @@ fn an_impersonating_source_is_opened_and_reaches_the_driver_refusal() {
     );
 }
 
-// The ceiling test `a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key`
-// lived here. It held the `BytesBilledCeiling` range parse the removed `wire` transport applied to
-// `max_bytes_billed`; the ADBC driver reads no such ceiling, so the refusal it asserted is gone with
-// the wire - deleted rather than adapted, because there is no boot-time number left to test.
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key() {
+    // **The refusal's own cell, and not the predicate's.** `BytesBilledCeiling::parse` has its own
+    // cells beside the type; this is the only thing that shows the served root CONSULTS it. Wrap the
+    // parse's `?` so the error is discarded while the value is still read - the shape `dead_code`
+    // cannot see - and this cell is what reddens.
+    //
+    // This test lived here before, held the same range parse, and was DELETED when the HTTP wire
+    // took `BytesBilledCeiling` with it, on the stated grounds that "there is no boot-time number
+    // left to test". There is again: the ADBC driver takes a `bigquery.query.max_bytes_billed`
+    // statement option, so `max_bytes_billed` is parsed and sent rather than required and ignored.
+    //
+    // Zero rather than a value above the cap, because zero is the one an operator reaches by writing
+    // a placeholder - and BigQuery reads a ceiling below one as NO ceiling, so it is the value that
+    // silently buys nothing rather than the one that refuses everything.
+    let entry = bigquery_entry("warehouse", "shared-service-user", "").replace("1073741824", "0");
+    let error = refusal(
+        opened_bigquery(&entry),
+        "a ceiling of zero is how BigQuery spells no ceiling, so it cannot be one",
+    );
+    assert!(error.contains("max_bytes_billed"), "the refusal must name the key: {error}");
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    assert!(
+        !error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+        "the ceiling is parsed BEFORE the driver is resolved, so this must not be the driver's refusal: {error}"
+    );
+}
 
 // `a_request_timeout_that_leaves_no_job_budget_does_not_start` lived here: a ten-second
 // `server.request_timeout_seconds` used to refuse a `bigquery` deployment at boot, because
