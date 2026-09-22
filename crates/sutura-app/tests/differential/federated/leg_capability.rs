@@ -25,6 +25,15 @@
 /// [`Warehouse::EXECUTES_LEGS`]: sutura_domain::warehouse::Warehouse::EXECUTES_LEGS
 const LEG_EXECUTING: &[&str] = &["datafusion", "duckdb"];
 
+/// Declares the capability and owes this file NO pass, because there is nothing here to EXECUTE it
+/// against - `telekom/sutura#929`. `sutura-exec-bigquery` declares `EXECUTES_LEGS` now and is the
+/// one adapter whose two-source answer can put a SUBJECT on each half, but `available()` is
+/// unconditionally `false` and `crate::adapters::NoLocalTier` answers `NeverAsked`, so a name in
+/// [`LEG_EXECUTING`] would promise a pass that cannot exist - the cell below CHECKS that, so an
+/// entry acquiring a venue reddens. Its leg path is held in its own crate instead:
+/// `crates/sutura-exec-bigquery/tests/conformance.rs` binds it to `a_leg_is_executed`.
+const LEG_EXECUTING_WITH_NO_VENUE: &[&str] = &["bigquery"];
+
 macro_rules! leg_capability {
     ($name:ident, $adapter:ty) => {
         mod $name {
@@ -34,13 +43,19 @@ macro_rules! leg_capability {
             #[test]
             fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
                 let name = <$adapter as DataSystemUnderTest>::NAME;
+                let exempt = super::LEG_EXECUTING_WITH_NO_VENUE.contains(&name);
                 assert_eq!(
                     <$adapter as Warehouse>::EXECUTES_LEGS,
-                    super::LEG_EXECUTING.contains(&name),
+                    super::LEG_EXECUTING.contains(&name) || exempt,
                     "{name} changed its leg capability; \
                      crates/sutura-app/tests/differential/federated.rs is where a leg-executing \
                      adapter gets enrolled in a two-source pass, and every entry in \
                      `LEG_EXECUTING` owes this file one"
+                );
+                assert!(
+                    !exempt || !<$adapter as DataSystemUnderTest>::available(),
+                    "{name} is exempt because it cannot execute here, and it CAN: move it to \
+                     `LEG_EXECUTING` and give it a pass"
                 );
             }
         }

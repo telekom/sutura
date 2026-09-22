@@ -88,13 +88,21 @@ subgroup, and the `MeasureDoesNotFederate` refusal.
 (1) **not two identities** - every adapter a release links is `NoPlaceForASubject` and
 `deliverable_by` refuses `impersonation-at-source` against it in every composition root, so every
 `files` source is `shared-service-user` and both legs of a shipped answer run under one
-operating-system identity. **Which is also why the mixed-posture refusal fires for nothing today:**
+operating-system identity. **Which is also why the mixed-posture refusal fires for nothing on a PUBLISHED build:**
 `ExecutedAs::uniform` refuses an answer whose legs decide identity two different ways, and no
-published build can reach a source of each kind - the only `PerSubjectCredential` adapter is
-`sutura-exec-bigquery`, which leaves `EXECUTES_LEGS` at its default and is therefore refused as
-`FederationNotExecutable` before the postures are compared. #112's heterogeneous registry landed
-without changing this: `sutura-exec-bigquery`'s constant is untouched, so a shipped mix still
-cannot put two postures on one federated answer; (2) **no golden reaches the engine's leg path** -
+published build can reach a source of each kind, because no published artefact links the only
+`PerSubjectCredential` adapter. **What changed with `telekom/sutura#929` is the reason, and the
+old reason is now wrong:** `sutura-exec-bigquery` used to leave `EXECUTES_LEGS` at its default and
+be refused as `FederationNotExecutable` before the postures were ever compared. It declares the
+constant now and renders a leg through `sutura_sql::generate_leg`, so a `--features bigquery`
+build DOES reach the posture comparison - a `files` leg beside a `bigquery` impersonating leg is
+refused as `LegsDecideIdentityDifferently` rather than as not-executable, and two impersonating
+`bigquery` legs pass it and federate with a per-subject credential at each
+(`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account` holds that the
+one mint over both sources resolves each source's own declared account). **What no green run here
+says:** no federated answer has been produced against a real dataset - the dialect axis declares
+`Dialect::BigQuery` `Evidence::RenderOnly`, so the claim is *the leg renders for the dialect and
+the transport submits it with the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -
 it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and none of them is
 what a release executes, and the conformance cell plus the differential are the whole of that
 path's evidence; (3) **one deployment still cannot get two genuinely different POSTURES onto one
