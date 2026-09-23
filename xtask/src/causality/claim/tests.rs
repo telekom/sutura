@@ -511,6 +511,39 @@ fn a_declared_cell_not_added_by_its_commit_is_refused() {
     assert!(causes.contains(&Cause::NotAdded(String::from("never_added"))), "{causes:?}");
 }
 
+// The per-commit scope, driven through the REAL `worktree::messages` stream rather than a
+// hand-built `Claim`: commit A adds `the_claimed_one` with no trailer, and an EMPTY sibling commit
+// B carries `Claim-Cell: the_claimed_one`. The declaration is keyed to B, and B added nothing, so
+// it is `NotAdded`. With `messages` back on the un-framed `--format=%B` this is the shape the
+// gate accepted: the declaration had no commit to answer for.
+#[test]
+fn a_declaration_answers_only_for_the_commit_that_carries_it() {
+    let repo = Repo::with(
+        "Cargo.toml",
+        "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "pub fn f() -> u8 { 1 }\n");
+    repo.commit("base");
+    let base = crate::causality::provenance::Commit::parse(&repo.commit_hash()).expect("a commit");
+    repo.write("tests/t.rs", "#[test]\nfn the_claimed_one() {}\n");
+    repo.commit("test: adds the_claimed_one");
+    repo.git(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "chore: sibling\n\nClaim-Cell: the_claimed_one",
+    ]);
+    let sibling = repo.commit_hash();
+    let claim = Claim::of(&crate::causality::worktree::messages(&repo.dir, &base)).expect("a claim");
+    assert_eq!(claim.by_commit(), &vec![(sibling, vec![String::from("the_claimed_one")])]);
+    let causes = super::validate(&repo.dir, &claim, &[]);
+    assert!(
+        causes.contains(&Cause::NotAdded(String::from("the_claimed_one"))),
+        "{causes:?}"
+    );
+}
+
 // RED for #954, half 2: the DIRECTION THAT REFUSES is gone - a test a NON-declaring sibling
 // commit added must NOT be refused as `Undeclared`. Before this change the range-wide bijection
 // read every added test in `base..HEAD` as undeclared the moment any other commit declared
@@ -555,7 +588,7 @@ fn an_added_test_a_sibling_commit_declared_not_for_is_not_refused() {
 #[test]
 fn a_cell_without_a_patch_is_refused() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
-    let claim = Claim::test(vec![String::from("missing_patch")]);
+    let claim = Claim::synthetic(["missing_patch"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes.contains(&Cause::MissingPatch(String::from("missing_patch"))),
@@ -575,7 +608,7 @@ fn a_headerless_patch_touching_a_test_file_is_refused() {
         .replace("b/crates/x/src/lib.rs", "b/crates/x/tests/t.rs");
     repo.write("devco/claim-mutations/the_cell.patch", &headerless);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes.contains(&Cause::TouchesTests {
@@ -593,7 +626,7 @@ fn a_patch_touching_a_diff_test_file_is_refused() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
     repo.write("devco/claim-mutations/the_cell.patch", PATCH_LIB);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[String::from("crates/x/src/lib.rs")]);
     assert!(
         causes.contains(&Cause::TouchesTests {
@@ -614,7 +647,7 @@ fn a_patch_that_creates_a_file_is_refused() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
     repo.write("devco/claim-mutations/the_cell.patch", PATCH_NEWFILE);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes.contains(&Cause::CreatesFile {
@@ -643,7 +676,7 @@ fn a_patch_that_renames_a_file_is_refused_as_creates_file() {
         ),
     );
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes.contains(&Cause::CreatesFile {
@@ -671,7 +704,7 @@ fn a_patch_that_copies_a_file_is_refused_as_creates_file() {
         ),
     );
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes.contains(&Cause::CreatesFile {
@@ -694,7 +727,7 @@ fn a_patch_touching_a_mixed_files_production_is_allowed() {
     );
     repo.write("devco/claim-mutations/the_cell.patch", PATCH_LIB);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[String::from("crates/x/src/lib.rs")]);
     assert!(!causes.iter().any(|c| matches!(c, Cause::TouchesTests { .. })), "{causes:?}");
 }
@@ -721,7 +754,7 @@ fn a_patch_with_a_hunk_inside_a_test_region_is_refused() {
     );
     repo.write("devco/claim-mutations/the_cell.patch", patch);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[String::from("crates/x/src/lib.rs")]);
     assert!(
         causes.contains(&Cause::PatchRewritesCell {
@@ -753,7 +786,7 @@ fn a_deletion_above_the_region_cannot_smuggle_a_test_edit() {
     patch.push_str("@@ -17,3 +5,3 @@\n     #[test]\n-    fn t() { assert_eq!(1, 1); }\n+    fn t() { assert_eq!(1, 2); }\n }\n");
     repo.write("devco/claim-mutations/the_cell.patch", &patch);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[String::from("crates/x/src/lib.rs")]);
     assert!(
         causes.contains(&Cause::PatchRewritesCell {
@@ -782,7 +815,7 @@ fn a_deletion_above_the_region_in_production_only_is_allowed() {
     patch.push_str(" pub fn f() -> u8 { 1 }\n");
     repo.write("devco/claim-mutations/the_cell.patch", &patch);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[String::from("crates/x/src/lib.rs")]);
     assert!(
         !causes.iter().any(|c| matches!(c, Cause::PatchRewritesCell { .. })),
@@ -797,7 +830,7 @@ fn a_patch_that_does_not_apply_is_refused() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
     repo.write("devco/claim-mutations/the_cell.patch", PATCH_NOMATCH);
     repo.commit("patches");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let causes = super::validate(&repo.dir, &claim, &[]);
     assert!(
         causes
@@ -855,7 +888,7 @@ fn kill_cell_refuses_a_restore_failure() {
 fn the_arm_refuses_a_declared_cell_that_has_no_patch() {
     let repo = Repo::with("crates/x/src/lib.rs", "pub fn f() -> u8 { 1 }\n");
     let scoped = one_added_test("the_cell");
-    let claim = Claim::test(vec![String::from("the_cell")]);
+    let claim = Claim::synthetic(["the_cell"].into_iter()).expect("a named cell");
     let verdict = super::run(&repo.dir, &scoped, &[], &claim, Caller::TEST_CAUSALITY);
     assert_eq!(verdict, Verdict::Fail);
 }

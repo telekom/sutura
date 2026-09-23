@@ -540,7 +540,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // list a `git rm` of a test file rides a claim that every changed line was accounted for, over
     // lines nothing ever read.
     match relocation::decide(
-        Claim::of(&worktree::messages(&root, &at)).as_ref(),
+        Claim::of(&worktree::messages(&root, &at).replace('\0', "\n")).as_ref(),
         &relocation::Changed {
             files: &files,
             touched: &worktree::touched(&root, &at),

@@ -1060,10 +1060,7 @@ target, runs the named cell, and requires it to FAIL *naming that cell* by its O
 mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
 names - is NOT the claim arm's to refuse; it lands the ordinary base/head proof, so a branch that
 carries a claim cell AND ordinary red-on-base tests beside it must satisfy BOTH (the claimed
-cells' mutations kill AND the rest are red on base).
-mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
-target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
-mutation kills it. A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
+cells' mutations kill AND the rest are red on base). A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
 cell green refuses the whole arm. A created file is read from the patch's own bytes (a
 `--- /dev/null` file section, or a git rename/copy header's `to` path), never from whether a path
 happens to be found at HEAD, because a new file's own test region has no HEAD image to

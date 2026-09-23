@@ -305,16 +305,9 @@ fn run_at(root: &Path) -> Verdict {
         return Verdict::Fail;
     }
 
-    // The only input `Claim::of` takes is a commit LOG, and this is not one - so the log is
-    // fabricated from the same `Claim-Cell:` grammar rather than a second constructor added to
-    // `claim.rs` for a caller that is not a commit.
-    let mut log = String::new();
-    for cell in &cells {
-        log.push_str("Claim-Cell: ");
-        log.push_str(cell);
-        log.push('\n');
-    }
-    let Some(declared) = Claim::of(&log) else {
+    // Not a commit log, so not `Claim::of`: no commit declared these, and a claim keyed to none
+    // is what `Claim::synthetic` builds.
+    let Some(declared) = Claim::synthetic(cells.iter().map(String::as_str)) else {
         eprintln!(
             "xtask check-claim-mutation-kills: could not build a claim from {} committed patch(es)",
             cells.len()

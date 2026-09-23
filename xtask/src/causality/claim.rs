@@ -29,8 +29,8 @@
 //! branch commonly lands ordinary red-on-base tests beside a claim cell (measured on `main`:
 //! `f14e8a3a` declared one of three added tests), and those are proven by the ordinary base/head
 //! proof after the claim arm (the composite in `super::run`), not refused. `super::rot`'s
-//! synthetic bare `Claim-Cell:` stream is read under an empty commit name and skips the
-//! per-commit check, because it has no diff to be held against.
+//! re-proof builds its claim through [`Claim::synthetic`], which declares no commit and so has no
+//! per-commit check to skip - never by a log shape `Claim::of` would have to guess at.
 //!
 //! THE MUTATION IS ONE COMMITTED PATCH PER CELL, under `devco/claim-mutations/`. A patch file is
 //! reviewable in the diff and byte-reproducible; it is read at RUNTIME from the checkout (so it
@@ -117,20 +117,15 @@ pub(super) struct Claim {
     by_commit: CommitCells,
 }
 
-#[cfg(test)]
-impl Claim {
-    /// A claim carrying only the flat cell list, with no declaring commits.
-    ///
-    /// The patch-validation half of `validate` reads `cells` and never consults per-commit
-    /// `by_commit`; the tests that drive it build this minimal shape and leave the per-commit
-    /// `NotAdded` loop (which would otherwise shell out to git for every declared commit) a
-    /// no-op.
-    fn test(cells: Vec<String>) -> Self {
-        Self {
-            cells,
-            by_commit: Vec::new(),
-        }
-    }
+/// The distinct, identifier-shaped names among `names`, sorted.
+fn named<'a>(names: impl Iterator<Item = &'a str>) -> Vec<String> {
+    names
+        .map(str::trim)
+        .filter(|name| Ident::parse(name).is_some())
+        .map(String::from)
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect()
 }
 
 impl Claim {
@@ -140,13 +135,10 @@ impl Claim {
     /// declaration is read from THAT commit's own message, so a declaration answers for the
     /// commit that carries it and not for its neighbours (`github.com/telekom/sutura#954`).
     ///
-    /// A stream with NO NUL at all is not a commit log but a bare `Claim-Cell:` body -
-    /// the shape [`super::rot`] fabricates, re-proving every COMMITTED mutation with no commit
-    /// to key on. It is read the same way, under an empty commit name, and `validate` skips
-    /// empty-keyed declarations in the per-commit `NotAdded` loop: a synthetic claim has no diff
-    /// to be held against, only patches to re-verify. A NUL-free string never occurs in a real
-    /// single-commit range (`-z` always emits at least the terminating NUL), so the empty name
-    /// is unambiguous.
+    /// A stream with NO NUL at all carries NO claim. It is not a `-z` log (which always ends each
+    /// commit's body with one), so there is no commit to tie a declaration to, and reading it
+    /// under a made-up key would let a declaration answer for nothing - fail-open on the one
+    /// input the old `--format=%B` produced. [`Claim::synthetic`] is `super::rot`'s constructor.
     ///
     /// A TRAILER WITH NO NAME IS NO CLAIM, which is the fail-closed direction: it leaves the run
     /// exactly as it was, so a malformed declaration buys nothing. Requiring a name is what stops
@@ -158,25 +150,10 @@ impl Claim {
     /// DISCUSSING claim cells in prose declared one. Every real cell this tree commits is a bare
     /// identifier, so the tightening drops a prose mention and keeps every declaration.
     pub(super) fn of(log: &str) -> Option<Self> {
-        let pairs = {
-            let from_stream = worktree::commit_logs(log);
-            if from_stream.is_empty() && !log.is_empty() {
-                vec![("", log)]
-            } else {
-                from_stream
-            }
-        };
-        let per_commit: CommitCells = pairs
+        let per_commit: CommitCells = worktree::commit_logs(log)
             .into_iter()
             .filter_map(|(commit, message)| {
-                let cells: Vec<String> = message
-                    .lines()
-                    .filter_map(|line| line.trim().strip_prefix(TRAILER))
-                    .map(|rest| String::from(rest.trim()))
-                    .filter(|name| Ident::parse(name).is_some())
-                    .collect::<BTreeSet<String>>()
-                    .into_iter()
-                    .collect();
+                let cells = named(message.lines().filter_map(|line| line.trim().strip_prefix(TRAILER)));
                 (!cells.is_empty()).then_some((String::from(commit), cells))
             })
             .collect();
@@ -189,6 +166,16 @@ impl Claim {
         (!cells.is_empty()).then_some(Self {
             cells,
             by_commit: per_commit,
+        })
+    }
+
+    /// A claim over `cells` that NO commit declared: `super::rot` re-proving every committed
+    /// mutation, with no diff for a declaration to be held against - so no per-commit check.
+    pub(super) fn synthetic<'a>(cells: impl Iterator<Item = &'a str>) -> Option<Self> {
+        let cells = named(cells);
+        (!cells.is_empty()).then_some(Self {
+            cells,
+            by_commit: Vec::new(),
         })
     }
 
@@ -612,20 +599,15 @@ pub(super) fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), Stri
 /// and its green-against-base refusal unchanged" - this is that sentence made real.
 fn validate(wt: &Path, claim: &Claim, test_files: &[String]) -> Vec<Cause> {
     let mut causes: Vec<Cause> = Vec::new();
-    let declared_set: BTreeSet<&str> = claim.cells().iter().map(String::as_str).collect();
-    // range's added set is not the unit - a declaration on one commit must not be held against a
+    // Per commit: the range's added set is not the unit - a declaration on one commit must not be held against a
     // sibling commit's tests, which is exactly the bug #954 measured (`×135` undeclared on #929).
-    // An EMPTY commit key is `super::rot`'s SYNTHETIC bare-stream claim, which has no diff to be
-    // held against - only patches to re-verify - so its declarations skip this check entirely.
+    // `super::rot`'s synthetic claim declares no commit, so this loop has nothing to check for it.
     let read = head_reader(wt);
     for (commit, declared) in claim.by_commit() {
-        if commit.is_empty() {
-            continue;
-        }
         let added: Vec<String> = commit_added_names(wt, commit, &read).unwrap_or_default();
         let added_set: BTreeSet<&str> = added.iter().map(String::as_str).collect();
         for cell in declared {
-            if !added_set.contains(cell.as_str()) && declared_set.contains(cell.as_str()) {
+            if !added_set.contains(cell.as_str()) {
                 causes.push(Cause::NotAdded(cell.clone()));
             }
         }

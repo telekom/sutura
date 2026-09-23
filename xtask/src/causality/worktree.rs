@@ -86,6 +86,20 @@ pub(super) fn head_commit(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// The commit messages in `base..HEAD`, as git printed them: `<hash>\0<body>\0` per commit.
+///
+/// THE RANGE AND NOT HEAD ALONE, because a branch is reviewed whole and
+/// `super::relocation::decide` checks a trailer against everything the range did - so a sibling
+/// commit that changed behaviour breaks the claim instead of riding on it. `%B` is the raw body,
+/// which keeps a trailer on the line it was written on. The hash is framed in (`-z`) for
+/// `super::claim::Claim::of`, which ties each `Claim-Cell:` to its own commit
+/// (`github.com/telekom/sutura#954`); `super::relocation::Claim::of` reads lines and gets the
+/// stream with each NUL turned into a newline, so a trailer on a body's first line stays its own.
+///
+/// **WHAT IT CANNOT SEE: an UNCOMMITTED split.** `git diff <base>` compares base against the
+/// WORKING TREE, so a hand run over uncommitted work has a diff and no message to declare it with.
+/// That is the fail-closed direction and it is the point of the carrier: a claim that is not in a
+/// commit is not in review either.
 pub(super) fn messages(root: &Path, base: &Commit) -> String {
     git(root)
         .args(["log", "-z", "--format=%H%x00%B", &format!("{}..HEAD", base.as_str())])

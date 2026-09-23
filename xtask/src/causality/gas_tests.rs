@@ -141,6 +141,10 @@ fn run_dispatches_to_the_claim_arm() {
 /// kill, AND `the_ordinary_one` must be red against the reverted base (`g` returns 1 there,
 /// and the test asserts 2). The fixture is the separable shape `f14e8a3a` landed on `main`:
 /// an added test file, one declared cell, one undeclared test, all in one commit.
+///
+/// And the AND is not the claim arm alone: the same shape with the undeclared test pinning `f`
+/// (which the diff never touched - green on base AND head) must be `Fail`. The claim arm answers
+/// `Pass` for either shape, so only the ordinary half running over the leftovers refuses it.
 #[test]
 fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
     // `set_current_dir` is process-global - see `falsifier`'s own use of this guard.
@@ -149,7 +153,21 @@ fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
         "this test moves the process's current directory, so it must have the process to \
              itself: run it under `just test`."
     );
+    assert_eq!(
+        composite("fn the_ordinary_one() { assert_eq!(g(), 2); }"),
+        Verdict::Pass,
+        "the claim cell's mutation must kill AND the undeclared test must be red on base"
+    );
+    assert_eq!(
+        composite("fn the_laundered_one() { assert_eq!(f(), 1); }"),
+        Verdict::Fail,
+        "an undeclared test green on base must not ride on a beside-it claim cell's kill"
+    );
+}
 
+/// [`a_claim_cell_and_an_ordinary_test_are_both_proven`]'s fixture: a claimed cell plus `beside`,
+/// one undeclared `#[test]` fn in the same added file, run through `causality::run`.
+fn composite(beside: &str) -> Verdict {
     let dir = std::env::temp_dir().join(format!(
         "sutura-causality-composite-{}-{}",
         std::process::id(),
@@ -209,10 +227,10 @@ fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
     // proof reverts; `f` is untouched by the diff, exactly what a claim cell pins.
     std::fs::create_dir_all(dir.join("tests")).unwrap();
     std::fs::write(
-            dir.join("tests/t.rs"),
-            "use wired::{f, g};\n\n#[test]\nfn the_claimed_one() { assert_eq!(f(), 1); }\n#[test]\nfn the_ordinary_one() { assert_eq!(g(), 2); }\n",
-        )
-        .unwrap();
+        dir.join("tests/t.rs"),
+        format!("use wired::{{f, g}};\n\n#[test]\nfn the_claimed_one() {{ assert_eq!(f(), 1); }}\n#[test]\n{beside}\n"),
+    )
+    .unwrap();
     std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u8 { 1 }\npub fn g() -> u8 { 2 }\n").unwrap();
     git(&dir, &["add", "-A"]);
     git(
@@ -230,10 +248,5 @@ fn a_claim_cell_and_an_ordinary_test_are_both_proven() {
     let verdict = super::run(&[String::from("--since"), base]);
     std::env::set_current_dir(&original).expect("restore the current directory");
     drop(std::fs::remove_dir_all(&dir));
-
-    assert_eq!(
-        verdict,
-        Verdict::Pass,
-        "the claim cell's mutation must kill AND the undeclared test must be red on base"
-    );
+    verdict
 }

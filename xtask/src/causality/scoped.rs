@@ -154,6 +154,8 @@ impl Scoped {
     /// proof proves what is left. `None` when nothing remains, so the caller can keep the claim
     /// verdict alone; the `silent`/`ignored` lists are carried because the two halves are still
     /// reported from one diff, and dropping a named-but-ignored test here would un-print it.
+    /// It matches the bare fn NAME, which [`AddedTest::name`] says is not a key: two added tests
+    /// sharing a name across binaries are both removed (as the old range-wide bijection was).
     pub(crate) fn minus(&self, names: &BTreeSet<String>) -> Option<Self> {
         let kept: Vec<AddedTest> = self.tests.iter().filter(|one| !names.contains(one.name())).cloned().collect();
         (!kept.is_empty()).then_some(Self {
