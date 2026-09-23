@@ -46,9 +46,14 @@ A data source executes a compiled plan. The `Warehouse` port is synchronous and 
 
 **Oracle is declarable and does not yet answer a whole-plan question.** A `kind: oracle` source is
 declarable and openable by a build carrying the `oracle` feature, default-off and in no published
-binary, over `transport_mode: plaintext` on a loopback host only: the driver trusts the certificate
-authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are
-refused at load rather than half-honoured. Asked by hand against `compose.services.yaml`'s real
+binary, over `transport_mode: plaintext` to a declared loopback host only: the driver trusts the
+certificate authorities compiled into it and takes no declared trust store, so `verified` and
+`mutual` are refused at load rather than half-honoured. **The loopback rule confines the first dial,
+not the connection:** the driver follows a listener's redirect to any address the listener names,
+still in plaintext, and authenticates there - so a loopback port-forward to a listener that
+redirects (a SCAN listener or a connection manager) sends the password and every row across the
+network in the clear. A cell holds that the driver follows; nothing in sutura can refuse it.
+Asked by hand against `compose.services.yaml`'s real
 `oracle` image (2026-09-23), a whole-plan question fails at the server, because the renderer ends it
 in `LIMIT n` and Oracle refuses that (`ORA-03049`); no committed cell reproduces that yet, and until
 one does its committed goldens pin what this renderer emits and nothing a database agreed to. Its

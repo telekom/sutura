@@ -47,7 +47,9 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
-  a `kind: oracle` source, and its shared rule confines `plaintext` to a loopback host.
+  a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
+  The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
+  address it names, in plaintext, with no option to refuse.
   `OracleWarehouse::connect_secured` therefore has no composition-root caller.
 - **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
   links this crate into both composition roots through `OracleWarehouse::connect`;

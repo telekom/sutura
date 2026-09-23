@@ -27,3 +27,22 @@ pub(crate) fn read(source: &SourceName, password_file: &std::path::Path) -> Resu
     }
     Ok(sutura_domain::identity::Secret::new(trimmed))
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_domain::model::SourceName;
+
+    /// A file holding only whitespace - a truncated secret, or `echo > file` - is refused naming the
+    /// key, never trimmed down to an empty password and sent.
+    #[test]
+    fn a_whitespace_only_password_file_is_refused_naming_the_key() {
+        let directory = std::env::temp_dir().join(format!("sutura-cli-password-file-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let file = directory.join("password");
+        std::fs::write(&file, " \n\t\n").expect("the file writes");
+        let refusal = super::read(&SourceName::parse("warehouse").expect("a source name"), &file).map(drop);
+        let _ignored = std::fs::remove_dir_all(&directory);
+        let error = refusal.expect_err("a whitespace-only password file is not a credential");
+        assert!(error.contains("`sources.warehouse.password_file` is empty"), "{error}");
+    }
+}

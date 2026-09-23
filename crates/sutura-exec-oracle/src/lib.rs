@@ -38,7 +38,9 @@
 //!   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
 //!   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
 //!   an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
-//!   a `kind: oracle` source, and its shared rule confines `plaintext` to a loopback host.
+//!   a `kind: oracle` source, and its shared rule confines a `plaintext` DECLARED host to loopback.
+//!   The connection is not confined: `oracledb::connect` follows a listener's TNS REDIRECT to any
+//!   address it names, in plaintext, with no option to refuse.
 //!   [`OracleWarehouse::connect_secured`] therefore has no composition-root caller.
 //! - **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
 //!   links this crate into both composition roots through [`OracleWarehouse::connect`];
@@ -181,7 +183,7 @@ impl OracleWarehouse {
         user: &str,
         password: &str,
     ) -> Result<Self, OracleError> {
-        Self::connect_string(source, posture, &format!("{host}:{port}/{service_name}"), user, password)
+        Self::connect_string(source, posture, &ezconnect(host, port, service_name), user, password)
     }
 
     /// Opens one connection over `tcps://host:port/service_name`, with the driver's own wallet-based
@@ -198,7 +200,7 @@ impl OracleWarehouse {
         password: &str,
         wallet: Option<&OracleWallet>,
     ) -> Result<Self, OracleError> {
-        let connect_string = format!("tcps://{host}:{port}/{service_name}");
+        let connect_string = format!("tcps://{}", ezconnect(host, port, service_name));
         let mut config = oracledb::Config::default()
             .set_connect_string(&connect_string)
             .map_err(|cause| OracleError::Connect { cause: cause.into() })?
@@ -388,6 +390,21 @@ impl OracleWarehouse {
                 oracle_type: db_type.name(),
             })
         }
+    }
+}
+
+/// An EZCONNECT `host:port/service_name`, with an IPv6 literal in brackets.
+///
+/// The driver's EZCONNECT parser reads a host as a bracketed literal or a run of name characters,
+/// so an unbracketed `::1:1521/FREEPDB1` is not an EZCONNECT string to it at all: it falls through
+/// to a `tnsnames.ora` alias lookup and fails - or, where a configuration directory is set in the
+/// environment, resolves whatever that file names. Bracketing is decided on a parsed address, not
+/// on the presence of a `:`, so a name is never wrapped.
+fn ezconnect(host: &str, port: u16, service_name: &str) -> String {
+    if host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{host}]:{port}/{service_name}")
+    } else {
+        format!("{host}:{port}/{service_name}")
     }
 }
 
@@ -634,7 +651,24 @@ mod tests {
     use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
 
-    use super::{OracleWarehouse, refuse_if_spent};
+    use super::{OracleWarehouse, ezconnect, refuse_if_spent};
+
+    /// **An IPv6 loopback literal is dialled, not looked up.** `sutura-config` accepts `::1` as a
+    /// loopback host; unbracketed, the driver reads the whole string as a `tnsnames.ora` alias and
+    /// `set_connect_string` fails. The driver's own parse of the result is the assertion, so no
+    /// socket is opened.
+    #[test]
+    fn an_ipv6_literal_host_reaches_the_driver_as_that_address() {
+        let config = oracledb::Config::default()
+            .set_connect_string(&ezconnect("::1", 1521, "FREEPDB1"))
+            .unwrap_or_else(|e| panic!("the driver did not parse the connect string: {e:?}"));
+        let descriptor = config.get_connect_descriptor();
+        // The driver re-brackets an address it parsed as IPv6 when it renders the descriptor, so
+        // this is `::1` read as an address - a tnsnames alias would never reach here at all.
+        assert!(descriptor.contains("(HOST=[::1])"), "{descriptor}");
+        assert!(descriptor.contains("(PORT=1521)"), "{descriptor}");
+        assert_eq!(ezconnect("127.0.0.1", 1521, "FREEPDB1"), "127.0.0.1:1521/FREEPDB1");
+    }
 
     /// **The predicate half**: a deadline with time left answers the remaining duration rather than
     /// refusing.

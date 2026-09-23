@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, SourcePlacement};
+use crate::sources::placement::{HostName, OracleServiceName, SourcePlacement};
 use crate::sources::transport::SourceTransport;
 use sutura_domain::model::SourceName;
 
@@ -19,7 +19,15 @@ use sutura_domain::model::SourceName;
 /// listener's host and port, the service name it resolves, the user and the file its password is
 /// read from. `transport_mode` is required and must be `plaintext`, so the channel is still a word
 /// an operator wrote rather than a default - and the parent's remote-plaintext rule then confines
-/// the source to a loopback host.
+/// the DECLARED `host` to a loopback literal.
+///
+/// **The limit, next to that claim: it confines the first dial, not the connection.** The pinned
+/// driver follows a listener's TNS REDIRECT to whatever address the listener names - unchecked,
+/// with no option to refuse, still plaintext - and authenticates there. So a loopback listener
+/// that redirects (a port-forward to a SCAN listener or a connection manager does, routinely) sends
+/// the password and every row across the network in the clear. Held by `sutura-cli`'s
+/// `a_listener_redirect_is_followed_to_an_address_nobody_declared`, which goes red the day the
+/// driver stops following.
 ///
 /// # Why TLS is refused rather than wired
 ///
@@ -53,7 +61,13 @@ pub(super) fn parse_placement(
         kind,
         key: "port",
     })?;
-    let service_name = super::required(alias, kind, "service_name", entry.service_name)?.to_owned();
+    let service_name =
+        OracleServiceName::parse(super::required(alias, kind, "service_name", entry.service_name)?).map_err(|cause| {
+            InvalidSourceRegistry::OracleServiceName {
+                alias: alias.clone(),
+                cause,
+            }
+        })?;
     let user = super::required(alias, kind, "user", entry.user)?.to_owned();
     let password_file: PathBuf = super::parse_absolute(
         alias,
@@ -168,7 +182,7 @@ mod tests {
             } => {
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
-                assert_eq!(service_name, "FREEPDB1");
+                assert_eq!(service_name.as_str(), "FREEPDB1");
                 assert_eq!(user, "sutura");
                 assert_eq!(password_file, std::path::Path::new("/etc/sutura/oracle-password"));
             }
@@ -292,28 +306,94 @@ mod tests {
         }
     }
 
-    /// `service_name` is `oracle`'s alone: written on the other dialled kinds it is refused, not read.
+    /// `service_name` is `oracle`'s alone: written on any other kind it is refused, not read. One
+    /// entry per kind, because each kind reaches the refusal through its own list - `postgres`'
+    /// inline one, `clickhouse`'s own, and `dialled_source_keys` for `files` and `bigquery`.
     #[test]
-    fn a_service_name_on_another_dialled_kind_is_refused() {
-        let error = SourceRegistry::parse(
+    fn a_service_name_on_any_other_kind_is_refused() {
+        // `files` and `bigquery` refuse every dialled key, so their entry carries `service_name` alone.
+        let undialled = RawSourceEntry {
+            host: None,
+            port: None,
+            user: None,
+            password_file: None,
+            transport_mode: None,
+            ..oracle("warehouse")
+        };
+        for (expected, entry) in [
+            (
+                SourceKind::Postgres,
+                RawSourceEntry {
+                    kind: "postgres",
+                    database: Some("sutura"),
+                    ..oracle("warehouse")
+                },
+            ),
+            (
+                SourceKind::ClickHouse,
+                RawSourceEntry {
+                    kind: "clickhouse",
+                    ..oracle("warehouse")
+                },
+            ),
+            (
+                SourceKind::Files,
+                RawSourceEntry {
+                    kind: "files",
+                    ..undialled.clone()
+                },
+            ),
+            (
+                SourceKind::BigQuery,
+                RawSourceEntry {
+                    kind: "bigquery",
+                    ..undialled.clone()
+                },
+            ),
+        ] {
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("service_name is refused here");
+            assert!(
+                matches!(
+                    error,
+                    InvalidSourceRegistry::KeyNotForKind {
+                        kind,
+                        key: "service_name",
+                        ..
+                    } if kind == expected
+                ),
+                "{error}"
+            );
+        }
+    }
+
+    /// A service name is one the driver reads as written, or it is refused: `:pooled` would switch
+    /// the server type and `/x` name an instance, silently, if the value reached the connect string.
+    #[test]
+    fn a_service_name_the_driver_would_read_as_something_more_is_refused() {
+        for (written, found) in [("FREEPDB1:pooled", ':'), ("FREEPDB1/x", '/'), ("FREE-PDB1", '-')] {
+            let entry = RawSourceEntry {
+                service_name: Some(written),
+                ..oracle("warehouse")
+            };
+            let error = SourceRegistry::parse(&[entry], Some(&single_user())).expect_err("the service name is refused");
+            assert!(
+                matches!(
+                    error,
+                    InvalidSourceRegistry::OracleServiceName {
+                        cause: placement::InvalidOracleServiceName::Character { found: named },
+                        ..
+                    } if named == found
+                ),
+                "{written}: {error}"
+            );
+        }
+        SourceRegistry::parse(
             &[RawSourceEntry {
-                kind: "postgres",
-                database: Some("sutura"),
+                service_name: Some("orcl.example_1"),
                 ..oracle("warehouse")
             }],
             Some(&single_user()),
         )
-        .expect_err("a postgres entry carrying service_name is refused");
-        assert!(
-            matches!(
-                error,
-                InvalidSourceRegistry::KeyNotForKind {
-                    kind: SourceKind::Postgres,
-                    key: "service_name",
-                    ..
-                }
-            ),
-            "{error}"
-        );
+        .expect("letters, digits, `_` and `.` are a service name");
     }
 }

@@ -40,7 +40,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
-use crate::sources::placement::{BillingProject, DatasetId, InvalidHostName, InvalidResourceName, SourcePlacement};
+use crate::sources::placement::{
+    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, SourcePlacement,
+};
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
 use sutura_domain::model::{InvalidIdentifier, SourceName};
@@ -371,6 +373,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidResourceName,
     },
+    /// A declared Oracle `service_name` the driver would not read as written.
+    #[error("`sources.{alias}.service_name` is not a usable Oracle service name")]
+    OracleServiceName {
+        alias: SourceName,
+        #[source]
+        cause: InvalidOracleServiceName,
+    },
     /// A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
     #[error("`sources.{alias}.host` is not a usable host")]
     Host {
@@ -439,10 +448,8 @@ pub enum InvalidSourceRegistry {
          or dial over `host` instead of `unix_socket`"
     )]
     TlsOverUnixSocket { alias: SourceName, mode: &'static str },
-    /// A TLS transport declared on a kind whose driver cannot be handed the declared trust store.
-    ///
-    /// `oracle` today: the driver builds its own TLS configuration over a bundled public-CA set that a
-    /// wallet only WIDENS, so `transport_anchors` could not be the store the source verifies against.
+    /// A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see
+    /// `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
     #[error(
         "`sources.{alias}` is `kind: {}` and `sources.{alias}.transport_mode` is `{mode}` - its driver \
          trusts the public certificate authorities compiled into it, and no declared \
