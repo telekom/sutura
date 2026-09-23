@@ -466,8 +466,8 @@ inventing a key of this transport's own is a decision with two arguments:**
   that deadline at a cooperative yield - so the engine on this transport already answers to this
   key; before this change the *peer* was the only party in that arithmetic with no deadline at
   all. This bullet used to say a `bigquery` job derived `timeoutMs`/`jobTimeoutMs` from it
-  directly; those were `jobs.query` request parameters on a transport that is deleted, and a
-  `BigQuery` job over ADBC is handed no bound at all.
+  directly; those were `jobs.query` request parameters on a transport that is deleted. A
+  `BigQuery` job over ADBC is sent what is left of the port deadline as its `jobTimeoutMs`.
 
 The key's name says `server` and this transport binds no listener, which is the one argument
 against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than
