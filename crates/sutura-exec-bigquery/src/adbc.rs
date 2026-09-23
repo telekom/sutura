@@ -68,7 +68,11 @@ use arrow_array::RecordBatchReader as _;
 
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
-use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport};
+use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport};
+use core::time::Duration;
+use std::time::Instant;
+#[cfg(doc)]
+use sutura_domain::warehouse::deadline::Deadline;
 
 /// How many rows this transport will materialise from one result stream before refusing.
 ///
@@ -163,6 +167,10 @@ pub enum AdbcError {
     /// was made and failed stays a failure.
     #[error("ADBC has no call that prices a statement without running it")]
     NoDryRun,
+    /// The port's own deadline was already spent when the statement was prepared, so nothing was
+    /// sent: a `jobTimeoutMs` of what is left would be `0`, which the driver reads as unbounded.
+    #[error("the request's deadline was spent before the statement was sent")]
+    DeadlineSpent,
     /// The plan's values could not be assembled as the batch this driver binds them from.
     ///
     /// Its own variant rather than an [`Self::Adbc`], because the failure is on THIS side of the C
@@ -236,11 +244,18 @@ pub enum AdbcError {
 /// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
 /// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
 /// what the service does with it, and what it does not bound.
+///
+/// **And the TIME bound: a request-time call's own [`Deadline`] becomes the job's `jobTimeoutMs`.**
+/// `now` is an argument for the reason [`Deadline::remaining_at`] takes one. A deadline already
+/// spent is [`AdbcError::DeadlineSpent`] before anything is sent, and what is left rounds UP to a
+/// whole millisecond, because the driver reads `0` as *no timeout*. See [`JOB_TIMEOUT_OPTION`] for
+/// what the service does with it, and what it does not bound.
 fn prepared<S>(
     stmt: &mut S,
     request: &JobRequest<'_>,
     bound: Option<arrow_array::RecordBatch>,
     max_bytes_billed: BytesBilledCeiling,
+    now: Instant,
 ) -> Result<(), AdbcError>
 where
     S: Statement,
@@ -250,11 +265,25 @@ where
         OptionValue::Int(max_bytes_billed.as_int()),
     )
     .map_err(AdbcError::Adbc)?;
+    if let JobDeadline::Port(deadline) = request.deadline() {
+        let left = deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?;
+        stmt.set_option(
+            OptionStatement::Other(JOB_TIMEOUT_OPTION.to_owned()),
+            OptionValue::Int(whole_millis(left)),
+        )
+        .map_err(AdbcError::Adbc)?;
+    }
     stmt.set_sql_query(request.statement()).map_err(AdbcError::Adbc)?;
     if let Some(batch) = bound {
         stmt.bind(batch).map_err(AdbcError::Adbc)?;
     }
     Ok(())
+}
+
+/// `left` in whole milliseconds, rounded UP and never below one - a sub-millisecond remainder
+/// floored to `0` would reach the driver as *no timeout at all*.
+fn whole_millis(left: Duration) -> i64 {
+    i64::try_from(left.as_nanos().div_ceil(1_000_000)).unwrap_or(i64::MAX).max(1)
 }
 
 /// Loads the driver, by whichever of the two routes this artefact has.
@@ -319,6 +348,20 @@ const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 /// `SetOptionString`, whose own match does not carry this key, and come back
 /// `NotImplemented`.
 const MAX_BYTES_BILLED_OPTION: &str = "bigquery.query.max_bytes_billed";
+
+/// The pinned driver's own name for `BigQuery`'s `jobTimeoutMs` job configuration, in milliseconds.
+///
+/// **Read off the same pinned source as [`MAX_BYTES_BILLED_OPTION`]** - `go/driver.go`'s
+/// `OptionQueryJobTimeout`, which `go/statement.go`'s `SetOptionInt` assigns to
+/// `queryConfig.JobTimeout` as `time.Duration(value) * time.Millisecond`. An integer option for the
+/// same `adbc_ffi` reason.
+///
+/// **The limit, where the claim is.** This is a SERVER-side bound: the service stops a job that
+/// outlives it, on a best-effort basis, and this process does not cancel anything itself - the
+/// driver's own `Statement::cancel` is not wired to the deadline. A job the service times out
+/// comes back as a job failure, which `deadline_exceeded` does not read as the deadline. Not run
+/// against the service by the change that added it; the hosted adapter leg is where that lands.
+const JOB_TIMEOUT_OPTION: &str = "bigquery.query.job_timeout";
 
 /// A `BigQuery` endpoint over ADBC.
 ///
@@ -435,7 +478,7 @@ impl AdbcBigQuery {
             .map_err(AdbcError::Adbc)?;
         let mut conn = db.new_connection().map_err(AdbcError::Adbc)?;
         let mut stmt = conn.new_statement().map_err(AdbcError::Adbc)?;
-        prepared(&mut stmt, request, bound, self.max_bytes_billed)?;
+        prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
         Ok((driver, stmt, authentication.source))
     }
 }
@@ -519,6 +562,13 @@ impl JobTransport for AdbcBigQuery {
         matches!(*error, AdbcError::NoDryRun)
     }
 
+    /// `true` for [`AdbcError::DeadlineSpent`] alone: the one failure here that IS the port's
+    /// deadline. A job the service stopped at `jobTimeoutMs` is not recognised - see
+    /// [`JOB_TIMEOUT_OPTION`].
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(*error, AdbcError::DeadlineSpent)
+    }
+
     /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
     ///
     /// **The port's default is `false` and that was wrong for this transport once
@@ -549,6 +599,7 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::Batch(_)
             | AdbcError::Uncovered(_)
             | AdbcError::NoDryRun
+            | AdbcError::DeadlineSpent
             | AdbcError::Parameters { .. }
             | AdbcError::SubjectSource { .. }
             | AdbcError::UnusableTarget

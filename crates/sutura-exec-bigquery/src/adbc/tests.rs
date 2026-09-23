@@ -11,7 +11,10 @@ use sutura_domain::calendar::Date;
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::{ParamValue, UnannouncedBatch};
 
+use std::time::{Duration, Instant};
+
 use adbc_core::Statement;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 
 use super::{AdbcBigQuery, AdbcError, DriverLocation, Impersonation};
 use crate::transport::{DatasetAddress, DatasetId, JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
@@ -388,7 +391,8 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("a range is bindable");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts both calls");
+    super::prepared(&mut statement, &request, bound, a_gibibyte(), Instant::now())
+        .expect("the recording statement accepts both calls");
     assert_eq!(statement.queries, vec![String::from("SELECT ? AS region WHERE d >= ?")]);
     assert_eq!(
         statement.bound,
@@ -423,7 +427,8 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
         JobDeadline::Boot,
     );
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, None, a_gibibyte()).expect("the recording statement accepts the ceiling");
+    super::prepared(&mut statement, &request, None, a_gibibyte(), Instant::now())
+        .expect("the recording statement accepts the ceiling");
     assert_eq!(
         statement.integer_options,
         vec![(String::from("bigquery.query.max_bytes_billed"), 1024 * 1024 * 1024_i64)],
@@ -433,7 +438,7 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
     // constant that happens to match the fixture.
     let mut other = Recording::new();
     let tighter = super::BytesBilledCeiling::parse(4096).expect("four kibibytes is a usable ceiling");
-    super::prepared(&mut other, &request, None, tighter).expect("the recording statement accepts the ceiling");
+    super::prepared(&mut other, &request, None, tighter, Instant::now()).expect("the recording statement accepts the ceiling");
     assert_eq!(
         other.integer_options,
         vec![(String::from("bigquery.query.max_bytes_billed"), 4096_i64)]
@@ -457,7 +462,8 @@ fn a_call_carrying_no_values_binds_nothing_at_all() {
     );
     let bound = super::bind::parameter_batch(request.params()).expect("no values is not a failure");
     let mut statement = Recording::new();
-    super::prepared(&mut statement, &request, bound, a_gibibyte()).expect("the recording statement accepts the query");
+    super::prepared(&mut statement, &request, bound, a_gibibyte(), Instant::now())
+        .expect("the recording statement accepts the query");
     assert_eq!(statement.queries.len(), 1);
     assert!(
         statement.bound.is_empty(),
@@ -565,4 +571,68 @@ fn both_of_the_transports_own_result_ceilings_are_pinned_to_what_they_were_deriv
     // saturating ceiling a suite cannot cross, so raising either constant to it fails here. Written
     // as equalities and not as a `< usize::MAX` pair, which `clippy::assertions_on_constants`
     // refuses - and rightly: an assertion the compiler folds away holds nothing.
+}
+
+/// A port deadline opened at `opened` with `budget` to spend.
+fn deadline(opened: Instant, budget: Duration) -> Deadline {
+    Deadline::opened_at(opened, Budget::parse(budget).expect("a non-zero budget parses"))
+}
+
+#[test]
+fn a_request_time_statement_carries_what_is_left_of_its_deadline_as_the_job_timeout() {
+    // **THE CELL `telekom/sutura#929`'s deadline finding asks for.** `JobDeadline::Port` reached
+    // the request and nothing read it, so a question whose caller had long given up still ran to
+    // completion on the service. Asserted by the option's exact KEY and VALUE for the reason the
+    // bytes-billed cell above gives: a key reaching a different driver option would bound nothing.
+    let project = project();
+    let dataset = dataset();
+    let opened = Instant::now();
+    let now = opened + Duration::from_millis(1_500);
+    let port = JobDeadline::Port(deadline(opened, Duration::from_secs(30)));
+    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, port);
+    let mut statement = Recording::new();
+    super::prepared(&mut statement, &request, None, a_gibibyte(), now).expect("the recording statement accepts both bounds");
+    assert_eq!(
+        statement.integer_options,
+        vec![
+            (String::from("bigquery.query.max_bytes_billed"), 1024 * 1024 * 1024_i64),
+            (String::from("bigquery.query.job_timeout"), 28_500_i64),
+        ],
+        "the job was not bounded by what is left of the caller's own deadline"
+    );
+    // A sub-millisecond remainder rounds UP: floored it would be `0`, which the driver reads as
+    // no timeout at all - the one value this option must never carry.
+    let mut nearly = Recording::new();
+    let almost = opened + Duration::from_micros(29_999_990);
+    super::prepared(&mut nearly, &request, None, a_gibibyte(), almost).expect("a remainder is still a remainder");
+    assert_eq!(
+        nearly.integer_options.last(),
+        Some(&(String::from("bigquery.query.job_timeout"), 1_i64))
+    );
+    // THE CONTROL: the boot path has no caller and no port deadline, so it carries no job timeout -
+    // a cell that saw the option on every statement could pass over a hard-coded constant.
+    let boot = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, JobDeadline::Boot);
+    let mut booting = Recording::new();
+    super::prepared(&mut booting, &boot, None, a_gibibyte(), now).expect("the boot path accepts the ceiling");
+    assert_eq!(booting.integer_options.len(), 1, "{:?}", booting.integer_options);
+}
+
+#[test]
+fn a_spent_deadline_sends_nothing_and_reads_as_the_deadline() {
+    // What is left of a spent deadline is `0`, and a `jobTimeoutMs` of `0` is unbounded - so the
+    // refusal has to land before any statement is prepared, and it has to read as the deadline
+    // rather than a service error.
+    let project = project();
+    let dataset = dataset();
+    let opened = Instant::now();
+    let port = JobDeadline::Port(deadline(opened, Duration::from_secs(1)));
+    let request = JobRequest::new("SELECT 1", &[], &project, &dataset, JobIdentity::Transport, port);
+    let mut statement = Recording::new();
+    let spent = super::prepared(&mut statement, &request, None, a_gibibyte(), opened + Duration::from_secs(2))
+        .expect_err("a spent deadline is refused");
+    assert!(matches!(spent, AdbcError::DeadlineSpent), "{spent:?}");
+    assert!(statement.queries.is_empty(), "a statement was prepared past its deadline");
+    let endpoint = endpoint(Impersonation::Disabled);
+    assert!(endpoint.deadline_exceeded(&spent));
+    assert!(!endpoint.deadline_exceeded(&AdbcError::NoDryRun));
 }

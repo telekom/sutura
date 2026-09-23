@@ -7,8 +7,9 @@ description: One absolute deadline per answer, opened by the transport and carri
 
 Status: **accepted; the record, port signature and refusal have landed. The engine returns at a
 cooperative yield after its deadline and drops the rows future; Postgres stops its certified path
-with `statement_timeout`; BigQuery sends the port deadline NOWHERE - the second amendment below
-retracts this line's earlier `timeoutMs`/`jobTimeoutMs` claim, which was the deleted HTTP wire's.
+with `statement_timeout`; BigQuery sends what is left of the port deadline as the ADBC driver's
+`bigquery.query.job_timeout` (`jobTimeoutMs`) - the third amendment below; the second retracted the
+deleted HTTP wire's version of that claim.
 The
 table states each mechanism and its limits. Postgres's raw SQL path has no per-request deadline and
 remains bounded by its connect-time ceiling.** Four accepted
@@ -287,3 +288,12 @@ test fake. So for BigQuery this decision's in-process half holds (a question who
 is refused before the call) and its at-the-source half reaches nothing: **a running BigQuery job is
 not cancelled, and nothing bounds how long it takes.** `docs/serving.md`'s
 `server.request_timeout_seconds` row says the same thing where an operator reads it.
+
+**Third amendment: the ADBC transport sends the deadline again.** `adbc::prepared` sets the pinned
+driver's `bigquery.query.job_timeout` (read off `go/statement.go`'s `SetOptionInt`, milliseconds) to
+what is left of a `JobDeadline::Port`, rounded up because the driver reads `0` as unbounded, and
+refuses a spent one as `DeadlineSpent` before anything is sent; the boot path sends no time bound.
+Held by fake-statement cells in `adbc/tests.rs`. **The limit:** `jobTimeoutMs` is the service's
+best-effort stop, this process cancels nothing itself (the driver's `Statement::cancel` is not
+wired), a job stopped that way reads as a job failure rather than `deadline_exceeded`, and none of it
+has been run against the service yet.
