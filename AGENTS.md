@@ -57,11 +57,12 @@ Those three plus secure-by-design are the definition of *correct* in review here
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
   who is asking) is built. Leg 2 (a source executing AS them) is **built and unproven**: on BigQuery
-  a source's declared per-source map decides only WHETHER a caller may be served there, and the
-  source executes as whatever principal the declared pool resolves that subject to - so the map's
-  VALUES are read by nothing. The hosted venue that would show a pool resolving one is `wired`,
-  nobody has dispatched it, and **the run this sentence used to cite was of code no longer in the
-  tree** - an HTTP exchange against a workload-identity pool that the ADBC adoption deleted.
+  the caller's own verified assertion is federated through the declared pool, and the account the
+  source's per-source map declares for that subject becomes the credential's
+  `service_account_impersonation_url` - an undeclared subject is refused, never run as the
+  deployment. Both hosted venues that would show it - the adapter one and the served one - are
+  `wired`, and **no run of either has been observed**; the run this sentence once cited was of an
+  HTTP exchange the ADBC adoption deleted.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
   this claim while that page records no run - **in prose files only**: its scope is
   `md`/`nix`/`yml`/`yaml`/`toml`/`sh`, so the same overstatement in a Rust comment is held by
