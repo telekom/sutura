@@ -6688,16 +6688,21 @@ aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over t
 Both are accepted and both come back with the field names the statement asked for. So the
 documented restriction is on a **declared column** and not on a quoted alias.
 
-**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
-so what stands for them is a quoted-identifier argument rather than a run. Read the row above
-for what each one is worth.
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only,
+and the reason changed for one of them. `ClickHouse` has no execution venue for a LEG at all and
+leaves `EXECUTES_LEGS` at its default `false`. `Postgres` declares the constant now and its
+conformance binding executes a leg against a provisioned tier - but that leg's labels come from
+`ResultLabel`, not from here, so **no venue has ever sent a label in THIS namespace to a
+Postgres server.** What stands for both is still a quoted-identifier argument rather than a run.
+Read the row above for what each one is worth.
 
-**The reason that sentence changed rather than the claim:** it used to say *the whole federated
-path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
-sets*, which stopped being true when the engine declared the constant and a published build
-began answering two sources. The limit for these two dialects is unaffected - it never rested on
-the path being gated, only on neither having a venue.
+**The reason that sentence keeps changing rather than the claim:** it used to say *the whole
+federated path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB`
+vehicle sets*, which stopped being true when the engine declared the constant and a published
+build began answering two sources; then it said neither of these two dialects had a leg venue,
+which stopped being true when the Postgres adapter declared it. The claim survived both, because
+it never rested on the path being gated or on a venue being absent - it rests on nothing having
+sent an identifier in this namespace to either server.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -7844,16 +7849,21 @@ aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over t
 Both are accepted and both come back with the field names the statement asked for. So the
 documented restriction is on a **declared column** and not on a quoted alias.
 
-**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
-so what stands for them is a quoted-identifier argument rather than a run. Read the row above
-for what each one is worth.
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only,
+and the reason changed for one of them. `ClickHouse` has no execution venue for a LEG at all and
+leaves `EXECUTES_LEGS` at its default `false`. `Postgres` declares the constant now and its
+conformance binding executes a leg against a provisioned tier - but that leg's labels come from
+`ResultLabel`, not from here, so **no venue has ever sent a label in THIS namespace to a
+Postgres server.** What stands for both is still a quoted-identifier argument rather than a run.
+Read the row above for what each one is worth.
 
-**The reason that sentence changed rather than the claim:** it used to say *the whole federated
-path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
-sets*, which stopped being true when the engine declared the constant and a published build
-began answering two sources. The limit for these two dialects is unaffected - it never rested on
-the path being gated, only on neither having a venue.
+**The reason that sentence keeps changing rather than the claim:** it used to say *the whole
+federated path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB`
+vehicle sets*, which stopped being true when the engine declared the constant and a published
+build began answering two sources; then it said neither of these two dialects had a leg venue,
+which stopped being true when the Postgres adapter declared it. The claim survived both, because
+it never rested on the path being gated or on a venue being absent - it rests on nothing having
+sent an identifier in this namespace to either server.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could
@@ -8193,16 +8203,21 @@ aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over t
 Both are accepted and both come back with the field names the statement asked for. So the
 documented restriction is on a **declared column** and not on a quoted alias.
 
-**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only.
-Neither has an execution venue for a LEG - each leaves `EXECUTES_LEGS` at its default `false` -
-so what stands for them is a quoted-identifier argument rather than a run. Read the row above
-for what each one is worth.
+**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only,
+and the reason changed for one of them. `ClickHouse` has no execution venue for a LEG at all and
+leaves `EXECUTES_LEGS` at its default `false`. `Postgres` declares the constant now and its
+conformance binding executes a leg against a provisioned tier - but that leg's labels come from
+`ResultLabel`, not from here, so **no venue has ever sent a label in THIS namespace to a
+Postgres server.** What stands for both is still a quoted-identifier argument rather than a run.
+Read the row above for what each one is worth.
 
-**The reason that sentence changed rather than the claim:** it used to say *the whole federated
-path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB` vehicle
-sets*, which stopped being true when the engine declared the constant and a published build
-began answering two sources. The limit for these two dialects is unaffected - it never rested on
-the path being gated, only on neither having a venue.
+**The reason that sentence keeps changing rather than the claim:** it used to say *the whole
+federated path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB`
+vehicle sets*, which stopped being true when the engine declared the constant and a published
+build began answering two sources; then it said neither of these two dialects had a leg venue,
+which stopped being true when the Postgres adapter declared it. The claim survived both, because
+it never rested on the path being gated or on a venue being absent - it rests on nothing having
+sent an identifier in this namespace to either server.
 
 **Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
 range is a wiring defect the combiner reports as a missing column, not a label this type could

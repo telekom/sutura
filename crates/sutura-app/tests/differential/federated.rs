@@ -93,14 +93,17 @@ use crate::adapters::{a_caller, deadline, posture, shared_credential, source, ve
 mod bounds;
 #[path = "federated/corpus.rs"]
 mod corpus;
-#[path = "federated/leg_capability.rs"]
-mod leg_capability;
 // A NEW file rather than inline, but it must carry a test of its own or `xtask test-causality`'s
 // base reconstruction REMOVES it (a new file with no `#[test]` in it is dropped outright) while
 // keeping this file - which calls into it - at HEAD, breaking the base build. `two_kinds::tests`
 // is what causality's own "held: … (carries its own tests)" rule keys on.
 #[path = "federated/two_kinds.rs"]
 mod two_kinds;
+// The leg-capability declaration and the cells that hold it against the tree, carved out for
+// `max-lines`. It carries the `#[test]`s the `registered!` expansion emits, which is what keeps
+// causality's base reconstruction from dropping the file.
+#[path = "federated/leg_evidence.rs"]
+mod leg_evidence;
 
 use corpus::{
     A_DUPLICATED_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, every_question, lookup_source,

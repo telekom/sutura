@@ -638,8 +638,9 @@ impl Warehouse for DataFusionWarehouse {
     /// `impersonation-at-source` on this adapter does not start.
     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
 
-    /// **This engine runs one source's share of a two-source answer, and it is the only adapter a
-    /// release links that does.** Declared rather than defaulted, and the default it overrides is
+    /// **This engine runs one source's share of a two-source answer, and it is the one adapter every
+    /// release links that does** - `sutura-exec-postgres` does too, behind a feature. Declared rather
+    /// than defaulted, and the default it overrides is
     /// documented on the port as *a missed-optimisation default rather than a missed-security one:
     /// the cost of being wrong is a refused question, never a wrong number* - which is precisely
     /// what makes opting ONE adapter in an ordinary capability statement and opting every adapter in
