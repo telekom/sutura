@@ -64,6 +64,23 @@ buildGoModule {
     # with `running ar failed: exec: "ar": executable file not found in $PATH`, measured.
     # The archive has to be the TARGET's, so `$AR` is the only correct value here.
     go build -tags driverlib -buildmode=c-archive -ldflags "-extar=$AR" -o libadbc_driver_bigquery.a ./pkg
+    # The archive's runtime must not start from its own `.init_array` entry: musl passes that entry
+    # no argc/argv and every static musl artefact died on SIGSEGV before `main` (measured). Swap it
+    # for `nix/go-archive-init.c`, linked into the same `go.o` so it is pulled in whenever the
+    # driver is. Exactly one pointer-sized entry is expected; anything else fails the build rather
+    # than dropping an initialiser this file does not know about.
+    $AR x libadbc_driver_bigquery.a go.o
+    init_size="$($READELF -SW go.o | sed 's/^ *\[ *[0-9]*\]//' | awk '$1 == ".init_array" { print $5 }')"
+    if [ "$init_size" != 000008 ]; then
+      echo "go.o .init_array is '$init_size', expected one 8-byte entry" >&2
+      exit 1
+    fi
+    $OBJCOPY -R .init_array -R .rela.init_array \
+      --globalize-symbol=_rt0_amd64_linux_lib --globalize-symbol=_rt0_arm64_linux_lib \
+      go.o go-noinit.o
+    $CC -c -fPIC -O2 -Wall -Wextra -Werror ${./go-archive-init.c} -o go-archive-init.o
+    $LD -r go-noinit.o go-archive-init.o -o go.o
+    $AR rs libadbc_driver_bigquery.a go.o
     runHook postBuild
   '';
   installPhase = ''
