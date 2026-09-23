@@ -12,8 +12,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::probe::{
-    DID_NOT_COMPILE, DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, NO_TESTS_TO_RUN, PRODUCTION_CALLER, UNRELATED, async_reader, cell,
-    pub_fn_reader, reader,
+    DID_NOT_COMPILE, DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, KILLED_BEFORE_REPORTING, NO_TESTS_TO_RUN, PRODUCTION_CALLER,
+    UNRELATED, async_reader, cell, pub_fn_reader, reader,
 };
 use super::{Caller, Cause, Claim, MutationKill, attest, classify_mutation, refused_lines, report_accepted, report_refused};
 use crate::Verdict;
@@ -405,6 +405,24 @@ fn an_ordinary_run_failure_still_reaches_the_normal_classification() {
         attest(false, UNRELATED, "the_added_one", &cell(), &reader()),
         Err(Cause::NotKilled {
             cell: String::from("the_added_one"),
+        })
+    );
+}
+
+// THE ASYMMETRY `base.rs`'s ordinary proof already closed and this arm did not: a FAILED run
+// (`ok = false`) naming no test at all is not entitled to *the mutation does not kill it* -
+// that claim belongs only to a run that reports SUCCESS with nothing failing. A subprocess a
+// signal killed before nextest could print anything is `could_not_attest`-unrecognised AND
+// `base::failures`-empty, which used to fall through to the SAME `NotAsserted` a genuine green
+// run produces. RED before this fix: `classify_mutation`/`attest` could not tell the two apart,
+// so this asserted `Cause::NotKilled` and passed.
+#[test]
+fn a_failed_run_naming_no_test_at_all_is_not_a_verdict_about_the_cell() {
+    assert_eq!(
+        attest(false, KILLED_BEFORE_REPORTING, "the_added_one", &cell(), &reader()),
+        Err(Cause::BuildFailed {
+            cell: String::from("the_added_one"),
+            why: String::from("the run failed but named no test failing at all - not a verdict about the declaration"),
         })
     );
 }

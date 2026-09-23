@@ -125,3 +125,10 @@ pub(super) const DID_NOT_COMPILE: &str = concat!(
 /// deleted the cell's own item) rather than killed by it, the fourth shape `could_not_attest`
 /// covers alongside a compile or manifest failure.
 pub(super) const NO_TESTS_TO_RUN: &str = "error: no tests to run\n";
+
+/// A FAILED run (`ok = false`) whose text carries none of `could_not_attest`'s three known
+/// shapes and names no test failing at all - a subprocess killed by a signal before nextest
+/// could print its own `Summary`/`error: test run failed` trailer, or before it ran anything.
+/// `base.rs`'s own `classify` already refuses to claim a proof over this shape
+/// (`BaseOutcome::Unattributed`); this is that same text, read by the claim arm instead.
+pub(super) const KILLED_BEFORE_REPORTING: &str = "error: test failed, to rerun pass `--lib`\nCaused by:\n  process didn't exit successfully: `.../deps/sutura_cli-abc123` (signal: 9, SIGKILL: killed)\n";
