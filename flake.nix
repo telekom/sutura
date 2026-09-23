@@ -517,6 +517,26 @@
             # whatever it pulls in before the `cargoNextest` build below does - cargo's own cache
             # makes that a scheduling change, not a second build, but it moves real wall time ahead
             # of `preCheck` rather than eliminating it.
+            #
+            # `pkgs.git` is NOT only for that faked `docker` contract. `xtask`'s own causality gate
+            # shells to a real `git` (`causality::worktree::git`, called from `causality::claim`,
+            # `causality::rot` and `causality::membership`), and most of those callers turn a
+            # missing binary into an empty string rather than a panic. Measured by stripping `git`
+            # from `PATH` before this exact `cargo nextest run -p xtask --all-features`: 1835
+            # passed became 23 failed, every one of them in that subsystem
+            # (`github.com/telekom/sutura#952`).
+            #
+            # NO CELL HOLDS THAT `Command::new("git")` FAILS TO SPAWN once PATH cannot resolve it -
+            # that is true independent of anything in this repo's own source, so it pins an
+            # `std::process` fact rather than a behaviour this diff can be measured against, and
+            # `just causality` refused exactly that attempt (`green against base behaviour`).
+            #
+            # A DIFFERENT subject - that THIS binding names `pkgs.git` - IS a line in this file a
+            # cell could hold: `xtask/src/workflows/nix_block.rs::block_source` already hands a
+            # caller one `flake.nix` block's raw source, and `check-warm-start` already lexes a
+            # binding out of it the same way. A claim cell over that lexed text would only prove
+            # the declaration still names `git`, not that the 23 test cells above still need it -
+            # not done here, so what is left is this comment: recall, not a mechanism.
             nativeCheckInputs = [ postgresTier.tier pkgs.git pkgs.python3 ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
