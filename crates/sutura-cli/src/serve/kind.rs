@@ -69,6 +69,10 @@ pub(crate) enum AnyWarehouse {
     /// connection pool is larger than the engine's handle.
     #[cfg(feature = "clickhouse")]
     ClickHouse(Box<super::ClickHouseSource>),
+    /// An Oracle connection, boxed for [`Self::BigQuery`]'s reason: the driver's connection state is
+    /// larger than the engine's handle.
+    #[cfg(feature = "oracle")]
+    Oracle(Box<super::OracleSource>),
 }
 
 /// The error any linked adapter can fail with, erased behind one type the same way the adapter is.
@@ -89,6 +93,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "clickhouse")]
     #[error(transparent)]
     ClickHouse(<super::ClickHouseSource as Warehouse>::Error),
+    #[cfg(feature = "oracle")]
+    #[error(transparent)]
+    Oracle(<super::OracleSource as Warehouse>::Error),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -103,6 +110,8 @@ macro_rules! any {
             AnyWarehouse::Postgres(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "clickhouse")]
             AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "oracle")]
+            AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*),
         }
     };
 }
@@ -119,6 +128,8 @@ macro_rules! any_fallible {
             AnyWarehouse::Postgres(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Postgres),
             #[cfg(feature = "clickhouse")]
             AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::ClickHouse),
+            #[cfg(feature = "oracle")]
+            AnyWarehouse::Oracle(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Oracle),
         }
     };
 }
@@ -142,12 +153,14 @@ macro_rules! any_predicate {
             (AnyWarehouse::Postgres(warehouse), AnyWarehouseError::Postgres(cause)) => warehouse.$method(cause),
             #[cfg(feature = "clickhouse")]
             (AnyWarehouse::ClickHouse(warehouse), AnyWarehouseError::ClickHouse(cause)) => warehouse.$method(cause),
+            #[cfg(feature = "oracle")]
+            (AnyWarehouse::Oracle(warehouse), AnyWarehouseError::Oracle(cause)) => warehouse.$method(cause),
             // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
-            // `bigquery`, `postgres` or `clickhouse` linked, `AnyWarehouse` and `AnyWarehouseError`
+            // `bigquery`, `postgres`, `clickhouse` or `oracle` linked, `AnyWarehouse` and `AnyWarehouseError`
             // each have the one `Files` variant, so the arm above is exhaustive on its own and
             // `-D warnings` (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept
             // only where a second variant exists to make a cross-variant pairing possible at all.
-            #[cfg(any(feature = "bigquery", feature = "postgres", feature = "clickhouse"))]
+            #[cfg(any(feature = "bigquery", feature = "postgres", feature = "clickhouse", feature = "oracle"))]
             _ => $default,
         }
     };
@@ -251,6 +264,10 @@ impl Warehouse for AnyWarehouse {
             Self::ClickHouse(warehouse) => warehouse
                 .execute_raw(statement, presented)
                 .map(|result| result.map_err(AnyWarehouseError::ClickHouse)),
+            #[cfg(feature = "oracle")]
+            Self::Oracle(warehouse) => warehouse
+                .execute_raw(statement, presented)
+                .map(|result| result.map_err(AnyWarehouseError::Oracle)),
         }
     }
 }
@@ -268,6 +285,7 @@ pub(crate) struct Grouped<'a> {
     pub(crate) bigquery: Vec<&'a SourceName>,
     pub(crate) postgres: Vec<&'a SourceName>,
     pub(crate) clickhouse: Vec<&'a SourceName>,
+    pub(crate) oracle: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -283,6 +301,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::BigQuery => grouped.bigquery.push(source),
             sutura_config::SourceKind::Postgres => grouped.postgres.push(source),
             sutura_config::SourceKind::ClickHouse => grouped.clickhouse.push(source),
+            sutura_config::SourceKind::Oracle => grouped.oracle.push(source),
         }
     }
     Ok(grouped)
@@ -337,6 +356,10 @@ pub(crate) fn open_mixed(
     if !grouped.clickhouse.is_empty() {
         engines = Some(accumulate(engines, clickhouse_group(&grouped.clickhouse, registry)?)?);
         trust_into(&mut attached, pinned, &grouped.clickhouse);
+    }
+    if !grouped.oracle.is_empty() {
+        engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry)?)?);
+        trust_into(&mut attached, pinned, &grouped.oracle);
     }
 
     // Unreachable: `open_engine` only calls this function when more than one group is non-empty,
@@ -485,6 +508,31 @@ fn clickhouse_group(
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_clickhouse` returned an open registry on a build with no ClickHouse adapter linked",
+    ))
+}
+
+/// The Oracle group, opened through [`super::oracle::open_oracle`] and erased.
+#[cfg(feature = "oracle")]
+fn oracle_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    let super::OpenedSources::Oracle(engines) = super::oracle::open_oracle(sources, registry)? else {
+        return Err(String::from("`open_oracle` returned an arm this dispatcher does not expect"));
+    };
+    Ok(engines.into_mapped(|engine| AnyWarehouse::Oracle(Box::new(engine))))
+}
+
+/// [`bigquery_group`]'s feature-off twin, for the same reason.
+#[cfg(not(feature = "oracle"))]
+fn oracle_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    super::oracle::open_oracle(sources, registry)?;
+    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
+    Err(String::from(
+        "`open_oracle` returned an open registry on a build with no Oracle adapter linked",
     ))
 }
 

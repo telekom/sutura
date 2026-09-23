@@ -262,6 +262,52 @@ impl core::fmt::Display for HostName {
     }
 }
 
+/// The service an `oracle` source's listener resolves - the path of an EZCONNECT
+/// `host:port/service_name` string.
+///
+/// **The accepted set is the driver's, not a guess at Oracle's**: ASCII letters, digits, `_` and
+/// `.`, the characters the pinned driver's EZCONNECT parser reads a service name with. It stops at
+/// the first character outside that set and reads what follows as something else - `:pooled`
+/// switches the server type, `/x` names an instance - so a wider type would let a declared value
+/// mean more than it says, silently. Not `crate::telemetry`'s service name, which is another thing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OracleServiceName(String);
+
+/// Why a declared Oracle service name is not one the driver would read as written.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidOracleServiceName {
+    /// Nothing was written, or only whitespace was.
+    #[error("it is empty")]
+    Empty,
+    /// A character the driver's EZCONNECT parser would stop at and read as something else.
+    #[error("it contains `{found}`; a service name is ASCII letters, digits, `_` and `.`")]
+    Character { found: char },
+}
+
+impl OracleServiceName {
+    /// Parses a declared service name.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidOracleServiceName> {
+        let trimmed = raw.as_ref().trim();
+        if trimmed.is_empty() {
+            return Err(InvalidOracleServiceName::Empty);
+        }
+        if let Some(found) = trimmed
+            .chars()
+            .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.')))
+        {
+            return Err(InvalidOracleServiceName::Character { found });
+        }
+        Ok(Self(String::from(trimmed)))
+    }
+
+    /// The service name, for building the connect string.
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// How a `postgres` source is dialled: over TCP to a named host, or through a unix socket
 /// directory. Exactly one, decided once in [`crate::sources::parse_placement`].
 ///
@@ -415,6 +461,29 @@ pub enum SourcePlacement {
         /// How the channel to this source is secured.
         transport: SourceTransport,
     },
+    /// An Oracle Database, reached over its TCP listener.
+    ///
+    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with no transport field, and
+    /// that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
+    /// shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
+    /// follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
+    /// states it and names the cell that holds it). Plaintext only, because the driver takes no
+    /// caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
+    /// widens, so no declared `transport_anchors` could be what the source verifies against. A field
+    /// here that could only ever hold `Plaintext` would be a choice the type pretends exists.
+    Oracle {
+        /// The listener's host - a loopback literal, by the parse's own refusal. The first dial only:
+        /// a listener's redirect is followed wherever it points.
+        host: HostName,
+        /// The listener's port. `1521` by convention, declared rather than defaulted.
+        port: u16,
+        /// The service name the listener resolves: the path of an EZCONNECT `host:port/service_name`.
+        service_name: OracleServiceName,
+        /// The user to connect as.
+        user: String,
+        /// The file that user's password is read from at boot.
+        password_file: PathBuf,
+    },
 }
 
 impl SourcePlacement {
@@ -431,6 +500,7 @@ impl SourcePlacement {
             Self::BigQuery { .. } => SourceKind::BigQuery,
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
+            Self::Oracle { .. } => SourceKind::Oracle,
         }
     }
 }

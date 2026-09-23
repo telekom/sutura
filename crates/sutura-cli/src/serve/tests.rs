@@ -80,6 +80,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::Postgres(_)) => panic!("expected the file engine, got the Postgres arm"),
         #[cfg(feature = "clickhouse")]
         Ok(OpenedSources::ClickHouse(_)) => panic!("expected the file engine, got the ClickHouse arm"),
+        #[cfg(feature = "oracle")]
+        Ok(OpenedSources::Oracle(_)) => panic!("expected the file engine, got the Oracle arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
@@ -126,7 +128,7 @@ pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
 /// pool a subject's assertion federates against, and that pool is this key), and these fixtures
 /// thread it through so the test reaches the refusal it is actually about rather than stopping at
 /// the settings tree.
-fn wif() -> &'static str {
+pub(super) fn wif() -> &'static str {
     "    workload_identity:\n      audience: \
      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
      providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n"

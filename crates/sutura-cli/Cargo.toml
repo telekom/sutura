@@ -104,6 +104,20 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 # `#955` has merged.
 clickhouse = ["dep:sutura-exec-clickhouse"]
 
+# The Oracle adapter, over Oracle's own pure-Rust driver.
+#
+# **Default-off for the ARTEFACT reason `bigquery` above states**: `optional` keeps the driver and
+# its own `rustls` stack ABSENT from a build that did not ask for it.
+#
+# **Not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and for `clickhouse`'s
+# kind of reason - measured, not feared.** Asked against `compose.services.yaml`'s real `oracle`
+# image, every whole-plan question this repository renders for `Dialect::Oracle` ends in `LIMIT n`,
+# which the server refuses (`ORA-03049`) - so a published binary linking this adapter today would
+# answer no whole-plan question from an Oracle source (`github.com/telekom/sutura#127` carries the
+# measurement). Reachable by `--features oracle` and `--all-features`, which is what every gate
+# passes, and by no release.
+oracle = ["dep:sutura-exec-oracle"]
+
 # The DataHub metadata adapter's HTTP reader (issue #202), for `sutura serve`'s `catalog.kind:
 # datahub`, and with it the outbound HTTP stack that reader needs.
 #
@@ -181,6 +195,9 @@ tokio-postgres = { workspace = true, optional = true }
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it. The
 # adapter owns its own endpoint, credential and TLS types, so this root names no HTTP client itself.
 sutura-exec-clickhouse = { workspace = true, optional = true }
+# The Oracle adapter, behind the `oracle` feature above - optional for `sutura-exec-bigquery`'s
+# reason. The adapter owns its driver's connection, so this root names no `oracledb` type itself.
+sutura-exec-oracle = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }

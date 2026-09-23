@@ -854,16 +854,17 @@ model's `source:` names.**
 | Key | Default | Notes |
 | --- | ------- | ----- |
 
-| `sources.<alias>.kind` | absent | `files`, or `bigquery`/`postgres`/`clickhouse` when that default-off feature was built in. Required, with no default |
+| `sources.<alias>.kind` | absent | `files`, or `bigquery`/`postgres`/`clickhouse`/`oracle` when that default-off feature was built in. Required, with no default |
 | `sources.<alias>.data_dir` | absent | Where that source's files are. Required, and absolute |
-| `sources.<alias>.host` | absent | Postgres and ClickHouse. A DNS name or IP address. On Postgres, exactly one of `host` and `unix_socket`; on ClickHouse it is the only dial |
-| `sources.<alias>.unix_socket` | absent | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host`. Refused on ClickHouse: its HTTP interface is dialled over TCP |
-| `sources.<alias>.port` | absent | Postgres and ClickHouse. Required; no guessed `5432` and no guessed `8123` |
-| `sources.<alias>.database` | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads |
-| `sources.<alias>.user` | absent | Postgres and ClickHouse. The one role every caller reaches this source as |
-| `sources.<alias>.password_file` | absent | Postgres and ClickHouse. Absolute, read at startup; secret text is refused in the settings tree |
-| `sources.<alias>.transport_mode` | absent | Postgres and ClickHouse. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on both |
-| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path |
+| `sources.<alias>.host` | absent | Postgres, ClickHouse and Oracle. A DNS name or IP address. On Postgres, exactly one of `host` and `unix_socket`; on ClickHouse and Oracle it is the only dial, and on Oracle it must be a loopback address because `plaintext` is that kind's only mode. That confines the address you DECLARE, not the connection: the Oracle driver follows a listener's redirect to any address, still in plaintext. An IPv6 literal such as `::1` is written bare |
+| `sources.<alias>.unix_socket` | absent | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host`. Refused on ClickHouse and Oracle, which are dialled over TCP |
+| `sources.<alias>.port` | absent | Postgres, ClickHouse and Oracle. Required; no guessed `5432`, `8123` or `1521` |
+| `sources.<alias>.database` | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads - and on Oracle, which names its database by `service_name` |
+| `sources.<alias>.service_name` | absent | Oracle only. Required: the service the listener resolves, the path of an EZCONNECT `host:port/service_name` - not a SID. ASCII letters, digits, `_` and `.` only: the driver would read anything after another character as something else. Refused on every other kind |
+| `sources.<alias>.user` | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
+| `sources.<alias>.password_file` | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
+| `sources.<alias>.transport_mode` | absent | Postgres, ClickHouse and Oracle. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on all three. Oracle accepts `plaintext` only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so `verified` and `mutual` are refused rather than half-honoured |
+| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see `transport_mode` |
 | `sources.<alias>.client_certificate` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | `sources.<alias>.client_key` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |

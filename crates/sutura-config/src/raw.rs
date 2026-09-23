@@ -158,6 +158,10 @@ pub(crate) struct RawSource {
     /// The database a `postgres` source connects to.
     #[serde(default)]
     pub(crate) database: Option<String>,
+    /// The service name an `oracle` source's listener resolves - the path of an EZCONNECT
+    /// `host:port/service_name` string. Not a SID, and not a `database`: the key names what it is.
+    #[serde(default)]
+    pub(crate) service_name: Option<String>,
     /// The role a `postgres` source connects as.
     #[serde(default)]
     pub(crate) user: Option<String>,

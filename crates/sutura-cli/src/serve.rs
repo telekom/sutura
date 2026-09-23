@@ -69,6 +69,9 @@ mod postgres;
 /// The same, for the `ClickHouse` HTTP endpoint this root opens and secures.
 mod clickhouse;
 
+/// The same, for the Oracle listener this root opens.
+mod oracle;
+
 /// The FILES half: the in-process engine over declared directories, and what it attached.
 ///
 /// **Its own file for the reason `bigquery`'s and `postgres`' are** - `cargo xtask max-lines` fails
@@ -279,6 +282,12 @@ pub(crate) fn run() -> Result<(), String> {
         OpenedSources::ClickHouse(engines) => {
             // No pre-flight, for the `Postgres` arm's reason exactly: `ClickHouseWarehouse` takes
             // the port's default `preflight`, so there is nothing for the table check to read.
+            (shared_identity_service(&catalogs, engines, &settings)?, None)
+        }
+        #[cfg(feature = "oracle")]
+        OpenedSources::Oracle(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
+            // port's default `preflight`, so there is nothing for the table check to read.
             (shared_identity_service(&catalogs, engines, &settings)?, None)
         }
         OpenedSources::Mixed(mixed) => {
@@ -591,6 +600,11 @@ pub(crate) enum OpenedSources {
     /// process before the listener binds.
     #[cfg(feature = "clickhouse")]
     ClickHouse(sutura_app::Warehouses<ClickHouseSource>),
+    /// An Oracle database per source, dialled in the clear on a declared loopback host - the only
+    /// channel `sutura_config` lets this kind declare - and followed in the clear wherever that
+    /// listener redirects (see `crate::oracle`). Nothing is attached.
+    #[cfg(feature = "oracle")]
+    Oracle(sutura_app::Warehouses<OracleSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -605,6 +619,12 @@ pub(crate) enum OpenedSources {
 /// generic over its transport and only this alias pins one.
 #[cfg(feature = "clickhouse")]
 pub(crate) use crate::clickhouse::ClickHouseSource;
+
+/// An Oracle source as this binary composes it: the adapter itself, which carries no transport
+/// generic to pin. Named for `ClickHouseSource`'s reason - it appears in a registry type, a
+/// `Warehouse` bound and a constructor's return.
+#[cfg(feature = "oracle")]
+pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 
 /// A `Postgres` source as this binary composes it: one connection under the deployment's declared
 /// identity, secured as the source declares.
@@ -793,15 +813,17 @@ fn open_engine(
         grouped.bigquery.is_empty(),
         grouped.postgres.is_empty(),
         grouped.clickhouse.is_empty(),
+        grouped.oracle.is_empty(),
     ) {
-        (false, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
-        (true, false, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false) => clickhouse::open_clickhouse(&grouped.clickhouse, registry),
+        (false, true, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
+        (true, false, true, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
+        (true, true, false, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry),
+        (true, true, true, true, false) => oracle::open_oracle(&grouped.oracle, registry),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        (true, true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
 }
