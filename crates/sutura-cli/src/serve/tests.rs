@@ -37,7 +37,7 @@ fn data() -> PathBuf {
 /// arrived: `open_engine` needs the ceiling to build the memory pool, and passing the group is
 /// what stops a test choosing a different ceiling from the one a deployment would run with.
 /// Every other value is the embedded default.
-fn one_worker() -> sutura_config::RuntimeSettings {
+pub(super) fn one_worker() -> sutura_config::RuntimeSettings {
     use sutura_config::{AdmissionTimeout, QueryConcurrency, ShutdownGrace, WorkingSetCeiling};
 
     sutura_config::RuntimeSettings::new(
@@ -57,12 +57,12 @@ fn one_worker() -> sutura_config::RuntimeSettings {
 /// set. Dropping the success value here rather than deriving `Debug` on it keeps a test's
 /// convenience out of the composition root's types, and the message the caller passes is what
 /// says which arm was expected to fire.
-fn refusal(opened: Result<OpenedSources, String>, expected: &str) -> String {
+pub(super) fn refusal(opened: Result<OpenedSources, String>, expected: &str) -> String {
     opened.map(drop).expect_err(expected)
 }
 
 /// The request timeout the embedded defaults ship, also what a `BigQuery` job's deadline is filled from.
-fn default_timeout() -> sutura_config::RequestTimeout {
+pub(super) fn default_timeout() -> sutura_config::RequestTimeout {
     sutura_config::RequestTimeout::parse(30).expect("thirty seconds is a request timeout")
 }
 
@@ -95,7 +95,7 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
 /// The mode is `single-user`, so a shared source needs no per-source acknowledgement here - the
 /// acknowledgement refusal is `sutura-config`'s own test, and repeating it would be asserting the
 /// same mechanism in the wrong crate.
-fn registry(entries: &str) -> sutura_config::SourceRegistry {
+pub(super) fn registry(entries: &str) -> sutura_config::SourceRegistry {
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
              files\"\nsources:\n{entries}"
@@ -113,7 +113,7 @@ fn registry(entries: &str) -> sutura_config::SourceRegistry {
 /// The path is absolute because a relative one is refused at parse - `sutura-config` owns that
 /// refusal and tests it - and because a service's working directory is whatever its supervisor
 /// chose.
-fn entry(alias: &str, posture: &str, extra: &str) -> String {
+pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
     format!(
         "  {alias}:\n    kind: \"files\"\n    data_dir: \"{}\"\n    posture: \"{posture}\"\n{extra}",
         data().display()
@@ -354,10 +354,6 @@ mod agent;
 // this file under the 1000-line cap.
 #[cfg(test)]
 mod bigquery;
-
-// The `clickhouse`-kind cells: the feature-off refusal and, on a build that linked the adapter,
-// the credential step alone and in a mixed registry.
-mod clickhouse;
 
 // The agent-route byte join: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
 // over the shipped exchanging broker. Only a composition root links both the MCP transport (the

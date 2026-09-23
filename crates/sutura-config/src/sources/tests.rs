@@ -703,5 +703,4 @@ fn a_workload_identity_block_belongs_to_impersonation_and_nowhere_else() {
     assert_eq!(workload.scope().as_str(), "https://www.googleapis.com/auth/bigquery.readonly");
 }
 
-mod clickhouse;
 mod postgres;
