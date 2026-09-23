@@ -496,6 +496,11 @@ Why the ADBC transport could not answer.
   lets the adapter answer `PreFlight::NotAsked` for a dry run nobody made while a dry run that
   was made and failed stays a failure.
 - `DeadlineSpent` - The port's own deadline was already spent when the statement was prepared, so nothing was sent: a `jobTimeoutMs` of what is left would be `0`, which the driver reads as unbounded.
+- `DeadlineElapsed` - The port's own deadline elapsed while the statement was executing or its result was being drained - after the statement was sent, which is what tells this apart from `Self::DeadlineSpent`. `run_to_deadline` is what reaches it, and it is the client-side bound `telekom/sutura#929`'s first finding asked for: a stuck driver call or a slow stream can no longer outlive the caller.
+
+  **What this does and does not mean has happened by the time a caller sees it.** The call this
+  process was waiting on was asked to `adbc_core::Statement::cancel` - see `run_to_deadline`
+  for what that ask can and cannot pre-empt.
 - `Parameters` - The plan's values could not be assembled as the batch this driver binds them from.
 
   Its own variant rather than an `Self::Adbc`, because the failure is on THIS side of the C
