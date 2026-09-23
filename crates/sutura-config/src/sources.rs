@@ -40,7 +40,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
-use crate::sources::placement::{InvalidHostName, InvalidOracleServiceName, InvalidResourceName, SourcePlacement};
+use crate::sources::placement::{
+    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, SourcePlacement,
+};
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
 use sutura_domain::model::{InvalidIdentifier, SourceName};

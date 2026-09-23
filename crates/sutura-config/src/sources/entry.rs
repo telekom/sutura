@@ -8,8 +8,10 @@ use std::path::PathBuf;
 
 use sutura_domain::model::SourceName;
 
-use super::placement::{BillingProject, DatasetId, SourcePlacement};
-use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, oracle};
+use super::placement::SourcePlacement;
+// Through the parent rather than `placement`: the parent's import is also what resolves the
+// `BillingProject` links in its children's `//!` headers, which rustdoc reads in its scope.
+use super::{BillingProject, DatasetId, InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, oracle};
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
 ///
