@@ -10,7 +10,7 @@
 //! **It is here rather than in `sutura-app`, for the reason `sutura_app::warehouses`'s own header
 //! states: which adapters a process holds is a property of the BUILD.** `sutura-app`'s manifest
 //! still names no adapter - [`sutura_app::Warehouses::into_mapped`] is what lets this module build
-//! the concrete, per-kind registry `open_files`/`open_bigquery`/`open_postgres` already know how to
+//! the concrete, per-kind registry each `open_<kind>` already knows how to
 //! build and then erase it, rather than threading this enum through every step that constructs an
 //! adapter.
 //!
@@ -65,6 +65,10 @@ pub(crate) enum AnyWarehouse {
     /// and client are larger than the engine's handle.
     #[cfg(feature = "postgres")]
     Postgres(Box<super::PostgresSource>),
+    /// A `ClickHouse` endpoint, boxed for [`Self::BigQuery`]'s reason: the HTTP agent's own
+    /// connection pool is larger than the engine's handle.
+    #[cfg(feature = "clickhouse")]
+    ClickHouse(Box<super::ClickHouseSource>),
 }
 
 /// The error any linked adapter can fail with, erased behind one type the same way the adapter is.
@@ -82,6 +86,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "postgres")]
     #[error(transparent)]
     Postgres(<super::PostgresSource as Warehouse>::Error),
+    #[cfg(feature = "clickhouse")]
+    #[error(transparent)]
+    ClickHouse(<super::ClickHouseSource as Warehouse>::Error),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -94,6 +101,8 @@ macro_rules! any {
             AnyWarehouse::BigQuery(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "postgres")]
             AnyWarehouse::Postgres(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "clickhouse")]
+            AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*),
         }
     };
 }
@@ -108,6 +117,8 @@ macro_rules! any_fallible {
             AnyWarehouse::BigQuery(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::BigQuery),
             #[cfg(feature = "postgres")]
             AnyWarehouse::Postgres(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::Postgres),
+            #[cfg(feature = "clickhouse")]
+            AnyWarehouse::ClickHouse(warehouse) => warehouse.$method($($arg),*).map_err(AnyWarehouseError::ClickHouse),
         }
     };
 }
@@ -129,12 +140,14 @@ macro_rules! any_predicate {
             (AnyWarehouse::BigQuery(warehouse), AnyWarehouseError::BigQuery(cause)) => warehouse.$method(cause),
             #[cfg(feature = "postgres")]
             (AnyWarehouse::Postgres(warehouse), AnyWarehouseError::Postgres(cause)) => warehouse.$method(cause),
-            // Unreachable, and therefore ABSENT, on the shipped feature set: with neither
-            // `bigquery` nor `postgres` linked, `AnyWarehouse` and `AnyWarehouseError` each have
-            // the one `Files` variant, so the arm above is exhaustive on its own and `-D warnings`
-            // (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept only where a
-            // second variant exists to make a cross-variant pairing possible in the first place.
-            #[cfg(any(feature = "bigquery", feature = "postgres"))]
+            #[cfg(feature = "clickhouse")]
+            (AnyWarehouse::ClickHouse(warehouse), AnyWarehouseError::ClickHouse(cause)) => warehouse.$method(cause),
+            // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
+            // `bigquery`, `postgres` or `clickhouse` linked, `AnyWarehouse` and `AnyWarehouseError`
+            // each have the one `Files` variant, so the arm above is exhaustive on its own and
+            // `-D warnings` (`unreachable_patterns`) refuses a wildcard nothing can reach. Kept
+            // only where a second variant exists to make a cross-variant pairing possible at all.
+            #[cfg(any(feature = "bigquery", feature = "postgres", feature = "clickhouse"))]
             _ => $default,
         }
     };
@@ -234,6 +247,10 @@ impl Warehouse for AnyWarehouse {
             Self::Postgres(warehouse) => warehouse
                 .execute_raw(statement, presented)
                 .map(|result| result.map_err(AnyWarehouseError::Postgres)),
+            #[cfg(feature = "clickhouse")]
+            Self::ClickHouse(warehouse) => warehouse
+                .execute_raw(statement, presented)
+                .map(|result| result.map_err(AnyWarehouseError::ClickHouse)),
         }
     }
 }
@@ -242,14 +259,15 @@ impl Warehouse for AnyWarehouse {
 
 /// Every source `open_engine` was handed, sorted into the kind it declared.
 ///
-/// A struct of three vectors rather than a map keyed on [`sutura_config::SourceKind`], because that
-/// type derives no `Ord` - it is a closed set of exactly three, and three fields say so without
+/// A struct of one vector per kind rather than a map keyed on [`sutura_config::SourceKind`],
+/// because that type derives no `Ord` - it is a closed set, and one field each says so without
 /// asking the settings crate for a comparison it has never needed.
 #[derive(Default)]
 pub(crate) struct Grouped<'a> {
     pub(crate) files: Vec<&'a SourceName>,
     pub(crate) bigquery: Vec<&'a SourceName>,
     pub(crate) postgres: Vec<&'a SourceName>,
+    pub(crate) clickhouse: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -264,6 +282,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::Files => grouped.files.push(source),
             sutura_config::SourceKind::BigQuery => grouped.bigquery.push(source),
             sutura_config::SourceKind::Postgres => grouped.postgres.push(source),
+            sutura_config::SourceKind::ClickHouse => grouped.clickhouse.push(source),
         }
     }
     Ok(grouped)
@@ -280,8 +299,7 @@ pub(crate) struct Mixed {
 /// Opens every group [`group_by_kind`] found, erases each into [`AnyWarehouse`] and merges them
 /// into one registry.
 ///
-/// **Reuses [`super::open_files`], [`super::bigquery::open_bigquery`] and
-/// [`super::postgres::open_postgres`] verbatim** - the per-source construction, the posture
+/// **Reuses [`super::files::open_files`] and each `open_<kind>` verbatim** - the per-source construction, the posture
 /// cross-check and the feature-off refusal all stay exactly what the single-kind arms already run,
 /// so a mixed deployment is refused by the SAME message a single-kind one would be for the half
 /// that is wrong. This function's only job is the erase-and-merge [`sutura_app::Warehouses`] itself
@@ -298,7 +316,7 @@ pub(crate) fn open_mixed(
     let mut attached: Option<BTreeSet<TableName>> = None;
 
     if !grouped.files.is_empty() {
-        let opened = super::open_files(pinned, &grouped.files, registry, runtime)?;
+        let opened = super::files::open_files(pinned, &grouped.files, registry, runtime)?;
         attached = Some(opened.attached);
         engines = Some(accumulate(engines, opened.engines.into_mapped(AnyWarehouse::Files))?);
     }
@@ -316,9 +334,13 @@ pub(crate) fn open_mixed(
         engines = Some(accumulate(engines, postgres_group(&grouped.postgres, registry)?)?);
         trust_into(&mut attached, pinned, &grouped.postgres);
     }
+    if !grouped.clickhouse.is_empty() {
+        engines = Some(accumulate(engines, clickhouse_group(&grouped.clickhouse, registry)?)?);
+        trust_into(&mut attached, pinned, &grouped.clickhouse);
+    }
 
-    // Unreachable: `open_engine` only calls this function when `Grouped::kinds_present` is at
-    // least 2, so at least one of the three branches above ran. Written as a fallback rather than
+    // Unreachable: `open_engine` only calls this function when more than one group is non-empty,
+    // so at least one of the branches above ran. Written as a fallback rather than
     // an unwrap the workspace denies.
     let engines = engines.ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))?;
     Ok(Mixed { engines, attached })
@@ -436,6 +458,33 @@ fn postgres_group(
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_postgres` returned an open registry on a build with no Postgres adapter linked",
+    ))
+}
+
+/// The `ClickHouse` group, opened through [`super::clickhouse::open_clickhouse`] and erased.
+#[cfg(feature = "clickhouse")]
+fn clickhouse_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    let super::OpenedSources::ClickHouse(engines) = super::clickhouse::open_clickhouse(sources, registry)? else {
+        return Err(String::from(
+            "`open_clickhouse` returned an arm this dispatcher does not expect",
+        ));
+    };
+    Ok(engines.into_mapped(|engine| AnyWarehouse::ClickHouse(Box::new(engine))))
+}
+
+/// [`bigquery_group`]'s feature-off twin, for the same reason.
+#[cfg(not(feature = "clickhouse"))]
+fn clickhouse_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    super::clickhouse::open_clickhouse(sources, registry)?;
+    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
+    Err(String::from(
+        "`open_clickhouse` returned an open registry on a build with no ClickHouse adapter linked",
     ))
 }
 

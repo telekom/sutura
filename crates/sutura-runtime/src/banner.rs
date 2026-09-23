@@ -245,7 +245,10 @@ fn announce_surface(settings: &Settings) {
     // only by writing it, and the log is where that choice becomes distinguishable from a default.
     for (source, configured) in settings.sources().each() {
         let (channel, anchors) = match configured.placement() {
-            SourcePlacement::Postgres { transport, .. } => (
+            // The two kinds whose channel the DEPLOYMENT declares, sharing one arm because both
+            // carry the same `SourceTransport` and `describe()` is the type's own word for the mode
+            // - so this line cannot claim a mode neither kind has.
+            SourcePlacement::Postgres { transport, .. } | SourcePlacement::ClickHouse { transport, .. } => (
                 transport.describe(),
                 transport.anchors().map(|anchors| match anchors {
                     TrustAnchors::System => String::from("system"),

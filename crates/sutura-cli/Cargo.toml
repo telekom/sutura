@@ -79,6 +79,31 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 # `sutura serve` itself calls. The adapter owns every driver type `sutura serve` composes with.
 postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 
+# The ClickHouse adapter, over its HTTP interface.
+#
+# **Default-off for the ARTEFACT reason `bigquery` above states**, plus one this feature has on its
+# own: `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` NON-optionally (its own manifest says
+# why - no composition root linked it, so there was no artefact for a feature to keep a TLS stack
+# out of), so the edge into the outbound closure is this line and nothing narrower. `optional` is
+# what makes the dependency ABSENT from the default build rather than merely unused, which is the
+# property the four cross builds need.
+#
+# **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
+# decision rather than an omission.** Every other adapter feature is in `features` since
+# `docs/adr/0017`'s Fifteenth amendment - one binary, every adapter compiled in. This one is held
+# back because a correctness fix for the adapter is still open at the time this feature landed:
+# `github.com/telekom/sutura#955` measured 6 of 23 parameter-binding corpus questions answering
+# WRONG against the real `clickhouse-server` `compose.services.yaml` provisions, under ClickHouse's
+# default `join_use_nulls = 0` - an outer join's unmatched side arriving as `''` where the engine
+# says `NULL`. That issue carries the server version it was measured on; repeating it here would be
+# a number no mechanism compares. A published binary that
+# links this adapter before that lands is a deployment that can be handed a wrong number, so the
+# feature is reachable by `--features clickhouse` and by `--all-features` (which is what `just
+# lint`, `just test` and every nix check pass, so the registration is compiled, linted and tested on
+# every run) and by no release. Adding the three `nix/shipped.nix` entries is the follow-up once
+# `#955` has merged.
+clickhouse = ["dep:sutura-exec-clickhouse"]
+
 # The DataHub metadata adapter's HTTP reader (issue #202), for `sutura serve`'s `catalog.kind:
 # datahub`, and with it the outbound HTTP stack that reader needs.
 #
@@ -152,6 +177,10 @@ sutura-exec-postgres = { workspace = true, optional = true }
 # dev-dependency because Cargo cannot make a dev-dependency optional - see `sutura-serve`'s
 # former manifest, folded in at `github.com/telekom/sutura#685` step 2.
 tokio-postgres = { workspace = true, optional = true }
+# The ClickHouse adapter, behind the `clickhouse` feature above. Optional for the same reason
+# `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it. The
+# adapter owns its own endpoint, credential and TLS types, so this root names no HTTP client itself.
+sutura-exec-clickhouse = { workspace = true, optional = true }
 # The DataHub metadata adapter, behind the `datahub` feature above. Optional for the same reason
 # `sutura-exec-bigquery` is: absent, not merely unused, from a build that did not ask for it.
 sutura-catalog-datahub = { workspace = true, optional = true }
