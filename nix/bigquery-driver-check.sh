@@ -163,21 +163,43 @@ assert_carries() {
 
 system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
 if [ "$system" != "x86_64-linux" ]; then
-    echo "bigquery-driver-check: this EXECUTES two linux release binaries, so it runs on x86_64-linux" >&2
+    echo "bigquery-driver-check: this EXECUTES two linux binaries, so it runs on x86_64-linux" >&2
     echo "  and refuses elsewhere (this host is $system). CI is its venue." >&2
     exit 1
 fi
 
 self_check
 
-gnu="$(nix build --no-link --print-out-paths .#sutura)/bin/sutura"
-musl="$(nix build --no-link --print-out-paths .#sutura-x86_64-unknown-linux-musl)/bin/sutura"
-echo "bigquery-driver-check: scope - the gnu release binary and the static musl one, each asked with"
+# WHICH BUILD, and why a pull request does not get the release one. A release build is two full
+# optimised compiles (~9 min of a 16-core runner per PR run, measured on run 35861034001) for a
+# question the `ci` profile answers the same way: the driver is linked by `adbcArchiveFor` in both
+# `nativeFor` and `crossFor` whatever the profile (`nix/shipped.nix`), and the musl fault this check
+# exists for was the runtime's own init, not an optimisation. What the `ci` build does NOT cover is a
+# release-only link effect (LTO, stripping) - so `release.yml` runs this with
+# `SUTURA_DRIVER_CHECK_PROFILE=release` against the artefacts it publishes.
+case "${SUTURA_DRIVER_CHECK_PROFILE:-ci}" in
+ci)
+    gnu_attr=sutura-bigquery-x86_64-unknown-linux-gnu-ci
+    musl_attr=sutura-bigquery-x86_64-unknown-linux-musl-ci
+    ;;
+release)
+    gnu_attr=sutura
+    musl_attr=sutura-x86_64-unknown-linux-musl
+    ;;
+*)
+    echo "bigquery-driver-check: SUTURA_DRIVER_CHECK_PROFILE is '${SUTURA_DRIVER_CHECK_PROFILE}' - it is ci or release" >&2
+    exit 1
+    ;;
+esac
+
+gnu="$(nix build --no-link --print-out-paths ".#${gnu_attr}")/bin/sutura"
+musl="$(nix build --no-link --print-out-paths ".#${musl_attr}")/bin/sutura"
+echo "bigquery-driver-check: scope - .#${gnu_attr} and the static .#${musl_attr}, each asked with"
 echo "  the mounted-driver variable cleared. No project, no credential, no question."
 
 assert_carries gnu "$gnu"
 assert_carries musl "$musl"
 
-echo "bigquery-driver-check: ok - both release artefacts carry their own ADBC BigQuery driver and its"
+echo "bigquery-driver-check: ok (${SUTURA_DRIVER_CHECK_PROFILE:-ci} profile) - both binaries carry their own ADBC BigQuery driver and its"
 echo "  Go runtime started inside them. The static musl one has no other route, which is why the"
 echo "  c-archive exists; neither artefact reads a path."

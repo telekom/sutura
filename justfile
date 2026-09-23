@@ -317,7 +317,8 @@ bigquery-declared-principal *args:
 # NOT establish, and why the musl outcome is asserted in both directions. x86_64-linux only - it
 # refuses elsewhere rather than skipping.
 
-# Load the ADBC driver into both release binaries and read the outcome.
+# Load the ADBC driver into the gnu and static musl binaries and read the outcome - the `ci`
+# profile by default; `SUTURA_DRIVER_CHECK_PROFILE=release` asks the published build.
 bigquery-driver-check:
     bash nix/bigquery-driver-check.sh
 

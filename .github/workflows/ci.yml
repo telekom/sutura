@@ -1641,9 +1641,11 @@ jobs:
   # reported CONTEXT does not move: `devco/required-contexts` names it, and a context is a job's
   # `name:` where it has one and otherwise its id, neither of which `runs-on` touches.
   # THE DRIVER, EXECUTED - and this is the owner's ask that a build check cannot answer. `ADBC
-  # driver` inside `ci` proves the four `.so` files BUILD; this loads one into the gnu release
-  # binary and into the static musl one, which runs the driver's Go runtime beside tokio and the
-  # release allocator. A link-success check would have passed today and been wrong.
+  # driver` inside `ci` proves the four `.so` files BUILD; this loads one into the gnu binary and
+  # into the static musl one, which runs the driver's Go runtime beside tokio and the release
+  # allocator. A link-success check would have passed today and been wrong. The `ci`-profile
+  # builds here, not the release ones - `nix/bigquery-driver-check.sh` says why and what that
+  # leaves, and `release.yml`'s `publish` asks the published build the same question.
   #
   # Category-gated on `data_source_bigquery`, which until this job existed was published by `ci`
   # and read by NOTHING: the leg that consumed it was deleted with the HTTP transport, so the
