@@ -2029,23 +2029,32 @@ complete one.</p>
 </tr>
 <tr>
 <td>ClickHouse</td>
-<td>none yet</td>
+<td><code>sutura-exec-clickhouse</code></td>
 <td>yes</td>
-<td><strong>no</strong></td>
-<td>-</td>
+<td>yes, behind a default-off <code>clickhouse</code> feature</td>
+<td>one shared credential - <code>NoPlaceForASubject</code></td>
 </tr>
 <tr>
 <td>Oracle</td>
-<td>none yet</td>
+<td><code>sutura-exec-oracle</code></td>
 <td>yes</td>
 <td><strong>no</strong></td>
 <td>-</td>
 </tr>
 </tbody>
 </table>
-<p>ClickHouse and Oracle render and cannot be asked to answer: both dialects shipped without an
-executor. Their committed goldens therefore pin what this renderer emits and nothing a database
-agreed to.</p>
+<p>Oracle renders and cannot be asked to answer: that dialect shipped without an executor, so its
+committed goldens pin what this renderer emits and nothing a database agreed to.</p>
+<p><strong>ClickHouse is the newest row and the one whose columns need reading together.</strong> It executes: a
+<code>kind: clickhouse</code> source is declarable and openable by a build carrying the <code>clickhouse</code> feature,
+which is default-off and in no published binary. Two things the <code>Executes</code> column does NOT say about
+it: no golden or differential suite runs a corpus question against a real ClickHouse (no
+<code>clickhouse-tier.nix</code> exists, so the <code>data_systems:</code> axis of the golden matrix has no entry for it
+and <code>check-conformance-bindings</code> therefore has nothing to bind), and <code>Warehouse::EXECUTES_LEGS</code> is
+absent on the adapter - so a federated question involving a ClickHouse source is still refused by
+the capability gate. Its identity column is the static half and stays there until an adapter change:
+<code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> declaration on this kind is refused at the
+composition root with the reason that no build delivers it.</p>
 <h2 id="identity-what-impersonation-does-and-does-not-mean-here">Identity: what "impersonation" does and does not mean here<a class="headerlink" href="#identity-what-impersonation-does-and-does-not-mean-here" title="Permanent link">&para;</a></h2>
 <p><code>Warehouse::IMPERSONATION</code> says whether there is <strong>a place in an adapter's path</strong> for a subject's own
 credential to arrive. It does not say that a subject's identity has been proven to reach that source.

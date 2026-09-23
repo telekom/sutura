@@ -2651,8 +2651,9 @@ convenience, and nothing needs to clone a startup refusal.</p>
 <p>What kind of data system a source is.</p>
 <p><strong>A closed set of typed declarations rather than something discovered</strong>, which is the whole of
 <em>pluggable by declaration</em>: a capability nobody declared cannot be used, and a new kind is a
-compile error in every place that has to decide about it. Two variants today, and only one of them
-can be OPENED by a shipped binary - <code>Self::BigQuery</code> says which and why.</p>
+compile error in every place that has to decide about it. Which of them a given BINARY can open
+is a separate question, answered by that binary's features rather than here - <code>Self::BigQuery</code>
+says why the word is in the vocabulary either way.</p>
 <p><strong>It replaced a comparison against a hard-coded source NAME</strong>, and that is the change worth reading
 rather than the enum. The composition root used to refuse any source not called <code>local</code>, on the
 argument that the engine has its own identity and does not borrow the catalog's. That argument was
@@ -4865,8 +4866,9 @@ is already stale, and it would make configuration validation depend on the files
 <p>What kind of data system a source is.</p>
 <p><strong>A closed set of typed declarations rather than something discovered</strong>, which is the whole of
 <em>pluggable by declaration</em>: a capability nobody declared cannot be used, and a new kind is a
-compile error in every place that has to decide about it. Two variants today, and only one of them
-can be OPENED by a shipped binary - <code>Self::BigQuery</code> says which and why.</p>
+compile error in every place that has to decide about it. Which of them a given BINARY can open
+is a separate question, answered by that binary's features rather than here - <code>Self::BigQuery</code>
+says why the word is in the vocabulary either way.</p>
 <p><strong>It replaced a comparison against a hard-coded source NAME</strong>, and that is the change worth reading
 rather than the enum. The composition root used to refuse any source not called <code>local</code>, on the
 argument that the engine has its own identity and does not borrow the catalog's. That argument was
@@ -4898,7 +4900,16 @@ legitimate one.</p>
   adapter is not linked is a startup refusal naming the <code>--features</code> that would link it, not a
   spelling error.</p>
 <p>The static-credential half: one connection under the deployment's declared identity. Per-subject
-  Postgres over SASL OAUTHBEARER is <code>telekom/sutura#126</code> and is deliberately not this shape.</p>
+  Postgres over SASL OAUTHBEARER is <code>telekom/sutura#126</code> and is deliberately not this shape.
+- <code>ClickHouse</code> - A <code>ClickHouse</code> database, queried by rendering the plan into that dialect and pushing it down over its HTTP interface.</p>
+<p><strong>Declarable, and openable only by a build carrying the <code>clickhouse</code> feature</strong> - the same
+  shape <code>Postgres</code> above describes, for the same reason: the vocabulary of kinds is the
+  vocabulary of adapters this repository has, and which one a given BUILD linked is a property
+  of its features.</p>
+<p>The static-credential half, and the only half that exists: <code>sutura_exec_clickhouse</code>'s
+  <code>Warehouse::IMPERSONATION</code> is <code>NoPlaceForASubject</code>, so an <code>impersonation-at-source</code> entry on
+  this kind is refused at the composition root's own posture cross-check. Per-subject
+  <code>ClickHouse</code> identity is wanted and not built.</p>
 <h4 id="methods_39">Methods<a class="headerlink" href="#methods_39" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-220-1"><a id="__codelineno-220-1" name="__codelineno-220-1" href="#__codelineno-220-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -5250,7 +5261,15 @@ be skipped" look like the same sentence and are not.</p>
   job, at boot, once.</p>
 <p><code>host</code> and <code>port</code> are the network dial; when the source sits on a unix socket, <code>unix_socket</code>
   is written instead. The two cannot both be set, and which one an operator chooses is what
-  decides whether a non-loopback host must have TLS declared - see <code>PostgresDial</code>.</p>
+  decides whether a non-loopback host must have TLS declared - see <code>PostgresDial</code>.
+- <code>ClickHouse</code> - A <code>ClickHouse</code> database, reached over its HTTP interface.</p>
+<p><strong>The static-credential half, and the same shape <code>Self::Postgres</code> takes</strong>: one endpoint
+  under the identity the deployment declared, the password read from a FILE at boot and never
+  written in the settings tree. There is no <code>unix_socket</code> and no <code>database</code> key, and both
+  absences are deliberate rather than pending: <code>ClickHouse</code>'s HTTP interface is dialled over
+  TCP only, and <code>sutura_exec_clickhouse::transport::Http</code> sends no <code>database</code> parameter - so a
+  <code>database:</code> here would be a key an operator wrote and the deployment reads past, which is
+  exactly what <code>parse_placement</code>'s foreign-key rule refuses on every other kind.</p>
 <h5 id="methods_45">Methods<a class="headerlink" href="#methods_45" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-249-1"><a id="__codelineno-249-1" name="__codelineno-249-1" href="#__codelineno-249-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
 </span></code></pre></div>

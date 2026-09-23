@@ -2335,9 +2335,12 @@ have nothing to do with the question:</p>
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.</li>
 </ul>
-<p><code>kind: bigquery</code> and <code>kind: postgres</code> are the two network kinds, and the published binary carries
-both, which <code>checks.shipped-features</code> reads out of each released binary's embedded dependency list
-rather than out of a manifest. Nothing to build for either. The BigQuery block below is the cloud
+<p><code>kind: bigquery</code> and <code>kind: postgres</code> are the network kinds the published binary carries, which
+<code>checks.shipped-features</code> reads out of each released binary's embedded dependency list rather than
+out of a manifest. Nothing to build for either. <code>kind: clickhouse</code> is a third network kind and is
+<strong>not</strong> in any published binary - it needs a build carrying the <code>clickhouse</code> feature, and a build
+without it refuses that kind by name; see <a href="../integrations/#data-sources">Data sources</a> for what that
+adapter does and does not do yet. The BigQuery block below is the cloud
 variant; the Postgres declaration, verified and mutual TLS modes, and least-authority role grants
 are in <a href="../serving/#a-postgres-source-least-authority-and-its-channel">Serving</a>.</p>
 <p><strong>The <code>security:</code> block above is still required</strong> - the snippet below replaces the <code>sources:</code> block
