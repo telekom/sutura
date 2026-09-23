@@ -219,6 +219,31 @@ pub enum NotFitToServe {
     /// rather than served, until that transport prices a statement again. **The limit:** what
     /// bounds one `BigQuery` job's spend without a ceiling is the source's own `max_bytes_billed`,
     /// per job and not per subject.
+    ///
+    /// **"Prices nothing" was checked against the pinned driver rather than assumed, for
+    /// `telekom/sutura#929`'s second review finding, and it is not because the driver has no dry
+    /// run.** It does: `bigquery.query.dry_run` is a real statement option
+    /// (`adbc-drivers/bigquery` pinned rev `5f1e65dc8a904c39cdf79ef9e19140139c1becb4`,
+    /// `go/driver.go`'s `OptionQueryDryRun`), and setting it makes `ExecuteQuery` return the job's
+    /// `Statistics.TotalBytesProcessed` as its `rows_affected` out-parameter instead of a row count
+    /// (`go/record_reader.go:140-141`'s dry-run branch of `runQuery`, reached through
+    /// `go/statement.go`'s `ExecuteQuery` at `executeUpdate = false`). **What has no route is that
+    /// value reaching Rust.** The pinned binding's `Statement::execute` - the ADBC call `crate::adbc`
+    /// makes - passes `null_mut()` for exactly that out-parameter
+    /// (`adbc_driver_manager-0.24.0/src/lib.rs:1195-1205`), discarding it before this crate could
+    /// read it. The other two ADBC calls that DO read `rows_affected`,
+    /// `execute_update`/`execute_partitions` (`adbc_driver_manager-0.24.0/src/lib.rs:1218-1233`),
+    /// are both dead ends of their own: `ExecuteUpdate` takes the DML-affected-rows branch of the
+    /// SAME Go function whenever `executeUpdate = true`, ahead of the dry-run branch
+    /// (`go/record_reader.go:135-141`), so it can never reach the estimate either; and
+    /// `ExecutePartitions` is unconditionally `NotImplemented` for this driver
+    /// (`go/statement.go:940-945`). No statement option surfaces it as a value to read back either -
+    /// `GetOptionInt` echoes only configuration this crate itself set (`go/statement.go:183-203`),
+    /// and the driver's OTHER statistics surface, `ConnectionGetStatistics`
+    /// (`go/connection_statistics.go`), reports a TABLE's stored bytes, never a query's estimated
+    /// scan - the wrong kind of number even where it is reachable. So the refusal stays: nothing
+    /// this crate can call gets a byte estimate out of this driver, and the day the pinned
+    /// binding's `execute` reads `rows_affected` this citation is the one to revisit.
     #[error(
         "governance.per_replica_spend_ceiling is set and sources.{alias} is a `bigquery` source,          whose ADBC transport prices nothing - so the ceiling would never charge its questions.          Remove governance.per_replica_spend_ceiling, or remove the source;          sources.{alias}.max_bytes_billed still bounds each job"
     )]
