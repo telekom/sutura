@@ -398,6 +398,26 @@ pub enum SourcePlacement {
         /// How the channel to this source is secured.
         transport: SourceTransport,
     },
+    /// An Oracle Database, reached over its TCP listener.
+    ///
+    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with no transport field, and
+    /// that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
+    /// shared rule confines that to a loopback host, because the driver takes no caller-built TLS
+    /// configuration: its trust store is a bundled public-CA set a wallet only widens, so no declared
+    /// `transport_anchors` could be what the source verifies against. A field here that could only
+    /// ever hold `Plaintext` would be a choice the type pretends exists.
+    Oracle {
+        /// The listener's host - a loopback literal, by the parse's own refusal.
+        host: HostName,
+        /// The listener's port. `1521` by convention, declared rather than defaulted.
+        port: u16,
+        /// The service name the listener resolves: the path of an EZCONNECT `host:port/service_name`.
+        service_name: String,
+        /// The user to connect as.
+        user: String,
+        /// The file that user's password is read from at boot.
+        password_file: PathBuf,
+    },
 }
 
 impl SourcePlacement {
@@ -414,6 +434,7 @@ impl SourcePlacement {
             Self::BigQuery { .. } => SourceKind::BigQuery,
             Self::Postgres { .. } => SourceKind::Postgres,
             Self::ClickHouse { .. } => SourceKind::ClickHouse,
+            Self::Oracle { .. } => SourceKind::Oracle,
         }
     }
 }

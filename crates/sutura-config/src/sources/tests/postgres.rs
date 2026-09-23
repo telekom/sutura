@@ -21,6 +21,7 @@ fn postgres(written: &str) -> RawSourceEntry<'_> {
         unix_socket: Some("/tmp/sutura-pg"),
         port: Some(5432),
         database: Some("sutura"),
+        service_name: None,
         user: Some("sutura"),
         password_file: Some("/etc/sutura/pg-password"),
         transport_mode: Some("plaintext"),
@@ -84,6 +85,7 @@ fn a_postgres_source_missing_a_required_key_does_not_parse() {
             "database",
             RawSourceEntry {
                 database: None,
+                service_name: None,
                 ..postgres("warehouse")
             },
         ),

@@ -31,6 +31,8 @@ fn files_of(opened: Opened) -> OpenedWith<DataFusionWarehouse> {
         Opened::Postgres(_) => None,
         #[cfg(feature = "clickhouse")]
         Opened::ClickHouse(_) => None,
+        #[cfg(feature = "oracle")]
+        Opened::Oracle(_) => None,
     }
     .expect("this fixture declares a files source")
 }
