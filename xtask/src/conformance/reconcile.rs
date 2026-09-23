@@ -87,12 +87,13 @@ pub(super) const UNBOUND: &[Unbound] = &[
           two cases the golden corpus never reaches WRONGLY, and neither is a fixture problem - \
           measured on server 26.7.4.58: `overflowing-integer-total-by-day`, because `ClickHouse`'s \
           `sum` over an `Int64` wraps silently (the corpus's 9223372036854775807 + 1 answered \
-          -9223372036854775808) where every bound adapter widens; and `decimal-total-by-day`, whose \
+          -9223372036854775808) where every bound adapter widens - and a `UInt64` sum wraps the \
+          same way at 2^64; and `decimal-total-by-day`, whose \
           `Decimal(38, 2)` sum answers `11.5` where the corpus pins the exact `11.50`. The first is a rendering decision \
           for `Dialect::ClickHouse` in `sutura-sql` (the renderer has no column type to widen by), \
           the second an adapter setting; a binding committed before both would be red, and one that \
-          skipped those cases would be the exclusion this list exists to refuse. Converges when both \
-          land: the binding is the one `crates/sutura-exec-postgres/tests/conformance.rs` makes, \
+          skipped those cases would be the exclusion this list exists to refuse. Both are \
+          `github.com/telekom/sutura#979`; converges when it lands: the binding is the one `crates/sutura-exec-postgres/tests/conformance.rs` makes, \
           over the tier, and this entry is removed rather than reworded.",
     },
 ];

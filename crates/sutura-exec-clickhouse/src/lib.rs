@@ -406,13 +406,14 @@ where
 /// an unmapped `UInt64` before; `xtask/src/conformance/reconcile.rs`'s `clickhouse` entry says why
 /// that binding is not committed.
 ///
-/// A JSON number OR the string `ClickHouse` renders a 64-bit integer as (to avoid a JavaScript
-/// reader's precision loss) - accepted either way, so this decode does not depend on which
-/// `output_format_json_quote_64bit_integers` setting a server was started with.
+/// A narrower integer arrives as a JSON number; a 64-bit one as a string, because every request
+/// pins `output_format_json_quote_64bit_integers` (`transport`'s `JSON_QUOTE_64BIT_INTEGERS`) - so
+/// a value past `i64::MAX` has exactly one form here, and a bare number past it is refused as
+/// unmapped rather than read by a branch no venue produces.
 fn integer_value(value: &serde_json::Value) -> Option<Value> {
     let wide = |unsigned: u64| Value::Text(unsigned.to_string());
     match *value {
-        serde_json::Value::Number(ref number) => number.as_i64().map(Value::Integer).or_else(|| number.as_u64().map(wide)),
+        serde_json::Value::Number(ref number) => number.as_i64().map(Value::Integer),
         serde_json::Value::String(ref text) => text.parse().map(Value::Integer).ok().or_else(|| text.parse().ok().map(wide)),
         _ => None,
     }

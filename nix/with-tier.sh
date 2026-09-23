@@ -234,6 +234,10 @@ sutura_tier_up() {
 # `clickhouse` cells then fail closed under the requirement the Postgres tier exports - loud, and
 # naming the absent service. `checks.postgres-tier` sources this file with no ClickHouse tier on
 # PATH, which is the arm that has to stay quiet enough not to fail that check.
+#
+# **Every step that can fail says `|| return 1` itself**, because the caller's `|| return 1` puts
+# this whole body in a context where bash suspends errexit - a failed `start` would otherwise run
+# on, export the credential and leave the cells to discover the absence one by one.
 sutura_clickhouse_tier_up() {
     if ! command -v sutura-clickhouse-tier >/dev/null 2>&1; then
         echo "with-tier: no sutura-clickhouse-tier on PATH - re-enter the dev shell. The clickhouse"
@@ -248,10 +252,10 @@ sutura_clickhouse_tier_up() {
             ;;
         3)
             echo "with-tier: a ClickHouse server is up with no endpoint entry - republishing it."
-            sutura-clickhouse-tier start
+            sutura-clickhouse-tier start || return 1
             ;;
         *)
-            sutura-clickhouse-tier start
+            sutura-clickhouse-tier start || return 1
             sutura_tier_teardown="sutura-clickhouse-tier stop || true${sutura_tier_teardown:+; $sutura_tier_teardown}"
             trap 'eval "$sutura_tier_teardown"' EXIT
             ;;

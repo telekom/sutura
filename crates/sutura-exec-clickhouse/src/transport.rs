@@ -361,14 +361,23 @@ const JOIN_USE_NULLS: &str = "join_use_nulls";
 /// The setting that makes a non-finite float answer as text (`"inf"`, `"nan"`) rather than as `null`.
 ///
 /// **`ClickHouse`'s default is `0`, and under it `1.0 / 0` answers the JSON `null`** - measured
-/// against the tier `nix/clickhouse-tier.nix` provisions (server 26.7.4.58). A `null` in a column
-/// declared `Float64` is a value [`crate::cell_of`] cannot read, so a zero denominator under
-/// `zero_denominator: fails` surfaced as *this adapter does not map `Float64`* - true of no type -
-/// and a `Nullable(Float64)` column would have answered `Null`, a MISSING value, where the server
-/// computed an infinite one. With this sent, the text reaches `Real::parse` and is refused as the
-/// non-finite number it is, which is how every other adapter in the golden matrix refuses it.
+/// against the tier `nix/clickhouse-tier.nix` provisions (server 26.7.4.58). **On the golden path
+/// that is a silent wrong answer:** the rendered ratio is `Nullable(Float64)`, so January's
+/// zero-denominator question under `zero_denominator: fails` ANSWERED `[2026-01-01, Null]` - a
+/// missing value where the server computed an infinite one - instead of refusing. Only a
+/// non-`Nullable` result (a bare `SELECT 1/0`) reaches [`crate::cell_of`] as an unmappable `null`.
+/// With this sent, the text reaches `Real::parse` and is refused as the non-finite number it is,
+/// which is how every other adapter in the golden matrix refuses it.
 /// `crates/sutura-app/tests/golden/data_systems.rs`'s zero-denominator cell executes that path.
 const JSON_QUOTE_DENORMALS: &str = "output_format_json_quote_denormals";
+
+/// The setting that makes every 64-bit integer answer as a JSON string rather than a bare number.
+///
+/// Pinned rather than inherited, because a server or user profile may set it to `0` - measured,
+/// `SELECT toUInt64(18446744073709551615)` then answers the bare number - and pinning it gives
+/// [`crate::integer_value`] ONE form for a value past `i64::MAX` to decode, rather than a second
+/// branch no venue here produces.
+const JSON_QUOTE_64BIT_INTEGERS: &str = "output_format_json_quote_64bit_integers";
 
 /// The setting that decides what the server does when `max_execution_time` runs out: `throw`
 /// answers `Code: 159`; `break` answers HTTP 200 with the rows read so far - measured, a cleanly
@@ -397,6 +406,7 @@ fn request_settings(deadline: Deadline, now: Instant) -> Vec<(&'static str, Stri
     let mut settings = vec![
         (JOIN_USE_NULLS, String::from("1")),
         (JSON_QUOTE_DENORMALS, String::from("1")),
+        (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
         (TIMEOUT_OVERFLOW_MODE, String::from("throw")),
     ];
     if let Some(seconds) = crate::deadline::max_execution_time_seconds(deadline, now) {
@@ -527,8 +537,19 @@ mod tests {
             vec![
                 (JOIN_USE_NULLS, String::from("1")),
                 (JSON_QUOTE_DENORMALS, String::from("1")),
+                (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
                 ("timeout_overflow_mode", String::from("throw"))
             ]
+        );
+    }
+
+    #[test]
+    fn every_request_asks_for_a_64_bit_integer_as_text_so_a_wide_one_has_one_form() {
+        let (deadline, now) = deadline_of(30);
+        let settings = request_settings(deadline, now);
+        assert!(
+            settings.contains(&("output_format_json_quote_64bit_integers", String::from("1"))),
+            "the request carried {settings:?}"
         );
     }
 

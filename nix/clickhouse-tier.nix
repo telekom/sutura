@@ -92,6 +92,21 @@ rec {
         exit 1
       fi
 
+      # --- loopback only, and HTTP only - held by the CONFIG this asserts, not by probing another
+      # interface: the build sandbox has none to probe. ClickHouse opens only the ports its config
+      # names, so one `*_port` key and one loopback `listen_host` is the whole listening surface. ---
+      config=.sutura-dev/clickhouse/config.yaml
+      if [ "$(grep -c '^listen_host:' "$config")" != 1 ] || ! grep -qx 'listen_host: 127.0.0.1' "$config"; then
+        echo "the tier's config listens somewhere other than loopback alone:" >&2
+        cat "$config" >&2
+        exit 1
+      fi
+      if [ "$(grep -c '_port:' "$config")" != 1 ] || ! grep -qx "http_port: $port" "$config"; then
+        echo "the tier's config opens a port other than the one HTTP port it publishes:" >&2
+        cat "$config" >&2
+        exit 1
+      fi
+
       # --- ONE credential per running server: a second start must not re-credential it ---
       sutura-clickhouse-tier start
       if [ "$(sutura-clickhouse-tier credentials)" != "$published" ]; then
