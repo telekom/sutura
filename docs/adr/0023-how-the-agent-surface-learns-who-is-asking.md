@@ -11,7 +11,9 @@ evidence it rests on; no wiring, no crate change and no gate ships with it. What
 because the alternative - attaching an exchange to a transport that has nowhere to put a caller -
 is the expensive way to find out. **Read *Amendment, 2026-09-16* before citing the `_context`
 paragraph below** - the parameter it describes as discarded is now read, by code this record's
-evidence anticipated rather than by a change to this decision.
+evidence anticipated rather than by a change to this decision. **Read *Second amendment,
+2026-09-23* before citing either "it does not deliver leg 2 on any surface" or "it does not make
+anything published able to impersonate" below** - both are superseded.
 
 [0014](0014-how-a-caller-proves-who-it-is.md) built leg 1 on the HTTP surface: a deployment
 declaring `security.inbound` verifies a caller's own token from a signature.
@@ -495,3 +497,29 @@ agent transport is neither: it is the same type-level plumbing this record price
 mounted by a composed, tested binary behind an optional feature - reachable by nothing this
 repository publishes - and it moves nothing about per-subject execution. AGENTS.md's own line
 holds unchanged: leg 1 is built, leg 2 is not, on anything published.
+
+## Second amendment, 2026-09-23: two premises of the amendment above are spent, and the record's own conclusion narrows with them
+
+**"No published artefact carries it" no longer holds, for a reason neither amendment above
+anticipated.** The first amendment's own citation - `nix/shipped.nix`'s `crossPackages` taking no
+`features` argument, so a cross-built release shipped cargo's default feature set only - was true
+of `docs/adr/0017`'s Eighth amendment and stopped being true at its Fifteenth: "one binary, every
+adapter compiled in, because which adapters a deployment uses is configuration, not a build."
+`features = [ "bigquery" "postgres" "tls" "datahub" "agent" ]` is what `nix/shipped.nix` now reads
+for every release and release-performance build, native and cross - not `probeFeatures`, which is
+a separate, narrower per-triple link check. So *What this decision does NOT cover*'s own bullet
+above, **"it does not make anything published able to impersonate"**, is superseded: a published
+artefact now links `sutura-exec-bigquery`.
+
+**And that adapter's own `IMPERSONATION` is `PerSubjectCredential`**, so *"it does not deliver leg
+2 on any surface"* - this record's other bullet in the same section - narrows too:
+`telekom/sutura#929` built the exchange the bullet said had never run, resolving a declared
+subject's assertion to a principal through a workload-identity pool, per source
+(`docs/where-identity-is-proven.md`, *A declared principal at a real dataset*, `wired`).
+
+**What survives, and it is still the whole of the limit this record leaves.** No SERVED binary has
+executed a leg as the calling subject - the *venue* half of leg 2, which is distinct from the
+*mechanism* half this amendment corrects. AGENTS.md's own line no longer reads *leg 2 is not [built]
+on anything published*; it reads that leg 2 is proven for BigQuery through a declared per-source
+map, and that no served binary has executed as a caller yet. This amendment aligns this record with
+that line rather than restating the line it replaces.
