@@ -111,32 +111,10 @@ pub(crate) fn build(source: &SourceName, configured: &sutura_config::ConfiguredS
         .posture()
         .deliverable_by(ClickHouseSource::IMPERSONATION, source)
         .map_err(|cause| format!("{}\n{IMPERSONATION_DEFERRED}", render(&cause)))?;
-    let password = read_password(source, password_file)?;
+    let password = crate::password_file::read(source, password_file)?;
     let auth = Some(BasicAuth::new(user.clone(), password));
     let transport = open_transport(source, host, port, auth, transport)?;
     Ok(ClickHouseWarehouse::of(source.clone(), identity.posture().clone(), transport))
-}
-
-/// The declared user's password, read at BOOT rather than on the first question.
-///
-/// The same argument `crate::serve::bigquery`'s credential read makes: a password file that is
-/// missing, unreadable or empty has to stop the composition, not become a deployment that answers
-/// every question with an authentication failure while its startup log says it opened a database.
-///
-/// Trimmed, because a file written by `echo` carries a newline the server would reject; empty after
-/// trimming is refused rather than sent, so a truncated secret file is a refusal naming the key
-/// instead of a `Code: 516` on the first question.
-fn read_password(source: &SourceName, password_file: &std::path::Path) -> Result<sutura_domain::identity::Secret, String> {
-    let raw = std::fs::read_to_string(password_file)
-        .map_err(|cause| format!("`sources.{source}.password_file` could not be read: {cause}"))?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(format!(
-            "`sources.{source}.password_file` is empty, and an empty password is not a credential \
-             this deployment can present"
-        ));
-    }
-    Ok(sutura_domain::identity::Secret::new(trimmed))
 }
 
 /// The transport for the channel this source declared: plaintext, or TLS over the declared store.

@@ -107,6 +107,11 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // `preflight`, so `refuse_absent_tables` would have nothing to add.
                 serve(&catalog, opened, &settings)
             }
+            #[cfg(feature = "oracle")]
+            Opened::Oracle(opened) => {
+                // The `clickhouse` arm's reason: `OracleWarehouse` takes the port's default `preflight`.
+                serve(&catalog, opened, &settings)
+            }
         }
     })())
 }
@@ -337,6 +342,8 @@ mod tests {
             crate::sources::Opened::Postgres(_) => None,
             #[cfg(feature = "clickhouse")]
             crate::sources::Opened::ClickHouse(_) => None,
+            #[cfg(feature = "oracle")]
+            crate::sources::Opened::Oracle(_) => None,
         }
         .expect("the example declares a files source");
         (catalog, opened, settings)

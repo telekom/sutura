@@ -40,7 +40,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
-use crate::sources::placement::{BillingProject, DatasetId, InvalidHostName, InvalidResourceName, SourcePlacement};
+use crate::sources::placement::{
+    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, SourcePlacement,
+};
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
 use sutura_domain::model::{InvalidIdentifier, SourceName};
@@ -56,6 +58,8 @@ use sutura_domain::source::{
 /// composition roots already use - one file per kind - so the arm in [`parse_placement`] stays one
 /// call and the reading stays beside the kind it is about.
 mod clickhouse;
+/// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
+mod oracle;
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
 pub mod placement;
 /// How the channel to a source is secured, per source and never globally.
@@ -122,6 +126,11 @@ pub enum SourceKind {
     /// this kind is refused at the composition root's own posture cross-check. Per-subject
     /// `ClickHouse` identity is wanted and not built.
     ClickHouse,
+    /// An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
+    ///
+    /// Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
+    /// included. [`SourcePlacement::Oracle`] carries what the driver cannot be told about TLS.
+    Oracle,
 }
 
 /// The configured word did not name a kind of data system.
@@ -133,7 +142,7 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse"];
+    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
@@ -142,6 +151,7 @@ impl SourceKind {
             "bigquery" => Ok(Self::BigQuery),
             "postgres" => Ok(Self::Postgres),
             "clickhouse" => Ok(Self::ClickHouse),
+            "oracle" => Ok(Self::Oracle),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -157,6 +167,7 @@ impl SourceKind {
             Self::BigQuery => "bigquery",
             Self::Postgres => "postgres",
             Self::ClickHouse => "clickhouse",
+            Self::Oracle => "oracle",
         }
     }
 }
@@ -362,6 +373,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidResourceName,
     },
+    /// A declared Oracle `service_name` the driver would not read as written.
+    #[error("`sources.{alias}.service_name` is not a usable Oracle service name")]
+    OracleServiceName {
+        alias: SourceName,
+        #[source]
+        cause: InvalidOracleServiceName,
+    },
     /// A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
     #[error("`sources.{alias}.host` is not a usable host")]
     Host {
@@ -430,6 +448,19 @@ pub enum InvalidSourceRegistry {
          or dial over `host` instead of `unix_socket`"
     )]
     TlsOverUnixSocket { alias: SourceName, mode: &'static str },
+    /// A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see
+    /// `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
+    #[error(
+        "`sources.{alias}` is `kind: {}` and `sources.{alias}.transport_mode` is `{mode}` - its driver \
+         trusts the public certificate authorities compiled into it, and no declared \
+         `transport_anchors` can replace them. Write `transport_mode: plaintext` with a loopback `host`",
+        kind.as_str()
+    )]
+    TlsNotDeliverable {
+        alias: SourceName,
+        kind: SourceKind,
+        mode: &'static str,
+    },
 }
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
@@ -471,6 +502,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) unix_socket: Option<&'raw str>,
     pub(crate) port: Option<u16>,
     pub(crate) database: Option<&'raw str>,
+    pub(crate) service_name: Option<&'raw str>,
     pub(crate) user: Option<&'raw str>,
     pub(crate) password_file: Option<&'raw str>,
     pub(crate) transport_mode: Option<&'raw str>,
@@ -731,6 +763,7 @@ fn parse_placement(
                     ("dataset", written(entry.dataset)),
                     ("credential_file", written(entry.credential_file)),
                     ("max_bytes_billed", entry.max_bytes_billed.is_some()),
+                    ("service_name", written(entry.service_name)),
                 ],
             )?;
             // Exactly one of `host` or `unix_socket`. Both, or neither, is a declaration the adapter
@@ -829,6 +862,7 @@ fn parse_placement(
             })
         }
         SourceKind::ClickHouse => clickhouse::parse_placement(alias, kind, entry, written),
+        SourceKind::Oracle => oracle::parse_placement(alias, kind, entry, written),
     }
 }
 
@@ -858,23 +892,22 @@ fn refuse_remote_plaintext(
     Ok(())
 }
 
-/// The ten keys that mean something only to a source this deployment DIALS - `postgres` or
-/// `clickhouse` - paired with whether this entry wrote each one.
+/// The eleven keys that mean something only to a source this deployment DIALS - `postgres`,
+/// `clickhouse` or `oracle` - paired with whether this entry wrote each one.
 ///
 /// Shared by the `Files` and `BigQuery` foreign-key checks in [`parse_placement`]: a key that means
-/// nothing to a kind is refused on that kind, and these ten mean nothing to either of those two.
+/// nothing to a kind is refused on that kind, and these eleven mean nothing to either of those two.
 ///
-/// **Named for the dialled kinds rather than for `postgres` alone, and that is a correction.** Eight
-/// of these ten are `clickhouse`'s keys as well; the two that are not - `unix_socket` and
-/// `database` - are refused on a `clickhouse` entry by `clickhouse::parse_placement`'s own list,
-/// because `ClickHouse`'s HTTP interface is dialled over TCP and this repository's adapter sends no
-/// `database` parameter for a key here to reach.
-fn dialled_source_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 10] {
+/// **Not every dialled kind reads all eleven.** Each dialled kind's own list refuses the ones it
+/// reads past: `unix_socket`, `database` and `service_name` on `clickhouse`; `service_name` on
+/// `postgres`; `unix_socket` and `database` on `oracle`.
+fn dialled_source_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 11] {
     [
         ("host", written(entry.host)),
         ("unix_socket", written(entry.unix_socket)),
         ("port", entry.port.is_some()),
         ("database", written(entry.database)),
+        ("service_name", written(entry.service_name)),
         ("user", written(entry.user)),
         ("password_file", written(entry.password_file)),
         ("transport_mode", written(entry.transport_mode)),

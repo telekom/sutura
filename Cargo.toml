@@ -139,7 +139,8 @@ sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 # `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
-# (`crates/sutura-app/Cargo.toml`), which is what `cargo::unused_workspace_dependencies` asks for.
+# (`crates/sutura-app/Cargo.toml`), and `sutura-cli` does too behind its default-off `oracle`
+# feature - either edge is what `cargo::unused_workspace_dependencies` asks for.
 sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 # In this table since `sutura-cli` gained its default-off `clickhouse` feature: the composition root
 # inherits it as an OPTIONAL dependency, which is an inheriting edge and is what

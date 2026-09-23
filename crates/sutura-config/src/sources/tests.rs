@@ -54,6 +54,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         unix_socket: None,
         port: None,
         database: None,
+        service_name: None,
         user: None,
         password_file: None,
         transport_mode: None,
@@ -421,6 +422,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         unix_socket: None,
         port: None,
         database: None,
+        service_name: None,
         user: None,
         password_file: None,
         transport_mode: None,
@@ -452,7 +454,8 @@ fn a_bigquery_source_declares_its_billing_project_and_dataset() {
         }
         super::placement::SourcePlacement::Files { .. }
         | super::placement::SourcePlacement::Postgres { .. }
-        | super::placement::SourcePlacement::ClickHouse { .. } => {
+        | super::placement::SourcePlacement::ClickHouse { .. }
+        | super::placement::SourcePlacement::Oracle { .. } => {
             panic!("the entry declared kind: bigquery");
         }
     }

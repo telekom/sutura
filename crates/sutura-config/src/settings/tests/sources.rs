@@ -152,7 +152,8 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     crate::sources::placement::SourcePlacement::Files { data_dir } => data_dir.to_string_lossy().into_owned(),
                     crate::sources::placement::SourcePlacement::BigQuery { .. }
                     | crate::sources::placement::SourcePlacement::Postgres { .. }
-                    | crate::sources::placement::SourcePlacement::ClickHouse { .. } => {
+                    | crate::sources::placement::SourcePlacement::ClickHouse { .. }
+                    | crate::sources::placement::SourcePlacement::Oracle { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
                 }

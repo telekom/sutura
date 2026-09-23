@@ -83,12 +83,12 @@ pub(super) fn parse_placement(
     })
 }
 
-/// The seven keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
+/// The eight keys a `clickhouse` entry has no use for, paired with whether this entry wrote each.
 ///
-/// The `files` key, the four `bigquery` keys, and the two dialled keys this kind does not read -
-/// see this module's own header for why those last two are an absence in the adapter rather than a
-/// pending feature.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 7] {
+/// The `files` key, the four `bigquery` keys, and the three dialled keys this kind does not read -
+/// see this module's own header for why `unix_socket` and `database` are an absence in the adapter
+/// rather than a pending feature; `service_name` is `oracle`'s.
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 8] {
     [
         ("data_dir", written(entry.data_dir)),
         ("billing_project", written(entry.billing_project)),
@@ -97,6 +97,7 @@ fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bo
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
         ("unix_socket", written(entry.unix_socket)),
         ("database", written(entry.database)),
+        ("service_name", written(entry.service_name)),
     ]
 }
 
@@ -137,6 +138,7 @@ mod tests {
             unix_socket: None,
             port: Some(8123),
             database: None,
+            service_name: None,
             user: Some("sutura"),
             password_file: Some("/etc/sutura/ch-password"),
             transport_mode: Some("plaintext"),

@@ -87,6 +87,12 @@ mod audit;
 mod clickhouse;
 mod commands;
 mod mcp;
+/// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
+#[cfg(feature = "oracle")]
+mod oracle;
+/// The password-file read the `clickhouse` and `oracle` builds share.
+#[cfg(any(feature = "clickhouse", feature = "oracle"))]
+mod password_file;
 /// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s
 /// rotating trust bundle, where `sutura-tls::Rotator::poll_once` meets the tokio runtime.
 ///

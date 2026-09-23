@@ -487,6 +487,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.spend_budget(),
                 settings.row_ceiling(),
             ),
+            #[cfg(feature = "oracle")]
+            crate::sources::Opened::Oracle(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+                settings.spend_budget(),
+                settings.row_ceiling(),
+            ),
         }
     })())
 }

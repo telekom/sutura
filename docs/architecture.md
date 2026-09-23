@@ -213,9 +213,10 @@ building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 
 *Five dialects are five rendering targets, not five data systems.* `sutura compile` will render a
 statement for `DuckDB`, Postgres, `ClickHouse`, `BigQuery` or Oracle, and the goldens parse-check
-each one. Rendering Oracle SQL is not a claim that an Oracle exists anywhere: the port takes a plan,
-and rendering is one adapter's private business. `ClickHouse` used to be named beside it here and no
-longer belongs there - `sutura-exec-clickhouse` executes, and `kind: clickhouse` is openable behind
+each one. Rendering Oracle SQL is not a claim that an Oracle answered it: `kind: oracle` is
+declarable behind its own default-off `oracle` feature and does not yet answer a whole-plan question
+(see [Data sources](integrations.md#data-sources)), and the port takes a plan - rendering is one
+adapter's private business. `ClickHouse` used to be named beside it here and no longer belongs there - `sutura-exec-clickhouse` executes, and `kind: clickhouse` is openable behind
 its own default-off `clickhouse` feature. What is still true of it is narrower and is in
 [Data sources](integrations.md#data-sources): no venue runs a corpus question against a real
 ClickHouse, and it executes no federated leg.

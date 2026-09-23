@@ -1072,6 +1072,10 @@ the parsed text.
 
 Why a declared Postgres host cannot be dialled at all.
 
+## `use InvalidOracleServiceName`
+
+Why a declared Oracle service name is not one the driver would read as written.
+
 ## `use InvalidResourceName`
 
 Why a declared name for a cloud resource was not usable.
@@ -1079,6 +1083,17 @@ Why a declared name for a cloud resource was not usable.
 One type for both newtypes above, with the offending key named by the caller rather than by the
 variant: the shapes differ and the *reasons* do not, so two near-identical enums would be two
 places to keep one set of sentences.
+
+## `use OracleServiceName`
+
+The service an `oracle` source's listener resolves - the path of an EZCONNECT
+`host:port/service_name` string.
+
+**The accepted set is the driver's, not a guess at Oracle's**: ASCII letters, digits, `_` and
+`.`, the characters the pinned driver's EZCONNECT parser reads a service name with. It stops at
+the first character outside that set and reads what follows as something else - `:pooled`
+switches the server type, `/x` names an instance - so a wider type would let a declared value
+mean more than it says, silently. Not `crate::telemetry`'s service name, which is another thing.
 
 ## `use PostgresDial`
 
@@ -4580,6 +4595,10 @@ legitimate one.
   `Warehouse::IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry on
   this kind is refused at the composition root's own posture cross-check. Per-subject
   `ClickHouse` identity is wanted and not built.
+- `Oracle` - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
+
+  Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
+  included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
 
 #### Methods
 
@@ -4746,6 +4765,7 @@ convenience, and nothing needs to clone a startup refusal.
   **Refused rather than ignored**, because a key an operator wrote and a deployment reads past is
   a configuration nobody can see - see `parse_placement` for the argument in full.
 - `ResourceName` - A declared cloud resource name is not usable.
+- `OracleServiceName` - A declared Oracle `service_name` the driver would not read as written.
 - `Host` - A declared `host` cannot be dialled at all - a shape refusal, not a reachability one.
 - `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
 
@@ -4775,6 +4795,7 @@ convenience, and nothing needs to clone a startup refusal.
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
   driver has no TLS handshake to perform over a local socket, so the failure it produces there
   is a confusing one that names neither key. Refusing here says which two keys disagree.
+- `TlsNotDeliverable` - A TLS mode on a kind whose driver cannot be handed the declared trust store (`oracle` - see `SourcePlacement::Oracle`), so `transport_anchors` could not be what it verifies against.
 
 #### Implements
 
@@ -5028,6 +5049,56 @@ Why a declared Postgres host cannot be dialled at all.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `struct OracleServiceName`
+
+```rust
+pub struct OracleServiceName
+```
+
+The service an `oracle` source's listener resolves - the path of an EZCONNECT
+`host:port/service_name` string.
+
+**The accepted set is the driver's, not a guess at Oracle's**: ASCII letters, digits, `_` and
+`.`, the characters the pinned driver's EZCONNECT parser reads a service name with. It stops at
+the first character outside that set and reads what follows as something else - `:pooled`
+switches the server type, `/x` names an instance - so a wider type would let a declared value
+mean more than it says, silently. Not `crate::telemetry`'s service name, which is another thing.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The service name, for building the connect string.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidOracleServiceName>
+```
+
+Parses a declared service name.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidOracleServiceName`
+
+```rust
+pub enum InvalidOracleServiceName
+```
+
+Why a declared Oracle service name is not one the driver would read as written.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `Character` - A character the driver's EZCONNECT parser would stop at and read as something else.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 #### `enum PostgresDial`
 
 ```rust
@@ -5115,6 +5186,16 @@ be skipped" look like the same sentence and are not.
   TCP only, and `sutura_exec_clickhouse::transport::Http` sends no `database` parameter - so a
   `database:` here would be a key an operator wrote and the deployment reads past, which is
   exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
+- `Oracle` - An Oracle Database, reached over its TCP listener.
+
+  **The static-credential half, in `Self::ClickHouse`'s shape - with no transport field, and
+  that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
+  shared rule confines the DECLARED host to a loopback literal - not the connection: the driver
+  follows a listener's redirect to any address, in plaintext (`crate::sources`' `oracle` parse
+  states it and names the cell that holds it). Plaintext only, because the driver takes no
+  caller-built TLS configuration: its trust store is a bundled public-CA set a wallet only
+  widens, so no declared `transport_anchors` could be what the source verifies against. A field
+  here that could only ever hold `Plaintext` would be a choice the type pretends exists.
 
 ##### Methods
 
