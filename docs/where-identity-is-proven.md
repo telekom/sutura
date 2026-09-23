@@ -139,7 +139,7 @@ column only points a reader of the venues table at it.
 | **A provisioned Keycloak realm** | in process, on the paths that touch it - a JVM the tier boots inside the job | nothing - no secret and no docker; `nix/keycloak-tier.nix` says so in its own header | `just keycloak-served-test` | - |
 | **A real enterprise identity provider** | in process, on the paths that touch it - the OIDC contract this product depends on, against the real Keycloak the tier boots inside the job | nothing for the contract: the row above IS a real enterprise provider. A hosted tenant, and somebody to configure it, for the provider-specific residual alone | `just keycloak-served-test` | - |
 | **A declared principal at a real dataset** | a GitHub environment - `bq-test`, on demand only | a workload-identity pool whose provider trusts the issuer that mints each subject's assertion, one principal per subject with its own dataset grants, and somebody to dispatch it | `nix run .#bigquery-declared-principal` | "that a declared subject's question executed as the principal the pool resolves that subject to" |
-| **A served binary under a verified human caller** | a GitHub environment, on demand | a second workload-identity provider whose JWKS was uploaded rather than fetched, a fixed-key Keycloak realm the CI signing-key secret drives, and a hosted run to demand it | `nix run .#served-proof-test` | "that a human subject's own identity reaches the source" |
+| **A served binary under a verified human caller** | nowhere, by decision | the operator's own issuer and identity pool: sutura assumes the operator configures a valid one, so this repository owns no issuer, signing key or provider to stand in for it, and runs no hosted proof of an operator's configuration. What sutura owns is its half - carrying the verified caller's assertion and the declared account, refusing an undeclared subject, never answering as the deployment - held by fakes at the port | not built | "that a human subject's own identity reaches the source" |
 
 The rule the mock issuer's row establishes: **the mock issuer is the default venue, and it may never be cited
 for the two claims it answers by construction.** A real provider stops being a prerequisite for testing
@@ -199,7 +199,7 @@ The two rows are that split and not a duplication.
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no | no - a different adapter, refused at boot before any venue | - |
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
-| **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | **wired** - the mechanism is built, `served-proof-test` reaches it, and no run has been observed |
+| **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | - |
 | **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **wired** - the standing cells are `each_subject_executes_as_its_own_principal_at_the_declared_pool` and its control `the_deployments_own_identity_is_neither_subjects_principal`, dispatched by `.github/workflows/bigquery-declared-principal.yml`; no run observed | - |
 ## The fake at the port
 
@@ -550,16 +550,13 @@ is which is the whole reason this row survives as a separate one.
 
 ## A served binary under a verified human caller
 
-**This venue runs `a GitHub environment, on demand`, and it is now the SECOND half of leg 2 rather
-than the whole of it.** The `SESSION_USER()` half stays at *A declared principal at a real
-dataset* above, which is `wired`; this half needs a served binary: a verified human caller asking
-through `/v1/*`, and the rows two accounts' own grants give them. `nix run .#served-proof-test`
-now reaches it - `.github/workflows/ci.yml`'s `served-proof-test` job, category-gated on
-`identity` - and no green run has been observed yet, so this row is `wired` and not `yes`. The
-standing cell is
-`crates/sutura-cli/tests/served/e2e.rs`'s
-`a_served_binary_executes_a_verified_human_caller_as_the_declared_account`,
-`#[ignore]`d and failing rather than skipping when its environment is unset.
+**This venue runs nowhere, and there is no standing cell in it - and it is now the SECOND half of
+leg 2 rather than the whole of it.** The `SESSION_USER()` half moved to *A declared principal at a
+real dataset* above, which is `wired`; what is left here is the half that needs a served binary: a
+verified human caller asking through `/v1/*`, and the rows two accounts' own grants give them. No
+job invokes it and no green run has been observed. The ignored cell that used to stand here is not
+named, because a citation of a test this workspace no longer contains is a citation of nothing and
+`cargo xtask check-venues` refuses one.
 
 ### What leg 2 now needs, precisely
 
@@ -617,55 +614,41 @@ to name a DIFFERENT account, or both questions run as one principal whatever the
 answer is now compared against the address declared for that subject as well as against the other
 answer. **Nobody has dispatched it**, which is why that venue says `wired` and not `yes`.
 
-**What closed the `403 insufficient_scope` / unreachable-JWKS deadlock, and where it is verified.**
-Neither existing candidate could satisfy both checks at once: a Google-issued ID token carries no
-`scope`, and the DEV Keycloak tier's tokens carry scope but sign with a key on loopback, which
-Google's token service cannot fetch. `nix/served-proof-tier.nix` is a THIRD identity provider built
-to satisfy both: a Keycloak realm whose signing key is FIXED (a CI secret, never generated at
-`start`), given an explicit `kid`, so a second Google workload-identity provider can be told that
-key's public half directly - `oidc.jwks_json` on `WorkloadIdentityPoolProviderOidcArgs`
-(`test-infra/pulumi/google/__main__.py`'s "served-caller proof" block), which the Terraform
-provider this SDK wraps documents as turning OFF the discovery-document fetch: *"If not set, then
-we use the `jwks_uri` from the discovery document fetched from the .well-known path for the
-`issuer_uri`"* - so a SET `jwks_json` is exactly the mechanism that lets `issuer_uri` be a literal
-Google never has to reach. Confirmed live against Keycloak 26 (`nix/served-proof-tier.nix`'s own
-header carries what was measured and where): a realm-level `rsa` key provider component given an
-explicit `kid` publishes exactly that `kid`, and `--hostname=<url>` advertises a FIXED `iss`
-regardless of the ephemeral loopback port the tier actually binds - so the harness that mints a
-token never has to reach TLS, and `security.inbound.authorization_server`'s string comparison is
-satisfied by a literal, never by a connection. `checks.served-proof-tier` (`just validate`) proves
-this mechanically, network-free, with a throwaway key standing in for the CI secret: it mints a
-token and asserts the `kid`, the `iss`, `preferred_username`, and both audiences a real dispatch
-needs. **What it does not reach, stated where the claim is: whether Google's STS accepts a token
-this realm mints.** That is the hosted half, and only a dispatch of `served-proof-test` answers it.
+**Why this half is still `not built`, and it is a measurement rather than a backlog entry.** Over
+the served surface a caller's capabilities come from the `scope` claim of the token leg 1 verified,
+and a verified caller whose token names no capability scope may invoke nothing: `sutura_http`'s own
+capability module states it beside the code and a router cell in that crate holds it. The SAME
+token is what the declared-principal broker federates to the identity pool, so the caller credential
+has to satisfy the capability gate and the pool's provider at once. Neither token this repository can
+obtain does both. The assertions telekom/sutura#376's mint script asks Google for are ID tokens with
+a target audience and no scope, and nothing in the settings tree supplies a scope on a caller's
+behalf - `security.inbound` has no such key - so a Google-issued caller reaches `403`
+`insufficient_scope` before any source is asked. The Keycloak tier's tokens carry this surface's
+scopes and are served over a loopback listener with a throwaway CA, which Google's token service
+cannot fetch a key set from. **So the cost cell's *an IdP issuing the subjects the declared map
+names* is load-bearing and specific: an issuer whose tokens carry this surface's capability scopes
+AND whose key set the pool's provider can reach.** That is an owner-provisioned tenant, not
+something this repository can mint, and it is why the row is `not built` rather than `unrun`.
+**Adding a settings key that granted capabilities to a scopeless verified caller would close this
+by weakening the fail-closed gate, and is not on the table here.**
 
-**Adding a settings key that granted capabilities to a scopeless verified caller would have closed
-this by weakening the fail-closed gate, and was not taken.**
+The second half - this venue - is still only described, and it is a served deployment that:
 
-The second half - this venue - is now a served deployment that:
+1. boots `sutura serve` with the `bigquery` feature and `security.inbound` armed, over the ADBC
+   driver the release artefact for its triple carries (a build from source instead points
+   `SUTURA_BIGQUERY_ADBC_DRIVER` at a `.so`), with one `bigquery` source declared
+   `impersonation-at-source` whose `impersonate` map names both subjects;
+2. asks one question as each of two verified callers and asserts the two answers differ in the way
+   the two accounts' dataset grants make them differ - the ROWS, which is what the adapter-level
+   venue cannot see;
+3. carries the same control the other venue does, because without it a run in which both callers
+   were answered as the deployment passes.
 
-1. boots `sutura serve` with the `bigquery` and `adbc` features, `security.inbound` armed against
-   the served-proof realm, over the ADBC driver a CI build points `SUTURA_BIGQUERY_ADBC_DRIVER`
-   at, with one `bigquery` source declared `impersonation-at-source` whose `impersonate` map names
-   both callers by their full verified subject;
-2. asks one question as each of two verified callers and asserts EXACT equality between the row
-   each answer carries and the grouping value the deployment's own pulumi stack declares for that
-   caller's account (`SUTURA_BQ_PRINCIPAL_A_ROWS`/`_B_ROWS`) - the ROWS, which is what the
-   adapter-level venue cannot see, read against a configured value rather than merely compared
-   against each other;
-3. asks the SAME two callers through a second, `shared-service-user` source over the SAME table,
-   and asserts the answer carries no row at all - the deployment's own credential is a grantee of
-   neither row access policy, so a leg answered under it rather than under a caller's federated
-   principal would carry every seeded row;
-4. asks a THIRD verified caller this source's `impersonate` map does not name, and asserts
-   `403 credential_unavailable` before anything is exchanged.
-
-**What that run would still not prove**, and it is the same exclusion the adapter-level venue
-carries in a different place: nothing about a caller's own possession of a credential at the data
-system. The caller's token is verified by this deployment and by nobody else on the path. A run can
-show two subjects resolving to two principals through the served surface; it cannot show that a
-forged subject would have been stopped by anything other than leg 1, and it cannot show Google
-accepting either hop until the workflow is dispatched.
+**What that run would still not prove**, and it is the same exclusion the withdrawn venue carried in
+a different place: nothing about a caller's own possession of a credential at the data system. The
+caller's token is verified by this deployment and by nobody else on the path. A run can show two
+subjects resolving to two principals; it cannot show that a forged subject would have been stopped by
+anything other than leg 1.
 
 **And the observable over the served surface is narrower than the oracle.** `SELECT SESSION_USER()`
 is not reachable over `/v1/sql/run` - `BigQueryWarehouse` keeps `ACCEPTS_RAW_STATEMENTS = false` - so

@@ -573,100 +573,6 @@ for tag, sa in (("a", sa_a), ("b", sa_b)):
         ),
     )
 
-# --------------------------------------------------------------------------- #
-# (4b) A SECOND provider on the SAME pool - the served-caller proof
-# (`telekom/sutura#929`'s re-review, `docs/where-identity-is-proven.md`'s "served binary under a
-# verified human caller" row).
-# --------------------------------------------------------------------------- #
-# The leg-1 caller token has to satisfy TWO verifiers at once: this deployment's own capability
-# gate (needs a `scope` claim) and this pool's provider (needs a signature Google can verify). A
-# Google-issued ID token has no scope; the CI Keycloak tier's tokens are signed with a key on
-# loopback, which Google cannot fetch. Uploading the SIGNING KEY'S OWN PUBLIC HALF as `jwks_json`
-# closes that: STS then verifies the signature against the uploaded set instead of fetching the
-# issuer's discovery document, so `issuer_uri` needs to be a well-formed `https://` string but not
-# a REACHABLE one (`terraform-provider-google`'s own doc for this field: "If not set, then we use
-# the `jwks_uri` from the discovery document fetched from the .well-known path for the
-# `issuer_uri`" - so a set `jwks_json` is exactly what turns that fetch off; verified against
-# pulumi-gcp's own `WorkloadIdentityPoolProviderOidcArgs` example, which pairs the two the same
-# way. `issuer_uri` remains REQUIRED either way - `gcloud iam workload-identity-pools providers
-# create-oidc --help` lists it under REQUIRED FLAGS regardless of `--jwk-json-path`).
-#
-# `SERVED_PROOF_ISSUER` and `SERVED_PROOF_KID` are LITERALS, not config, and they are hardcoded a
-# second time in `nix/served-proof-tier.nix` - the two files cannot read one another, so the two
-# copies are kept byte-identical BY HAND rather than by a shared source. Neither is a secret: the
-# issuer is an RFC 2606 placeholder this stack never serves (Keycloak's own `--hostname` override
-# advertises it regardless of the loopback port a CI run binds), and `kid` is the label the tier's
-# realm and this pool have to agree on for the same key, not key material.
-#
-# What travels between the two systems, and how it gets there:
-#   * the PRIVATE key never reaches this file - the owner adds it as a CI secret the served-proof
-#     tier passes to Keycloak's own `rsa` key provider component at realm-provision time;
-#   * the PUBLIC half is `served_proof_jwks_json` config below, computed OFFLINE from that same
-#     private key by `nix/served-proof-jwks.sh` and pasted into `Pulumi.<stack>.yaml` - never
-#     applied by this repository's own automation, because doing so would need the private key on
-#     the machine running `pulumi up`.
-SERVED_PROOF_ISSUER = "https://served-proof.sutura-ci.example.com/realms/served-proof"
-SERVED_PROOF_KID = "served-proof-signing-key-1"
-
-# The two fixed caller ids the Keycloak realm provisions as its two users' USERNAMES - not their
-# internal ids, which a torn-down-and-reprovisioned realm cannot keep stable across CI runs. The
-# provider's `attribute_mapping` below reads `assertion.preferred_username` for exactly that
-# reason: Keycloak's built-in "profile" client scope maps a user's username onto that claim, so a
-# fixed username is a fixed pool subject with no dependence on an internal id this stack could
-# never predict before the realm exists.
-served_proof_caller_a = "served-proof-caller-a"
-served_proof_caller_b = "served-proof-caller-b"
-
-served_proof_provider_id = cfg.require("served_proof_provider_id")
-served_proof_audience = (
-    f"//iam.googleapis.com/projects/{project_number}"
-    f"/locations/global/workloadIdentityPools/{cfg.require('workload_pool_id')}"
-    f"/providers/{served_proof_provider_id}"
-)
-
-served_proof_provider = gcp.iam.WorkloadIdentityPoolProvider(
-    "served-proof-provider",
-    workload_identity_pool_id=workload_pool.workload_identity_pool_id,
-    workload_identity_pool_provider_id=served_proof_provider_id,
-    display_name="served-caller proof (Keycloak)",
-    attribute_mapping={
-        "google.subject": "assertion.preferred_username",
-        "attribute.principal": "assertion.preferred_username",
-    },
-    oidc=gcp.iam.WorkloadIdentityPoolProviderOidcArgs(
-        issuer_uri=SERVED_PROOF_ISSUER,
-        allowed_audiences=[served_proof_audience],
-        # The public half of the fixed signing key above - see this block's own header for what
-        # travels where. Required config: a provider with no JWKS and an unreachable issuer would
-        # verify nothing.
-        jwks_json=cfg.require("served_proof_jwks_json"),
-    ),
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
-)
-
-# The two callers may impersonate exactly the two accounts whose row grants already differ -
-# `sa_a`/`sa_b` above, never a third account this venue would have to provision on its own.
-for tag, caller, sa in (
-    ("a", served_proof_caller_a, sa_a),
-    ("b", served_proof_caller_b, sa_b),
-):
-    gcp.serviceaccount.IAMMember(
-        f"served-proof-caller-{tag}-workload-identity-user",
-        service_account_id=sa.name,
-        role="roles/iam.workloadIdentityUser",
-        member=pulumi.Output.concat(
-            "principal://iam.googleapis.com/projects/",
-            project_number,
-            "/locations/global/workloadIdentityPools/",
-            workload_pool.workload_identity_pool_id,
-            "/subject/",
-            caller,
-        ),
-        opts=pulumi.ResourceOptions(
-            provider=gcp_provider, depends_on=[sa, served_proof_provider]
-        ),
-    )
-
 
 # --------------------------------------------------------------------------- #
 # Outputs - the values the CI job and sutura-config consume. Keys are secrets.
@@ -692,7 +598,3 @@ pulumi.export("ci_key", ci_key.private_key)
 pulumi.export("ci_dataset", ci_dataset)
 pulumi.export("ci_table", ci_table)
 pulumi.export("cross_dataset", cross_dataset_res.dataset_id)
-# The served-caller proof's own provider audience - the pool subject a Keycloak-signed token's
-# `aud` has to carry. Not a secret: it is a resource path, the same class of value `workload_audience`
-# already is.
-pulumi.export("served_proof_audience", served_proof_audience)

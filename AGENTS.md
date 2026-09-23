@@ -60,9 +60,10 @@ Those three plus secure-by-design are the definition of *correct* in review here
   the caller's own verified assertion is federated through the declared pool, and the account the
   source's per-source map declares for that subject becomes the credential's
   `service_account_impersonation_url` - an undeclared subject is refused, never run as the
-  deployment. Both hosted venues that would show it - the adapter one and the served one - are
-  `wired`, and **no run of either has been observed**; the run this sentence once cited was of an
-  HTTP exchange the ADBC adoption deleted.
+  deployment. The adapter venue that would show it is `wired` with **no observed run**; a served
+  venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
+  and proves only its own half. The run this sentence once cited was of an HTTP exchange the ADBC
+  adoption deleted.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
   this claim while that page records no run - **in prose files only**: its scope is
   `md`/`nix`/`yml`/`yaml`/`toml`/`sh`, so the same overstatement in a Rust comment is held by

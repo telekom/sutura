@@ -839,7 +839,7 @@ jobs:
               checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest)
             fi
             if [ "$TIERS" = "true" ] || [ "$IDENTITY" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.keycloak-tier .#checks.x86_64-linux.served-proof-tier)
+              checks+=(.#checks.x86_64-linux.keycloak-tier)
             fi
             if [ "$TIERS" = "true" ] || [ "$POSTGRES" = "true" ]; then
               checks+=(.#checks.x86_64-linux.postgres-tier)
@@ -870,14 +870,6 @@ jobs:
       - name: Identity tier
         if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
         run: nix build .#checks.x86_64-linux.keycloak-tier -L
-
-      # The served-caller proof's OWN tier - a THROWAWAY key stands in for the CI secret, so this
-      # is a mechanical check of the mechanism (fixed `kid`, fixed advertised `iss`, both
-      # audiences) and not of the hosted half. Gated the same way `keycloak-tier` above is: nothing
-      # compiled here can change what this tier does either.
-      - name: Served-caller proof tier
-        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.identity == 'true'
-        run: nix build .#checks.x86_64-linux.served-proof-tier -L
 
       # The Postgres tier's state machine, which the `Tests` step above cannot report on: it starts
       # this tier and stops it, so a green run there means a server came up. Whether `status` and
@@ -1625,129 +1617,6 @@ jobs:
           set -eu
           nix run .#keycloak-served-test -- --no-capture
 
-  # The served-caller proof: `docs/where-identity-is-proven.md`'s "a served binary under a
-  # verified human caller" row. Category-gated on `identity`, like `keycloak-served-test`, but
-  # UNLIKE it this job reads secrets - the `bq-test` environment's CI credential, the two
-  # principal keys (for their account addresses only), and the served-proof signing key - so it
-  # carries `bigquery-declared-principal.yml`'s own fork guard rather than `keycloak-served-test`'s
-  # bare category gate. It still reaches `pull_request`, unlike that workflow: a fork's run simply
-  # cannot reach the environment's secrets, which is the mechanism, not a filter.
-  served-proof-test:
-    needs: [ci]
-    if: |
-      needs.ci.outputs.identity == 'true' &&
-      (github.event_name == 'push' ||
-       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
-    runs-on: rust-mcp-16core
-    timeout-minutes: 45
-    environment: bq-test
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-
-      # THE DEPLOYMENT'S OWN CREDENTIAL - `credential_file` on both bigquery source entries, and
-      # what the SHARED control leg actually authenticates with. Placed outside the checkout, read
-      # for its project id, never through `${{ }}` in a shell body.
-      - name: Place the CI credential and read the project off it
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "the bq-test environment holds no svc_suturua_bq_ci secret" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-ci-key.json"
-          project="$(python3 -c 'import json,os;print(json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"bq-ci-key.json")))["project_id"])')"
-          if [ -z "$project" ]; then
-            echo "the CI key names no project_id" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$project"
-          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-          printf 'GOOGLE_APPLICATION_CREDENTIALS=%s/bq-ci-key.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      # THE TWO ACCOUNT ADDRESSES this leg declares each caller to execute as - read off the same
-      # two keys `bigquery-declared-principal.yml` already reads for their `client_email`, never a
-      # new secret. The keys themselves are never written to disk here - this leg impersonates,
-      # it does not authenticate as either principal directly.
-      - name: Read the two declared account addresses
-        env:
-          SUTURA_BQ_PRINCIPAL_A_KEY: ${{ secrets.SVC_SUTURUA_BQ_PRINCIPAL_A }}
-          SUTURA_BQ_PRINCIPAL_B_KEY: ${{ secrets.SVC_SUTURUA_BQ_PRINCIPAL_B }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_PRINCIPAL_A_KEY:-}" ] || [ -z "${SUTURA_BQ_PRINCIPAL_B_KEY:-}" ]; then
-            echo "the bq-test environment holds fewer than two principal keys" >&2
-            exit 1
-          fi
-          email_a="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["client_email"])' "$SUTURA_BQ_PRINCIPAL_A_KEY")"
-          email_b="$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["client_email"])' "$SUTURA_BQ_PRINCIPAL_B_KEY")"
-          printf '::add-mask::%s\n' "$email_a"
-          printf '::add-mask::%s\n' "$email_b"
-          printf 'SUTURA_BQ_PRINCIPAL_A_EMAIL=%s\n' "$email_a" >> "$GITHUB_ENV"
-          printf 'SUTURA_BQ_PRINCIPAL_B_EMAIL=%s\n' "$email_b" >> "$GITHUB_ENV"
-
-      # THE SIGNING KEY - the one value that never lives in pulumi config, per
-      # `nix/served-proof-tier.nix`'s own header. Placed outside the checkout, removed at the end.
-      - name: Place the served-proof signing key
-        env:
-          SUTURA_SERVED_PROOF_SIGNING_KEY: ${{ secrets.SUTURA_SERVED_PROOF_SIGNING_KEY }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_SERVED_PROOF_SIGNING_KEY:-}" ]; then
-            echo "the bq-test environment holds no SUTURA_SERVED_PROOF_SIGNING_KEY secret" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_SERVED_PROOF_SIGNING_KEY > "$RUNNER_TEMP/served-proof-key.pem"
-          printf 'SUTURA_SERVED_PROOF_SIGNING_KEY_FILE=%s/served-proof-key.pem\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Build the ADBC driver for this runner
-        run: |
-          set -eu
-          echo "SUTURA_BIGQUERY_ADBC_DRIVER=$(bash nix/served-proof-driver-build.sh)" >> "$GITHUB_ENV"
-
-      # `nix run .#served-proof-test` starts THIS venue's own tier, runs the one cell, and stops
-      # the tier whatever the cell does - see the app's own header in `flake.nix`.
-      - name: Served-caller leg
-        env:
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-          SUTURA_BQ_RLS_DATASET: ${{ vars.SUTURA_BQ_RLS_DATASET }}
-          SUTURA_BQ_RLS_TABLE: ${{ vars.SUTURA_BQ_RLS_TABLE }}
-          SUTURA_BQ_GROUP_COLUMN: ${{ vars.SUTURA_BQ_GROUP_COLUMN }}
-          SUTURA_BQ_PRINCIPAL_A_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_A_ROWS }}
-          SUTURA_BQ_PRINCIPAL_B_ROWS: ${{ vars.SUTURA_BQ_PRINCIPAL_B_ROWS }}
-          SUTURA_SERVED_PROOF_AUDIENCE: ${{ secrets.SUTURA_SERVED_PROOF_AUDIENCE }}
-        run: |
-          set -eu
-          for name in SUTURA_BQ_RLS_DATASET SUTURA_BQ_RLS_TABLE SUTURA_BQ_GROUP_COLUMN \
-                      SUTURA_BQ_PRINCIPAL_A_ROWS SUTURA_BQ_PRINCIPAL_B_ROWS SUTURA_SERVED_PROOF_AUDIENCE; do
-            eval "value=\${$name:-}"
-            if [ -z "$value" ]; then
-              echo "the bq-test environment defines no $name - this leg cannot run without it" >&2
-              exit 1
-            fi
-          done
-          nix run .#served-proof-test -- --no-capture
-
-      - name: Remove the credentials
-        if: always()
-        run: |
-          rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/served-proof-key.pem"
-
   # The wave-one E2E over the REAL docker DataHub tier (`--datahub tier`) - the same one cell
   # Legs and their categories: `ci` is always required; `bigquery-acceptance` is
   # `data_source_bigquery`; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
@@ -1856,7 +1725,7 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check, served-proof-test]
+    needs: [ci, keycloak-served-test, bigquery-driver-check]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1867,9 +1736,6 @@ jobs:
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
-          SP_RESULT: ${{ needs.served-proof-test.result }}
-          SP_SELECTED: ${{ needs.ci.outputs.identity }}
-          SP_SAME_REPO: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -1906,20 +1772,6 @@ jobs:
             case "$BQ_RESULT" in
               skipped|success) ;;
               *) fail "bigquery-driver-check reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
-            esac
-          fi
-          # `served-proof-test` carries the fork exception `bigquery-acceptance` established: a
-          # fork's pull request cannot reach the `bq-test` environment's secrets, so on that event
-          # the leg is skipped by the EVENT, not by a filter bug, and this does not hold it to
-          # run-or-fail.
-          if [ "$SP_SELECTED" = "true" ] && [ "$SP_SAME_REPO" = "true" ]; then
-            if [ "$SP_RESULT" != "success" ]; then
-              fail "served-proof-test must run (identity category selected, same-repository event) but reported '$SP_RESULT'"
-            fi
-          else
-            case "$SP_RESULT" in
-              skipped|success) ;;
-              *) fail "served-proof-test reported '$SP_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"

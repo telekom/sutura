@@ -63,11 +63,6 @@ SECRETS = {
     "SUTURA_BQ_WORKLOAD_AUDIENCE": "workload_audience",
     "SUTURA_BQ_PRINCIPAL_A_EMAIL": "principal_a_email",
     "SUTURA_BQ_PRINCIPAL_B_EMAIL": "principal_b_email",
-    # The served-caller proof's SECOND provider audience - `served-proof-test` reads this, never
-    # `bigquery-declared-principal`. NOT `SUTURA_SERVED_PROOF_SIGNING_KEY` - that value never
-    # reaches this stack's own outputs at all (`nix/served-proof-tier.nix`'s own header), so it is
-    # added to the `bq-test` environment by hand, once, and never by this script.
-    "SUTURA_SERVED_PROOF_AUDIENCE": "served_proof_audience",
 }
 # Which of those stack outputs is a key document: pulumi `-j` base64-encodes a `secret` output, so
 # those three decode to a JSON document and the other three are plain strings pushed as they are.
@@ -113,15 +108,6 @@ VARS = {
     # all take the same project the CI key names, and the workflow derives them from the key inside
     # the step body rather than provisioning the id as a var, so it never lands in a job's `env:` dump.
     "SUTURA_BQ_CROSS_DATASET": "cross_dataset",
-    # The served-caller proof's OWN observable: the policied table's name, its grouping column's
-    # name, and the two values each row access policy grants - `served-proof-test` is what reads
-    # all four now, over the SAME `dataset`/`rap_a`/`rap_b` the withdrawn two-principal cell used.
-    # Not secrets: `Pulumi.example.yaml` already carries these as plain config, and none of the
-    # four names an account or a project.
-    "SUTURA_BQ_RLS_TABLE": "table",
-    "SUTURA_BQ_GROUP_COLUMN": "group_column",
-    "SUTURA_BQ_PRINCIPAL_A_ROWS": "principal_a_rows",
-    "SUTURA_BQ_PRINCIPAL_B_ROWS": "principal_b_rows",
 }
 need(*VARS.values())
 for gh_name, out in VARS.items():

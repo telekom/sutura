@@ -258,12 +258,6 @@
         # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
         keycloakTier = import ./nix/keycloak-tier.nix { inherit pkgs; };
 
-        # The served-caller proof's OWN Keycloak realm - a fixed signing key rather than one
-        # Keycloak generates for itself, because a Google workload-identity provider has to be
-        # given that key's public half ahead of any run. `nix/served-proof-tier.nix` carries why
-        # this is not `keycloakTier` with a flag.
-        servedProofTier = import ./nix/served-proof-tier.nix { inherit pkgs; };
-
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -649,12 +643,6 @@
           # reasoning in `nix/keycloak-tier.nix`, beside the script it drives.
           keycloak-tier = keycloakTier.check;
 
-          # The served-caller proof's own tier: a throwaway key stands in for the CI secret, no
-          # Google pool is involved, and what is checked is that a token this realm mints carries
-          # the fixed `kid`, the fixed advertised `iss`, `preferred_username`, and BOTH audiences a
-          # real dispatch needs. Body in `nix/served-proof-tier.nix`, beside the script it drives.
-          served-proof-tier = servedProofTier.check;
-
           # The Postgres tier's state machine: `status` derived from the one document the harness
           # reads, a stop that cannot stop keeping its claim, and `nix/with-tier.sh`'s three-way
           # decision sourced from the file `just test` sources. `checks.nextest` starts and stops
@@ -964,40 +952,6 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' "$@"
-          '');
-        };
-
-        # `nix run .#served-proof-tier -- start|stop|status` - the served-caller proof's own
-        # Keycloak realm, by hand. Same pattern as `apps.keycloak-tier`: the SAME derivation
-        # `checks.served-proof-tier` runs, from the same file.
-        apps.served-proof-tier = {
-          type = "app";
-          program = "${servedProofTier.tier}/bin/sutura-served-proof-tier";
-        };
-
-        # `nix run .#served-proof-test` - the hosted half of the served-caller proof:
-        # `docs/where-identity-is-proven.md`'s "a served binary under a verified human caller" row.
-        # Starts THIS venue's own tier (never `keycloakTier` - the two realms are not
-        # interchangeable, see `nix/served-proof-tier.nix`'s own header), runs the one `#[ignore]`d
-        # cell with the BigQuery ADBC feature linked, and stops the tier whatever the cell does -
-        # `apps.keycloak-served-test`'s own pattern for why the trap is armed before `start` and why
-        # the `exec` is inside a subshell rather than replacing this script.
-        apps.served-proof-test = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-served-proof-test" ''
-            set -euo pipefail
-            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${servedProofTier.tier}/bin:$PATH"
-
-            ${cargoLinkEnv}
-            ${cargoWarmStart}
-            rc=0
-            sutura-served-proof-tier status >/dev/null 2>&1 || rc=$?
-            if [ "$rc" = 1 ]; then trap 'sutura-served-proof-tier stop' EXIT; fi
-            sutura-served-proof-tier start
-            (
-              exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features --run-ignored only \
-                -E 'test(a_served_binary_executes_a_verified_human_caller_as_the_declared_account)' "$@"
-            )
           '');
         };
 
