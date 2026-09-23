@@ -41,3 +41,13 @@ config:
   # Set this only to accept EXTRA audiences on top of that default; the default is appended
   # automatically if a configured list omits it.
   # sutura-google-test-infra:workload_allowed_audiences: '["//iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/sutura/providers/oidc"]'
+  # The served-caller proof's SECOND provider on the same pool - `__main__.py`'s own header on it
+  # says what travels where. The provider id is any name not already used under this pool.
+  sutura-google-test-infra:served_proof_provider_id: "served-proof"
+  # The PUBLIC half of a fixed RSA signing key, as a JWKS JSON string - computed OFFLINE by
+  # `nix/served-proof-jwks.sh` from a private key generated once and held ONLY as a CI secret
+  # (`SUTURA_SERVED_PROOF_SIGNING_KEY`), never here and never applied by this repository's own
+  # automation. The `kid` inside it MUST be the literal `served-proof-signing-key-1` -
+  # `__main__.py` and `nix/served-proof-tier.nix` both hardcode that string and have to agree on it
+  # by hand, since neither file can read the other's source.
+  # sutura-google-test-infra:served_proof_jwks_json: '{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","kid":"served-proof-signing-key-1","n":"...","e":"AQAB"}]}'

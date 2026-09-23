@@ -175,14 +175,17 @@ jobs:
       # venue - see this file's own header. `SUTURA_BQ_PROJECT` arrives from the step above rather
       # than from an environment variable.
       #
-      # **What the leg asserts is still that the two answers DIFFER**, not what either one is -
-      # and since `telekom/sutura#929` F3 that is a deliberate under-assertion rather than the only
-      # thing available. The credential document now names the declared account as its
-      # `service_account_impersonation_url`, so `SESSION_USER()` is expected to read that exact
-      # address; the leg does not compare against it because nobody has dispatched this workflow,
-      # and an equality that has never executed would read as a proven binding. The two addresses
-      # ARE passed, so each subject's document names a different account - a single address for
-      # both would make the two answers agree whatever the mechanism did.
+      # **What the leg asserts, since `telekom/sutura#929` F3's re-review: EXACT equality against
+      # the declared account, not merely that the two answers differ.** The credential document
+      # names the declared account as its `service_account_impersonation_url`, so
+      # `each_subject_executes_as_its_own_principal_at_the_declared_pool` reads `SESSION_USER()` and
+      # asserts it equals the account this step passes for that subject - `assert_eq!`, not
+      # `assert_ne!`. The two `assert_ne!`s beside it are kept for a narrower reason: they refuse a
+      # MISCONFIGURED venue (one assertion presented twice, one address declared twice), which two
+      # equalities against one address would both pass over. The two addresses ARE passed because
+      # the equality needs them, and running this step is what turns that expectation from
+      # untested into a claim a real run either meets or does not - nobody has dispatched this
+      # workflow yet, so the equality is what a green run will check, not evidence of one.
       #
       # Limit: run with `--no-capture`, so a refusal renders the driver's own error text. The first
       # dispatch against a pool with no binding for these subjects is the run most likely to reach

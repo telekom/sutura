@@ -99,6 +99,15 @@ mod agent;
 #[path = "served/bigquery.rs"]
 mod bigquery;
 
+// The served-caller proof - `docs/where-identity-is-proven.md`'s "a served binary under a
+// verified human caller" row. `#[cfg(feature = "bigquery")]` for the reason `bigquery` above
+// carries it: ADBC is this crate's only BigQuery transport, so the feature alone is what links it.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+#[path = "served/e2e.rs"]
+mod e2e;
+
 // The four startup refusals (`github.com/telekom/sutura#302`), split out of `mod tests` below by
 // the same 1000-line cap - a pure relocation, no `#[cfg(unix)]`/`#[cfg(feature)]` of its own
 // because none of the four needs one.
