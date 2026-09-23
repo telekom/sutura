@@ -369,9 +369,14 @@ fn doctor() {
     // binary a release publishes. That coexistence is what the owner asked CI to verify by RUNNING
     // rather than by linking, and it is why `just bigquery-driver-check` invokes this command.
     //
-    // **It is also the musl verification, in the same line.** A static musl artefact has no dynamic
-    // loader, so `probe` cannot succeed there and this prints the failure - which makes *BigQuery is
-    // not functional on the static triples* a thing a run says out loud rather than a paragraph.
+    // **It is the musl verification too, in the same line, and what that line now measures there is
+    // the opposite of what this comment used to claim.** It said `probe` CANNOT succeed on a static
+    // musl artefact, which was true while the only route was a mounted `.so`; `nix/shipped.nix`
+    // links the driver's `c-archive` into every published artefact, so such a binary reaches its
+    // driver through the link or not at all. Whether a Go runtime STARTS inside a statically linked
+    // binary is not something this command may assert either way - it is what
+    // `just bigquery-driver-check` executes it to find out, and a process that dies before reaching
+    // this line is that gate's report to make rather than a claim to leave here.
     //
     // Printed rather than exit-coded, because `doctor` reports and never refuses: the gate that
     // decides is `just bigquery-driver-check`, which matches on this line. `cfg!` cannot know

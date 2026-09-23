@@ -141,6 +141,34 @@ jobs:
           set -eu
           bash demo/start.sh --up-only
 
+      # THE EVIDENCE, AND IT HAS TO BE READ BEFORE THE NEXT STEP DELETES IT. `xtask dev-up`'s
+      # refusal names `docker compose ... logs` as where the detail is, which is the right sentence
+      # for a developer and reaches nobody on a runner: the teardown below is `if: always()` and
+      # removes the container, so a failed provision's only explanation was destroyed by its own
+      # cleanup. Measured on `telekom/sutura#929`'s first run of this job, where `demo: exited` was
+      # the entire report and the container that could have said why was already gone.
+      #
+      # Filtered on Compose's own service label rather than on a name this file would have to
+      # reconstruct - `xtask` derives the project name per worktree, and a copy of that derivation
+      # here is a second thing to keep true. An EMPTY match is annotated rather than passed over:
+      # this step cannot fail the job any harder than the step above already has, so the annotation
+      # is the whole signal and a silent zero-iteration loop would leave the same blank log again.
+      - name: What the demo container said, before it is removed
+        if: failure()
+        run: |
+          set -eu
+          ids="$(docker ps -a --filter label=com.docker.compose.service=demo --format '{{.ID}}')"
+          if [ -z "$ids" ]; then
+            echo "::error::no demo container to read: this step recorded nothing about why the provision failed"
+            exit 0
+          fi
+          for id in $ids; do
+            printf '=== docker logs %s ===\n' "$id"
+            docker logs "$id" 2>&1 || true
+            printf '=== docker inspect %s ===\n' "$id"
+            docker inspect --format '{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{.State.Error}}' "$id" || true
+          done
+
       # ALWAYS: `--up-only` installs no EXIT trap of its own - that belongs to the full lifecycle,
       # which nothing here runs - so a failed health gate above would otherwise leave the demo
       # service, its container and its named volume behind on a runner this job does not own
