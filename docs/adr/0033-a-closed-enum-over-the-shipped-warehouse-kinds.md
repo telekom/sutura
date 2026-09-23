@@ -132,15 +132,24 @@ and looks each source up in its own `DeclaredPrincipals`, so the account is reso
 `(source, subject)` pair: two sources declaring the same subject to two different accounts are
 minted two `Presented::SubjectToken`s carrying the caller's one assertion and two different
 `impersonate` values. Held by
-`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`, which also
-asserts that a subject one of the two sources does not declare refuses the whole answer rather than
-being served the other source's account.
+`one_subject_federating_two_sources_is_minted_each_sources_own_declared_account`, which also holds
+the SOURCE axis: a subject declared at EXACTLY ONE of the two sources refuses the whole answer
+rather than being served the other source's account. Exactly one is the load-bearing word - a
+subject NEITHER source declares is refused with or without a per-source lookup, so an assertion on
+that shape would be inert. Under the committed claim mutation
+(`devco/claim-mutations/one_subject_federating_two_sources_is_minted_each_sources_own_declared_account.patch`,
+which collapses the lookup to one map) this half reddens with the non-declaring source presenting
+the declaring source's account.
 
 **The refusal this replaces is deleted, not left unreachable.** `BigQueryError::LegWithoutCombiner`
-and its three exhaustive `false` arms are gone - nothing constructed it once the arm rendered, and
-`dead_code` is denied in this workspace, so leaving it would not have compiled. A leg with no
-combiner above it is still refused one layer up and before any credential is minted: the capability
-gate in `sutura_app::federated` is what decides whether a leg may run at all.
+and its three exhaustive `false` arms are gone - nothing constructs it once the arm renders,
+verified by searching the workspace for the name. That is a deliberate cut and not a compiler
+consequence: `dead_code` is denied in this workspace and does not hold it. Measured - the variant
+re-added with all three arms and nothing constructing it leaves `just lint`'s clippy pass at exit 0,
+since the lint does not reach a never-constructed variant of a `pub` enum, while an unused private
+`fn` in the same file reddens that pass at exit 101. A leg with no combiner above it is still
+refused one layer up and before any credential is minted: the capability gate in
+`sutura_app::federated` is what decides whether a leg may run at all.
 
 **Two of this record's other bullets are narrowed rather than reversed.** *A mixed-posture answer's
 reachability* said no shipped combination can put two different postures on one federated answer

@@ -400,11 +400,12 @@ fn one_subject_federating_two_sources_is_minted_each_sources_own_declared_accoun
     let broker = DeclaredPrincipalBroker::empty()
         .impersonating(
             east.clone(),
-            DeclaredPrincipals::parse(BTreeMap::from([(
-                subject("analyst-a@example.com"),
-                principal("bq-east@sutura.example.com"),
-            )]))
-            .expect("a one-subject declaration names somebody"),
+            DeclaredPrincipals::parse(BTreeMap::from([
+                (subject("analyst-a@example.com"), principal("bq-east@sutura.example.com")),
+                // Declared HERE and at no other source, which is the second half's whole shape.
+                (subject("analyst-b@example.com"), principal("bq-east-b@sutura.example.com")),
+            ]))
+            .expect("a two-subject declaration names somebody"),
         )
         .impersonating(
             west.clone(),
@@ -430,15 +431,18 @@ fn one_subject_federating_two_sources_is_minted_each_sources_own_declared_accoun
         account_at(&west),
         "one mint over two sources collapsed into one credential, so one source's map decided both legs"
     );
-    // And a source this subject is NOT declared at refuses the whole answer rather than being
-    // served the other source's account - so the per-source lookup is an authorization decision on
-    // both axes, not only a value lookup.
-    let undeclared = broker
+    // **And the SOURCE axis, which is the half a collapsed lookup actually breaks.** `analyst-b` is
+    // declared at east and nowhere else, so west has nobody to be and the whole answer is refused -
+    // rather than west serving east's account to a subject west never named. A subject NEITHER
+    // source declares would not hold this: it is refused with or without a per-source lookup, so
+    // the assertion would be inert. The refusal names west, the source that could not be asked as
+    // this caller, and `Minted::Refused` carries only that field.
+    let only_east_declares = broker
         .mint(&caller("analyst-b@example.com"), &asked)
-        .expect("an undeclared subject is a refusal, not an error");
+        .expect("a source that does not declare the asker is a refusal, not an error");
     assert!(
-        matches!(undeclared, Minted::Refused { ref source } if source == &east),
-        "{undeclared:?}"
+        matches!(only_east_declares, Minted::Refused { ref source } if source == &west),
+        "a subject only east declares must be refused at west, got {only_east_declares:?}"
     );
 }
 

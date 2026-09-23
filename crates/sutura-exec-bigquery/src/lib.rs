@@ -674,11 +674,17 @@ where
     /// [`JobIdentity::AsSubject`](crate::transport::JobIdentity::AsSubject) - one mint over both
     /// sources, two credentials.
     ///
-    /// The refusal this replaces - `LegWithoutCombiner` - is DELETED rather than left unreachable:
-    /// nothing constructed it once this arm rendered, and `dead_code` is denied here. A leg with no
-    /// combiner above it is still refused, one layer up and before any credential is minted: it is
-    /// `sutura_app::federated`'s own capability gate that decides whether a leg may run, and a
-    /// `BigQueryWarehouse` reached outside that gate is reached outside the whole federated path.
+    /// The refusal this replaces - `LegWithoutCombiner` - is DELETED rather than left unreachable,
+    /// and that is a choice rather than a compiler consequence: nothing constructs it once this arm
+    /// renders, verified by searching the workspace for the name. `dead_code` is denied here and
+    /// does NOT hold it - MEASURED, the variant re-added with all three exhaustive arms and nothing
+    /// constructing it leaves `just lint`'s workspace clippy pass at exit 0, because the lint does
+    /// not reach a never-constructed variant of a `pub` enum; an unused private `fn` in this same
+    /// file reddens that pass at exit 101, so the deny is live and has nothing to say here. A leg
+    /// with no combiner above it is still refused, one layer up and before any credential is
+    /// minted: it is `sutura_app::federated`'s own capability gate that decides whether a leg may
+    /// run, and a `BigQueryWarehouse` reached outside that gate is reached outside the whole
+    /// federated path.
     ///
     /// **Two limits, both stated because this constant is what opens the path.** A leg renders
     /// correctly for the dialect (`crates/sutura-app/tests/golden/legs.rs` at
