@@ -421,6 +421,15 @@
 
         inherit (shipped) binaries crossPackages imageTargets;
 
+        # #149 branch 5's runner - `nix/kind-smoke.nix` carries what it proves and what it does
+        # not. `shipped.localImages.oci` is the SAME native image `nix build .#oci` builds, so
+        # this loads the one a developer would, not a second build of it.
+        kindSmokeRunner = import ./nix/kind-smoke.nix {
+          inherit pkgs;
+          chartHelm = chart.helm;
+          ociImage = shipped.localImages.oci;
+        };
+
       in
       rec {
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
@@ -1215,6 +1224,30 @@
         apps.git-cliff = {
           type = "app";
           program = "${pkgs.git-cliff}/bin/git-cliff";
+        };
+
+        # #149 branch 5: `nix run .#kind-smoke` - a real `kind` cluster, this chart installed,
+        # one wait on the Deployment's own readiness, then teardown. `nix/kind-smoke.nix`
+        # carries what it proves and what it does not.
+        apps.kind-smoke = {
+          type = "app";
+          program = "${kindSmokeRunner}/bin/sutura-kind-smoke";
+        };
+
+        # `helm`, for `release.yml`'s chart-publishing steps (#149 branch 4) - off `chart.helm`
+        # rather than `pkgs` a second time, so the tool that packages and pushes the chart is
+        # the SAME pinned binary `checks.helm-chart` (`nix/helm-chart.nix`) lints and renders it
+        # with, on the rule every other pinned publishing tool here already follows.
+        apps.helm = {
+          type = "app";
+          program = "${chart.helm}/bin/helm";
+        };
+        # `oras`, for pushing the Artifact Hub repository-metadata layer beside the chart -
+        # #149 branch 4. Pinned for `apps.cosign`'s reason: its version decides the media types
+        # and manifest shape it PRODUCES, not only what it reports.
+        apps.oras = {
+          type = "app";
+          program = "${pkgs.oras}/bin/oras";
         };
         # No mkdocs or mike app, deliberately. The docs toolchain is Python, and it lives in
         # pixi's isolated `docs` environment - `pixi run --frozen -e docs docs`.

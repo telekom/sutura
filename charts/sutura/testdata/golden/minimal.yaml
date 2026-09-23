@@ -99,6 +99,11 @@ spec:
                 secretKeyRef:
                   name: sutura-access-token
                   key: token
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
             - name: SUTURA__SECURITY__TLS_TERMINATION
               value: "ingress"
           volumeMounts:

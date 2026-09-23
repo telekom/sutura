@@ -158,7 +158,9 @@ fn image_subjects(text: &str) -> Result<Subjects, String> {
         let [kind, variant, reference] = words.as_slice() else {
             return Err(String::from("malformed image record"));
         };
-        if *kind == "leaf" {
+        // A `chart` record is the Helm chart `publish-chart` appends to this file and signs on its
+        // own - not an image list, so it is no provenance subject here.
+        if *kind == "leaf" || *kind == "chart" {
             continue;
         }
         if *kind != "list" || !variants.insert(*variant) {
@@ -606,5 +608,21 @@ mod tests {
             let names: std::collections::BTreeSet<_> = subjects.iter().map(|(name, _)| name.as_str()).collect();
             assert_eq!(names, std::collections::BTreeSet::from([want]), "{reference}");
         }
+    }
+
+    /// The release appends a `chart` record to the same file before `collect-provenance` reads
+    /// it; refusing that as an unknown list failed a release after everything was pushed.
+    #[test]
+    fn a_chart_record_is_not_an_image_subject() {
+        let text = format!(
+            "# kind name reference@digest\n\
+             list glibc registry.example.com/test/runtime@sha256:{:064x}\n\
+             list musl registry.example.com/test/runtime@sha256:{:064x}\n\
+             chart sutura registry.example.com/test/charts/sutura@sha256:{:064x}\n",
+            0, 1, 2
+        );
+        let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{cause}"));
+        let names: std::collections::BTreeSet<_> = subjects.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, std::collections::BTreeSet::from(["registry.example.com/test/runtime"]));
     }
 }

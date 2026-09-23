@@ -54,8 +54,10 @@ security:
     secretName: ""
     secretKey: token
   # `security.metrics_token` (`SUTURA__SECURITY__METRICS_TOKEN`) - a SEPARATE credential
-  # gating `GET /metrics` only (`docs/adr/0015` Decision 1). Empty means `/metrics` is
-  # reachable wherever `/v1/query` is, unauthenticated - see `metrics.serviceMonitor` below.
+  # gating `GET /metrics` only (`docs/adr/0015` Decision 1). REQUIRED, like the access token:
+  # `/metrics` is always mounted, so `Settings::refusals`' `MetricsTokenRequired` refuses an
+  # off-host bind without it, and a Secret holding the same value as the access token is
+  # refused too (`MetricsTokenSharesTheApiToken`).
   metricsToken:
     secretName: ""
     secretKey: token
@@ -115,22 +117,26 @@ service:
 rateLimit:
   enabled: true
 
-# `resources.limits`/`requests` on the container. NOT yet used to derive
-# `runtime.engine_worker_threads` or `runtime.working_set_max_bytes` - that template is a
-# separate, not-yet-landed change (`docs/serving.md`'s two documented traps: an engine width
-# resolved from the host's cores under a CPU quota, and a working-set ceiling left at its
-# provisional one gibibyte). Until then, set `runtime.engineWorkerThreads` and
-# `runtime.workingSetMaxBytes` below explicitly under a CPU or memory limit.
+# `resources.limits`/`requests` on the container. `resources.limits.cpu`/`.memory`, when set,
+# now DERIVE `runtime.engineWorkerThreads`/`workingSetMaxBytes` below whenever those are left
+# empty - `templates/_helpers.tpl`'s `sutura.engineWorkerThreads`/`workingSetMaxBytes` - closing
+# the two traps `docs/serving.md` documents by name: an engine width resolved from the host's
+# cores under a CPU quota, and a working-set ceiling left at its provisional one gibibyte
+# regardless of what memory limit the Deployment actually carries. Setting either
+# `runtime.*` key explicitly below always wins over the derivation.
 resources: {}
 
 runtime:
-  # `runtime.engine_worker_threads` (`SUTURA__RUNTIME__ENGINE_WORKER_THREADS`). Empty means
-  # "as many threads as the machine reports", which under a CPU limit over-counts - see
-  # docs/serving.md's "The engine's width". Set this under `resources.limits.cpu`.
+  # `runtime.engine_worker_threads` (`SUTURA__RUNTIME__ENGINE_WORKER_THREADS`). Empty derives
+  # from `resources.limits.cpu` (rounded up to a whole thread) when that limit is set, and
+  # otherwise means "as many threads as the machine reports" - see docs/serving.md's "The
+  # engine's width". Set this directly to override the derivation.
   engineWorkerThreads: ""
-  # `runtime.working_set_max_bytes` (`SUTURA__RUNTIME__WORKING_SET_MAX_BYTES`). Empty means the
-  # binary's shipped default, one provisional gibibyte - `defaults.yaml`, `#140`. Set this
-  # under `resources.limits.memory`.
+  # `runtime.working_set_max_bytes` (`SUTURA__RUNTIME__WORKING_SET_MAX_BYTES`). Empty derives
+  # from `resources.limits.memory` (75% of the limit, leaving headroom for what this ceiling
+  # does not count) when that limit is set, and otherwise means the binary's shipped default,
+  # one provisional gibibyte - `defaults.yaml`, `#140`. Set this directly to override the
+  # derivation.
   workingSetMaxBytes: ""
 
 # `/health` (`crates/sutura-http/src/constants.rs`) is the liveness path, and there is

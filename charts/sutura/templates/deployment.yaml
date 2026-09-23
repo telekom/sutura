@@ -80,13 +80,15 @@ spec:
             - name: SUTURA__SECURITY__INBOUND__KEY_SET_FILE
               value: /etc/sutura/inbound-keys/{{ .Values.security.inbound.keySetSecretKey }}
             {{- end }}
-            {{- if .Values.runtime.engineWorkerThreads }}
+            {{- $engineWorkerThreads := include "sutura.engineWorkerThreads" . }}
+            {{- if $engineWorkerThreads }}
             - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
-              value: {{ .Values.runtime.engineWorkerThreads | quote }}
+              value: {{ $engineWorkerThreads | quote }}
             {{- end }}
-            {{- if .Values.runtime.workingSetMaxBytes }}
+            {{- $workingSetMaxBytes := include "sutura.workingSetMaxBytes" . }}
+            {{- if $workingSetMaxBytes }}
             - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
-              value: {{ .Values.runtime.workingSetMaxBytes | quote }}
+              value: {{ $workingSetMaxBytes | quote }}
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
