@@ -180,14 +180,12 @@ services:
 
   # The columnar source. The HTTP interface, which is what an adapter would speak.
   clickhouse:
-    # CI venue: compose only.
-    # Because: the adapter (`crates/sutura-exec-clickhouse`) exists but nothing runs it against a
-    #   ClickHouse in the nix sandbox - no `clickhouse-tier.nix` provisions one there the way
-    #   `nix/postgres-tier.nix` does, so a hermetic tier would provision a server no CI job asks a
-    #   question of. Its one caller is the tier's own wiring cell, and that cell is about docker
-    #   having allocated an ephemeral host port, which is a claim the compose venue is the only venue for.
-    # Converges: when a nix-native execution venue exists. `nixpkgs` carries the server, so the tier
-    #   is the only missing piece and `nix/postgres-tier.nix` is the shape it takes.
+    # CI venue: nix native - nix/clickhouse-tier.nix
+    #   Which is what the `compose only` declaration that used to stand here predicted: `nixpkgs`
+    #   carries the server, and `checks.nextest` starts it beside the Postgres tier, so the golden
+    #   matrix's `clickhouse` cells execute the corpus there. This block is now the by-hand docker
+    #   service, and the one cell that still needs it is about docker having allocated an ephemeral
+    #   host port. Its tag and the nixpkgs package are two pins nothing compares.
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/clickhouse/clickhouse-server:26.7-alpine
     environment:
       CLICKHOUSE_USER: *fixture-user

@@ -21,15 +21,12 @@
 //!
 //! [`transport::ClickHouseTransport`] is the port this adapter's own port methods call through -
 //! [`transport::Http`] for a real connection, and a canned implementor for the
-//! crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
-//! venue that runs `just validate` can reach a live `ClickHouse` (`compose.services.yaml`'s
-//! `clickhouse` service is a docker-compose tier; the nix sandbox has no docker socket and no
-//! `clickhouse-tier.nix` exists), so a binding that dialled out would either panic in every
-//! such venue or have to declare itself absent - and `sutura_conformance::venue::
-//! refuse_a_declared_absence` fires against an absent fixture whenever `SUTURA_DEV_REQUIRE_TIER`
-//! is set, which it is inside `checks.nextest` because the Postgres tier is up there, a fact
-//! about THAT tier and not about this one. A canned transport sidesteps the question entirely:
-//! Nothing here claims to be a live endpoint.
+//! crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does:
+//! the port's decisions - rendering, the refusals, the decode - are held by cells that need no
+//! server, so they run on every build. What a SERVER answers is held elsewhere: the golden matrix in
+//! `sutura-app`'s tests loads the example corpus into the server `nix/clickhouse-tier.nix` starts
+//! (through `fixture`, behind the default-off `fixtures` feature) and pins the rows, refusals,
+//! error and anchor report it answers - in `checks.nextest` and under `just test`.
 //!
 //! `Warehouse::Error` for this adapter is [`ClickHouseError`], generic over `T::Error` - the same
 //! shape `sutura_exec_bigquery::BigQueryError<E>`
@@ -58,17 +55,18 @@
 //! Measured by hand against the pinned compose server over the example corpus: 6 of the 23
 //! questions with a committed `@duckdb` row golden disagreed without it, 0 with it, under a
 //! non-`Nullable` schema; under `Nullable` columns the setting changes nothing, so a fixture
-//! importer's type choice decides whether the defect shows. `timeout_overflow_mode=throw`: `break`
-//! answers a spent `max_execution_time` with HTTP 200 and the rows read so far. No leg of `just
-//! validate` reaches a `ClickHouse`, so a unit cell holds what is sent, not what a server answers.
+//! importer's type choice decides whether the defect shows - `fixture` declares no column
+//! `Nullable` for that reason. `output_format_json_quote_denormals=1`: under the default `0` an
+//! infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `break` answers a spent
+//! `max_execution_time` with HTTP 200 and the rows read so far. A unit cell holds what is sent; the
+//! executed goldens hold what the first two settings make the server answer, and nothing executed
+//! holds the third.
 //!
 //! # What is NOT here
 //!
-//! **No composition root links this crate.** Nothing in `sutura-cli`'s `sources.rs` or `serve`
-//! module names a `kind: clickhouse`, so no served deployment can reach a `ClickHouse` source
-//! today. `crate-map`'s rule is a default-off feature on whichever composition root wants to
-//! serve one, and none does yet. Wiring that in is a `sutura-cli` change, out of this crate's
-//! own scope.
+//! **No release links this crate.** `sutura-cli` opens a `kind: clickhouse` source behind its
+//! default-off `clickhouse` feature, which `nix/shipped.nix` does not enable - see that feature's
+//! own manifest entry for why.
 //!
 //! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 //! and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
@@ -81,6 +79,8 @@
 //! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
 
 mod deadline;
+#[cfg(feature = "fixtures")]
+pub mod fixture;
 pub mod tls;
 pub mod transport;
 
@@ -385,7 +385,7 @@ where
             _ => Err(unsupported()),
         },
         "UInt8" | "UInt16" | "UInt32" | "UInt64" | "Int8" | "Int16" | "Int32" | "Int64" => {
-            integer_text(&value).map(Value::Integer).ok_or_else(unsupported)
+            integer_value(&value).ok_or_else(unsupported)
         }
         "Float32" | "Float64" => {
             let raw = float_text(&value).ok_or_else(unsupported)?;
@@ -399,13 +399,21 @@ where
     }
 }
 
+/// An integer cell: [`Value::Integer`] where it fits an `i64`, and its exact digits as
+/// [`Value::Text`] where it is a `UInt64` past `i64::MAX` - the split `sutura_exec_duckdb` makes for
+/// `UBIGINT`, so the same wide sum reads the same on both. Measured by running
+/// `sutura-conformance`'s `wide-total-by-day` case against the tier, which this adapter refused as
+/// an unmapped `UInt64` before; `xtask/src/conformance/reconcile.rs`'s `clickhouse` entry says why
+/// that binding is not committed.
+///
 /// A JSON number OR the string `ClickHouse` renders a 64-bit integer as (to avoid a JavaScript
 /// reader's precision loss) - accepted either way, so this decode does not depend on which
 /// `output_format_json_quote_64bit_integers` setting a server was started with.
-fn integer_text(value: &serde_json::Value) -> Option<i64> {
+fn integer_value(value: &serde_json::Value) -> Option<Value> {
+    let wide = |unsigned: u64| Value::Text(unsigned.to_string());
     match *value {
-        serde_json::Value::Number(ref number) => number.as_i64(),
-        serde_json::Value::String(ref text) => text.parse().ok(),
+        serde_json::Value::Number(ref number) => number.as_i64().map(Value::Integer).or_else(|| number.as_u64().map(wide)),
+        serde_json::Value::String(ref text) => text.parse().map(Value::Integer).ok().or_else(|| text.parse().ok().map(wide)),
         _ => None,
     }
 }

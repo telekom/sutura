@@ -53,6 +53,8 @@ let
   # sandbox. Exposed here so `just test` can start it and run the postgres cells rather than
   # skip them, which keeps one provisioner for both the sandbox and the developer's shell.
   postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+  # And the ClickHouse tier, for the same reason: one provisioner for the sandbox and the shell.
+  clickhouseTier = import ./nix/clickhouse-tier.nix { inherit pkgs; };
 
   # The ONE toolchain, nightly, for both the interactive shell and the gates. The stable/
   # nightly split is gone (issue #468 dissolves): CI gates on the same nightly pin now, so
@@ -186,6 +188,8 @@ in
     # in the developer's shell too. Listed here rather than in the `with pkgs` block for the same
     # reason as duckdb: `postgresTier` is a let-binding in this file.
     postgresTier.tier
+    # `sutura-clickhouse-tier`, which `nix/with-tier.sh` starts beside the Postgres tier.
+    clickhouseTier.tier
 
     # The CRAP gate. Two tools because the metric needs two inputs and neither produces both:
     # cargo-llvm-cov runs the tests under LLVM coverage and writes LCOV, cargo-crap reads that

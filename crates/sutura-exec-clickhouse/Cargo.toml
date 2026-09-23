@@ -45,6 +45,12 @@ url = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+[features]
+# The fixture tier - its credential, a private database per open and a CSV importer - for the golden
+# matrix in `sutura-app`'s tests. `sutura-domain/fixtures` is the shared CSV classification it types
+# columns with. Default-off, like `sutura-exec-postgres`'s feature of the same name.
+fixtures = ["sutura-domain/fixtures"]
+
 [dev-dependencies]
 # `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and
 # credential fixture, so `src/tests.rs` drives the port against a real corpus question rather than

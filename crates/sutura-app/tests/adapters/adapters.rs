@@ -415,6 +415,41 @@ impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
     }
 }
 
+/// A DATA SOURCE over HTTP, executed against the worktree's `nix/clickhouse-tier.nix` server -
+/// `github.com/telekom/sutura#920`. Postgres's registration, ported: discovery decides `available()`,
+/// the tier publishes the credential and nothing here defaults one, and each open gets a private
+/// database so parallel cells sharing one server cannot clobber one another's tables.
+///
+/// **What it executes as:** the tier's one declared user, over plaintext loopback - the
+/// `shared-service-user` posture every entry here is opened with, never a caller's own identity.
+impl DataSystemUnderTest for sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http> {
+    const NAME: &'static str = "clickhouse";
+
+    fn available() -> bool {
+        clickhouse_tier().is_some()
+    }
+
+    fn open(pinned: &PinnedDefinitions) -> Self {
+        let endpoint = clickhouse_tier().expect("`available()` guards the Open of every clickhouse cell");
+        let auth = sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let database = format!("cell_{}_{}", std::process::id(), schema_counter());
+        let warehouse = Self::connect_in_database(
+            source(),
+            posture(),
+            sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
+            auth,
+            &database,
+        )
+        .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
+        for (table, csv) in fixture_tables(pinned) {
+            warehouse
+                .load_csv(&table, &csv)
+                .unwrap_or_else(|e| panic!("clickhouse could not load {}: {e}", csv.display()));
+        }
+        warehouse
+    }
+}
+
 /// Never returned in practice: `available()` reports `bigquery` unavailable unconditionally, and
 /// every cell this suite expands over the axis checks that before it ever asks [`NoLocalTier`]
 /// anything. A typed `Err` rather than a panic all the same, because `clippy::panic_in_result_fn`
@@ -540,6 +575,20 @@ fn postgres_tier() -> Option<&'static Endpoint> {
         .as_ref()
 }
 
+/// This worktree's provisioned `ClickHouse` endpoint, if the tier is up - [`postgres_tier`]'s
+/// reasoning, for the `clickhouse` entry `nix/clickhouse-tier.nix` publishes.
+fn clickhouse_tier() -> Option<&'static Endpoint> {
+    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
+    CACHED
+        .get_or_init(
+            || match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
+                Provisioned::At(endpoint) => Some(endpoint),
+                Provisioned::Skipped(_) => None,
+            },
+        )
+        .as_ref()
+}
+
 /// The catalog the axes that are not *about* a catalog read through.
 ///
 /// Named once here rather than at each call site, so "which catalog produced this golden" has one
@@ -616,15 +665,15 @@ where
 ///
 /// # `data_systems: $cell` - `$cell!(name, Adapter)`
 ///
-/// `Adapter` implements [`DataSystemUnderTest`]. **Four entries, in two different kinds of thing
-/// behind one port**, which is the whole reason the port takes a `QueryPlan` rather than a
-/// statement. `DataFusion` is THE ENGINE: the plan becomes a logical plan over Arrow and no SQL is
-/// generated, so a dialect bug is unreachable on that path. `DuckDB`, `Postgres` and `BigQuery` are
-/// DATA SOURCES: the plan is rendered into their dialect's SQL and pushed down. All four are
-/// `Warehouse` implementations and the corpus does not know which it is talking to. Of the three
-/// sources, `Postgres` needs a provisioned tier to execute and `BigQuery` needs a cloud project this
-/// suite never has, so both skip where [`DataSystemUnderTest::available`] answers `false` -
-/// `Postgres` from a discovery read, `BigQuery` unconditionally.
+/// `Adapter` implements [`DataSystemUnderTest`]. **Two different kinds of thing behind one port**,
+/// which is the whole reason the port takes a `QueryPlan` rather than a statement. `DataFusion` is
+/// THE ENGINE: the plan becomes a logical plan over Arrow and no SQL is generated, so a dialect bug
+/// is unreachable on that path. Every other entry is a DATA SOURCE: the plan is rendered into its
+/// dialect's SQL and pushed down. All are `Warehouse` implementations and the corpus does not know
+/// which it is talking to. `Postgres` and `ClickHouse` need a provisioned tier to execute, and
+/// `BigQuery` and `Oracle` have none any gate reaches, so each skips where
+/// [`DataSystemUnderTest::available`] answers `false` - the first two from a discovery read, the
+/// last two unconditionally.
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
@@ -699,6 +748,12 @@ macro_rules! registered {
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
         $cell!(postgres, sutura_exec_postgres::PostgresWarehouse);
+        // A DATA SOURCE over HTTP, likewise a development dependency, and likewise run against this
+        // worktree's provisioned tier (`nix/clickhouse-tier.nix`) and skipped where none is up.
+        $cell!(
+            clickhouse,
+            sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>
+        );
         // CLOUD-ONLY, and the reason `available()` answers `false` unconditionally: see the impl.
         $cell!(
             bigquery,

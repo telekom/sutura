@@ -225,6 +225,13 @@ fn a_uint64_rendered_as_a_json_string_still_decodes_as_an_integer() {
 }
 
 #[test]
+fn a_uint64_past_i64_max_decodes_as_its_exact_digits() {
+    let body = "[\"n\"]\n[\"UInt64\"]\n[\"10000000000000000006\"]\n";
+    let rows: RowSet = rows_from_json::<ScriptedError>(body.as_bytes()).expect("a wide unsigned integer decodes");
+    assert_eq!(rows.rows()[0][0], Value::Text(String::from("10000000000000000006")));
+}
+
+#[test]
 fn a_float_column_that_is_not_finite_is_refused_rather_than_rendered() {
     let body = "[\"ratio\"]\n[\"Float64\"]\n[\"nan\"]\n";
     let error = rows_from_json::<ScriptedError>(body.as_bytes()).expect_err("NaN is not a finite cell");

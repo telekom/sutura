@@ -2,9 +2,8 @@
 //!
 //! [`Http`] is the one implementor a real connection uses, and the crate's own unit tests bind
 //! the port to a CANNED implementor instead, over the exact same trait - the shape
-//! `sutura-exec-bigquery`'s `JobTransport` already established for the identical reason (no live
-//! server this repository can reach in every venue that runs the suite; see this crate's own
-//! `lib.rs` header).
+//! `sutura-exec-bigquery`'s `JobTransport` already established; see this crate's own `lib.rs`
+//! header for where [`Http`] itself is executed.
 //!
 //! [`ClickHouseTransport::run`] takes the RENDERED statement and its bound [`ParamValue`]s
 //! untouched - never a rewritten string - so what each implementor does with them is its own
@@ -156,6 +155,10 @@ pub struct Http {
     endpoint: Endpoint,
     agent: ureq::Agent,
     auth: Option<BasicAuth>,
+    /// The database an unqualified table name resolves in, sent as the `database` field of every
+    /// request. `None` is the server's default for this user - the only value a composition root
+    /// can reach; the fixture tier sets one per open (`crate::fixture`).
+    database: Option<String>,
 }
 
 impl core::fmt::Debug for Http {
@@ -177,7 +180,12 @@ impl Http {
     #[must_use]
     pub fn connect(endpoint: Endpoint, auth: Option<BasicAuth>) -> Self {
         let agent = ureq::Agent::new_with_config(base_config().build());
-        Self { endpoint, agent, auth }
+        Self {
+            endpoint,
+            agent,
+            auth,
+            database: None,
+        }
     }
 
     /// Opens the transport secured as the caller resolved: `tls` is the `ureq::tls::TlsConfig`
@@ -188,7 +196,46 @@ impl Http {
     #[must_use]
     pub fn connect_secured(endpoint: Endpoint, auth: Option<BasicAuth>, tls: ureq::tls::TlsConfig) -> Self {
         let agent = ureq::Agent::new_with_config(base_config().tls_config(tls).build());
-        Self { endpoint, agent, auth }
+        Self {
+            endpoint,
+            agent,
+            auth,
+            database: None,
+        }
+    }
+
+    /// The same transport, resolving unqualified names in `database` - which the caller has already
+    /// validated to a word, because it reaches a `CREATE DATABASE` as an identifier.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn in_database(self, database: String) -> Self {
+        Self {
+            database: Some(database),
+            ..self
+        }
+    }
+
+    /// Sends `query` with `data` as the request body and reads nothing back but the status - the
+    /// fixture tier's DDL and its `INSERT ... FORMAT CSVWithNames`, whose rows travel as the body
+    /// and are parsed by the SERVER against the declared column types.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn command(&self, query: &str, data: &[u8]) -> Result<(), HttpError> {
+        let mut url = self.url()?;
+        url.query_pairs_mut().append_pair("query", query);
+        let mut request = self.agent.post(url.as_str());
+        if let Some(header) = self.authorization() {
+            request = request.header("Authorization", header);
+        }
+        let response = request.send(data).map_err(|cause| HttpError::Transport { cause })?;
+        read_answer(response).map(drop)
+    }
+
+    /// The endpoint's URL with the `database` field already on it, if this transport has one.
+    fn url(&self) -> Result<url::Url, HttpError> {
+        let mut url = url::Url::parse(&self.endpoint.base_url()).map_err(|_cause| HttpError::InvalidEndpoint)?;
+        if let Some(ref database) = self.database {
+            url.query_pairs_mut().append_pair("database", database);
+        }
+        Ok(url)
     }
 
     fn authorization(&self) -> Option<String> {
@@ -220,7 +267,7 @@ impl ClickHouseTransport for Http {
         crate::deadline::refuse_if_spent(deadline)?;
         let rewritten = rewrite_placeholders(statement, params)?;
         let sent = format!("{rewritten} FORMAT {RESPONSE_FORMAT}");
-        let mut url = url::Url::parse(&self.endpoint.base_url()).map_err(|_cause| HttpError::InvalidEndpoint)?;
+        let mut url = self.url()?;
         {
             let mut query = url.query_pairs_mut();
             for (index, param) in params.iter().enumerate() {
@@ -234,21 +281,8 @@ impl ClickHouseTransport for Http {
         if let Some(header) = self.authorization() {
             request = request.header("Authorization", header);
         }
-        let mut response = request.send(&sent).map_err(|cause| HttpError::Transport { cause })?;
-        let status = response.status();
-        let body = response
-            .body_mut()
-            .read_to_vec()
-            .map_err(|cause| HttpError::Transport { cause })?;
-        if status.is_success() {
-            Ok(body)
-        } else {
-            let message = String::from_utf8_lossy(&body).into_owned();
-            Err(HttpError::ServerRefused {
-                status: status.as_u16(),
-                message,
-            })
-        }
+        let response = request.send(&sent).map_err(|cause| HttpError::Transport { cause })?;
+        read_answer(response)
     }
 
     /// `Code: 497` is `NOT_ENOUGH_PRIVILEGES`, `Code: 516` is `AUTHENTICATION_FAILED` - the two
@@ -269,6 +303,24 @@ impl ClickHouseTransport for Http {
             HttpError::ServerRefused { ref message, .. } => message.contains("Code: 159"),
             _ => false,
         }
+    }
+}
+
+/// The body of a 2xx reply, or the server's own refusal text for any other status.
+fn read_answer(mut response: ureq::http::Response<ureq::Body>) -> RunResult<HttpError> {
+    let status = response.status();
+    let body = response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|cause| HttpError::Transport { cause })?;
+    if status.is_success() {
+        Ok(body)
+    } else {
+        let message = String::from_utf8_lossy(&body).into_owned();
+        Err(HttpError::ServerRefused {
+            status: status.as_u16(),
+            message,
+        })
     }
 }
 
@@ -300,11 +352,23 @@ impl From<crate::deadline::DeadlineSpent> for HttpError {
 /// before changes. Re-taken on 26.7.13.12 (same tag, a later patch) with the same figures; under
 /// an all-`Nullable` schema the count is 0 of 23 with or without the setting.
 ///
-/// **The limit, next to the claim: no leg of `just validate` executes this.** There is no
-/// `nix/clickhouse-tier.nix` and the nix sandbox has no docker socket, so what stands behind the
-/// paragraph above is one hand measurement, not a venue a gate reaches -
-/// `github.com/telekom/sutura#920` is that gap and this is not its closure.
+/// **Executed now, and where:** the golden matrix's `clickhouse` cells run the corpus against the
+/// server `nix/clickhouse-tier.nix` starts, over the non-`Nullable` schema `crate::fixture`
+/// declares, and their row goldens are the executed form of the measurement above. The limit: that
+/// is ONE server version, the one the pinned nixpkgs carries.
 const JOIN_USE_NULLS: &str = "join_use_nulls";
+
+/// The setting that makes a non-finite float answer as text (`"inf"`, `"nan"`) rather than as `null`.
+///
+/// **`ClickHouse`'s default is `0`, and under it `1.0 / 0` answers the JSON `null`** - measured
+/// against the tier `nix/clickhouse-tier.nix` provisions (server 26.7.4.58). A `null` in a column
+/// declared `Float64` is a value [`crate::cell_of`] cannot read, so a zero denominator under
+/// `zero_denominator: fails` surfaced as *this adapter does not map `Float64`* - true of no type -
+/// and a `Nullable(Float64)` column would have answered `Null`, a MISSING value, where the server
+/// computed an infinite one. With this sent, the text reaches `Real::parse` and is refused as the
+/// non-finite number it is, which is how every other adapter in the golden matrix refuses it.
+/// `crates/sutura-app/tests/golden/data_systems.rs`'s zero-denominator cell executes that path.
+const JSON_QUOTE_DENORMALS: &str = "output_format_json_quote_denormals";
 
 /// The setting that decides what the server does when `max_execution_time` runs out: `throw`
 /// answers `Code: 159`; `break` answers HTTP 200 with the rows read so far - measured, a cleanly
@@ -332,6 +396,7 @@ const TIMEOUT_OVERFLOW_MODE: &str = "timeout_overflow_mode";
 fn request_settings(deadline: Deadline, now: Instant) -> Vec<(&'static str, String)> {
     let mut settings = vec![
         (JOIN_USE_NULLS, String::from("1")),
+        (JSON_QUOTE_DENORMALS, String::from("1")),
         (TIMEOUT_OVERFLOW_MODE, String::from("throw")),
     ];
     if let Some(seconds) = crate::deadline::max_execution_time_seconds(deadline, now) {
@@ -461,8 +526,21 @@ mod tests {
             settings,
             vec![
                 (JOIN_USE_NULLS, String::from("1")),
+                (JSON_QUOTE_DENORMALS, String::from("1")),
                 ("timeout_overflow_mode", String::from("throw"))
             ]
+        );
+    }
+
+    #[test]
+    fn every_request_asks_for_an_infinite_float_as_text_rather_than_as_null() {
+        // Under the server default `1.0 / 0` answers the JSON `null` - measured, see
+        // `JSON_QUOTE_DENORMALS` - which reads as a missing value rather than an infinite one.
+        let (deadline, now) = deadline_of(30);
+        let settings = request_settings(deadline, now);
+        assert!(
+            settings.contains(&("output_format_json_quote_denormals", String::from("1"))),
+            "the request carried {settings:?}"
         );
     }
 

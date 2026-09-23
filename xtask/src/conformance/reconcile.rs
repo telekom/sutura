@@ -46,7 +46,8 @@ pub(super) struct Unbound {
 
 /// Every registered data system this gate accepts as unbound.
 ///
-/// **EMPTY, and that is the state this gate was built to reach.** It shipped with one entry -
+/// **Two entries, `oracle` and `clickhouse`, each with its own reason below. EMPTY is the state
+/// this gate was built to reach.** It shipped with one entry -
 /// `postgres`, registered in the golden matrix and carrying no binding because the packs had no way
 /// to say *no tier is up here* that was not a pass - and `docs/adr/0012`'s *one registration, not
 /// two* was violated by exactly that entry. `telekom/sutura#348` gave the harness
@@ -60,11 +61,12 @@ pub(super) struct Unbound {
 /// stays with the list empty on purpose: the alternative to a declared exemption is an
 /// EXCLUSION, which hides an entry instead of classifying it, and the next adapter that cannot be
 /// bound will need this and not that.
-pub(super) const UNBOUND: &[Unbound] = &[Unbound {
-    name: "oracle",
-    crate_name: "sutura-exec-oracle",
-    what: "a data system, registered in the golden matrix with `available() == false` unconditionally",
-    why: "no `just validate` venue provisions a real Oracle - Oracle Database is proprietary and not \
+pub(super) const UNBOUND: &[Unbound] = &[
+    Unbound {
+        name: "oracle",
+        crate_name: "sutura-exec-oracle",
+        what: "a data system, registered in the golden matrix with `available() == false` unconditionally",
+        why: "no `just validate` venue provisions a real Oracle - Oracle Database is proprietary and not \
           packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` the way Postgres has one - and \
           no CSV-fixture importer exists yet to attach the conformance corpus to a live instance even \
           where a developer's own docker could reach `compose.services.yaml`'s `oracle` profile. \
@@ -75,7 +77,25 @@ pub(super) const UNBOUND: &[Unbound] = &[Unbound {
           the postgres-before-`#348` shape this gate exists to refuse. Converges when both exist: an \
           importer and a per-service-safe discovery read, at which point this entry is removed rather \
           than reworded, `crates/sutura-exec-postgres/tests/conformance.rs`'s own precedent.",
-}];
+    },
+    Unbound {
+        name: "clickhouse",
+        crate_name: "sutura-exec-clickhouse",
+        what: "a data system, registered in the golden matrix and executed there against \
+           `nix/clickhouse-tier.nix`",
+        why: "the conformance corpus, loaded into that tier with the exact shared column types, answers \
+          two cases the golden corpus never reaches WRONGLY, and neither is a fixture problem - \
+          measured on server 26.7.4.58: `overflowing-integer-total-by-day`, because `ClickHouse`'s \
+          `sum` over an `Int64` wraps silently (the corpus's 9223372036854775807 + 1 answered \
+          -9223372036854775808) where every bound adapter widens; and `decimal-total-by-day`, whose \
+          `Decimal(38, 2)` sum answers `11.5` where the corpus pins the exact `11.50`. The first is a rendering decision \
+          for `Dialect::ClickHouse` in `sutura-sql` (the renderer has no column type to widen by), \
+          the second an adapter setting; a binding committed before both would be red, and one that \
+          skipped those cases would be the exclusion this list exists to refuse. Converges when both \
+          land: the binding is the one `crates/sutura-exec-postgres/tests/conformance.rs` makes, \
+          over the tier, and this entry is removed rather than reworded.",
+    },
+];
 
 /// What the tree says about one registry entry. Two states are held and two are the defect.
 #[derive(Debug)]
@@ -430,13 +450,19 @@ mod tests {
     /// A registered adapter with no binding and no exemption is a failure that NAMES it.
     #[test]
     fn an_unbound_registered_adapter_is_reported_by_name() {
-        // `oracle` rides along, held exactly as the REAL `UNBOUND` const declares it: `problems()`
-        // checks that const against whatever registry this fixture built, and a fixture that named
-        // only `ghost` would read the real `oracle` entry as excusing nothing this registry
-        // registered - a second, unrelated problem this test is not about. Matching it here is what
-        // keeps the fixture's own registry the only thing under test.
-        let entries = vec![entry("ghost", "sutura-exec-ghost"), entry("oracle", "sutura-exec-oracle")];
-        let decided = vec![Held::Unheld, Held::Exempt(&UNBOUND[0])];
+        // `oracle` and `clickhouse` ride along, held exactly as the REAL `UNBOUND` const declares
+        // them: `problems()` checks that const against whatever registry this fixture built, and a
+        // fixture that named only `ghost` would read the real entries as excusing nothing this
+        // registry registered - a second, unrelated problem this test is not about. Matching them
+        // here is what keeps the fixture's own registry the only thing under test.
+        let entries = vec![
+            entry("ghost", "sutura-exec-ghost"),
+            entry("oracle", "sutura-exec-oracle"),
+            entry("clickhouse", "sutura-exec-clickhouse"),
+        ];
+        let decided: Vec<_> = core::iter::once(Held::Unheld)
+            .chain(UNBOUND.iter().map(Held::Exempt))
+            .collect();
         let reconciled = Reconciled::of(entries, decided).expect("two entries, two decisions");
         let problems = reconciled.problems(&[]);
         let named = problems
@@ -610,13 +636,15 @@ mod tests {
     /// bound - which [`inert`] reports - and it stayed gone. `oracle` (`#127` PR 2) is the second
     /// one, for a reason `postgres` never had: there is no nix-native venue to converge to at all,
     /// so `Fixture::Absent` is not a fix waiting to be written, it is a fixture with nowhere to run.
-    /// This cell is what makes a THIRD entry deliberate: it reddens, and the diff is where the
-    /// argument has to be.
+    /// `clickhouse` (`github.com/telekom/sutura#920`) is the third, for a reason neither had: it HAS
+    /// a venue, and the packs run there measured two wrong answers its entry names. This cell is
+    /// what makes a FOURTH entry deliberate: it reddens, and the diff is where the argument has to
+    /// be.
     #[test]
-    fn exactly_the_oracle_entry_is_declared_unbound() {
+    fn exactly_the_oracle_and_clickhouse_entries_are_declared_unbound() {
         assert_eq!(
             UNBOUND.iter().map(|allowance| allowance.name).collect::<Vec<_>>(),
-            vec!["oracle"],
+            vec!["oracle", "clickhouse"],
             "an exemption is an architecture decision, and this cell is where it is argued"
         );
     }

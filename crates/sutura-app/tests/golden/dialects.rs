@@ -544,18 +544,15 @@ enum Venue {
 /// check was non-empty.
 fn evidence(dialect: Dialect) -> Evidence {
     match dialect {
-        // Both execute in process on every run - DuckDB in-process, Postgres against the
-        // postmaster `nix/postgres-tier.nix` stands up in the same sandbox.
-        Dialect::DuckDb | Dialect::Postgres => Evidence::Executed,
+        // All three execute on every run - DuckDB in-process, Postgres against the postmaster
+        // `nix/postgres-tier.nix` stands up in the same sandbox, ClickHouse against the server
+        // `nix/clickhouse-tier.nix` stands up beside it (`github.com/telekom/sutura#920`).
+        Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => Evidence::Executed,
         Dialect::BigQuery => Evidence::RenderOnly {
             venue: Venue::OnDemand {
                 task: "bigquery-acceptance",
             },
             stated_in: "crates/sutura-exec-bigquery/tests/corpus.rs",
-        },
-        Dialect::ClickHouse => Evidence::RenderOnly {
-            venue: Venue::ByHandOnly,
-            stated_in: "crates/sutura-exec-clickhouse/src/lib.rs",
         },
         // `sutura-exec-oracle` arrived with `github.com/telekom/sutura#127` PR 2 while this change
         // was in review, and this arm MOVED for it: the declaration it replaced said *no adapter
@@ -589,7 +586,7 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// 6. **The venue named is the venue there is**: [`Venue::OnDemand`]'s task is declared
 ///    in the `justfile` and the dialect has no compose service; [`Venue::ByHandOnly`]'s
 ///    compose service is named. Without this the `venue` field would be decoration, and `BigQuery`'s
-///    hosted absence would read the same as `ClickHouse`'s by-hand one.
+///    hosted absence would read the same as `Oracle`'s by-hand one.
 ///
 /// Plus `stated_in` resolving to a file, so a moved header is a red and not a dangling citation.
 ///
@@ -597,12 +594,13 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// `sutura-exec-{Dialect::as_str}` and the tier path `nix/{as_str}-tier.nix`: naming conventions
 /// this test relies on and no mechanism holds, so an adapter or a tier named otherwise reads as
 /// absent. A present directory is not a WIRED adapter - nothing here asks whether a composition
-/// root links it, and `sutura-exec-clickhouse` is the standing case of one nothing links. The
+/// root links it, and `sutura-exec-oracle` is the standing case of one nothing links. The
 /// compose and `justfile` reads are substring searches over the file, not a parse of either. And
-/// none of this reaches whether a golden's CONTENT is right: measured, flipping `ClickHouse`'s
-/// `date_trunc_shape` to the wrong shape and re-accepting the render goldens leaves this test and
-/// `dialects::clickhouse::every_generated_statement_parses_here` both green, which is the ceiling
-/// [`Evidence::RenderOnly`] declares rather than closes.
+/// none of this reaches whether a golden's CONTENT is right: measured while `ClickHouse` was still
+/// render-only, flipping its `date_trunc_shape` to the wrong shape and re-accepting the render
+/// goldens left this test and `dialects::clickhouse::every_generated_statement_parses_here` both
+/// green, which is the ceiling [`Evidence::RenderOnly`] declares rather than closes - and the
+/// ceiling `BigQuery` and `Oracle` still stand under.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

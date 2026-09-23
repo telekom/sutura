@@ -236,7 +236,7 @@ ci:
     # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
     # validates against three vendored schema files, seconds rather than the minutes a release
     # profile build costs - `nix/helm-chart.nix` carries the derivation.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier helm-chart; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -802,6 +802,11 @@ keycloak-docker-tier *args:
 # The Postgres tier, by hand: `just postgres-tier start|stop|status|credentials`.
 postgres-tier *args:
     sutura-postgres-tier {{ args }}
+
+# The ClickHouse tier, by hand: `just clickhouse-tier start|stop|status|credentials` - the same
+# script `nix/with-tier.sh` and `checks.nextest` start, on PATH from the dev shell.
+clickhouse-tier *args:
+    sutura-clickhouse-tier {{ args }}
 
 # ------------------------------------------------------- the compose tier ---
 #
