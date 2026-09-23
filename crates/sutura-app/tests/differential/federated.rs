@@ -99,6 +99,11 @@ mod corpus;
 // is what causality's own "held: … (carries its own tests)" rule keys on.
 #[path = "federated/two_kinds.rs"]
 mod two_kinds;
+// The leg-capability declaration and the cells that hold it against the tree, carved out for
+// `max-lines`. It carries the `#[test]`s the `registered!` expansion emits, which is what keeps
+// causality's base reconstruction from dropping the file.
+#[path = "federated/leg_evidence.rs"]
+mod leg_evidence;
 
 use two_kinds::two_kinds;
 
@@ -942,46 +947,3 @@ fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &Pinned
         (here, there) => panic!("{name}: the one-source bundle did not plan a whole answer\n  one: {here:?}\n  two: {there:?}"),
     }
 }
-
-/// **Which registered data systems can run a leg, expanded over the registry itself, and this file
-/// has a two-source pass for each of them.**
-///
-/// An entry that cannot run a leg cannot be either half of a federated answer, so every `true` here
-/// owes this file a pass: `DuckDB` has
-/// [`a_two_source_answer_is_the_same_answer_as_one_source`] and the engine has
-/// [`two_engines_answer_what_one_engine_answers`]. A cell rather than a sentence, so registering a
-/// THIRD leg-executing adapter REDDENS here and the diff that enrols it arrives beside the
-/// registration. `sutura-conformance`'s binding holds the per-adapter agreement between the tag and
-/// the constant; what this holds is the SET.
-///
-/// **`LEG_EXECUTING` is a list of names rather than one comparison**, which is the correction the
-/// second entry earned: written as `name == "duckdb"` the assertion had nowhere for a second
-/// adapter to go except a boolean expression that grows, and the list is what a reader can compare
-/// against the two passes above.
-///
-/// [`Warehouse::EXECUTES_LEGS`]: sutura_domain::warehouse::Warehouse::EXECUTES_LEGS
-const LEG_EXECUTING: &[&str] = &["datafusion", "duckdb"];
-
-macro_rules! leg_capability {
-    ($name:ident, $adapter:ty) => {
-        mod $name {
-            use crate::adapters::DataSystemUnderTest;
-            use sutura_domain::warehouse::Warehouse;
-
-            #[test]
-            fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
-                let name = <$adapter as DataSystemUnderTest>::NAME;
-                assert_eq!(
-                    <$adapter as Warehouse>::EXECUTES_LEGS,
-                    super::LEG_EXECUTING.contains(&name),
-                    "{name} changed its leg capability; \
-                     crates/sutura-app/tests/differential/federated.rs is where a leg-executing \
-                     adapter gets enrolled in a two-source pass, and every entry in \
-                     `LEG_EXECUTING` owes this file one"
-                );
-            }
-        }
-    };
-}
-
-crate::adapters::registered!(data_systems: leg_capability);

@@ -100,11 +100,20 @@ mod conformance {
         COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
-    // `refuses_legs`, because this adapter leaves `EXECUTES_LEGS` at its default: it renders a whole
-    // plan and pushes it down, and a leg arriving here needs a combiner above it that nothing builds
-    // yet - `PostgresError::LegWithoutCombiner` is that guard, and this pack is the only thing that
-    // exercises it. The tag and the constant are torn apart by a `const` assertion inside the
-    // expansion, so tagging it the other way does not build.
+    // `executes_legs`, because this adapter declares `EXECUTES_LEGS`: a leg renders through
+    // `sutura_sql::generate_leg` at `Dialect::Postgres` and runs like any other statement, so the
+    // emitted cell EXECUTES one against the tier and compares its rows against the whole-plan
+    // case's. The tag and the constant are torn apart by a `const` assertion inside the expansion,
+    // so tagging it the other way does not build.
+    //
+    // **This is the only executed leg in the workspace whose statement a real SQL parser saw.** The
+    // engine's leg builds a logical plan and renders nothing; `DuckDB`'s is a dev-dependency. What it
+    // still does not reach is identity. `FederatedPlan::new` refuses two legs on one source and the
+    // composition root opens one `PostgresWarehouse` per declared source, each under its own entry's
+    // `user`, so the two legs of a Postgres federated answer are two connections as two database
+    // roles. `ExecutedAs::uniform` compares posture labels, not identities, and passes them as two
+    // `shared-service-user` legs - what makes that acceptable is each source's own acknowledgement,
+    // not a shared connection.
     //
     // The emitted names are `conformance::postgres::<behaviour>`, which is what makes this adapter's
     // tier selectable on its own.
@@ -112,6 +121,6 @@ mod conformance {
         adapter: postgres,
         warehouse: sutura_exec_postgres::PostgresWarehouse,
         open: crate::conformance::open,
-        refuses_legs,
+        executes_legs,
     }
 }

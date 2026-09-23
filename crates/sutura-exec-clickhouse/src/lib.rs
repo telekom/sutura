@@ -73,7 +73,7 @@
 //! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 //! and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
 //! [`Executable::Leg`] answers [`ClickHouseError::LegWithoutCombiner`] exactly as
-//! `sutura_exec_postgres` and `sutura_exec_bigquery` both do).
+//! `sutura_exec_bigquery` does).
 //!
 //! **No `dry_run` override.** `ClickHouse`'s HTTP interface has no cheap "prepare, do not run"
 //! step this adapter could ask for without paying most of the cost of running the statement, so

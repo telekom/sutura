@@ -71,7 +71,6 @@ Why this data system could not answer.
 - `DeadlineSpent` - The deadline was already spent once `PostgresWarehouse::execution_lock` was acquired - refused locally, no round trip: that unbounded wait is outside `sutura_app`'s own pre-call check.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
-- `LegWithoutCombiner` - A leg without a combiner.
 - `AnchorsRead` - The declared trust anchors could not be read or parsed.
 - `AnchorsEmpty` - The declared trust anchors parsed to no certificates.
 - `IdentityRead` - The declared client identity could not be read.

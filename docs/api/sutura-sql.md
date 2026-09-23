@@ -19,13 +19,15 @@ the crate root because it is this crate's output rather than any one module's de
 from a `QueryPlan`; `generate_leg` renders one leg of a federated question from a `LegPlan`.
 They share every decision that could drift - the quoting, the placeholder style, the bucket, the
 joins, how a term renders - and differ in the four ways `generate_leg`'s own documentation
-lists. **Nothing a RELEASE runs calls the second one**, and the reason is not the absence of a
-splitter - `sutura_semantic::federated_plan` produces a `LegPlan` and `sutura_app` executes it.
-It is that the one leg-executing adapter a release links is the engine, which builds a logical
-plan and renders no SQL; the renderer-backed adapters that would call this are a dev-dependency
-and a default-off feature. `.agents/skills/sutura/query-surface`'s federation section records
-that state, and it is why this crate's leg goldens are evidence about five dialects and about
-nothing a shipped binary executes.
+lists. **A RELEASE now calls the second one, and that sentence used to say the opposite.** It
+read *nothing a release runs calls it, because the one leg-executing adapter a release links is
+the engine, which renders no SQL*; `sutura-exec-postgres` declares `Warehouse::EXECUTES_LEGS`
+and `nix/shipped.nix` carries the `postgres` feature in the shipped artefact, so a deployment
+holding two Postgres sources renders both legs of a federated answer here. **The limit:** the
+leg goldens under `crates/sutura-app/tests/golden` still pin five dialects and only the Postgres
+statements among them are what a release executes - and what establishes that one is EXECUTED is
+`crates/sutura-exec-postgres/tests/conformance.rs`, a real tier answering a leg, not a golden.
+Oracle's leg renders here too and no venue any gate reaches can run it.
 
 # Why this is its own crate and not the compiler's last stage
 
@@ -289,13 +291,18 @@ Everything else is shared with `generate` on purpose - `column`,
 `joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
 term renders cannot apply to one path and not the other.
 
-**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
-to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
-`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
-that renders a leg: the one leg-executing adapter a published binary contains is the engine,
-which builds a logical plan instead. So what pins this is the golden family under
-`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-dialect it was generated for - and none of those five is what a release executes.
+**A RELEASE calls this now**, and the two sentences it replaces each stated an absence that has
+since been spent: first *there is no splitter* (there is - `sutura_semantic::federated_plan`),
+then *no release links an adapter that renders a leg, because the one leg-executing adapter a
+published binary contains is the engine, which builds a logical plan instead*.
+`sutura-exec-postgres` declares `Warehouse::EXECUTES_LEGS` and ships behind a feature
+`nix/shipped.nix` enables, so a published binary renders a leg here at `Dialect::Postgres`.
+
+What pins the rendering is still the golden family under `crates/sutura-app/tests/golden`, one
+statement per shape per dialect, parse-checked in the dialect it was generated for. **Its limit
+changed rather than went away:** one of those five dialects is now what a release executes, and
+a parse check is not an execution - the executed evidence is
+`crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 
 ## Module `dialect`
 
@@ -1198,13 +1205,18 @@ Everything else is shared with `generate` on purpose - `column`,
 `joined` and `render` - so a change to identifier quoting, to placeholder style or to how a
 term renders cannot apply to one path and not the other.
 
-**Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
-to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
-`sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
-that renders a leg: the one leg-executing adapter a published binary contains is the engine,
-which builds a logical plan instead. So what pins this is the golden family under
-`crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-dialect it was generated for - and none of those five is what a release executes.
+**A RELEASE calls this now**, and the two sentences it replaces each stated an absence that has
+since been spent: first *there is no splitter* (there is - `sutura_semantic::federated_plan`),
+then *no release links an adapter that renders a leg, because the one leg-executing adapter a
+published binary contains is the engine, which builds a logical plan instead*.
+`sutura-exec-postgres` declares `Warehouse::EXECUTES_LEGS` and ships behind a feature
+`nix/shipped.nix` enables, so a published binary renders a leg here at `Dialect::Postgres`.
+
+What pins the rendering is still the golden family under `crates/sutura-app/tests/golden`, one
+statement per shape per dialect, parse-checked in the dialect it was generated for. **Its limit
+changed rather than went away:** one of those five dialects is now what a release executes, and
+a parse check is not an execution - the executed evidence is
+`crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 
 ### `fn generate_key_probe`
 

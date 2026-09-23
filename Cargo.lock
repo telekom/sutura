@@ -4340,6 +4340,7 @@ version = "0.5.1"
 dependencies = [
  "oracledb",
  "parking_lot",
+ "sutura-conformance",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",

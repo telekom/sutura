@@ -38,8 +38,9 @@
 //!
 //! `BigQueryWarehouse` leaves `Warehouse::EXECUTES_LEGS` at the domain default (`false`) -
 //! `BigQueryWarehouse::render`'s `Executable::Leg` arm answers `BigQueryError::LegWithoutCombiner`
-//! for every leg, transport untouched, exactly `sutura-exec-postgres`'s own shape and for the same
-//! reason: a leg arriving here needs a combiner above it that nothing builds yet.
+//! for every leg, transport untouched: a leg arriving here needs a combiner above it that nothing
+//! builds yet. It is the one bound adapter that still refuses a leg, so it is what holds the pack's
+//! `refuses_legs` direction.
 //!
 //! # `PRICES_DRY_RUN`, exercised in the pack for the first time
 //!

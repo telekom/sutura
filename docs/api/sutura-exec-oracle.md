@@ -87,7 +87,6 @@ Why this data system could not answer.
 - `Shape`
 - `KeyCounts` - A key probe's result was not the pair of counts its statement projects.
 - `Render`
-- `LegWithoutCombiner` - A leg without a combiner - this adapter never declares `Warehouse::EXECUTES_LEGS`.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
 - `PresentedDisagreesWithPosture`
 - `DeadlineSpent` - The deadline was already spent before this call ever reached the driver - see `refuse_if_spent` for why this is checked rather than forwarded.

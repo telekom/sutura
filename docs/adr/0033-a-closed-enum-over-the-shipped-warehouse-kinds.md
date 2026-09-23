@@ -106,6 +106,21 @@ not decide*.
 - **A live, end-to-end served test of two kinds answering over HTTP.** The boot path is proven at
   the composition root (`crates/sutura-cli/src/serve/tests.rs`) and the per-leg combining
   mechanism is proven at the domain/application boundary (`crates/sutura-app/tests/differential/federated/two_kinds.rs`,
-  mixing two DEV-ONLY adapters that both execute a leg, since no two SHIPPED kinds both do). A
-  served deployment mixing real linked kinds and answering a federated question over the wire is
-  not exercised here.
+  mixing two DEV-ONLY adapters that both execute a leg - see the amendment below for what stopped
+  being true about that parenthesis). A served deployment mixing real linked kinds and answering a
+  federated question over the wire is not exercised here.
+
+## Amendment, 2026-09-22: two shipped kinds both execute a leg
+
+The bullet above read *mixing two DEV-ONLY adapters that both execute a leg, since no two SHIPPED
+kinds both do*. `sutura-exec-postgres` declares `Warehouse::EXECUTES_LEGS`, and `nix/shipped.nix`
+carries the `postgres` feature in the shipped artefact, so `AnyWarehouse::Files` and
+`AnyWarehouse::Postgres` are two shipped variants that both answer `executes_legs()` truthfully.
+The clause is removed rather than reworded, and **what it was protecting is unaffected**: the
+two-kinds pass still mixes dev-only adapters, and no served deployment mixing real linked kinds has
+answered a federated question over the wire.
+
+This does not widen any of the three consts this enum still reads at the conservative default.
+`ACCEPTS_RAW_STATEMENTS`, `PRICES_DRY_RUN` and `EXECUTES_AUTHORED_SQL` are unchanged, and
+`executes_legs` remains the one instance-method escape - which is precisely why a `Postgres`
+variant can answer it and cannot answer the other three.

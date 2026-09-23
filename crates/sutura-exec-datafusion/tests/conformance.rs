@@ -6,10 +6,10 @@
 //! test that happens to fit one adapter.
 //!
 //! **The leg behaviour arrives here under the name that says it was EXECUTED**, and that is the one
-//! line in this file worth a paragraph: this engine is the only adapter a release links, so until it
-//! declared `Warehouse::EXECUTES_LEGS` no published artifact could answer a two-source question at
+//! line in this file worth a paragraph: this engine is the one adapter every release links, so until
+//! it declared `Warehouse::EXECUTES_LEGS` no published artifact could answer a two-source question at
 //! all. The two adapters no longer make opposite leg declarations, and what still shows the
-//! declaration SELECTS is `sutura-exec-postgres`'s binding, which takes the default and gets
+//! declaration SELECTS is `sutura-exec-bigquery`'s binding, which takes the default and gets
 //! `a_leg_is_refused` - both directions of the pack are still bound, on different crates.
 //!
 //! It also exercises the run-time declination. This adapter takes the port's default `dry_run`,
