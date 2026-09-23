@@ -135,6 +135,23 @@ in
       done
     done
 
+    # Refusal cases: each `testdata/refusals/<name>.yaml` must FAIL the render, with exactly the
+    # message in `testdata/golden/refusal-<name>.txt` - a guard that stopped firing, or started
+    # firing a different guard first, is a diff here rather than a Deployment that crash-loops.
+    for refusalFile in "$testdata"/refusals/*.yaml; do
+      name="$(basename "$refusalFile" .yaml)"
+      log="$work/refusal-$name.log"
+      if helm template test-release "$chart" -f "$refusalFile" > /dev/null 2> "$log"; then
+        echo "sutura-chart: $refusalFile rendered - its fail() guard did not fire" >&2
+        failed=1
+        continue
+      fi
+      if ! diff -u "$testdata/golden/refusal-$name.txt" "$log"; then
+        echo "sutura-chart: $name's refusal wording moved - see the diff above." >&2
+        failed=1
+      fi
+    done
+
     # The other direction: a golden with no values file left it orphaned rather than removed.
     for goldenFile in "$testdata"/golden/*.yaml; do
       name="$(basename "$goldenFile" .yaml)"

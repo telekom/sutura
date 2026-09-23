@@ -54,8 +54,10 @@ security:
     secretName: ""
     secretKey: token
   # `security.metrics_token` (`SUTURA__SECURITY__METRICS_TOKEN`) - a SEPARATE credential
-  # gating `GET /metrics` only (`docs/adr/0015` Decision 1). Empty means `/metrics` is
-  # reachable wherever `/v1/query` is, unauthenticated - see `metrics.serviceMonitor` below.
+  # gating `GET /metrics` only (`docs/adr/0015` Decision 1). REQUIRED, like the access token:
+  # `/metrics` is always mounted, so `Settings::refusals`' `MetricsTokenRequired` refuses an
+  # off-host bind without it, and a Secret holding the same value as the access token is
+  # refused too (`MetricsTokenSharesTheApiToken`).
   metricsToken:
     secretName: ""
     secretKey: token

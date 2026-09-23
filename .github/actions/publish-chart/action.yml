@@ -62,11 +62,15 @@ runs:
         set -eu
         tag="${GITHUB_REF_NAME#v}"
         mkdir -p chart-dist
-        nix run .#helm -- package charts/sutura --version "$tag" -d chart-dist
+        # `--app-version` too: the committed `appVersion: latest` would otherwise make a released
+        # chart default to the moving image tag instead of the image this release pushed.
+        nix run .#helm -- package charts/sutura --version "$tag" --app-version "$tag" -d chart-dist
         printf '%s' "$REGISTRY_TOKEN" | nix run .#helm -- registry login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
-        chartRepo="oci://${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/charts"
+        # The record carries the bare repository, like every image record: `oci://` is helm's
+        # scheme, and cosign would read `oci:` as the registry host.
+        chartRepo="${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/charts"
         push_log="$(mktemp)"
-        nix run .#helm -- push "chart-dist/sutura-${tag}.tgz" "$chartRepo" 2>&1 | tee "$push_log"
+        nix run .#helm -- push "chart-dist/sutura-${tag}.tgz" "oci://${chartRepo}" 2>&1 | tee "$push_log"
         digest="$(grep -oE 'sha256:[0-9a-f]{64}' "$push_log" | tail -1)"
         rm -f "$push_log"
         if [ -z "$digest" ]; then

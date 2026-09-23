@@ -1,0 +1,11 @@
+# A CPU limit the derivation cannot read must fail the render, not derive one thread.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+resources:
+  limits:
+    cpu: "two"

@@ -15,18 +15,18 @@
 # from `pkgs` a second time. `docker` is deliberately NOT pinned, on the rule the release and
 # demo workflows already follow: it is the runner's own daemon, not a build input.
 #
-# WHAT THIS PROVES, AND WHAT IT DOES NOT. It proves the chart this repository ships actually
-# becomes a Ready Deployment on a real Kubernetes control plane, once - the smallest honest
-# version the issue asked for. It does NOT answer a question through the Service the way
-# `examples/single-player` would: that needs the catalog's data mounted, a working config.base,
-# and a real query round trip, which is a materially bigger fixture than "does it come up", and
-# building that here would be shipping a smaller version of THAT ambition silently rather than
-# saying so - so it is left for whoever picks that up next.
+# WHAT THIS PROVES, AND WHAT IT DOES NOT. It proves the chart this repository ships becomes a
+# Ready Deployment on a real Kubernetes control plane, once, serving `examples/single-player`'s
+# catalog and data over one `files` source - so boot got past `Settings::refusals`, loaded a
+# catalog and passed the `/health` startup probe. The binary refuses to boot with no catalog
+# documents, an access token under 32 characters, or no metrics token off-host, so a smoke
+# without all three measures a crash loop, not the chart. It does NOT ask a question through
+# the Service: the served answers are `crates/sutura-cli/tests/served.rs`'s venue, not this one.
 { pkgs, chartHelm, ociImage }:
 
 pkgs.writeShellApplication {
   name = "sutura-kind-smoke";
-  runtimeInputs = [ pkgs.kind pkgs.kubectl chartHelm ];
+  runtimeInputs = [ pkgs.kind pkgs.kubectl chartHelm pkgs.coreutils pkgs.findutils ];
   text = ''
     if ! command -v docker >/dev/null 2>&1; then
       echo "sutura-kind-smoke: no docker on PATH - kind's own node backend needs a container runtime, the same one demo-container.yml assumes. Run this where docker is available." >&2
@@ -60,19 +60,74 @@ pkgs.writeShellApplication {
     kind create cluster --name "$cluster" --wait 120s
     kind load docker-image sutura:latest --name "$cluster"
 
-    kubectl create secret generic sutura-access-token --from-literal=token=smoke-token
+    # Two distinct random tokens: the binary refuses one under 32 characters, and refuses a
+    # metrics token equal to the access token.
+    token() { od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; }
+    kubectl create secret generic sutura-access-token --from-literal=token="$(token)"
+    kubectl create secret generic sutura-metrics-token --from-literal=token="$(token)"
+
+    # A ConfigMap is flat, so each file's relative path becomes its key with `/` spelled `__`,
+    # and the volume's `items` put it back at that path under the mount.
+    fixture="$root/examples/single-player"
+    values="$work/values.yaml"
+    cat > "$values" <<'YAML'
+    config:
+      base:
+        catalogs:
+          - name: model
+            kind: markdown
+            dir: /srv/sutura/catalog
+            data_dir: /srv/sutura/data
+            version: kind-smoke
+        sources:
+          local:
+            kind: files
+            data_dir: /srv/sutura/data
+            posture: shared-service-user
+        security:
+          identity: single-user
+          single_user_because: "a smoke test reads the example's own fixture files as one identity"
+    extraVolumeMounts:
+      - name: smoke-catalog
+        mountPath: /srv/sutura/catalog
+        readOnly: true
+      - name: smoke-data
+        mountPath: /srv/sutura/data
+        readOnly: true
+    extraVolumes:
+    YAML
+    for part in catalog data; do
+      files=()
+      while IFS= read -r rel; do
+        files+=("--from-file=''${rel//\//__}=$fixture/$part/$rel")
+      done < <(cd "$fixture/$part" && find . -type f -printf '%P\n' | sort)
+      kubectl create configmap "sutura-smoke-$part" "''${files[@]}"
+      printf '  - name: smoke-%s\n    configMap:\n      name: sutura-smoke-%s\n      items:\n' "$part" "$part" >> "$values"
+      (cd "$fixture/$part" && find . -type f -printf '%P\n' | sort) | while IFS= read -r rel; do
+        printf '        - key: %s\n          path: %s\n' "''${rel//\//__}" "$rel" >> "$values"
+      done
+    done
 
     echo "sutura-kind-smoke: installing the chart"
     helm install sutura "$root/charts/sutura" \
+      -f "$values" \
       --set environment=development \
       --set image.repository=sutura \
       --set image.tag=latest \
       --set image.pullPolicy=Never \
       --set security.accessToken.secretName=sutura-access-token \
+      --set security.metricsToken.secretName=sutura-metrics-token \
       --set security.tlsTermination=sidecar
 
     echo "sutura-kind-smoke: waiting for the deployment to become ready"
-    kubectl rollout status deployment/sutura --timeout=180s
+    if ! kubectl rollout status deployment/sutura --timeout=180s; then
+      echo "sutura-kind-smoke: not ready - the pod's state and its own output follow" >&2
+      selector=app.kubernetes.io/instance=sutura
+      kubectl describe pods -l "$selector" >&2 || true
+      kubectl logs -l "$selector" --tail=200 >&2 || true
+      kubectl logs -l "$selector" --tail=200 --previous >&2 || true
+      exit 1
+    fi
 
     echo "sutura-kind-smoke: sutura became ready on kind - tearing down"
   '';

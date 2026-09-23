@@ -40,6 +40,9 @@ this fails the render rather than shipping a Deployment that crash-loops on the 
 {{- if not .Values.security.accessToken.secretName -}}
 {{ fail "security.accessToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.access_token there (Settings::refusals::AccessTokenRequired)" }}
 {{- end -}}
+{{- if not .Values.security.metricsToken.secretName -}}
+{{ fail "security.metricsToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.metrics_token there (Settings::refusals::MetricsTokenRequired)" }}
+{{- end -}}
 {{- $tlsDeclared := or .Values.tls.enabled (ne .Values.security.tlsTermination "") -}}
 {{- if not $tlsDeclared -}}
 {{ fail "set tls.enabled=true or security.tlsTermination (sidecar|ingress|in-process): sutura refuses to start off-host with security.tls_termination undeclared (Settings::refusals::TlsTerminationUndeclared)" }}
@@ -60,7 +63,8 @@ template existed.
 
 Accepts a bare core count ("2", "1.5") or a millicpu suffix ("1500m"); rounds UP so a
 fractional limit never asks for zero threads, and clamps to `WorkerCount::MAX`
-(`crates/sutura-config/src/runtime.rs`) so a limit typo cannot request a thousand threads.
+(`crates/sutura-config/src/runtime.rs`) so a limit typo cannot request a thousand threads. A
+limit that parses to no cores at all fails the render rather than silently deriving one thread.
 */}}
 {{- define "sutura.engineWorkerThreads" -}}
 {{- if .Values.runtime.engineWorkerThreads -}}
@@ -72,6 +76,9 @@ fractional limit never asks for zero threads, and clamps to `WorkerCount::MAX`
 {{- $cores = divf (trimSuffix "m" $cpu | float64) 1000.0 -}}
 {{- else -}}
 {{- $cores = float64 $cpu -}}
+{{- end -}}
+{{- if le $cores 0.0 -}}
+{{ fail (printf "resources.limits.cpu %q is not a quantity this chart can derive runtime.engineWorkerThreads from - set runtime.engineWorkerThreads explicitly" $cpu) }}
 {{- end -}}
 {{- min 256 (max 1 (ceil $cores | int)) -}}
 {{- end -}}
@@ -92,7 +99,8 @@ has measured its own overhead is the same one above: set `runtime.workingSetMaxB
 
 Accepts the binary (Ki/Mi/Gi/Ti) and decimal (K/M/G/T) suffixes Kubernetes quantities use, or a
 bare byte count; an exponential quantity ("1e3") is not supported and is read as a bare number,
-which is this template's stated limit rather than a silent one.
+which is this template's stated limit rather than a silent one. A quantity that parses to
+nothing (`Pi`, a lowercase `k`, a typo) fails the render rather than deriving a zero ceiling.
 */}}
 {{- define "sutura.workingSetMaxBytes" -}}
 {{- if .Values.runtime.workingSetMaxBytes -}}
@@ -118,6 +126,9 @@ which is this template's stated limit rather than a silent one.
 {{- $bytes = mulf (trimSuffix "T" $mem | float64) 1000000000000.0 -}}
 {{- else -}}
 {{- $bytes = float64 $mem -}}
+{{- end -}}
+{{- if le $bytes 0.0 -}}
+{{ fail (printf "resources.limits.memory %q is not a quantity this chart can derive runtime.workingSetMaxBytes from - set runtime.workingSetMaxBytes explicitly" $mem) }}
 {{- end -}}
 {{- floor (mulf $bytes 0.75) | int64 -}}
 {{- end -}}

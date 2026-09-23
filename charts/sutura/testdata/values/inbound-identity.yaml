@@ -8,6 +8,8 @@ environment: production
 security:
   accessToken:
     secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
   tlsTermination: sidecar
   inbound:
     keySetSecretName: sutura-inbound-keys

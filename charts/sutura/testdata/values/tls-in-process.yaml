@@ -9,6 +9,8 @@ environment: staging
 security:
   accessToken:
     secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
 tls:
   enabled: true
   secretName: sutura-tls

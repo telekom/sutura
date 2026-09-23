@@ -46,8 +46,8 @@ A source's own credential (`sources.<alias>.credential_file`, `password_file`,
 
 This chart's `Service` always makes the pod reachable off-host, which is exactly the shape
 `crates/sutura-config/src/settings.rs`'s `Settings::refusals` refuses to start without a
-declared TLS termination, an access token and an enabled rate limiter. `helm template` (and
-`helm install`) fails the render with the same three checks - `templates/_helpers.tpl`'s
+declared TLS termination, an access token, a metrics token and an enabled rate limiter.
+`helm template` (and `helm install`) fails the render on the first three - `templates/_helpers.tpl`'s
 `sutura.requireOffHostPosture` - rather than shipping a `Deployment` that crash-loops on the
 binary's own refusal five seconds later. This is a chart-side heuristic that reads only
 `values.yaml`, not the binary's own check: it cannot see a Secret's contents or an environment
@@ -73,6 +73,15 @@ keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does 
 limit - `docs/serving.md`'s "422 rather than 503" distinction. Setting either `runtime.*` key
 directly always overrides the derivation.
 
+## A catalog to serve
+
+The image carries no catalog, and `sutura serve` refuses to start without one (the embedded
+default `catalogs[0].dir` is a relative `catalog` that does not exist in the container). Mount
+the catalog and its data with `extraVolumes`/`extraVolumeMounts` and point `config.base` at the
+mount paths - `catalogs:`, `sources:` and `security.identity` are maps and lists, so they belong
+in `config.base`, not in a `SUTURA__*` variable. `nix/kind-smoke.nix` is a working example: it
+serves `examples/single-player` from two ConfigMaps.
+
 ## What is not in this branch
 
 - No Ingress: this chart declares no opinion about how traffic reaches the cluster edge: set
@@ -91,7 +100,7 @@ pushed reference with `cosign` the way every image reference already is -
 helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
 ```
 
-**Artifact Hub indexes it for discovery; it does not host it.** Two things only a human with
+**Artifact Hub indexes it for discovery; it does not host it.** Three things only a human with
 console access can do, and CI cannot fake either:
 
 1. Register `oci://ghcr.io/telekom/charts/sutura` as a repository in the Artifact Hub console,
