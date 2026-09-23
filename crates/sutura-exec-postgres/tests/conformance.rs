@@ -108,8 +108,12 @@ mod conformance {
     //
     // **This is the only executed leg in the workspace whose statement a real SQL parser saw.** The
     // engine's leg builds a logical plan and renders nothing; `DuckDB`'s is a dev-dependency. What it
-    // still does not reach is identity: both legs of a Postgres federated answer are the one
-    // connection's `shared-service-user`, which is what `IMPERSONATION` declares.
+    // still does not reach is identity. `FederatedPlan::new` refuses two legs on one source and the
+    // composition root opens one `PostgresWarehouse` per declared source, each under its own entry's
+    // `user`, so the two legs of a Postgres federated answer are two connections as two database
+    // roles. `ExecutedAs::uniform` compares posture labels, not identities, and passes them as two
+    // `shared-service-user` legs - what makes that acceptable is each source's own acknowledgement,
+    // not a shared connection.
     //
     // The emitted names are `conformance::postgres::<behaviour>`, which is what makes this adapter's
     // tier selectable on its own.

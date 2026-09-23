@@ -570,9 +570,9 @@ impl Warehouse for OracleWarehouse {
     /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
     /// dialect and that declaration is unchanged by this constant.
     ///
-    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`, so two Oracle
-    /// legs, or an Oracle leg beside a Postgres one, are both `shared-service-user` and
-    /// `ExecutedAs::uniform` accepts them.
+    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`. No composition
+    /// root links this adapter, so no Oracle leg reaches `ExecutedAs::uniform` from any binary; if
+    /// one ever does, `shared-service-user` is what it will present.
     const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {

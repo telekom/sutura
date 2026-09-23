@@ -19,12 +19,13 @@
 //! leg-declining one refuses only the leg that cannot run, never the whole answer.
 //!
 //! **This path is reachable from a published artefact now**, because `sutura-exec-datafusion`
-//! declares the constant and is non-optional in the shipped binary. What that does NOT make it
-//! is two-identity: every adapter a release links declares
-//! `ImpersonationCapability::NoPlaceForASubject`, so both legs of a shipped two-source answer run
-//! under one operating-system identity and
+//! declares the constant and is non-optional in the shipped binary, and `sutura-exec-postgres`
+//! declares it behind a feature the shipped binary enables. What that does NOT make it is
+//! per-subject: both leg-executing kinds a release links declare
+//! `ImpersonationCapability::NoPlaceForASubject`, so
 //! [`ExecutedAs::and`](sutura_domain::source::ExecutedAs::and) records the same shared posture
-//! twice. Single-player federation.
+//! twice - but the same posture is not the same identity, since each Postgres leg runs as its own
+//! source entry's database role. Single-player federation.
 
 use std::time::Instant;
 
