@@ -370,7 +370,13 @@ mod tests {
     /// the server type and `/x` name an instance, silently, if the value reached the connect string.
     #[test]
     fn a_service_name_the_driver_would_read_as_something_more_is_refused() {
-        for (written, found) in [("FREEPDB1:pooled", ':'), ("FREEPDB1/x", '/'), ("FREE-PDB1", '-')] {
+        for (written, found) in [
+            ("FREEPDB1:pooled", ':'),
+            ("FREEPDB1/x", '/'),
+            ("FREE-PDB1", '-'),
+            // `FRÉE`: alphanumeric, and not ASCII - the driver would dial service `FR` and drop the rest.
+            ("FR\u{c9}E", '\u{c9}'),
+        ] {
             let entry = RawSourceEntry {
                 service_name: Some(written),
                 ..oracle("warehouse")

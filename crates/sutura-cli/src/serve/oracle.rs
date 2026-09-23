@@ -184,8 +184,7 @@ mod tests {
         packet
     }
 
-    /// **The limit this kind's loopback rule does NOT reach, held by a cell so no page can drift
-    /// back to the stronger claim.** `sutura-config` confines the DECLARED `host` to a loopback
+    /// **The limit this kind's loopback rule does NOT reach.** `sutura-config` confines the DECLARED `host` to a loopback
     /// literal; the pinned driver, on a listener's TNS REDIRECT, dials whatever address the listener
     /// names - no check, no option to refuse, still plaintext - and authenticates there.
     ///
