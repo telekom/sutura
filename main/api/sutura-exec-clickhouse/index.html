@@ -1882,7 +1882,7 @@ own scope.</p>
 <p><strong>No raw-SQL tool support</strong> (<code>Warehouse::ACCEPTS_RAW_STATEMENTS</code> stays at its <code>false</code> default)
 and <strong>no leg execution</strong> (<code>Warehouse::EXECUTES_LEGS</code> stays at its <code>false</code> default, so
 <code>Executable::Leg</code> answers <code>ClickHouseError::LegWithoutCombiner</code> exactly as
-<code>sutura_exec_postgres</code> and <code>sutura_exec_bigquery</code> both do).</p>
+<code>sutura_exec_bigquery</code> does).</p>
 <p><strong>No <code>dry_run</code> override.</strong> <code>ClickHouse</code>'s HTTP interface has no cheap "prepare, do not run"
 step this adapter could ask for without paying most of the cost of running the statement, so
 this stays at the port's own default (<code>Ok(PreFlight::NotAsked)</code>) - the same honest absence
