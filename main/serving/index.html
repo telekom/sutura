@@ -3716,16 +3716,17 @@ model's <code>source:</code> names.</strong></p>
 </tr>
 </tbody>
 </table>
-<p>| <code>sources.&lt;alias&gt;.kind</code> | absent | <code>files</code>, or <code>bigquery</code>/<code>postgres</code>/<code>clickhouse</code> when that default-off feature was built in. Required, with no default |
+<p>| <code>sources.&lt;alias&gt;.kind</code> | absent | <code>files</code>, or <code>bigquery</code>/<code>postgres</code>/<code>clickhouse</code>/<code>oracle</code> when that default-off feature was built in. Required, with no default |
 | <code>sources.&lt;alias&gt;.data_dir</code> | absent | Where that source's files are. Required, and absolute |
-| <code>sources.&lt;alias&gt;.host</code> | absent | Postgres and ClickHouse. A DNS name or IP address. On Postgres, exactly one of <code>host</code> and <code>unix_socket</code>; on ClickHouse it is the only dial |
-| <code>sources.&lt;alias&gt;.unix_socket</code> | absent | Postgres only. An absolute socket directory. Exactly one of <code>unix_socket</code> and <code>host</code>. Refused on ClickHouse: its HTTP interface is dialled over TCP |
-| <code>sources.&lt;alias&gt;.port</code> | absent | Postgres and ClickHouse. Required; no guessed <code>5432</code> and no guessed <code>8123</code> |
-| <code>sources.&lt;alias&gt;.database</code> | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads |
-| <code>sources.&lt;alias&gt;.user</code> | absent | Postgres and ClickHouse. The one role every caller reaches this source as |
-| <code>sources.&lt;alias&gt;.password_file</code> | absent | Postgres and ClickHouse. Absolute, read at startup; secret text is refused in the settings tree |
-| <code>sources.&lt;alias&gt;.transport_mode</code> | absent | Postgres and ClickHouse. <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; required, with no default. A non-loopback host declared <code>plaintext</code> is refused on both |
-| <code>sources.&lt;alias&gt;.transport_anchors</code> | absent | Postgres and ClickHouse TLS. <code>system</code> as an explicit choice, or an absolute PEM bundle path |
+| <code>sources.&lt;alias&gt;.host</code> | absent | Postgres, ClickHouse and Oracle. A DNS name or IP address. On Postgres, exactly one of <code>host</code> and <code>unix_socket</code>; on ClickHouse and Oracle it is the only dial, and on Oracle it must be a loopback address because <code>plaintext</code> is that kind's only mode. That confines the address you DECLARE, not the connection: the Oracle driver follows a listener's redirect to any address, still in plaintext. An IPv6 literal such as <code>::1</code> is written bare |
+| <code>sources.&lt;alias&gt;.unix_socket</code> | absent | Postgres only. An absolute socket directory. Exactly one of <code>unix_socket</code> and <code>host</code>. Refused on ClickHouse and Oracle, which are dialled over TCP |
+| <code>sources.&lt;alias&gt;.port</code> | absent | Postgres, ClickHouse and Oracle. Required; no guessed <code>5432</code>, <code>8123</code> or <code>1521</code> |
+| <code>sources.&lt;alias&gt;.database</code> | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads - and on Oracle, which names its database by <code>service_name</code> |
+| <code>sources.&lt;alias&gt;.service_name</code> | absent | Oracle only. Required: the service the listener resolves, the path of an EZCONNECT <code>host:port/service_name</code> - not a SID. ASCII letters, digits, <code>_</code> and <code>.</code> only: the driver would read anything after another character as something else. Refused on every other kind |
+| <code>sources.&lt;alias&gt;.user</code> | absent | Postgres, ClickHouse and Oracle. The one role every caller reaches this source as |
+| <code>sources.&lt;alias&gt;.password_file</code> | absent | Postgres, ClickHouse and Oracle. Absolute, read at startup; secret text is refused in the settings tree |
+| <code>sources.&lt;alias&gt;.transport_mode</code> | absent | Postgres, ClickHouse and Oracle. <code>plaintext</code>, <code>verified</code> or <code>mutual</code>; required, with no default. A non-loopback host declared <code>plaintext</code> is refused on all three. Oracle accepts <code>plaintext</code> only: its driver trusts the certificate authorities compiled into it and takes no declared trust store, so <code>verified</code> and <code>mutual</code> are refused rather than half-honoured |
+| <code>sources.&lt;alias&gt;.transport_anchors</code> | absent | Postgres and ClickHouse TLS. <code>system</code> as an explicit choice, or an absolute PEM bundle path. Not accepted on Oracle - see <code>transport_mode</code> |
 | <code>sources.&lt;alias&gt;.client_certificate</code> | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
 | <code>sources.&lt;alias&gt;.client_key</code> | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | <code>sources.&lt;alias&gt;.posture</code> | absent | <code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default |
