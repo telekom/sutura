@@ -87,8 +87,8 @@ adapter that pushes a statement down - but that adapter is a **test dependency**
 source, and the shipped binary links neither it nor any driver. Which DATA SYSTEM is opened is a
 declaration - `sources.<alias>.kind`, the same tree the service reads - and which KINDS a given build
 can open is a compile-time decision: a published binary opens `files`, `bigquery` and `postgres`,
-while `kind: clickhouse` still needs a build carrying its own default-off feature. A build without
-it refuses that kind by name rather than silently falling back.
+while `kind: clickhouse` and `kind: oracle` still need builds carrying their own default-off
+features. A build without one refuses that kind by name rather than silently falling back.
 [What can be plugged in today](architecture.md#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table, and it is the section to read before assuming otherwise.
 

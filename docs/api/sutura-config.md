@@ -4580,6 +4580,10 @@ legitimate one.
   `Warehouse::IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry on
   this kind is refused at the composition root's own posture cross-check. Per-subject
   `ClickHouse` identity is wanted and not built.
+- `Oracle` - An Oracle Database, queried by rendering the plan into that dialect and pushing it down.
+
+  Declarable and openable behind the `oracle` feature - `ClickHouse`'s shape, identity half
+  included. `SourcePlacement::Oracle` carries what the driver cannot be told about TLS.
 
 #### Methods
 
@@ -4775,6 +4779,10 @@ convenience, and nothing needs to clone a startup refusal.
   A parse-time refusal rather than the connect-time one the driver would otherwise give: the
   driver has no TLS handshake to perform over a local socket, so the failure it produces there
   is a confusing one that names neither key. Refusing here says which two keys disagree.
+- `TlsNotDeliverable` - A TLS transport declared on a kind whose driver cannot be handed the declared trust store.
+
+  `oracle` today: the driver builds its own TLS configuration over a bundled public-CA set that a
+  wallet only WIDENS, so `transport_anchors` could not be the store the source verifies against.
 
 #### Implements
 
@@ -5115,6 +5123,14 @@ be skipped" look like the same sentence and are not.
   TCP only, and `sutura_exec_clickhouse::transport::Http` sends no `database` parameter - so a
   `database:` here would be a key an operator wrote and the deployment reads past, which is
   exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
+- `Oracle` - An Oracle Database, reached over its TCP listener.
+
+  **The static-credential half, in `Self::ClickHouse`'s shape - with no transport field, and
+  that absence is the declaration.** The parse accepts only `transport_mode: plaintext` and the
+  shared rule confines that to a loopback host, because the driver takes no caller-built TLS
+  configuration: its trust store is a bundled public-CA set a wallet only widens, so no declared
+  `transport_anchors` could be what the source verifies against. A field here that could only
+  ever hold `Plaintext` would be a choice the type pretends exists.
 
 ##### Methods
 

@@ -46,10 +46,12 @@ answers `None`. This module's own `#[cfg(test)]` cell,
   `sutura_tls::Rotating<rustls::ClientConfig>` handle Postgres's own `connect_secured` takes, and
   a `transport_anchors: system` declaration has nothing on this adapter to reach: there is no
   "read the host trust store" option in the driver at all. This is a real fork in ADR 0010, not
-  an oversight, and no composition-root wiring reads `sources.<alias>.transport_mode` into this
-  adapter yet - that wiring is out of `#127`'s scope.
-- **No production wiring.** Nothing in `sutura-cli` depends on this crate; it is reachable only
-  from a test, the same position `sutura-exec-postgres` was in before `#124`/`#125`.
+  an oversight - and it is why `sutura-config` refuses any `transport_mode` but `plaintext` on
+  a `kind: oracle` source, and its shared rule confines `plaintext` to a loopback host.
+  `OracleWarehouse::connect_secured` therefore has no composition-root caller.
+- **Wired behind a default-off feature, and in no release.** `sutura-cli`'s `oracle` feature
+  links this crate into both composition roots through `OracleWarehouse::connect`;
+  `nix/shipped.nix` does not carry that feature - see its entry in `sutura-cli`'s manifest.
 - **Every mapping below is reasoned from the driver's documented wire types, not measured
   against a live Oracle** - no docker socket was available while this adapter was written. The
   golden matrix's `oracle` cells (`crates/sutura-app/tests/adapters/adapters.rs`) skip rather
