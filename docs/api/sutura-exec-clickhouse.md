@@ -60,6 +60,17 @@ from what the port's `sutura_domain::warehouse::deadline::Deadline` has left. `d
 module header states what was measured about that setting's semantics and its limit, mirroring
 `sutura_exec_postgres::deadline`'s own record for `SET LOCAL statement_timeout`.
 
+# Every request pins the server settings that decide what the rows say
+
+`join_use_nulls=1`: under `ClickHouse`'s default `0`, the unmatched side of an outer join
+answers the column type's default - `''` for a `String` - where the SQL standard answers `NULL`.
+Measured by hand against the pinned compose server over the example corpus: 6 of the 23
+questions with a committed `@duckdb` row golden disagreed without it, 0 with it, under a
+non-`Nullable` schema; under `Nullable` columns the setting changes nothing, so a fixture
+importer's type choice decides whether the defect shows. `timeout_overflow_mode=throw`: `break`
+answers a spent `max_execution_time` with HTTP 200 and the rows read so far. No leg of `just
+validate` reaches a `ClickHouse`, so a unit cell holds what is sent, not what a server answers.
+
 # What is NOT here
 
 **No composition root links this crate.** Nothing in `sutura-cli`'s `sources.rs` or `serve`
