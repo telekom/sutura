@@ -174,6 +174,16 @@ ci.yml:keycloak-served-test
 # passed over a driver that cannot initialise.
 ci.yml:bigquery-driver-check
 
+# The served-caller proof: `if: needs.ci.outputs.identity == 'true' && (push or a same-repository
+# pull request)` - so it reports nothing on a pull request whose diff does not touch the `identity`
+# category, unlike `keycloak-served-test` above. AND it carries the fork exception
+# `bigquery-driver-check` does not: unlike that job, this one DOES read secrets (the `bq-test`
+# environment's CI credential and the served-proof signing key), so a fork's pull request cannot
+# reach them and the job reports nothing on that event either - `ci-aggregate` holds run-or-fail
+# for it only when both the category is selected AND the event is push or same-repository, and
+# `ci-aggregate` is a required context.
+ci.yml:served-proof-test
+
 # #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
 # down: it needs a container runtime and a real network namespace, which is what makes it
 # unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull

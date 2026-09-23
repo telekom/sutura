@@ -56,6 +56,17 @@ stack that never sets it still accepts sutura's tokens; a configured list only a
 top (and gets the default appended if it omits it). This changed `workload_audience`'s shape, so a
 stack that already ran `infra-set` under the old (broken) value must run it again after `infra-up`.
 
+## The served-caller proof's second provider
+
+A SECOND `WorkloadIdentityPoolProvider` on the same pool, whose OIDC issuer is a fixed, never-real
+literal (`SERVED_PROOF_ISSUER` in `__main__.py`) and whose JWKS is UPLOADED rather than fetched -
+`served_proof_jwks_json` config, computed offline from a private key by `nix/served-proof-jwks.sh`.
+That key is a CI secret (`SUTURA_SERVED_PROOF_SIGNING_KEY`) this stack never sees and never
+exports: unlike every other identity value here, it is added to the `bq-test` environment BY HAND,
+once, never by `sync-bq-test-env.sh`. `nix/served-proof-tier.nix` carries the whole mechanism and
+where it was verified live. `served_proof_audience` (this provider's own STS audience) IS exported,
+the same way `workload_audience` is.
+
 ## Setup (one time, per developer or CI)
 
 The real project/names live in your own `Pulumi.<stack>.yaml`, which is gitignored.
@@ -199,8 +210,8 @@ run is still a thing somebody has to know.
 
 | Kind | Names |
 | --- | --- |
-| `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
-| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_CROSS_DATASET` |
+| `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL`, `SUTURA_SERVED_PROOF_AUDIENCE` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_CROSS_DATASET`, `SUTURA_BQ_RLS_TABLE`, `SUTURA_BQ_GROUP_COLUMN`, `SUTURA_BQ_PRINCIPAL_A_ROWS`, `SUTURA_BQ_PRINCIPAL_B_ROWS` |
 
 The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values, and they are
 secrets rather than vars for a reason that is not credential material: each names the acceptance

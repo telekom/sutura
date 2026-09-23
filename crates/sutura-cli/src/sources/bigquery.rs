@@ -451,7 +451,7 @@ mod tests {
             None,
         )
         .map(|_| ())
-        .expect_err("an impersonating posture with no exchanging broker must not answer");
+        .expect_err("an impersonating posture with no broker attached must not answer");
         assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
         assert!(
             error.contains("attaches no broker"),
@@ -496,10 +496,10 @@ mod tests {
         /// A data system that answers the pre-flight from what a test handed it, and records the asking.
         ///
         /// **A fake above the port rather than a fake transport**, which is what makes every outcome
-        /// reachable here: `sutura_exec_bigquery::wire::BigQueryWire`'s host is a `const` and its
-        /// agent is `https_only`, so no test in this repository can point a real one at a loopback.
-        /// What is under test is this composition root's DECISION about each answer, and a `Warehouse`
-        /// fake is exactly what exercises that.
+        /// reachable here: the real transport, `sutura_exec_bigquery::adbc::AdbcBigQuery`, opens a
+        /// native ADBC driver over the C ABI in `connect`, and no test in this repository can
+        /// substitute a loopback for that boundary. What is under test is this composition root's
+        /// DECISION about each answer, and a `Warehouse` fake is exactly what exercises that.
         struct Answers {
             source: SourceName,
             answer: Answering,

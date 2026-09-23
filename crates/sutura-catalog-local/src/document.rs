@@ -383,10 +383,9 @@ pub enum InvalidMetricDocument {
     /// signatures - because `InconsistentDefinitions`'s widest variants carry four name newtypes,
     /// and a `PathBuf` plus that plus two discriminants does not fit. The house remedy is to trim
     /// the variant rather than allow the lint, and there is nothing here to trim: the path is the
-    /// point of this variant and the cause is a type the domain owns. So it is boxed for the reason
-    /// `sutura_exec_bigquery::wire::WireError` boxes `ureq::Error` - much larger than every other
-    /// variant, and the alternative was losing information. The typed cause survives, which is what
-    /// separates this from a `Box<dyn Error>`.
+    /// point of this variant and the cause is a type the domain owns. So it is boxed instead - much
+    /// larger than every other variant, and the alternative was losing information. The typed cause
+    /// survives, which is what separates this from a `Box<dyn Error>`.
     #[error(transparent)]
     Inconsistent(Box<InconsistentDefinitions>),
     /// The anchor's `value:` is not text a number can be checked against.

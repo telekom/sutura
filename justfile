@@ -240,7 +240,7 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier helm-chart adbc-driver-bigquery; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier served-proof-tier postgres-tier helm-chart adbc-driver-bigquery; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -312,6 +312,31 @@ bigquery-declared-principal *args:
     echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'test(/declared_principal::/)' {{ args }}
+
+# The served-caller proof's own Keycloak realm, by hand: `just served-proof-tier start|stop|status`.
+# `dev/src/provisioned.rs` derives this exact recipe name from the "served-proof" service name its
+# own remedy cites - `keycloak-tier`'s pattern one line above.
+served-proof-tier *args:
+    nix run .#served-proof-tier -- {{ args }}
+
+# The served-caller proof: `docs/where-identity-is-proven.md`'s "a served binary under a verified
+# human caller" row. Needs a real BigQuery project, the driver `.so`, and the served-proof tier -
+# started and stopped by this recipe, `keycloak-served-test`'s own pattern. `#[ignore]`d, so
+# `just test` never reaches it, and this is NOT a gate: `just validate` has no network.
+# CI runs the same leg through `nix run .#served-proof-test`, gated on the `identity` category.
+
+# Start the served-proof tier, run the one served-surface cell, stop the tier.
+served-proof-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "served-proof-test: scope sutura-cli - the one served-surface cell over the served-proof Keycloak tier."
+    echo "served-proof-test: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    rc=0
+    nix run .#served-proof-tier -- status >/dev/null 2>&1 || rc=$?
+    nix run .#served-proof-tier -- start
+    if [ "$rc" = 1 ]; then trap 'nix run .#served-proof-tier -- stop' EXIT; fi
+    cargo nextest run -p sutura-cli --all-features --run-ignored only \
+      -E 'test(a_served_binary_executes_a_verified_human_caller_as_the_declared_account)'
 
 # `nix/bigquery-driver-check.sh` carries the whole argument: what it loads, what a green run does
 # NOT establish, and why the musl outcome is asserted in both directions. x86_64-linux only - it

@@ -257,11 +257,12 @@ pub(crate) fn run() -> Result<(), String> {
             boot::refuse_absent_tables(&pinned, &engines)?;
             // **The broker that makes an impersonating source answerable, and it is the only one
             // this crate can attach.** The exchanging broker's HTTP hops went with the `wire` half
-            // and the broker itself is deleted; the ADBC driver cannot take a subject's bearer
-            // either. What it CAN take is a principal to become, so this attaches
-            // `DeclaredPrincipalBroker` - the declared subject-to-account map, presented as the
-            // identity each job runs as. `crate::serve::broker` carries what that does not cover,
-            // and refuses at boot every declaration this build cannot honour.
+            // and the broker itself is deleted, but the ADBC driver DOES take a subject's own
+            // bearer now - `crate::adbc::identity::authenticate` federates it against the declared
+            // pool. This attaches `DeclaredPrincipalBroker`: the declared subject-to-account map,
+            // presenting each subject's OWN verified assertion rather than a principal to become.
+            // `crate::serve::broker` carries what that does not cover, and refuses at boot every
+            // declaration this build cannot honour.
             let broker = broker::build_broker(settings.sources())?;
             (started(&catalogs, engines, broker, &settings)?, None)
         }
@@ -633,7 +634,8 @@ type Serving = Arc<dyn Surface>;
 ///
 /// Generic in the adapter AND the broker, and the second generic is what lets the two arms below
 /// differ: a `files` deployment has no impersonating source, so its broker is the static one; a
-/// `bigquery` deployment with an impersonating source gets the exchanging broker. Returning
+/// `bigquery` deployment gets `DeclaredPrincipalBroker`, presenting each subject's own verified
+/// assertion rather than exchanging anything itself - the exchanging broker is deleted. Returning
 /// `Arc<dyn Surface>` is what lets the shared lines after each arm stop caring which of those it
 /// was - the transport takes a trait object, so the monomorphisation ends here rather than through
 /// the router.

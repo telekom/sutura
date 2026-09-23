@@ -16,8 +16,10 @@ says why they look the way they do.
     semantic compiler and executor over local files, served over HTTP - behind a token that
     authenticates the DEPLOYMENT, unless the deployment declares `security.inbound` and verifies a
     caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
-    exist now; what no published build has is an adapter that can carry a per-subject credential, so
-    every question there still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+    exist now; a published build now links an adapter that CAN carry a per-subject credential -
+    `sutura-exec-bigquery`, behind its default-off `bigquery` feature - but no served binary has
+    executed a leg as the calling subject yet (`docs/where-identity-is-proven.md`), so every
+    question there still reads as one identity. No Arrow result envelope. Sections that describe something enforced
     today say so inside the section, and [What exists today](#what-exists-today) is the inventory.
     **Do not deep-link a section of this page as evidence that a control is in place.**
 
@@ -349,13 +351,18 @@ arrangement of guards there can be an authority. Two mechanisms now, stated apar
   grain check closed a real gap - a `Day`-grain plan over the anchor's range used to pass and come
   back as a series rather than the one certified number.
 
-*Not built for any PUBLISHED build:* an adapter that can carry a per-subject credential. Both
-adapters a published binary links declare that they have nowhere for one to arrive, and the broker
-that ships mints from configuration. The default-off `bigquery` feature builds one that does. So the identity a
-leg presents is *the one this deployment holds for that source*, acknowledged by an operator and
-recorded on the answer - which is honest and is not impersonation. Against a local file the property
-is trivially satisfied and buys nothing, since a file has no login. What the port bought is that the
-day a source with grants arrives, there is no path for it to be read as this process through.
+*Built, behind a feature - not yet proven at a served binary.* `sutura-exec-bigquery` is a published
+build's own adapter (its default-off `bigquery` feature ships in `nix/shipped.nix`) and its
+`IMPERSONATION` is `PerSubjectCredential`, so it is no longer true that no published build has one.
+Every OTHER adapter a published binary links - `sutura-exec-datafusion` for `files`,
+`sutura-exec-postgres` - still declares `NoPlaceForASubject`, and the broker that ships mints from
+configuration for those: a `files` or `postgres` leg's identity is *the one this deployment holds
+for that source*, acknowledged by an operator and recorded on the answer - which is honest and is
+not impersonation. Against a local file the property is trivially satisfied and buys nothing, since
+a file has no login. `bigquery`'s own mechanism resolves per source
+(`docs/where-identity-is-proven.md`), but no served binary has executed a leg as the calling
+subject yet - so what the port buys for every OTHER source stands unchanged: the day one arrives
+with grants, there is no path for it to be read as this process through.
 
 What is enforced beside that, and worth stating as such: nothing on the query path can **choose** an
 identity, because `SemanticCatalog::load` takes no request context and a plan resolves to exactly one
@@ -752,20 +759,24 @@ signature that omits it, and a subject with no credential at a source is refused
 under this process's identity. So the *fallback* is gone: not forbidden by a rule, absent from every
 signature.
 
-**What has not arrived is a data system with grants to run under.** A CSV is a file with no login, so
-"every query runs as the calling principal" is still satisfied here by there being nobody else to be -
-and both adapters in this build declare that they have nowhere for a subject's own credential to
-arrive. The broker that ships mints from configuration and performs no token exchange. That is a true
-statement about a laptop and not about a warehouse, so this remains a compiler with a governed front
-door: what the port bought is that the day a real source arrives, there is no code path for it to be
-read as the process through.
+**A data system with grants to run under has now arrived, behind a feature: `sutura-exec-bigquery`,
+whose `IMPERSONATION` is `PerSubjectCredential`** - this bullet used to say no such adapter existed
+in a published build, and that changed with `telekom/sutura#929`. A CSV is still a file with no
+login, so "every query runs as the calling principal" is satisfied there by there being nobody else
+to be, and `sutura-exec-datafusion`/`sutura-exec-postgres` still declare `NoPlaceForASubject` - the
+broker that ships mints from configuration for those and performs no token exchange. `bigquery`'s
+own exchange resolves per source (`docs/where-identity-is-proven.md`), but no served binary has
+executed a leg as the calling subject yet: what the port bought for every OTHER source is
+unchanged, and it is that the day one of THOSE arrives with grants, there is no code path for it to
+be read as the process through.
 
 **The HTTP transport is here**: an axum surface with a
 versioned `v1` tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
 description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
 the deployment; `security.inbound` instead establishes the caller in `direct` or `behind-gateway`
-mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
-adapter.
+mode. Neither, on its own, makes a data system execute as that caller: `sutura-exec-bigquery`'s own
+exchange resolves per source (`docs/where-identity-is-proven.md`), but no served binary has executed
+leg 2 as the calling subject yet.
 
 Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and

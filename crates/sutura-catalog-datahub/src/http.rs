@@ -38,9 +38,9 @@
 //! composition root's settings default to, following `sutura-config`'s own convention of a default
 //! function per optional key, not a value baked into this type. [`read`](AspectReader::read) makes
 //! up to three requests and shares ONE deadline across them - opened once, and what is left after
-//! the first two requests is what the third gets - the same shape `sutura-exec-bigquery`'s
-//! `CallDeadline` holds for a job's token exchange and its query, and for the same reason: a budget
-//! opened per request lets three independent timeouts sum to three times what a deployment declared.
+//! the first two requests is what the third gets - the same shape `sutura_domain::warehouse::deadline::Deadline`
+//! holds for a job's execution, and for the same reason: a budget opened per request lets three
+//! independent timeouts sum to three times what a deployment declared.
 //!
 //! # Auth
 //!
@@ -112,19 +112,20 @@ use crate::document::{DatasetAspect, MetricAspect, RelationshipAspect, Snapshot}
 use crate::{AspectReader, DataHubError};
 
 /// How long a socket may stay open past what is left of the shared deadline: connection setup and
-/// the last bytes of the answer. Same value and same argument as
-/// `sutura_exec_bigquery::wire::bounds`'s `CONNECT_MARGIN`.
+/// the last bytes of the answer. A deadline of zero would mean *no timeout* to the client
+/// underneath, and this margin is what keeps the socket's own bound from reading that way.
 const CONNECT_MARGIN: Duration = Duration::from_secs(5);
 
-/// A cap on response HEADERS, read before any body - the same reason
-/// `sutura_exec_bigquery::wire::MAX_HEADER_BYTES` exists.
+/// A cap on response HEADERS, read before any body - a foreign endpoint's header block is
+/// untrusted input like anything else read off the wire, and has to be bounded before this reads
+/// any of it.
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 
 /// Builds a fresh `ureq::Agent` with this reader's pins over the given TLS configuration - the one
-/// place the pins are written, so the fixed and rotating constructors use the same client. Unlike
-/// `sutura-exec-bigquery`'s wire there is no `https_only(true)` here: this crate pursues a
-/// validated [`Endpoint`] (which already refuses a non-loopback plaintext host) rather than a
-/// compile-time `https://` constant, so the scheme pin lives in the parse, not in the agent.
+/// place the pins are written, so the fixed and rotating constructors use the same client. There
+/// is no `https_only(true)` here: this crate pursues a validated [`Endpoint`] (which already
+/// refuses a non-loopback plaintext host) rather than a compile-time `https://` constant, so the
+/// scheme pin lives in the parse, not in the agent.
 fn agent_from_tls(socket: Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
     ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
@@ -149,10 +150,9 @@ pub const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
 /// The recommended default response-size cap, in bytes, for a composition root's settings default.
 ///
-/// One quarter of `sutura_exec_bigquery::wire::MAX_ANSWER_BYTES`: a metadata page is descriptions,
-/// column names and one metric document, not query rows, and what this defends against is the same
-/// case that constant does - something that is not the endpoint answering - rather than a
-/// realistic upper bound on a legitimate page.
+/// A metadata page is descriptions, column names and one metric document, not query rows, so what
+/// this defends against is something that is not the endpoint answering at all - a redirect loop,
+/// a proxy gone wrong - rather than a realistic upper bound on a legitimate page.
 pub const DEFAULT_MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Why a declared bound is not usable.
@@ -164,15 +164,15 @@ pub enum InvalidReadBounds {
 }
 
 /// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
-/// current - named for `type_complexity`, the same reason `sutura-exec-bigquery`'s `Wired`/`Grid`
-/// aliases exist.
+/// current - named because the spelled-out pair is over this workspace's `type_complexity`
+/// threshold.
 type OutboundAgent = (sutura_tls::Rotating<ureq::Agent>, Option<sutura_tls::Rotator<ureq::Agent>>);
 
 /// What one [`HttpAspectReader::read`] call may spend: a request timeout and a response-size cap.
 ///
 /// A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
-/// `sutura_exec_bigquery::wire::JobBounds`'s own shape, minus the money bound this read has no use
-/// for (a metadata read is not billed).
+/// a request timeout paired with a response-size cap, and no money bound: a metadata read is not
+/// billed.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadBounds {
     timeout: Duration,
@@ -211,8 +211,9 @@ impl ReadBounds {
 
 /// One shared budget across a `read()` call's (up to) three requests.
 ///
-/// `sutura_exec_bigquery::wire::bounds::CallDeadline`'s shape, held privately here because nothing
-/// outside this module needs to open or share one.
+/// The same shape `sutura_domain::warehouse::deadline::Deadline` holds - an instant opened once,
+/// read as what is left rather than re-derived - kept as its own type and held privately here
+/// because nothing outside this module needs to open or share one.
 #[derive(Debug, Clone, Copy)]
 struct Budget {
     started: Instant,
@@ -228,7 +229,7 @@ impl Budget {
     }
 
     /// What is left of the budget, or `None` when it is spent. `None` rather than a zero duration,
-    /// for the reason `CallDeadline::remaining` gives: a zero timeout means *no timeout* to the
+    /// for the reason `Deadline::remaining_at` gives: a zero timeout means *no timeout* to the
     /// client underneath.
     fn remaining(self) -> Option<Duration> {
         self.total.checked_sub(self.started.elapsed()).filter(|left| !left.is_zero())
@@ -297,8 +298,7 @@ pub enum HttpReaderError {
         #[source]
         cause: Box<ureq::Error>,
     },
-    /// `DataHub` refused the request. `Display` renders the status and never `detail` - the same
-    /// rule `sutura_exec_bigquery::wire::WireError::Refused` holds, and for the same reason: a
+    /// `DataHub` refused the request. `Display` renders the status and never `detail`, because a
     /// cause-chain walk that flattens every link with `Display` must not carry endpoint-owned text.
     #[error("DataHub refused the {entity} page with {status}")]
     Refused {
@@ -542,7 +542,8 @@ impl HttpAspectReader {
         clippy::disallowed_methods,
         reason = "a bearer has to reach the wire as text; the exposure here builds the one header \
                   value the client parses, which is the whole reason the token exists - the same \
-                  shape sutura_exec_bigquery::wire::BigQueryWire::source_bearer holds"
+                  shape sutura_exec_bigquery::adbc::identity::credential_options holds for its own \
+                  once-only exposure at a boundary"
     )]
     fn bearer(&self) -> String {
         format!("Bearer {}", self.token.expose_secret())

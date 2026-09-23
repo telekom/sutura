@@ -11,6 +11,8 @@ use sutura_domain::calendar::Date;
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::{ParamValue, UnannouncedBatch};
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use adbc_core::Statement;
@@ -251,6 +253,12 @@ type BoundBatch = (usize, usize, Vec<arrow_schema::DataType>);
 /// needed for - *was the batch this transport built actually bound* - is assertable in process.
 /// Review measured what its absence cost: replacing the `bind` call with `drop(bound)` left the
 /// clippy leg clean and 143 tests green.
+///
+/// `Clone`, so this fake can stand in for a real driver's statement in [`super::run_to_deadline`],
+/// which needs its own `S: Clone` bound to hold a cancelling handle beside the one `execute` runs
+/// on - a plain derive is honest here because nothing below reads a clone's copy of the recording
+/// back; the cell that does need shared state (`Hanging`, further down) says so.
+#[derive(Clone)]
 struct Recording {
     /// The statement text `set_sql_query` was handed, in order.
     queries: Vec<String>,
@@ -635,4 +643,147 @@ fn a_spent_deadline_sends_nothing_and_reads_as_the_deadline() {
     let endpoint = endpoint(Impersonation::Disabled);
     assert!(endpoint.deadline_exceeded(&spent));
     assert!(!endpoint.deadline_exceeded(&AdbcError::NoDryRun));
+}
+
+/// A statement whose `execute` never returns on its own, standing in for a driver call this
+/// process cannot finish waiting on.
+///
+/// **The whole reason [`super::run_to_deadline`] is generic over `S: Clone`.** `execute` and
+/// `cancel` share ONE flag through the `Arc` every clone holds, which is what a real
+/// `ManagedStatement`'s shared lock is standing in for: the only way `execute` below ever returns
+/// is a `cancel` call reaching the SAME shared state, not a timeout of its own. A polled
+/// `AtomicBool` rather than a condition variable - this workspace disallows `std::sync::Mutex`,
+/// and a fake's own wait does not need to be efficient, only observable.
+#[derive(Clone)]
+struct Hanging {
+    /// `true` once `cancel` has been asked for. `execute` polls this until it flips, which is
+    /// also [`Self::cancelled`] - one flag serves both jobs, and a second field would only be
+    /// able to disagree with it.
+    cancelled: Arc<AtomicBool>,
+}
+
+impl Hanging {
+    fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl adbc_core::Optionable for Hanging {
+    type Option = adbc_core::options::OptionStatement;
+
+    fn set_option(&mut self, _key: Self::Option, _value: adbc_core::options::OptionValue) -> adbc_core::error::Result<()> {
+        Err(not_asked("set an option"))
+    }
+
+    fn get_option_string(&self, _key: Self::Option) -> adbc_core::error::Result<String> {
+        Err(not_asked("read a string option"))
+    }
+
+    fn get_option_bytes(&self, _key: Self::Option) -> adbc_core::error::Result<Vec<u8>> {
+        Err(not_asked("read a bytes option"))
+    }
+
+    fn get_option_int(&self, _key: Self::Option) -> adbc_core::error::Result<i64> {
+        Err(not_asked("read an integer option"))
+    }
+
+    fn get_option_double(&self, _key: Self::Option) -> adbc_core::error::Result<f64> {
+        Err(not_asked("read a double option"))
+    }
+}
+
+impl Statement for Hanging {
+    fn bind(&mut self, _batch: arrow_array::RecordBatch) -> adbc_core::error::Result<()> {
+        Err(not_asked("bind"))
+    }
+
+    fn bind_stream(&mut self, _reader: Box<dyn arrow_array::RecordBatchReader + Send>) -> adbc_core::error::Result<()> {
+        Err(not_asked("bind a stream"))
+    }
+
+    fn execute(&mut self) -> adbc_core::error::Result<Box<dyn arrow_array::RecordBatchReader + Send + 'static>> {
+        while !self.cancelled.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Err(not_asked("execute past being told to stop"))
+    }
+
+    fn execute_update(&mut self) -> adbc_core::error::Result<Option<i64>> {
+        Err(not_asked("execute an update"))
+    }
+
+    fn execute_schema(&mut self) -> adbc_core::error::Result<arrow_schema::Schema> {
+        Err(not_asked("read a result schema"))
+    }
+
+    fn execute_partitions(&mut self) -> adbc_core::error::Result<adbc_core::PartitionedResult> {
+        Err(not_asked("execute partitions"))
+    }
+
+    fn get_parameter_schema(&self) -> adbc_core::error::Result<arrow_schema::Schema> {
+        Err(not_asked("read a parameter schema"))
+    }
+
+    fn prepare(&mut self) -> adbc_core::error::Result<()> {
+        Err(not_asked("prepare"))
+    }
+
+    fn set_sql_query(&mut self, _query: impl AsRef<str>) -> adbc_core::error::Result<()> {
+        Err(not_asked("set the SQL query"))
+    }
+
+    fn set_substrait_plan(&mut self, _plan: impl AsRef<[u8]>) -> adbc_core::error::Result<()> {
+        Err(not_asked("set a Substrait plan"))
+    }
+
+    fn cancel(&mut self) -> adbc_core::error::Result<()> {
+        self.cancelled.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn a_hung_execute_is_cancelled_and_the_call_returns_by_the_deadline() {
+    // **THE CELL `telekom/sutura#929`'s first finding asks for.** Nothing here ever finishes
+    // `execute` on its own - the ONLY way `run_to_deadline` below returns at all is the deadline
+    // firing and asking this fake to `cancel`, which is what unblocks it. Carrying the deadline as
+    // a value, unenforced, would hang this test rather than fail it.
+    let hanging = Hanging::new();
+    let cancelled = Arc::clone(&hanging.cancelled);
+    let opened = Instant::now();
+    let port = JobDeadline::Port(deadline(opened, Duration::from_millis(20)));
+    let started = Instant::now();
+    let result = super::run_to_deadline(hanging, (), port, opened);
+    assert!(matches!(result, Err(AdbcError::DeadlineElapsed)), "{result:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the call outlived its 20ms deadline by {:?}",
+        started.elapsed()
+    );
+    // The cancel a fired deadline asks for is deliberately ASYNCHRONOUS - see
+    // `run_to_deadline`'s own doc for why it must not be waited on here - so give it a moment to
+    // land before reading the flag it sets.
+    let latest = Instant::now() + Duration::from_secs(10);
+    while !cancelled.load(Ordering::SeqCst) && Instant::now() < latest {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        cancelled.load(Ordering::SeqCst),
+        "the deadline elapsing must ask the driver to cancel"
+    );
+}
+
+#[test]
+fn a_fast_failure_within_the_deadline_is_not_read_as_the_deadline() {
+    // **THE CONTROL.** A plentiful deadline beside a statement that fails IMMEDIATELY - `Recording`
+    // refuses `execute` outright - has to surface as that failure and not as
+    // `AdbcError::DeadlineElapsed`, or every ordinary error through this path would misreport as
+    // the deadline the moment a caller happened to pass one.
+    let statement = Recording::new();
+    let opened = Instant::now();
+    let port = JobDeadline::Port(deadline(opened, Duration::from_secs(30)));
+    let failed = super::run_to_deadline(statement, (), port, opened).expect_err("the recording statement refuses `execute`");
+    assert!(matches!(failed, AdbcError::Adbc(_)), "{failed:?}");
 }

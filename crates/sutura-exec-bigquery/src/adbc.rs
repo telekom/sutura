@@ -70,6 +70,7 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Unanno
 
 use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport};
 use core::time::Duration;
+use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 #[cfg(doc)]
 use sutura_domain::warehouse::deadline::Deadline;
@@ -171,6 +172,17 @@ pub enum AdbcError {
     /// sent: a `jobTimeoutMs` of what is left would be `0`, which the driver reads as unbounded.
     #[error("the request's deadline was spent before the statement was sent")]
     DeadlineSpent,
+    /// The port's own deadline elapsed while the statement was executing or its result was being
+    /// drained - after the statement was sent, which is what tells this apart from
+    /// [`Self::DeadlineSpent`]. [`run_to_deadline`] is what reaches it, and it is the client-side
+    /// bound `telekom/sutura#929`'s first finding asked for: a stuck driver call or a slow stream can
+    /// no longer outlive the caller.
+    ///
+    /// **What this does and does not mean has happened by the time a caller sees it.** The call this
+    /// process was waiting on was asked to [`adbc_core::Statement::cancel`] - see [`run_to_deadline`]
+    /// for what that ask can and cannot pre-empt.
+    #[error("the request's deadline elapsed while running; the driver was asked to cancel")]
+    DeadlineElapsed,
     /// The plan's values could not be assembled as the batch this driver binds them from.
     ///
     /// Its own variant rather than an [`Self::Adbc`], because the failure is on THIS side of the C
@@ -356,11 +368,20 @@ const MAX_BYTES_BILLED_OPTION: &str = "bigquery.query.max_bytes_billed";
 /// `queryConfig.JobTimeout` as `time.Duration(value) * time.Millisecond`. An integer option for the
 /// same `adbc_ffi` reason.
 ///
-/// **The limit, where the claim is.** This is a SERVER-side bound: the service stops a job that
-/// outlives it, on a best-effort basis, and this process does not cancel anything itself - the
-/// driver's own `Statement::cancel` is not wired to the deadline. A job the service times out
-/// comes back as a job failure, which `deadline_exceeded` does not read as the deadline. Not run
-/// against the service by the change that added it; the hosted adapter leg is where that lands.
+/// **One of two bounds on the same clock, and this one is the service's.** The service stops a job
+/// that outlives it, on a best-effort basis. A job the service times out this way comes back as a
+/// job failure, which `deadline_exceeded` does not read as the deadline - that predicate reads
+/// [`AdbcError::DeadlineSpent`] and [`AdbcError::DeadlineElapsed`], both of which this process
+/// decides for itself. Not run against the service by the change that added it; the hosted adapter
+/// leg is where that lands.
+///
+/// **The other bound is [`run_to_deadline`], and it is CLIENT-side.** `telekom/sutura#929`'s first
+/// finding was that carrying this value is not enforcement: nothing on this side of the driver
+/// stopped a stuck call or a slow stream from outliving the caller's own deadline. `run_to_deadline`
+/// races `execute` and the drain that follows it against the same `Deadline` this option carries a
+/// snapshot of, and asks the driver to [`adbc_core::Statement::cancel`] the moment it elapses - so
+/// the caller's OWN wait is bounded by this process now, whether or not the server-side stop above
+/// lands in time. See that function's own doc for what the ask can and cannot pre-empt.
 const JOB_TIMEOUT_OPTION: &str = "bigquery.query.job_timeout";
 
 /// A `BigQuery` endpoint over ADBC.
@@ -483,59 +504,154 @@ impl AdbcBigQuery {
     }
 }
 
+/// Executes `stmt` and drains its result to completion. No bound of its own in TIME - that is
+/// [`run_to_deadline`]'s job - but bounded in both ROWS and BYTES, which is a bound on what this
+/// process holds rather than on how long holding it takes.
+///
+/// **Checked as each batch arrives, under a ceiling, and nothing collects the stream first.** This
+/// used to push every `RecordBatch` into a `Vec` and then decode every row beside it - two
+/// materialisations of the same result, neither bounded, both before anything downstream could look
+/// at the working set. Review round 4 of `telekom/sutura#929` named exactly that. Now a batch whose
+/// own schema is not the announced one is refused before its values are read, and a stream past
+/// [`MOST_RESULT_ROWS`] is refused at the batch that crosses the line - so the rows past the
+/// ceiling are never held at all.
+///
+/// **What changed with `docs/adr/0039`:** the batches are KEPT as Arrow rather than decoded into
+/// this crate's own text rows. The check is the same check, in the interior now, so the engine's
+/// own collection goes through it too and there is no lenient second copy of it.
+///
+/// **The limit beside it:** the ceiling is a bound on THIS PROCESS, not the working-set check
+/// `sutura_app` makes above. A leg carries no `LIMIT`, so this is the only number standing between a
+/// driver that streams without end and this process's memory.
+///
+/// **And bounded in BYTES as well as in rows since round 7 of the same review**, which measured
+/// that a row count is no bound at all on a wide result: `MOST_RESULT_BYTES` is charged per batch,
+/// for what the batch costs to hold AND what converting it will cost, so the refusal lands before
+/// the batch that would have crossed it is retained.
+///
+/// **A full drain IS completeness for ADBC.** The wire transport that used to be here refused a
+/// first page by comparing a delivered count against the endpoint's own `totalRows`; an ADBC read
+/// streams the whole result, so completeness is the loop below consuming the reader to exhaustion
+/// and turning any error on the way into an `Err` instead of a short answer. Nothing reads the
+/// driver's schema metadata, so there is no reported total to compare against - and the
+/// `Reported`/`Incomplete` pair that existed to hold one is gone rather than left reachable only
+/// from its own tests.
+fn execute_to_completion<S>(stmt: &mut S) -> Result<ResultBatches, AdbcError>
+where
+    S: Statement,
+{
+    let reader = stmt.execute().map_err(AdbcError::Adbc)?;
+    let announced = reader.schema();
+    let mut accumulating = Accumulating::announcing(
+        announced,
+        MOST_RESULT_ROWS,
+        ResultBudget::of_bytes(
+            // `MOST_RESULT_BYTES` is a non-zero literal, so this cannot be `None`; mapped rather
+            // than unwrapped because this workspace allows neither `unwrap` nor `expect`, and a
+            // zero here would refuse every result including the empty one.
+            core::num::NonZeroUsize::new(MOST_RESULT_BYTES).unwrap_or(core::num::NonZeroUsize::MIN),
+        ),
+    );
+    for batch in reader {
+        accumulating
+            .push(batch.map_err(AdbcError::Batch)?)
+            .map_err(AdbcError::Unannounced)?;
+    }
+    Ok(accumulating.finish())
+}
+
+/// The worker [`run_to_deadline`] spawned ended without answering at all.
+///
+/// Unreachable while [`execute_to_completion`] always resolves to a `Result` and nothing panics
+/// inside the closure that calls it - kept rather than `unwrap`ped past, because a channel
+/// disconnect is a real variant of `mpsc::RecvError`/`RecvTimeoutError` and this workspace answers
+/// every variant of something rather than assuming one away.
+fn worker_vanished() -> AdbcError {
+    AdbcError::Adbc(CoreError::with_message_and_status(
+        "the ADBC worker thread ended without answering",
+        adbc_core::error::Status::Internal,
+    ))
+}
+
+/// Runs `stmt` to completion, refusing to outlive `deadline` as measured from `now`.
+///
+/// **The real bound `telekom/sutura#929`'s first review finding asked for.** Carrying the port's
+/// deadline as `jobTimeoutMs` ([`JOB_TIMEOUT_OPTION`]) is a SERVER-side ask; this is the CLIENT-side
+/// one, and until it existed nothing on this side of the driver stopped a stuck call or a slow
+/// stream from outliving the caller. `execute_to_completion` now runs on its OWN thread, raced
+/// against `deadline` rather than awaited unconditionally: a deadline crossed anywhere inside it -
+/// during `execute` itself or during the drain that follows - answers this call's caller with
+/// [`AdbcError::DeadlineElapsed`] instead of whatever the driver eventually does.
+///
+/// **What actually stops, and on what schedule.** The moment the deadline fires, a CLONE of `stmt`
+/// is asked to [`Statement::cancel`] - on a THIRD thread, because the ask has to be as unbounded as
+/// the call it may be cancelling. That is the reason `S` must be `Clone`: `adbc_driver_manager`'s
+/// `ManagedStatement` puts one lock around a statement's C ABI handle, held for the FULL duration of
+/// whichever call is using it, so `execute` and `cancel` on the SAME handle are mutually exclusive
+/// rather than concurrent (`adbc_driver_manager-0.24.0/src/lib.rs:1195-1205` holds the statement
+/// lock for `execute`'s whole blocking FFI call; `:1180-1193` takes the same lock for `cancel`). A
+/// `cancel` dispatched while `execute` is still inside that call therefore QUEUES rather than
+/// pre-empts it - stated here because it is the one thing this function cannot promise: if the
+/// driver's own blocking call is truly stuck before yielding that lock, the cancel this function
+/// asked for runs only once it eventually does, however long that is. Once `execute` DOES return -
+/// normally, with the driver's own error, or because the pinned driver's own `Cancel`
+/// (`go/statement_cancel.go`'s `Cancel`, pinned at `bigquery-adbc-src` rev
+/// `5f1e65dc8a904c39cdf79ef9e19140139c1becb4`) interrupted a still-open network call underneath it -
+/// the queued cancel runs and the `BigQuery` job it names is asked to stop, whether or not this
+/// process is still waiting for an answer.
+///
+/// **`keep_alive` exists for a reason that has nothing to do with cancellation.** The worker thread
+/// this function spawns may still be running after this function itself has returned
+/// [`AdbcError::DeadlineElapsed`] to ITS OWN caller - that is the whole point of not waiting for it.
+/// `AdbcBigQuery::run`'s driver handle and its subject-token loopback source have to stay alive for
+/// as long as the clone of `stmt` the worker holds might still call into them, which can outlast
+/// this function's own return; moving them into the SAME closure, held until it ends, is what
+/// stops a driver being unloaded - or a loopback source being closed - out from under a call still
+/// in flight against it.
+fn run_to_deadline<S>(
+    mut stmt: S,
+    keep_alive: impl Send + 'static,
+    deadline: JobDeadline,
+    now: Instant,
+) -> Result<ResultBatches, AdbcError>
+where
+    S: Statement + Clone + Send + 'static,
+{
+    let remaining = match deadline {
+        JobDeadline::Port(deadline) => Some(deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?),
+        JobDeadline::Boot => None,
+    };
+    let mut canceller = stmt.clone();
+    let (answered, awaited) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _kept_alive = keep_alive;
+        let outcome = execute_to_completion(&mut stmt);
+        drop(answered.send(outcome));
+    });
+    let Some(budget) = remaining else {
+        return awaited.recv().unwrap_or_else(|_| Err(worker_vanished()));
+    };
+    match awaited.recv_timeout(budget) {
+        Ok(outcome) => outcome,
+        Err(RecvTimeoutError::Timeout) => {
+            // Best-effort and ASYNCHRONOUS: this must not itself wait on the same lock `execute`
+            // may still be holding, or the deadline this function exists to enforce would be
+            // spent waiting on the cancel meant to protect it.
+            std::thread::spawn(move || {
+                drop(canceller.cancel());
+            });
+            Err(AdbcError::DeadlineElapsed)
+        }
+        Err(RecvTimeoutError::Disconnected) => Err(worker_vanished()),
+    }
+}
+
 impl JobTransport for AdbcBigQuery {
     type Error = AdbcError;
 
     fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
-        // `_source` is BOUND rather than discarded, and the underscore is the only thing about it
-        // that is cosmetic: dropping it here would close the subject-token endpoint before the
-        // driver's own lazy fetch reached it. It lives to the end of this function.
-        let (_driver, mut stmt, _source) = self.connect(request)?;
-        let reader = stmt.execute().map_err(AdbcError::Adbc)?;
-        let announced = reader.schema();
-        // **Checked as each batch arrives, under a ceiling, and nothing collects the stream first.**
-        // This used to push every `RecordBatch` into a `Vec` and then decode every row beside it -
-        // two materialisations of the same result, neither bounded, both before anything downstream
-        // could look at the working set. Review round 4 of `telekom/sutura#929` named exactly that.
-        // Now a batch whose own schema is not the announced one is refused before its values are
-        // read, and a stream past [`MOST_RESULT_ROWS`] is refused at the batch that crosses the
-        // line - so the rows past the ceiling are never held at all.
-        //
-        // **What changed with `docs/adr/0039`:** the batches are KEPT as Arrow rather than decoded
-        // into this crate's own text rows. The check is the same check, in the interior now, so the
-        // engine's own collection goes through it too and there is no lenient second copy of it.
-        //
-        // **The limit beside it:** the ceiling is a bound on THIS PROCESS, not the working-set
-        // check `sutura_app` makes above. A leg carries no `LIMIT`, so this is the only number
-        // standing between a driver that streams without end and this process's memory.
-        //
-        // **And bounded in BYTES as well as in rows since round 7 of the same review**, which
-        // measured that a row count is no bound at all on a wide result: `MOST_RESULT_BYTES` is
-        // charged per batch, for what the batch costs to hold AND what converting it will cost, so
-        // the refusal lands before the batch that would have crossed it is retained.
-        let mut accumulating = Accumulating::announcing(
-            announced,
-            MOST_RESULT_ROWS,
-            ResultBudget::of_bytes(
-                // `MOST_RESULT_BYTES` is a non-zero literal, so this cannot be `None`; mapped
-                // rather than unwrapped because this workspace allows neither `unwrap` nor
-                // `expect`, and a zero here would refuse every result including the empty one.
-                core::num::NonZeroUsize::new(MOST_RESULT_BYTES).unwrap_or(core::num::NonZeroUsize::MIN),
-            ),
-        );
-        for batch in reader {
-            accumulating
-                .push(batch.map_err(AdbcError::Batch)?)
-                .map_err(AdbcError::Unannounced)?;
-        }
-        // **A full drain IS completeness for ADBC.** The wire transport that used to be here
-        // refused a first page by comparing a delivered count against the endpoint's own
-        // `totalRows`; an ADBC read streams the whole result, so completeness is the loop above
-        // consuming the reader to exhaustion and turning any error on the way into an `Err`
-        // instead of a short answer. Nothing reads the driver's schema metadata, so there is no
-        // reported total to compare against - and the `Reported`/`Incomplete` pair that existed to
-        // hold one is gone rather than left reachable only from its own tests.
-        Ok(accumulating.finish())
+        let (driver, stmt, source) = self.connect(request)?;
+        run_to_deadline(stmt, (driver, source), request.deadline(), Instant::now())
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
@@ -562,11 +678,11 @@ impl JobTransport for AdbcBigQuery {
         matches!(*error, AdbcError::NoDryRun)
     }
 
-    /// `true` for [`AdbcError::DeadlineSpent`] alone: the one failure here that IS the port's
-    /// deadline. A job the service stopped at `jobTimeoutMs` is not recognised - see
-    /// [`JOB_TIMEOUT_OPTION`].
+    /// `true` for [`AdbcError::DeadlineSpent`] and [`AdbcError::DeadlineElapsed`] - the two ways
+    /// THIS PROCESS decides the port's deadline, before sending anything and while running. A job
+    /// the SERVICE stopped at `jobTimeoutMs` is not recognised - see [`JOB_TIMEOUT_OPTION`].
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(*error, AdbcError::DeadlineSpent)
+        matches!(*error, AdbcError::DeadlineSpent | AdbcError::DeadlineElapsed)
     }
 
     /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
@@ -600,6 +716,7 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::Uncovered(_)
             | AdbcError::NoDryRun
             | AdbcError::DeadlineSpent
+            | AdbcError::DeadlineElapsed
             | AdbcError::Parameters { .. }
             | AdbcError::SubjectSource { .. }
             | AdbcError::UnusableTarget
