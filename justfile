@@ -330,6 +330,19 @@ causality base="origin/main":
     export SUTURA_DEV_RELAXED_TOLERANCE=1
     cargo run -q -p xtask -- test-causality --since {{ base }}
 
+# THE KILL HALF of `github.com/telekom/sutura#950`: does every COMMITTED devco/claim-mutations/
+# patch still kill the cell it names, not only the ones a diff just declared? ON-DEMAND rather
+# than part of `hygiene` or `gates` - it recompiles this workspace once per committed patch, the
+# same isolated rebuild `just causality` itself pays per declared cell - so the release path or a
+# person re-verifying the set runs this by hand. `cargo xtask check-claim-mutations` is the cheap
+# apply-only half and IS in `just hygiene`.
+check-claim-mutation-kills:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source nix/with-tier.sh
+    sutura_tier_up
+    cargo run -q -p xtask -- check-claim-mutation-kills
+
 # ---------------------------------------------------------------- artifacts ---
 
 # ONE, because one is published: before #111 this built one binary and so did the release, and

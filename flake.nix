@@ -620,7 +620,13 @@
             pnameSuffix = "-hygiene";
             doCheck = false;
             # `check-jscpd` shells to `jscpd`; same expression as `apps.jscpd` (issue #474).
-            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd ];
+            # `check-claim-mutations` shells to `git apply --check` (issue #950) - and the source
+            # store path this derivation builds from has no `.git` at all, so `git ls-files` exits
+            # 128 here regardless of whether the binary is on PATH. `repo::all_files` degrades to
+            # a filesystem walk over that; `skills::link_problems`'s index read degrades instead
+            # to reporting no findings. A patch's applicability has no substitute either way, so
+            # this is the one hygiene gate that needs `pkgs.git` for real, not as a fallback.
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ jscpd pkgs.git ];
             # `fuzzVendorDir`'s own comment carries the reason: `check-boundaries` reads
             # `fuzz/Cargo.toml`'s graph here, and only here among the ten checks, because only
             # `hygiene` runs against `wholeTree` rather than the root-only filtered source.

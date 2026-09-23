@@ -15,7 +15,7 @@ use super::probe::{
     DID_NOT_COMPILE, DOWNSTREAM_EXPECT, EXIT_NO_SITE, KILLED, NO_TESTS_TO_RUN, PRODUCTION_CALLER, UNRELATED, async_reader, cell,
     pub_fn_reader, reader,
 };
-use super::{Cause, Claim, MutationKill, attest, classify_mutation, report_accepted, report_refused};
+use super::{Caller, Cause, Claim, MutationKill, attest, classify_mutation, refused_lines, report_accepted, report_refused};
 use crate::Verdict;
 use crate::causality::fixtures::{changed, manifest, tree};
 use crate::causality::scoped::Scan;
@@ -325,9 +325,12 @@ fn the_accepted_arm_prints_and_passes() {
 #[test]
 fn a_declared_but_unkilled_cell_refuses_the_whole_arm() {
     assert_eq!(
-        report_refused(&[Cause::NotKilled {
-            cell: String::from("the_cell"),
-        }]),
+        report_refused(
+            &[Cause::NotKilled {
+                cell: String::from("the_cell"),
+            }],
+            Caller::TEST_CAUSALITY
+        ),
         Verdict::Fail
     );
 }
@@ -401,10 +404,13 @@ fn a_genuine_kill_still_passes_through_the_guard() {
 #[test]
 fn a_build_failure_refuses_as_inconclusive_not_failed() {
     assert_eq!(
-        report_refused(&[Cause::BuildFailed {
-            cell: String::from("the_cell"),
-            why: String::from("the tree did not compile"),
-        }]),
+        report_refused(
+            &[Cause::BuildFailed {
+                cell: String::from("the_cell"),
+                why: String::from("the tree did not compile"),
+            }],
+            Caller::TEST_CAUSALITY
+        ),
         Verdict::Inconclusive
     );
 }
@@ -415,16 +421,49 @@ fn a_build_failure_refuses_as_inconclusive_not_failed() {
 #[test]
 fn a_build_failure_mixed_with_a_real_cause_stays_failed() {
     assert_eq!(
-        report_refused(&[
-            Cause::BuildFailed {
-                cell: String::from("cell_a"),
-                why: String::from("the tree did not compile"),
-            },
-            Cause::NotKilled {
-                cell: String::from("cell_b"),
-            },
-        ]),
+        report_refused(
+            &[
+                Cause::BuildFailed {
+                    cell: String::from("cell_a"),
+                    why: String::from("the tree did not compile"),
+                },
+                Cause::NotKilled {
+                    cell: String::from("cell_b"),
+                },
+            ],
+            Caller::TEST_CAUSALITY
+        ),
         Verdict::Fail
+    );
+}
+
+// #951 finding 3: the refusal's wording is a function of WHO CALLED, not hardcoded to
+// `test-causality`. `causality::rot::run` re-checks a declaration accepted commits ago, where
+// "fix or drop the declaration" is the wrong remedy - nothing in ITS diff to fix - so a caller
+// with its own task name and remedy must see exactly that, and none of `TEST_CAUSALITY`'s own
+// wording.
+#[test]
+fn refused_lines_use_the_callers_own_task_name_and_remedy() {
+    const OTHER: Caller = Caller {
+        task: "some-other-gate",
+        remedy: &["a caller-specific remedy line"],
+    };
+    let lines = refused_lines(
+        &[Cause::NotKilled {
+            cell: String::from("the_cell"),
+        }],
+        false,
+        OTHER,
+    );
+    assert!(lines[0].contains("some-other-gate"), "{lines:?}");
+    assert!(!lines[0].contains("test-causality"), "{lines:?}");
+    assert!(
+        lines.iter().any(|l| l == "a caller-specific remedy line"),
+        "the caller's own remedy must be printed: {lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("Fix or drop the declaration")),
+        "a caller with its own remedy must not also print TEST_CAUSALITY's: {lines:?}"
     );
 }
 
@@ -776,7 +815,7 @@ fn the_arm_refuses_a_declared_cell_that_has_no_patch() {
     let claim = Claim {
         cells: vec![String::from("the_cell")],
     };
-    let verdict = super::run(&repo.dir, &scoped, &[], &claim);
+    let verdict = super::run(&repo.dir, &scoped, &[], &claim, Caller::TEST_CAUSALITY);
     assert_eq!(verdict, Verdict::Fail);
 }
 
