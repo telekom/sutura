@@ -35,18 +35,28 @@ complete one.
 A data source executes a compiled plan. The `Warehouse` port is synchronous and `execute` takes a
 `Deadline`.
 
-| Source     | Crate                    | Renders | Executes                                      | Identity it executes under                   |
-| ---------- | ------------------------ | ------- | --------------------------------------------- | -------------------------------------------- |
-| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                           | per subject - `PerSubjectCredential`         |
-| Postgres   | `sutura-exec-postgres`   | yes     | yes                                           | one shared credential - `NoPlaceForASubject` |
-| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                           | one process identity - `NoPlaceForASubject`  |
-| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer | one process identity - `NoPlaceForASubject`  |
-| ClickHouse | none yet                 | yes     | **no**                                        | -                                            |
-| Oracle     | none yet                 | yes     | **no**                                        | -                                            |
+| Source     | Crate                    | Renders | Executes                                       | Identity it executes under                   |
+| ---------- | ------------------------ | ------- | ---------------------------------------------- | -------------------------------------------- |
+| BigQuery   | `sutura-exec-bigquery`   | yes     | yes                                            | per subject - `PerSubjectCredential`         |
+| Postgres   | `sutura-exec-postgres`   | yes     | yes                                            | one shared credential - `NoPlaceForASubject` |
+| DuckDB     | `sutura-exec-duckdb`     | yes     | yes                                            | one process identity - `NoPlaceForASubject`  |
+| DataFusion | `sutura-exec-datafusion` | -       | yes, one source's share of a federated answer  | one process identity - `NoPlaceForASubject`  |
+| ClickHouse | `sutura-exec-clickhouse` | yes     | yes, behind a default-off `clickhouse` feature | one shared credential - `NoPlaceForASubject` |
+| Oracle     | `sutura-exec-oracle`     | yes     | **no**                                         | -                                            |
 
-ClickHouse and Oracle render and cannot be asked to answer: both dialects shipped without an
-executor. Their committed goldens therefore pin what this renderer emits and nothing a database
-agreed to.
+Oracle renders and cannot be asked to answer: that dialect shipped without an executor, so its
+committed goldens pin what this renderer emits and nothing a database agreed to.
+
+**ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
+`kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
+which is default-off and in no published binary. Two things the `Executes` column does NOT say about
+it: no golden or differential suite runs a corpus question against a real ClickHouse (no
+`clickhouse-tier.nix` exists, so the `data_systems:` axis of the golden matrix has no entry for it
+and `check-conformance-bindings` therefore has nothing to bind), and `Warehouse::EXECUTES_LEGS` is
+absent on the adapter - so a federated question involving a ClickHouse source is still refused by
+the capability gate. Its identity column is the static half and stays there until an adapter change:
+`NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the
+composition root with the reason that no build delivers it.
 
 ## Identity: what "impersonation" does and does not mean here
 
