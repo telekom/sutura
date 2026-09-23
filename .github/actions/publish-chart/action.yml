@@ -1,0 +1,146 @@
+name: Publish the Helm chart
+description: >
+  Package the chart, push it as an OCI artefact beside the images, sign the pushed reference
+  with cosign, and push its Artifact Hub repository metadata if that repository is registered.
+
+inputs:
+  registry:
+    description: Registry to push the chart to and sign against.
+    required: false
+    default: ghcr.io
+  registry-username:
+    description: Username for that registry.
+    required: true
+  registry-token:
+    description: Token for that registry.
+    required: true
+  digests-file:
+    description: >
+      The image-record file `release.yml`'s `Push the images` step writes, appended to with a
+      `chart` record - the same file and default `attest-and-sign` reads, so both actions agree
+      on where it is without either naming the other.
+    required: false
+    default: dist/image-digests.txt
+
+# A LOCAL composite action, for `attest-and-sign`'s own stated reason: `release.yml` is
+# hand-written configuration under the 1000-line cap `cargo xtask max-lines` enforces, and the
+# chart is another artefact kind growing the release path - the same shape that action's own
+# header argues for the signing sequence.
+#
+# `github.com/telekom/sutura#149`'s branch 4. The distribution shape is an owner decision
+# recorded on that issue, 2026-09-17: "keep the chart as an OCI artefact on ghcr.io. Register it
+# in Artifact Hub for discovery only." Same registry, same auth as `sutura`'s own images
+# (`release.yml`'s `Push the images` step) - no second distribution surface, no new credential.
+#
+# The caller must hold `packages: write` for the registry push and the signature, the same
+# grant `Push the images` already needs.
+runs:
+  using: composite
+  steps:
+    # PACKAGED WITH THE PINNED HELM (`nix run .#helm`, off `chart.helm` in flake.nix - the SAME
+    # binary `checks.helm-chart` (`nix/helm-chart.nix`) lints and renders this chart with)
+    # rather than a runner-provided one, on the rule every pinned publishing tool in this
+    # repository already follows: the tool that publishes must be the tool the gate used.
+    #
+    # VERSIONED FROM THE RELEASE TAG, overridden at PACKAGE TIME rather than by editing the
+    # committed `Chart.yaml`: Artifact Hub only indexes a clean semver OCI tag, `GITHUB_REF_NAME`
+    # is already asserted to be one by `release.yml`'s own guard before this action runs, and the
+    # committed `version: 0.1.0` stays a placeholder for local `helm lint`/`helm template` rather
+    # than a value this action is trusted to bump in place.
+    #
+    # A SCRATCH DIRECTORY, not `dist/`: the packaged `.tgz` is an input to `helm push`, not a
+    # release asset - the distribution decision above is OCI-only, so nothing here lands on the
+    # release page or is swept into `release.yml`'s later flat `dist/` signing step.
+    - name: Package and push the chart
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+      run: |
+        set -eu
+        tag="${GITHUB_REF_NAME#v}"
+        mkdir -p chart-dist
+        # `--app-version` too: the committed `appVersion: latest` would otherwise make a released
+        # chart default to the moving image tag instead of the image this release pushed.
+        nix run .#helm -- package charts/sutura --version "$tag" --app-version "$tag" -d chart-dist
+        printf '%s' "$REGISTRY_TOKEN" | nix run .#helm -- registry login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+        # The record carries the bare repository, like every image record: `oci://` is helm's
+        # scheme, and cosign would read `oci:` as the registry host.
+        chartRepo="${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/charts"
+        push_log="$(mktemp)"
+        nix run .#helm -- push "chart-dist/sutura-${tag}.tgz" "oci://${chartRepo}" 2>&1 | tee "$push_log"
+        digest="$(grep -oE 'sha256:[0-9a-f]{64}' "$push_log" | tail -1)"
+        rm -f "$push_log"
+        if [ -z "$digest" ]; then
+          echo "::error::no digest in the helm push output for the chart"
+          exit 1
+        fi
+        printf 'chart sutura %s/sutura@%s\n' "$chartRepo" "$digest" >> dist/image-digests.txt
+        nix run .#helm -- registry logout "$REGISTRY"
+        {
+          echo
+          echo "## Chart"
+          echo
+          echo '```'
+          grep '^chart ' "$IMAGE_DIGESTS"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Cosign signs the chart's OCI reference the same way every image reference already is -
+    # "cosign signs OCI artefacts natively" is the exact argument #149's distribution decision
+    # made for choosing this shape over a GitHub-Pages Helm repo. Not folded into
+    # `attest-and-sign`: that action's SBOM-per-leaf and provenance accounting are built around
+    # the six IMAGE references it is handed, and a chart carries neither an SBOM nor a second
+    # architecture to reconcile - stretching its counters for a reference that fits neither
+    # shape is the complexity its own header warns against, not the "loops take it without a
+    # new step" case that header describes.
+    - name: Sign the chart
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+      run: |
+        set -eu
+        chartRef="$(awk '$1 == "chart" { print $3; exit }' "$IMAGE_DIGESTS")"
+        if [ -z "$chartRef" ]; then
+          echo "::error::no chart reference recorded"
+          exit 1
+        fi
+        printf '%s' "$REGISTRY_TOKEN" | nix run .#cosign -- login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+        nix run .#cosign -- sign --yes "$chartRef"
+        docker logout "$REGISTRY"
+
+    # THE ARTIFACT HUB METADATA LAYER, pushed under the registry's own `artifacthub.io` tag -
+    # the `oras push` invocation and both media types below are quoted from
+    # https://artifacthub.io/docs/topics/repositories/helm-charts/'s OCI-support section,
+    # fetched at implementation time rather than assumed, per the issue's own warning that a
+    # wrong key or media type fails silently as a missing listing field rather than as an error.
+    #
+    # NOT UNCONDITIONAL. `charts/sutura/artifacthub-repo.yml` carries the one piece only a human
+    # can produce: the repository ID Artifact Hub issues after a console registration
+    # (`charts/sutura/README.md`). Committing a placeholder here to make this step look
+    # complete would be exactly the false claim `AGENTS.md` refuses, so until that file is
+    # committed this step says why it did nothing and exits clean rather than failing the
+    # release over a registration nobody has done yet.
+    - name: Push the Artifact Hub repository metadata
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+      run: |
+        set -eu
+        metadata="charts/sutura/artifacthub-repo.yml"
+        if [ ! -f "$metadata" ]; then
+          echo "no ${metadata} yet - the chart's Artifact Hub repository is not registered (see charts/sutura/README.md); nothing to push"
+          exit 0
+        fi
+        printf '%s' "$REGISTRY_TOKEN" | nix run .#oras -- login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+        nix run .#oras -- push "${REGISTRY}/${GITHUB_REPOSITORY_OWNER}/charts/sutura:artifacthub.io" \
+          --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+          "${metadata}:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
+        nix run .#oras -- logout "$REGISTRY"

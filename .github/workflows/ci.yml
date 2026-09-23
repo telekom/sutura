@@ -1682,6 +1682,37 @@ jobs:
     # omitting it leaves this workflow's own `contents: read`.
     uses: ./.github/workflows/demo-container.yml
 
+  # #149 branch 5. NOT hermetic and NOT a nix check, for `nix/kind-smoke.nix`'s own reason: a
+  # `kind` cluster needs a container runtime and a real network namespace, neither of which a
+  # build sandbox has. Advisory, on `demo-container`'s own pattern one row up - event-gated
+  # rather than category-gated, because `charts/**` carries no `xtask::affected` category of its
+  # own and this is the one leg proving the chart deploys at all, not one gated behind a diff
+  # filter that could itself be the bug.
+  kind-smoke:
+    needs: [ci]
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: kind up, install, wait for Ready, tear down
+        run: |
+          set -eu
+          nix run .#kind-smoke
+
   ci-aggregate:
     runs-on: ubuntu-latest
     needs: [ci, keycloak-served-test, bigquery-driver-check]

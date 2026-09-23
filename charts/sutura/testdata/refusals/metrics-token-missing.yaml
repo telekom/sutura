@@ -1,0 +1,7 @@
+# `minimal.yaml` without the metrics token: the binary refuses an off-host bind with no
+# `security.metrics_token` (`MetricsTokenRequired`), so the render must refuse first.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  tlsTermination: ingress

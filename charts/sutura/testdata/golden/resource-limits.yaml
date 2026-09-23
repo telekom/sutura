@@ -13,7 +13,7 @@ metadata:
 data:
   base.yaml: |
     {}
-  staging.yaml: |
+  production.yaml: |
     {}
 
 ---
@@ -83,7 +83,7 @@ spec:
               protocol: TCP
           env:
             - name: SUTURA_ENVIRONMENT
-              value: "staging"
+              value: "production"
             - name: SUTURA_CONFIG_DIR
               value: /etc/sutura/config
             # Always off-host from this process's own point of view: the Service targets
@@ -105,17 +105,14 @@ spec:
                   name: sutura-metrics-token
                   key: token
             - name: SUTURA__SECURITY__TLS_TERMINATION
-              value: "in-process"
-            - name: SUTURA__SERVER__TLS_CERTIFICATE
-              value: /etc/sutura/tls/tls.crt
-            - name: SUTURA__SERVER__TLS_KEY
-              value: /etc/sutura/tls/tls.key
+              value: "ingress"
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: "2"
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: "1610612736"
           volumeMounts:
             - name: config
               mountPath: /etc/sutura/config
-              readOnly: true
-            - name: tls
-              mountPath: /etc/sutura/tls
               readOnly: true
           # `/health` is the liveness path (`crates/sutura-http/src/constants.rs`) and there is
           # deliberately no readiness route - docs/serving.md. The startup probe carries the
@@ -140,11 +137,10 @@ spec:
               - ALL
             readOnlyRootFilesystem: true
           resources:
-            {}
+            limits:
+              cpu: 1500m
+              memory: 2Gi
       volumes:
         - name: config
           configMap:
             name: test-release-config
-        - name: tls
-          secret:
-            secretName: sutura-tls

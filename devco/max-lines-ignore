@@ -144,3 +144,14 @@ vendor/**
 # file was honest to offset them - the alternative was a decision written nowhere near its site,
 # which is the thing the reason paragraphs here exist to prevent.
 flake.nix
+
+# The release workflow, at 1005 lines - it sat at 997 before #149 branch 4 added the one step
+# that publishes the chart. The step itself is a single `uses:` line against a new local
+# composite action, `.github/actions/publish-chart` - the same split this file's own header
+# already argues for the signing sequence, applied on arrival rather than after the fact - so
+# there is no further extraction available here without moving the CALL ITSELF somewhere a
+# reviewer would no longer expect to find "what does a release publish" in one place. `[warn]`
+# rather than `[silent]`: this is hand-written and judged in review, and the eight lines it
+# crossed by have no honest deletion to offset them - the alternative was a decision written
+# nowhere near its site, the same argument the `flake.nix` entry above makes for itself.
+.github/workflows/release.yml

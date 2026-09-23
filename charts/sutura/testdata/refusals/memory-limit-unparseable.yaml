@@ -1,0 +1,12 @@
+# A memory limit in a suffix the derivation does not read (`Pi`) must fail the render, not
+# derive a zero working-set ceiling.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+resources:
+  limits:
+    memory: "1Pi"
