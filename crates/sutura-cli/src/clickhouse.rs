@@ -1,11 +1,11 @@
 //! The ONE `ClickHouse` composition, shared by both of this crate's composition roots.
 //!
-//! `sutura serve` and `sutura query`/`mcp` each dispatch the same [`sutura_config::SourceKind`]
+//! `sutura serve` and `sutura query`/`mcp` each dispatch the same `sutura_config::SourceKind`
 //! vocabulary through their own exhaustive match, and for `bigquery` and `postgres` each root also
 //! carries its own copy of the per-source BUILD - which
 //! `crates/sutura-cli/src/sources/postgres.rs` calls out by name as what issue 121 asks for and
-//! does not have. This kind arrives with it: [`build`] is the only place a declared `clickhouse`
-//! entry becomes an open [`sutura_domain::warehouse::Warehouse`], so the posture cross-check, the
+//! does not have. This kind arrives with it: `build` below is the only place a declared `clickhouse`
+//! entry becomes an open `sutura_domain::warehouse::Warehouse`, so the posture cross-check, the
 //! secret read, the channel resolution and the refusal WORDING cannot differ between the two roots.
 //!
 //! What stays per root is the feature-off refusal, because the two are genuinely different
@@ -14,8 +14,8 @@
 //!
 //! # The generic is the seam, and it is kept
 //!
-//! [`ClickHouseSource`] pins `T = transport::Http` **here, at the composition root** - the adapter
-//! itself stays generic over [`sutura_exec_clickhouse::transport::ClickHouseTransport`], the same
+//! `ClickHouseSource` pins `T = transport::Http` **here, at the composition root** - the adapter
+//! itself stays generic over `sutura_exec_clickhouse::transport::ClickHouseTransport`, the same
 //! way `crate::serve::BigQuerySource` pins a wire while `BigQueryWarehouse` stays generic. That
 //! generic is what a per-subject `ClickHouse` identity would arrive through: a transport constructed
 //! per request rather than one holding a configured identity. Collapsing the adapter to a concrete

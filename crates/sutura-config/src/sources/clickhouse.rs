@@ -4,7 +4,7 @@
 //! **Split out of the parent for the reason the parent's module declaration states** - the 1000-line
 //! cap is unexemptable under `crates/`, and a fourth kind's key reading does not fit beside the
 //! other three. What lives here is exactly this kind's half of
-//! [`super::parse_placement`](super::parse_placement); the shared helpers - the foreign-key refusal,
+//! `super::parse_placement`; the shared helpers - the foreign-key refusal,
 //! the required-key read, the absolute-path read and the remote-plaintext rule - stay in the parent
 //! and are reached through `super::`, so there is one copy of each and this file cannot narrow one.
 

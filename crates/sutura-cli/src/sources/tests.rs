@@ -1,4 +1,4 @@
-//! What [`super`]'s composition root does with a declaration, asserted against the example bundle.
+//! What `super`'s composition root does with a declaration, asserted against the example bundle.
 //!
 //! **Its own file rather than a `mod tests` inside the parent**, and the reason is mechanical: the
 //! 1000-line cap under `crates/` is unexemptable, and the parent crossed it when the fourth

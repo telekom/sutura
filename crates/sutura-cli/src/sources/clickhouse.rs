@@ -2,7 +2,7 @@
 //! `Warehouse`.
 //!
 //! **Thinner than `bigquery.rs` and `postgres.rs`, and deliberately so**: the per-source BUILD
-//! lives once in [`crate::clickhouse`], shared with `crate::serve`'s own root, so the posture
+//! lives once in `crate::clickhouse`, shared with `crate::serve`'s own root, so the posture
 //! cross-check, the secret read and the channel resolution cannot differ between the two
 //! composition roots the way `bigquery`'s and `postgres`' line-for-line copies can. What is here is
 //! this root's own two things - the registry it wraps the engine in, and the refusal for a build

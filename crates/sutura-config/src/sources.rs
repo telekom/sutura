@@ -866,7 +866,7 @@ fn refuse_remote_plaintext(
 ///
 /// **Named for the dialled kinds rather than for `postgres` alone, and that is a correction.** Eight
 /// of these ten are `clickhouse`'s keys as well; the two that are not - `unix_socket` and
-/// `database` - are refused on a `clickhouse` entry by [`clickhouse::parse_placement`]'s own list,
+/// `database` - are refused on a `clickhouse` entry by `clickhouse::parse_placement`'s own list,
 /// because `ClickHouse`'s HTTP interface is dialled over TCP and this repository's adapter sends no
 /// `database` parameter for a key here to reach.
 fn dialled_source_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 10] {

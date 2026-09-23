@@ -8,7 +8,7 @@
 //! picks between them at the one call site.
 //!
 //! **What is NOT here is the per-source BUILD**, and that is the difference from its two siblings:
-//! it lives once in [`crate::clickhouse`], shared with `crate::sources`' own root, so the posture
+//! it lives once in `crate::clickhouse`, shared with `crate::sources`' own root, so the posture
 //! cross-check, the credential read and the channel resolution cannot differ between the two
 //! composition roots. `crates/sutura-cli/src/sources/postgres.rs` names that sharing as what issue
 //! 121 asks for and does not have for `postgres`; this kind arrives with it.

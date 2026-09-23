@@ -7,7 +7,7 @@
 //! `bigquery.rs` and `postgres.rs` there is no feature-off twin here - the engine is a non-optional
 //! dependency of this crate, so `files` is the one kind every build can open.
 //!
-//! [`Opened`] carries `pub(super)` fields rather than private ones, which is what the move cost:
+//! `Opened` carries `pub(super)` fields rather than private ones, which is what the move cost:
 //! the parent reads both, and a private field is visible to a module's DESCENDANTS rather than to
 //! its parent.
 
@@ -92,7 +92,7 @@ pub(super) fn open_files(
 /// Builds the engine for one declared source, after checking this build can deliver its posture.
 ///
 /// **The kind is no longer matched here, and that is a move rather than a removal:** the exhaustive
-/// match lives in [`open_engine`], which is where a declared kind is DISPATCHED to an adapter. It was
+/// match lives in [`super::open_engine`], which is where a declared kind is DISPATCHED to an adapter. It was
 /// here while the second kind's answer was a refusal, because a refusal per source reads the same
 /// wherever it is written; once the answer is a different registry, only the dispatcher can hold it.
 /// Reaching this function is therefore a statement that `one_kind` said `files`.
