@@ -174,6 +174,15 @@ ci.yml:keycloak-served-test
 # passed over a driver that cannot initialise.
 ci.yml:bigquery-driver-check
 
+# #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
+# down: it needs a container runtime and a real network namespace, which is what makes it
+# unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull
+# request the way a red demo must not. Unlike `demo-container` this is a plain job in `ci.yml`
+# itself rather than a caller into a reusable workflow, so its context IS spellable and this
+# could become `[required]` later without a platform question attached - it stays advisory
+# because nothing yet has run it enough times to know its own flake rate.
+ci.yml:kind-smoke
+
 # The demo's container tier, the caller's job. It calls `demo-container.yml`, so its one job
 # reports `demo-container / smoke-test`, the same caller-prefixed shape `cross-link.yml:link`
 # carries and for the same reason: `cargo xtask check-workflows` derives a plain job's context

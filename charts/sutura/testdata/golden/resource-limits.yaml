@@ -1,0 +1,146 @@
+---
+# Source: sutura/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-config
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  base.yaml: |
+    {}
+  production.yaml: |
+    {}
+
+---
+# Source: sutura/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: sutura
+    app.kubernetes.io/instance: test-release
+
+---
+# Source: sutura/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sutura
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sutura
+        app.kubernetes.io/instance: test-release
+    spec:
+      securityContext:
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sutura
+          image: "ghcr.io/telekom/sutura:latest"
+          imagePullPolicy: IfNotPresent
+          # `sutura serve` - the HTTP surface folded into the one published binary
+          # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays
+          # `/bin/sutura`; only the argument changes.
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: "production"
+            - name: SUTURA_CONFIG_DIR
+              value: /etc/sutura/config
+            # Always off-host from this process's own point of view: the Service targets
+            # the pod, never the loopback-only embedded default.
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: "8080"
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: "true"
+            - name: SUTURA__SECURITY__ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-access-token
+                  key: token
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: "ingress"
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: "2"
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: "1610612736"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sutura/config
+              readOnly: true
+          # `/health` is the liveness path (`crates/sutura-http/src/constants.rs`) and there is
+          # deliberately no readiness route - docs/serving.md. The startup probe carries the
+          # generous failure budget: boot re-verifies every anchor before the listener opens,
+          # a round trip per anchor against a networked source.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 2Gi
+      volumes:
+        - name: config
+          configMap:
+            name: test-release-config

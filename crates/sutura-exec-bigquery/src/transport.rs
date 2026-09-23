@@ -53,8 +53,8 @@ pub enum ParameterMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobDeadline {
     /// A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and
-    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the transport
-    /// that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
+    /// only this arm - see [`JobRequest::new`]'s own doc, which carries the limit: the ADBC
+    /// transport sends what is left of it as the job's `jobTimeoutMs`, a server-side stop.
     Port(Deadline),
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
     /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
@@ -139,16 +139,13 @@ impl<'job> JobRequest<'job> {
     /// itself. A public constructor would be the string entry point the module header says does not
     /// exist: a caller could pass any statement and any parameters.
     ///
-    /// **`deadline` names which clock this call answers to - see [`JobDeadline`] - and no
-    /// implementor reads it.** A leg `Warehouse::dry_run`/`execute` builds carries
+    /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg `Warehouse::dry_run`/`execute` builds carries
     /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no
     /// caller and no request timeout to read one from - `docs/adr/0029` calls that the boot path -
-    /// so they pass `JobDeadline::Boot`. **What used to consume the distinction is gone**: the HTTP
-    /// wire derived `timeoutMs`/`jobTimeoutMs` from the `Port` arm, and the one transport left
-    /// ignores the field, so the two arms are a record of provenance rather than a bound. Kept
-    /// because a call site that wrote `Boot` for a request-time leg is still the regression
-    /// [`JobDeadline`]'s own doc describes, and [`JobRequest::deadline`] is how a cell reads it -
-    /// which is the only reader there is.
+    /// so they pass `JobDeadline::Boot`. The ADBC transport sends what is left of a `Port` arm as
+    /// the job's `jobTimeoutMs` and sends no time bound for `Boot` - so a call site that wrote
+    /// `Boot` for a request-time leg is an unbounded job, the regression [`JobDeadline`]'s own doc
+    /// describes.
     pub(crate) const fn new(
         statement: &'job str,
         params: &'job [ParamValue],
@@ -818,11 +815,9 @@ pub trait JobTransport {
     /// Was this JOB failure the port's own `Deadline` running out - found already spent before this
     /// call sent anything?
     ///
-    /// **One half and not two.** This used to read *or the service stopping the job at
-    /// `jobTimeoutMs`*; that was an HTTP `jobs.query` request parameter, deleted with that transport
-    /// and not replaced, so no implementor asks any service to stop anything. The predicate stays
-    /// because a transport that COULD would answer it here, and because the arm below still has the
-    /// already-spent half to report.
+    /// **One half and not two.** The ADBC transport asks the service to stop a job at
+    /// `jobTimeoutMs`, and a job stopped that way comes back as a job failure this predicate does
+    /// not recognise - the already-spent half is the one it reports.
     ///
     /// **The `Warehouse::deadline_exceeded` question one port further down, asked here for the
     /// reason every other predicate on this trait is:** `Self::Error` is the implementor's own type,

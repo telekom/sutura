@@ -141,11 +141,13 @@ sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 # `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
 # (`crates/sutura-app/Cargo.toml`), which is what `cargo::unused_workspace_dependencies` asks for.
 sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
-# `sutura-exec-clickhouse` is NOT in this table: nothing else in the workspace depends on it yet
-# (see the crate's own `lib.rs` header for the limit - no composition root and no
-# differential/golden suite reaches it), and `cargo::unused_workspace_dependencies` fails an entry
-# here that nothing inherits from. It is a `[workspace] members` entry above, which is what gets it
-# built, linted and tested on every run.
+# In this table since `sutura-cli` gained its default-off `clickhouse` feature: the composition root
+# inherits it as an OPTIONAL dependency, which is an inheriting edge and is what
+# `cargo::unused_workspace_dependencies` asks for. The comment this replaces recorded the previous
+# state - no composition root reached the crate, so an entry here would have failed that lint - and
+# `cargo xtask unused-deps` is what keeps the line honest in either direction. Still no golden or
+# differential suite: the crate's own `lib.rs` header carries what remains unreached.
+sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 sutura-tls = { path = "crates/sutura-tls" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }

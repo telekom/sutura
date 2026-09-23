@@ -46,8 +46,8 @@ A source's own credential (`sources.<alias>.credential_file`, `password_file`,
 
 This chart's `Service` always makes the pod reachable off-host, which is exactly the shape
 `crates/sutura-config/src/settings.rs`'s `Settings::refusals` refuses to start without a
-declared TLS termination, an access token and an enabled rate limiter. `helm template` (and
-`helm install`) fails the render with the same three checks - `templates/_helpers.tpl`'s
+declared TLS termination, an access token, a metrics token and an enabled rate limiter.
+`helm template` (and `helm install`) fails the render on the first three - `templates/_helpers.tpl`'s
 `sutura.requireOffHostPosture` - rather than shipping a `Deployment` that crash-loops on the
 binary's own refusal five seconds later. This is a chart-side heuristic that reads only
 `values.yaml`, not the binary's own check: it cannot see a Secret's contents or an environment
@@ -62,15 +62,54 @@ both the `startupProbe` (with a generous failure budget: anchor verification aga
 networked source is a round trip per anchor) and the `livenessProbe`, and configures no
 `readinessProbe`.
 
+## Resource limits size the runtime
+
+Setting `resources.limits.cpu`/`.memory` derives `runtime.engineWorkerThreads` /
+`workingSetMaxBytes` when those are left empty - `templates/_helpers.tpl`'s
+`sutura.engineWorkerThreads`/`workingSetMaxBytes`, exercised by
+`testdata/values/resource-limits.yaml`. A CPU limit rounds up to a whole thread; a memory limit
+keeps 75% of itself as the ceiling, leaving headroom for what that ceiling does not count
+(the process's own RSS) so it trips before the kernel OOM-kills the container at the cgroup
+limit - `docs/serving.md`'s "422 rather than 503" distinction. Setting either `runtime.*` key
+directly always overrides the derivation.
+
+## A catalog to serve
+
+The image carries no catalog, and `sutura serve` refuses to start without one (the embedded
+default `catalogs[0].dir` is a relative `catalog` that does not exist in the container). Mount
+the catalog and its data with `extraVolumes`/`extraVolumeMounts` and point `config.base` at the
+mount paths - `catalogs:`, `sources:` and `security.identity` are maps and lists, so they belong
+in `config.base`, not in a `SUTURA__*` variable. `nix/kind-smoke.nix` is a working example: it
+serves `examples/single-player` from two ConfigMaps.
+
 ## What is not in this branch
 
-- `runtime.engineWorkerThreads` / `runtime.workingSetMaxBytes` are plain values here, not
-  derived from `resources.limits`. A template that computes them from the container's own CPU
-  and memory limits - closing the two traps `docs/serving.md` documents by name - is a separate,
-  later change.
-- `runtime.engineWorkerThreads`/`workingSetMaxBytes` staying plain values (above) is the only
-  gap left in `checks.helm-chart`: `helm lint`, the refusal render, and a golden `helm template`
-  snapshot per `charts/sutura/testdata/values/*.yaml` (diffed and validated by `kubeconform`
-  against two pinned Kubernetes versions) all run today - see `nix/helm-chart.nix`.
 - No Ingress: this chart declares no opinion about how traffic reaches the cluster edge: set
   `security.tlsTermination: ingress` and bring your own.
+
+## Distribution
+
+Published as an OCI artefact on `ghcr.io`, beside the images - owner decision on #149, recorded
+so it is not re-derived: same registry, same auth as `sutura`'s own images, no second
+distribution surface. A tagged release pushes `sutura-<version>.tgz` (version = the release tag)
+with the SAME pinned `helm` `checks.helm-chart` lints and renders this chart with, and signs the
+pushed reference with `cosign` the way every image reference already is -
+`.github/workflows/release.yml`.
+
+```
+helm install sutura oci://ghcr.io/telekom/charts/sutura --version <version>
+```
+
+**Artifact Hub indexes it for discovery; it does not host it.** Three things only a human with
+console access can do, and CI cannot fake either:
+
+1. Register `oci://ghcr.io/telekom/charts/sutura` as a repository in the Artifact Hub console,
+   signed in as the owning account. That alone makes verified-publisher status available -
+   nothing here needs to *claim* a repository nobody else has added.
+2. Commit the `repositoryID` Artifact Hub then issues into `charts/sutura/artifacthub-repo.yml`
+   (that key only - no `owners` block: `AGENTS.md` refuses a name or email in this public repo,
+   and a console-registered repository has nothing to claim). Once that file exists,
+   `release.yml` pushes it under the registry's `artifacthub.io` tag on every subsequent
+   release; until it exists, that step logs why it did nothing and does not fail the release.
+3. Make the `ghcr.io/telekom/charts` package publicly readable - private by default even for a
+   public repository, and the most likely reason a first attempt looks broken.

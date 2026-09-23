@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:88:39): resources.limits.memory "1Pi" is not a quantity this chart can derive runtime.workingSetMaxBytes from - set runtime.workingSetMaxBytes explicitly
+
+Use --debug flag to render out invalid YAML

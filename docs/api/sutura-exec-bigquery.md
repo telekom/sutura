@@ -493,6 +493,7 @@ Why the ADBC transport could not answer.
   `JobTransport::declined_to_dry_run` reads this variant and nothing else, which is what
   lets the adapter answer `PreFlight::NotAsked` for a dry run nobody made while a dry run that
   was made and failed stays a failure.
+- `DeadlineSpent` - The port's own deadline was already spent when the statement was prepared, so nothing was sent: a `jobTimeoutMs` of what is left would be `0`, which the driver reads as unbounded.
 - `Parameters` - The plan's values could not be assembled as the batch this driver binds them from.
 
   Its own variant rather than an `Self::Adbc`, because the failure is on THIS side of the C
@@ -797,7 +798,7 @@ reads as exactly the regression it would be.
 
 #### Variants
 
-- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the transport that opened a window from this value was the deleted HTTP wire, and nothing opens one now.
+- `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the ADBC transport sends what is left of it as the job's `jobTimeoutMs`, a server-side stop.
 - `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no TIME bound at all: the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the three an impersonating leg chains for the credential document (`adbc::identity`'s `credential_options`), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. **It is not the only bound, and the earlier *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is why it is not in the list above.
 
 #### Implements

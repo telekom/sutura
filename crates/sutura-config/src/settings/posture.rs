@@ -210,6 +210,22 @@ pub enum NotFitToServe {
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
+    /// A per-replica spend ceiling declared over a `BigQuery` source, whose ADBC transport prices
+    /// nothing.
+    ///
+    /// **The ceiling would be a declared control that bounds nothing on the one source it exists
+    /// for.** `sutura_app`'s spend ledger charges a question what its dry run priced, and the ADBC
+    /// transport declines the dry run, so every `BigQuery` question is charged zero. Refused at boot
+    /// rather than served, until that transport prices a statement again. **The limit:** what
+    /// bounds one `BigQuery` job's spend without a ceiling is the source's own `max_bytes_billed`,
+    /// per job and not per subject.
+    #[error(
+        "governance.per_replica_spend_ceiling is set and sources.{alias} is a `bigquery` source,          whose ADBC transport prices nothing - so the ceiling would never charge its questions.          Remove governance.per_replica_spend_ceiling, or remove the source;          sources.{alias}.max_bytes_billed still bounds each job"
+    )]
+    UnpricedSourceUnderSpendCeiling {
+        /// The `bigquery` source the ceiling would not bound.
+        alias: SourceName,
+    },
     /// Two different credentials configured to arrive in one header.
     ///
     /// **A collision found by building leg 1 rather than by reading the record**, and it is worth
