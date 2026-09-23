@@ -281,18 +281,24 @@ impl From<crate::deadline::DeadlineSpent> for HttpError {
 /// The setting that makes the unmatched side of an outer join answer `NULL`.
 ///
 /// **`ClickHouse`'s default is `join_use_nulls = 0`, and under it this adapter returns a different
-/// ANSWER from the engine.** The unmatched side of a `LEFT JOIN` comes back as the column type's
+/// ANSWER from the engine for a joined column that is not `Nullable`** - `ClickHouse`'s default
+/// column type and its idiom. The unmatched side of a `LEFT JOIN` comes back as the column type's
 /// default - `''` for a `String` - rather than as `NULL`, so a dimension value that is missing is
 /// reported as empty, groups under a different key and sorts to a different place. Every statement
 /// `sutura_sql` renders for `Dialect::ClickHouse` is accepted either way, which is why the render
-/// goldens could not see it.
+/// goldens could not see it. For a `Nullable(T)` column the type's default already IS `NULL`, so
+/// there the setting changes nothing: the fixture schema's type choice decides whether the defect
+/// shows, and a fixture importer for this dialect must not read a green run under `Nullable`
+/// columns as evidence about this setting.
 ///
 /// **Measured, 2026-09-22, against `clickhouse-server:26.7` (server 26.7.6.57)**, the tag
 /// `compose.services.yaml` pins: the committed `@clickhouse` `sql`/`params` goldens were replayed
 /// over the example corpus and their rows compared against the committed `@duckdb` row goldens.
-/// Of the 23 questions whose goldens carry bound parameters, 17 agreed and **6 did not** - every
-/// one of them an outer join against a dimension with an unmatched fact row. With this setting
-/// sent, all 23 agree cell for cell.
+/// Of the 23 questions with a committed `@duckdb` row golden, under a non-`Nullable` schema, 17
+/// agreed and **6 did not** - every one of them an outer join against a dimension with an
+/// unmatched fact row. With this setting sent, all 23 agree cell for cell, and none that agreed
+/// before changes. Re-taken on 26.7.13.12 (same tag, a later patch) with the same figures; under
+/// an all-`Nullable` schema the count is 0 of 23 with or without the setting.
 ///
 /// **The limit, next to the claim: no leg of `just validate` executes this.** There is no
 /// `nix/clickhouse-tier.nix` and the nix sandbox has no docker socket, so what stands behind the
@@ -300,17 +306,34 @@ impl From<crate::deadline::DeadlineSpent> for HttpError {
 /// `github.com/telekom/sutura#920` is that gap and this is not its closure.
 const JOIN_USE_NULLS: &str = "join_use_nulls";
 
+/// The setting that decides what the server does when `max_execution_time` runs out: `throw`
+/// answers `Code: 159`; `break` answers HTTP 200 with the rows read so far - measured, a cleanly
+/// terminated and silently truncated result. The server default is `throw`, but it is an ordinary
+/// setting a deployment's user profile can default to `break`, so this adapter pins it rather than
+/// inherit it.
+const TIMEOUT_OVERFLOW_MODE: &str = "timeout_overflow_mode";
+
 /// What every request carries beyond the caller's own bound parameters.
 ///
-/// A value rather than two `append_pair` calls inside [`ClickHouseTransport::run`], because the
-/// settings ARE part of this adapter's contract with the server - [`JOIN_USE_NULLS`] decides what
-/// the rows say - and a contract written inline is one no cell can read back.
+/// A value rather than inline `append_pair` calls inside [`ClickHouseTransport::run`], because the
+/// settings ARE part of this adapter's contract with the server - [`JOIN_USE_NULLS`] and
+/// [`TIMEOUT_OVERFLOW_MODE`] decide what the rows say - and a contract written inline is one no
+/// cell can read back.
+///
+/// **What holds *every* request, and what does not.** The cells below hold what this function
+/// returns. `-D dead-code` refuses a `run` that stops calling it; it does NOT refuse a `run` that
+/// calls it conditionally. What makes it every request is construction: [`Http`]'s `run` is the
+/// only place in the repository that builds a `ClickHouse` request, and the call there is
+/// unconditional. No fake here can see the URL `run` assembles, so no cell holds that.
 ///
 /// `max_execution_time` is absent rather than `0` when nothing is left: `ClickHouse` reads a zero
 /// as *no limit*, so omitting the pair is the only safe spelling of *there is no time* - see
 /// [`crate::deadline`]'s own header for why that path is already refused before this is asked.
 fn request_settings(deadline: Deadline, now: Instant) -> Vec<(&'static str, String)> {
-    let mut settings = vec![(JOIN_USE_NULLS, String::from("1"))];
+    let mut settings = vec![
+        (JOIN_USE_NULLS, String::from("1")),
+        (TIMEOUT_OVERFLOW_MODE, String::from("throw")),
+    ];
     if let Some(seconds) = crate::deadline::max_execution_time_seconds(deadline, now) {
         settings.push(("max_execution_time", seconds.to_string()));
     }
@@ -406,6 +429,18 @@ mod tests {
     }
 
     #[test]
+    fn a_deadline_overrun_is_refused_rather_than_answered_with_the_rows_read_so_far() {
+        // `timeout_overflow_mode=break` answers HTTP 200 with a cleanly terminated, truncated
+        // result - measured - and a user profile can make it the default. Pinned, not inherited.
+        let (deadline, now) = deadline_of(30);
+        let settings = request_settings(deadline, now);
+        assert!(
+            settings.contains(&("timeout_overflow_mode", String::from("throw"))),
+            "the request carried {settings:?}"
+        );
+    }
+
+    #[test]
     fn a_request_carries_what_is_left_of_the_deadline_as_max_execution_time() {
         let (deadline, now) = deadline_of(30);
         let settings = request_settings(deadline, now);
@@ -422,7 +457,13 @@ mod tests {
         // half, that the assembly itself never spells the unbounded value.
         let (deadline, opened) = deadline_of(1);
         let settings = request_settings(deadline, opened + Duration::from_secs(2));
-        assert_eq!(settings, vec![(JOIN_USE_NULLS, String::from("1"))]);
+        assert_eq!(
+            settings,
+            vec![
+                (JOIN_USE_NULLS, String::from("1")),
+                ("timeout_overflow_mode", String::from("throw"))
+            ]
+        );
     }
 
     #[test]

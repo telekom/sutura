@@ -32,6 +32,13 @@
 //! [`max_execution_time_seconds`] is therefore a dead defensive bound - kept because a future
 //! caller that bypassed [`refuse_if_spent`] should still never send a `0`, but unreachable on
 //! every path that goes through the transport.
+//!
+//! **The server's job is bounded; the client's wait is not.** `max_execution_time` bounds what the
+//! SERVER spends executing. `crate::transport::Http`'s `ureq` agent sets no timeout, and `ureq`'s
+//! defaults are `None` for every wait but `await_100`, so a server that accepts the connection and
+//! then stalls holds the calling blocking-pool thread past an expired [`Deadline`] - nothing reads
+//! the deadline on the client side of the wire. *Stop now* above is a statement about what is sent,
+//! not about how long `run` can block.
 
 use std::time::Instant;
 
