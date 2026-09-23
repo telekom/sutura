@@ -3,6 +3,7 @@
 //! Split out of `causality.rs` for the file-length gate, and the seam is a real one: everything
 //! here reads a diff, and nothing here decides anything about a test.
 
+use std::path::Path;
 use std::process::Command;
 
 use super::provenance::Commit;
@@ -62,6 +63,31 @@ pub(crate) fn changed_with_additions(base: &Commit) -> Option<Vec<ChangedFile>> 
     crate::repo::strip_git_env(&mut command);
     let out = command
         .args(["diff", "--unified=0", "--no-color", base.as_str(), "--"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(parse_diff(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Added lines per changed file in ONE COMMIT's own diff, `<commit>^..<commit>`.
+///
+/// The per-commit half of `github.com/telekom/sutura#954`: the claim arm's bijection must ask
+/// which tests a DECLARING COMMIT added, not which the whole range added. `super::claim::Claim`
+/// carries each declaration's commit, and this maps that commit to its own added-test lines the
+/// same way `changed_with_additions` maps the whole base. `dir` is the repository (or worktree)
+/// the commit lives in - the worktree the claim arm created - and git commands run there via
+/// `-C`, so a real (test) repo beyond the process CWD resolves the commit identically. A merge
+/// commit's parent is its first parent; a commit with no parent (an orphan root) yields nothing,
+/// which a claim can never be held against anyway. `None` on a diff git refuses - a hash that is
+/// not an object name here, fail-closed in the direction that refuses the declaration.
+pub(crate) fn commit_additions(dir: &Path, commit: &str) -> Option<Vec<ChangedFile>> {
+    let mut command = Command::new("git");
+    crate::repo::strip_git_env(&mut command);
+    let out = command
+        .args(["-C", dir.as_os_str().to_str()?])
+        .args(["diff", "--unified=0", "--no-color", &format!("{commit}^"), commit, "--"])
         .output()
         .ok()?;
     if !out.status.success() {

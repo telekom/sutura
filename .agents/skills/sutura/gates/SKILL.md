@@ -1049,12 +1049,18 @@ above.
 cell.** A test the base tree already satisfies can never be red against base - there is nothing to
 revert - so the only honest proof is a mutation, and `causality::claim` is the mechanism that lets a
 PR carry it, on the `Cleanup-Split:` precedent: the trailer is a CLAIM the gate CHECKS rather than
-a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read RANGE-WIDE (every message in
-`base..HEAD`); the gate then requires the declared set to equal the diff's added tests exactly
-(declared-not-added and added-not-declared are both refusals), resolves each cell to a committed
+a permission. `Claim-Cell: <test-fn-name>` is a commit trailer read PER COMMIT, NOT range-wide:
+each declaration answers for the tests its OWN declaring commit added and nothing else
+(`github.com/telekom/sutura#954` - the old range-wide unity made one legitimate declaring commit
+refuse every other added test in the range as undeclared, measured `×135` on #929). The gate
+requires each declared name to be a test the DECLARING COMMIT added (declared-not-added is a
+refusal), resolves each cell to a committed
 mutation at `devco/claim-mutations/<test-fn-name>.patch`, applies it in the isolated causality
 target, runs the named cell, and requires it to FAIL *naming that cell* by its OWN ASSERTION - the
-mutation kills it. A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
+mutation kills it. The composite half of #954: the reverse direction - an added test no declaration
+names - is NOT the claim arm's to refuse; it lands the ordinary base/head proof, so a branch that
+carries a claim cell AND ordinary red-on-base tests beside it must satisfy BOTH (the claimed
+cells' mutations kill AND the rest are red on base). A patch that does not apply, CREATES a file, touches a test LINE, or leaves the
 cell green refuses the whole arm. A created file is read from the patch's own bytes (a
 `--- /dev/null` file section, or a git rename/copy header's `to` path), never from whether a path
 happens to be found at HEAD, because a new file's own test region has no HEAD image to
@@ -1076,8 +1082,10 @@ PRODUCTION, a downstream `.expect()` in an unpatched file, a panic inside ANOTHE
 region (a shared `tests/common` helper), a panic on a production line of the cell's OWN file (still
 outside its own test fn), an exit/abort/signal death, or a FAIL with no site at all refuses as *not
 by the cell's own assertion*. All
-cells killed, the gate exits 0 with `ok - claim cells: N declared, N killed`, and the normal proof
-never runs for a declared diff. **What an accepted arm does and does not prove:** it proves each
+cells killed, the gate accepts the DECLARED half (`ok - claim cells: N declared, N killed`) and -
+composite half of #954 - the remaining undeclared additions still go through the normal proof,
+whose verdict is ANDed (a claimed cell failing, or an undeclared test green against base, both
+refuse the diff). **What an accepted arm does and does not prove:** it proves each
 cell dies under its compiled mutation by its own assertion (at +N isolated rebuilds per declaration
 - the same ~68 s each base/head run pays); it does NOT prove red-on-base (the behaviour pre-exists,
 which is the whole point) and it does not prove HEAD green (that stays `just test`). And it does NOT
