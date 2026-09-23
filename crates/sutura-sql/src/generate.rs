@@ -662,13 +662,18 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// [`joined`] and [`render`] - so a change to identifier quoting, to placeholder style or to how a
 /// term renders cannot apply to one path and not the other.
 ///
-/// **Nothing a RELEASE runs calls this**, and the reason is worth stating precisely because it used
-/// to read *there is no splitter*: there is one - `sutura_semantic::federated_plan` - and
-/// `sutura-exec-duckdb` calls this from a leg it was handed. What no release does is link an adapter
-/// that renders a leg: the one leg-executing adapter a published binary contains is the engine,
-/// which builds a logical plan instead. So what pins this is the golden family under
-/// `crates/sutura-app/tests/golden`, one statement per shape per dialect, parse-checked in the
-/// dialect it was generated for - and none of those five is what a release executes.
+/// **A RELEASE calls this now**, and the two sentences it replaces each stated an absence that has
+/// since been spent: first *there is no splitter* (there is - `sutura_semantic::federated_plan`),
+/// then *no release links an adapter that renders a leg, because the one leg-executing adapter a
+/// published binary contains is the engine, which builds a logical plan instead*.
+/// `sutura-exec-postgres` declares `Warehouse::EXECUTES_LEGS` and ships behind a feature
+/// `nix/shipped.nix` enables, so a published binary renders a leg here at `Dialect::Postgres`.
+///
+/// What pins the rendering is still the golden family under `crates/sutura-app/tests/golden`, one
+/// statement per shape per dialect, parse-checked in the dialect it was generated for. **Its limit
+/// changed rather than went away:** one of those five dialects is now what a release executes, and
+/// a parse check is not an execution - the executed evidence is
+/// `crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.

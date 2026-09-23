@@ -67,7 +67,7 @@ use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, Real, ResultBatches, RowSet, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 /// The fixture tier's credential - a value that cannot exist unconfigured.
@@ -128,9 +128,6 @@ pub enum OracleError {
         #[source]
         cause: GenerateError,
     },
-    /// A leg without a combiner - this adapter never declares [`Warehouse::EXECUTES_LEGS`].
-    #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     #[error(
         "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
@@ -298,9 +295,7 @@ impl OracleWarehouse {
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, OracleError> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::Oracle).map_err(|cause| OracleError::Render { cause }),
-            Executable::Leg(leg) => Err(OracleError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::Oracle).map_err(|cause| OracleError::Render { cause }),
         }
     }
 
@@ -562,6 +557,26 @@ impl Warehouse for OracleWarehouse {
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
 
+    /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
+    /// [`Dialect::Oracle`] and is handed to [`Self::execute`] as any other statement.
+    ///
+    /// **Rendered and gate-checked, never executed, and that asymmetry with
+    /// `sutura-exec-postgres` is the whole of what this constant is worth here.** No venue any
+    /// gate reaches can provision an Oracle (this module's header and
+    /// `xtask/src/conformance/reconcile.rs`'s `UNBOUND` entry say why), so this crate has no
+    /// conformance binding and the golden matrix's `oracle` cells answer
+    /// `DataSystemUnderTest::available() == false` unconditionally. What holds the wiring is
+    /// this module's own `a_leg_renders_through_the_oracle_dialect` cell plus
+    /// `crates/sutura-app/tests/golden/legs.rs`'s Oracle statements - both renderings. **Nothing
+    /// establishes that an Oracle server accepts a leg**, which is exactly the shape
+    /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
+    /// dialect and that declaration is unchanged by this constant.
+    ///
+    /// Identity is untouched: [`Self::IMPERSONATION`] stays `NoPlaceForASubject`. No composition
+    /// root links this adapter, so no Oracle leg reaches `ExecutedAs::uniform` from any binary; if
+    /// one ever does, `shared-service-user` is what it will present.
+    const EXECUTES_LEGS: bool = true;
+
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
     }
@@ -624,9 +639,10 @@ impl Warehouse for OracleWarehouse {
 mod tests {
     use std::time::{Duration, Instant};
 
+    use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
 
-    use super::refuse_if_spent;
+    use super::{OracleWarehouse, refuse_if_spent};
 
     /// **The predicate half**: a deadline with time left answers the remaining duration rather than
     /// refusing.
@@ -656,6 +672,42 @@ mod tests {
         assert!(
             matches!(refusal, Err(super::OracleError::DeadlineSpent)),
             "an expired deadline must refuse locally rather than answer a duration to forward: {refusal:?}"
+        );
+    }
+
+    /// **One leg of a federated question renders here rather than being refused**, and it renders
+    /// at THIS adapter's dialect.
+    ///
+    /// The plan is `sutura_conformance::corpus`'s own leg case rather than a hand-built one, so no
+    /// expectation below is computed from `generate_leg`: the placeholder form is read off
+    /// `Dialect::Oracle`'s declared [`sutura_sql::PlaceholderStyle::Colon`] - `:1`, which Postgres
+    /// renders as `$1` and `DuckDB` as `?` - so rendering this leg at any other dialect fails the
+    /// cell rather than passing it. That is the mutation `dead_code` cannot see and the reason the
+    /// assertion is not simply `is_ok`.
+    ///
+    /// **What it does NOT establish: that any Oracle server accepts the statement.** No venue a
+    /// gate reaches provisions one - see this module's header - so this crate has no conformance
+    /// binding and there is no executed counterpart to
+    /// `conformance::postgres::a_leg_is_executed_because_the_adapter_declares_it_executes_legs`.
+    #[test]
+    fn a_leg_renders_through_the_oracle_dialect() {
+        let case = sutura_conformance::corpus::leg_case();
+        let query = OracleWarehouse::render(Executable::Leg(case.leg())).expect("a leg renders for Oracle");
+        assert!(
+            query.sql().contains(sutura_conformance::corpus::table().as_str()),
+            "the leg must read the corpus table: {}",
+            query.sql()
+        );
+        assert!(
+            query.sql().contains(":1"),
+            "a leg rendered for Oracle binds with a colon placeholder, not `$1` or `?`: {}",
+            query.sql()
+        );
+        assert_eq!(
+            query.params().len(),
+            2,
+            "the leg's range is two bound values: {:?}",
+            query.params()
         );
     }
 }

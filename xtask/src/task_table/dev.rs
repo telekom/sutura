@@ -8,6 +8,12 @@ use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::run_hygiene;
 use crate::{causality, compose, fmt, fuzz};
 
+/// The falsifier seed for `check-claim-mutations` (`github.com/telekom/sutura#950`): a committed
+/// patch that is not a `git apply`-able diff at all, so the gate's own rule - not an absent
+/// `devco/claim-mutations/` directory, which is a legitimate pass - is what fires over the seeded
+/// tree.
+const ROTTED_CLAIM_MUTATION_SEED: &str = "devco/claim-mutations/a_falsifier_seed_that_never_applies.patch";
+
 pub(crate) const TASKS: &[Task] = &[
     Task {
         // The compose (docker) tier. `Kind::Standalone`, and not for the usual reason: these are
@@ -80,6 +86,32 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier::declared_in_programme(),
         run: fuzz::run,
+    },
+    Task {
+        // THE APPLY HALF (`github.com/telekom/sutura#950`): `git apply --check` needs a work tree
+        // and nothing else - no compiler, no test run - so this is cheap enough for `hygiene`.
+        // `causality::rot`'s header carries the residual this does NOT cover: a patch that still
+        // applies but no longer kills its cell is [`check-claim-mutation-kills`] below, not this.
+        name: "check-claim-mutations",
+        description: "every committed devco/claim-mutations/*.patch still applies against the work tree",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[(ROTTED_CLAIM_MUTATION_SEED, "not a git diff at all\n")],
+            in_scope: Some(ROTTED_CLAIM_MUTATION_SEED),
+        },
+        run: causality::rot::check_apply,
+    },
+    Task {
+        // THE KILL HALF. `Standalone`, not `hygiene`: it recompiles this workspace once per
+        // committed patch - `causality::claim`'s own ~68s isolated rebuild, paid once per cell -
+        // so folding it into the sweep that runs on every commit would multiply that by however
+        // many `devco/claim-mutations/` holds. An on-demand task for the release path, or for a
+        // person re-verifying the set after touching something nearby.
+        name: "check-claim-mutation-kills",
+        description: "every committed devco/claim-mutations/*.patch still kills its named cell",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: causality::rot::run,
     },
     Task {
         name: "hygiene",

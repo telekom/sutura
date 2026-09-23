@@ -47,7 +47,7 @@ use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, ResultBatches, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use tokio_postgres::Row;
 use tokio_postgres::types::{FromSql, IsNull, ToSql, Type};
@@ -191,9 +191,6 @@ pub enum PostgresError {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// A leg without a combiner.
-    #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The declared trust anchors could not be read or parsed.
     #[error("the declared trust anchors could not be read as a PEM bundle at {path}")]
     AnchorsRead {
@@ -510,9 +507,7 @@ impl PostgresWarehouse {
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, PostgresError> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause }),
-            Executable::Leg(leg) => Err(PostgresError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause }),
         }
     }
 
@@ -735,6 +730,16 @@ impl Warehouse for PostgresWarehouse {
     /// `docs/adr/0013`'s showcase source. The statement is handed to `tokio-postgres` unexamined;
     /// Postgres's own parser and its own `GRANT`/`REVOKE` model are what authorize or refuse it.
     const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
+    /// [`Dialect::Postgres`] and runs as any other statement - **the one shipped adapter besides
+    /// the engine to declare this, and the first whose leg is a statement a data system parsed**:
+    /// `tests/conformance.rs` binds the packs `executes_legs`, so the tier answers one and its rows
+    /// are compared against the whole-plan case's. Identity is unchanged - [`Self::IMPERSONATION`]
+    /// stays `NoPlaceForASubject`, so two Postgres legs are both `shared-service-user` and
+    /// `ExecutedAs::uniform` accepts them; a leg paired with a per-subject source is still refused
+    /// above this adapter.
+    const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source

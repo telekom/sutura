@@ -15,7 +15,7 @@ tied to one is unproven: say so, and adding the missing check beats adding a sen
 | A new failure mode | A `RefusalReason` variant inside `ToolOutcome`, never an `Err` | Two exhaustive matches with no wildcard arm, one per transport, so it fails to compile in both. The crates cannot see each other, so their vocabularies are kept equal by a *derivation* - the code is the variant name in snake_case, read off the domain type's own `Serialize` - not by a comparison an adapter may not make |
 | A new tool, route or operation | It names a `Capability`, that capability names a scope, and both transports describe the same set | Five exhaustive matches plus `RouteNotGoverned`. `both_transports_describe_the_same_tools` runs **once per transport against the one declaration** - two tests over one source, not a comparison between adapters. Adding a capability changes the DEPLOYED contract: an authorization server is configured with the scope by hand, which is why ids and scopes are pinned by value and are separate literals, so a tool rename cannot rename a scope |
 | Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads the definitions the process pinned at boot, and there is no per-request view over them to read instead |
-| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and the answer records which - and **every leg decides identity the SAME way, or the question is refused** as `LegsDecideIdentityDifferently`. *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree | Recording, credentials and the refusal are all built; see `../identity/SKILL.md`. On a PUBLISHED build the recording is two entries of the same shared posture, because the only leg-executing adapter a release links is `NoPlaceForASubject`. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
+| A second execution leg | One answer has one asker, and no leg runs as a third identity: each runs as the asker **or** under that source's acknowledged shared identity, and the answer records which - and **every leg decides identity the SAME way, or the question is refused** as `LegsDecideIdentityDifferently`. *"Every leg runs as the same subject"* was the wording here and was overstated - a source serving everyone as one identity does not run as the asker, and making the labels agree would not have made the identities agree | Recording, credentials and the refusal are all built; see `../identity/SKILL.md`. On a PUBLISHED build the recording is two entries of the same shared posture, because both leg-executing adapters a release links are `NoPlaceForASubject` - the same posture, which for two Postgres sources may still be two database roles. **Not the promise:** no test asserts two subjects get different ROWS - that needs a live dataset with row-level security and two real grants |
 | A new knowledge kind | The prompt stays the only consumer | Three exhaustive matches plus a `const` assertion on the walk's seed |
 | A **second consumer** of a knowledge kind | Same | **Nothing mechanical.** `Query` having no field a phrase fits in is what makes the glossary descriptive, so reading a note elsewhere is an architecture decision - flag it in the handoff |
 | Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
@@ -103,9 +103,17 @@ one mint over both sources resolves each source's own declared account). **What 
 says:** no federated answer has been produced against a real dataset - the dialect axis declares
 `Dialect::BigQuery` `Evidence::RenderOnly`, so the claim is *the leg renders for the dialect and
 the transport submits it with the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -
-it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and none of them is
-what a release executes, and the conformance cell plus the differential are the whole of that
-path's evidence; (3) **one deployment still cannot get two genuinely different POSTURES onto one
+it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and the conformance
+cell plus the differential are the whole of THAT path's evidence. *None of those five is what a
+release executes* was the wording here and is spent: `sutura-exec-postgres` declares
+`EXECUTES_LEGS` and `nix/shipped.nix` carries the `postgres` feature, so the Postgres statements are
+the shape a published binary sends, and its conformance binding executes a leg against the
+provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
+rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
+Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
+a provisioned tier or a live dataset. All three declarations, and what each one's evidence is, live
+in `crates/sutura-app/tests/differential/federated/leg_evidence.rs` as a typed `LegEvidence` rather
+than a bare name; (3) **one deployment still cannot get two genuinely different POSTURES onto one
 federated answer, but it can now hold two KINDS** - `#112`'s `crate::serve::kind::AnyWarehouse` is
 a closed enum over the adapters a build LINKED, erasing a heterogeneous `Warehouses<AnyWarehouse>`
 the way `sutura_app::warehouses`'s own header named as the remedy; `one_kind` is retired, and

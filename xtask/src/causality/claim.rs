@@ -490,7 +490,12 @@ fn head_reader(wt: &Path) -> impl Fn(&str) -> Option<String> + '_ {
 /// The patch is written to a temporary file rather than stdin: the patch is already a committed
 /// file this branch carries, so handing git its path keeps the invocation identical between the
 /// check and the run and lets the `--check` answer the run will rely on.
-fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), String> {
+///
+/// `pub(super)` for `super::rot`: the apply-only hygiene half of `github.com/telekom/sutura#950`
+/// re-checks every COMMITTED patch rather than only the one a diff's own trailer just declared,
+/// and it is the same `git apply --check` this module already runs - reusing it is what keeps the
+/// two from drifting into two spellings of one rule.
+pub(super) fn apply_git(wt: &Path, patch: &Path, check: bool) -> Result<(), String> {
     let mut command = Command::new("git");
     crate::repo::strip_git_env(&mut command);
     command.current_dir(wt).args(["apply"]);
@@ -700,13 +705,43 @@ fn restore(wt: &Path, paths: &[String]) -> Result<(), String> {
     }
 }
 
+/// Which task is asking, and what an unheld declaration should be told to do about it.
+///
+/// The remedy differs by caller: "fix or drop the declaration" is only true where the trailer
+/// itself lives in the diff a reader has open. `causality::rot::run` re-checks a declaration
+/// accepted commits ago - nothing in the current diff to fix - so the actionable step there is
+/// re-anchoring or dropping the committed patch, not the declaration. Reusing [`run`] wholesale
+/// without this would print the WRONG task name and send that reader to a trailer that is not
+/// theirs to change.
+#[derive(Clone, Copy)]
+pub(super) struct Caller {
+    /// The task name the verdict line names - the one a reader actually ran.
+    pub(super) task: &'static str,
+    /// The closing remedy, one line per element, printed under a `Verdict::Fail`.
+    pub(super) remedy: &'static [&'static str],
+}
+
+impl Caller {
+    /// `causality::run`'s own dispatch - the gate this module was built to hold.
+    pub(super) const TEST_CAUSALITY: Self = Self {
+        task: "test-causality",
+        remedy: &[
+            "The trailer is a CLAIM and this is the check that holds it. A claim cell is an",
+            "added test pinning behaviour the base tree already provides, proved only by a",
+            "committed mutation at `devco/claim-mutations/<test-fn-name>.patch` that makes the",
+            "test FAIL. Fix or drop the declaration - the undeclared path is unchanged and still",
+            "refuses a test that is green against the base behaviour.",
+        ],
+    };
+}
+
 /// Run the whole claim arm: create the worktree, validate, kill every cell, verdict.
-pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Claim) -> Verdict {
+pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &Claim, caller: Caller) -> Verdict {
     let target = root.join("target").join("causality-target");
     let wt = root.join("target").join("causality-claim-worktree");
     worktree::remove_worktree(root, &wt);
     if let Err(e) = worktree::add_worktree(root, &wt) {
-        eprintln!("xtask test-causality: could not create a claim worktree: {e}");
+        eprintln!("xtask {}: could not create a claim worktree: {e}", caller.task);
         return Verdict::Fail;
     }
 
@@ -714,7 +749,7 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
     let causes = validate(&wt, claim, &added, test_files);
     if !causes.is_empty() {
         worktree::remove_worktree(root, &wt);
-        return report_refused(&causes);
+        return report_refused(&causes, caller);
     }
 
     let declared = claim.cells().len();
@@ -724,7 +759,7 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
             Ok(()) => killed += 1,
             Err(cause) => {
                 worktree::remove_worktree(root, &wt);
-                return report_refused(&[cause]);
+                return report_refused(&[cause], caller);
             }
         }
     }
@@ -741,9 +776,9 @@ pub(super) fn run(root: &Path, scoped: &Scoped, test_files: &[String], claim: &C
 /// exit code `ci.yml` already tolerates elsewhere in this gate, printed to stdout the way every
 /// other `Inconclusive` arm in this gate is (`base::report::report_base`'s own convention: `Fail`
 /// prints to stderr, `Inconclusive` to stdout).
-pub(super) fn report_refused(causes: &[Cause]) -> Verdict {
+pub(super) fn report_refused(causes: &[Cause], caller: Caller) -> Verdict {
     let unmeasured = !causes.is_empty() && causes.iter().all(Cause::unmeasured);
-    for line in refused_lines(causes, unmeasured) {
+    for line in refused_lines(causes, unmeasured, caller) {
         if unmeasured {
             println!("{line}");
         } else {
@@ -757,11 +792,14 @@ pub(super) fn report_refused(causes: &[Cause]) -> Verdict {
 ///
 /// PURE for the reason `super::remedies` learned twice: a printed sentence is prose that nothing
 /// derives, and the one thing that keeps a verdict honest is a test that reads its wording.
-fn refused_lines(causes: &[Cause], unmeasured: bool) -> Vec<String> {
+fn refused_lines(causes: &[Cause], unmeasured: bool, caller: Caller) -> Vec<String> {
     let mut lines = vec![if unmeasured {
-        String::from("xtask test-causality: INCONCLUSIVE - a claim cell's mutation build never reached it")
+        format!(
+            "xtask {}: INCONCLUSIVE - a claim cell's mutation build never reached it",
+            caller.task
+        )
     } else {
-        format!("xtask test-causality: FAILED - a `{TRAILER}` declaration did not hold")
+        format!("xtask {}: FAILED - a `{TRAILER}` declaration did not hold", caller.task)
     }];
     lines.extend(causes.iter().map(cause_line));
     if unmeasured {
@@ -772,14 +810,8 @@ fn refused_lines(causes: &[Cause], unmeasured: bool) -> Vec<String> {
             String::from("re-run it, and if it recurs, read the build output above it in the log."),
         ]);
     } else {
-        lines.extend([
-            String::new(),
-            String::from("The trailer is a CLAIM and this is the check that holds it. A claim cell is an"),
-            String::from("added test pinning behaviour the base tree already provides, proved only by a"),
-            String::from("committed mutation at `devco/claim-mutations/<test-fn-name>.patch` that makes the"),
-            String::from("test FAIL. Fix or drop the declaration - the undeclared path is unchanged and still"),
-            String::from("refuses a test that is green against the base behaviour."),
-        ]);
+        lines.push(String::new());
+        lines.extend(caller.remedy.iter().map(|line| String::from(*line)));
     }
     lines
 }

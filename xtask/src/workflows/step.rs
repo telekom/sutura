@@ -236,21 +236,45 @@ run_step() {
   [ "$(cat seen-paths)" = "$expected_paths" ] || { echo wrong-paths; cat seen-paths; exit 1; }
 }
 
+# The push arm narrows the base to HEAD's own single parent (see `ci.yml`, `elif [ "$EVENT"
+# = push ]`). A real `main` push HEAD is a squash, so the push pass runs at a squash-shaped
+# HEAD rather than the merge head. This fixture exports neither GITHUB_REF_NAME nor
+# DEFAULT_BRANCH, which is why the arm must be unconditional on push: a branch-filtered arm
+# would take its else-branch here and stay green while never executing.
+git checkout --quiet -B squashpoint "$merge_head^1"
+printf squash > squash.txt
+git add squash.txt
+git commit --quiet -m squash-of-topic
+squash_head=$(git rev-parse HEAD)
+git checkout --quiet --detach "$merge_head"
+
 for EVENT in pull_request push merge_group; do
   PR_HEAD=$pr_head
   if [ "$EVENT" = pull_request ]; then
     BASE=$stale
     expected_head=$pr_head
     expected_paths=topic.txt
+    # The PR arm derives its own base; any event-supplied BASE is discarded.
+    expected_base=$fork
+  elif [ "$EVENT" = push ]; then
+    # The push arm narrows to HEAD's own single parent; any event-supplied BASE is discarded.
+    git checkout --quiet --detach "$squash_head"
+    BASE=$fork
+    expected_head=$squash_head
+    expected_base=$(git rev-parse "$merge_head^1")
+    expected_paths='squash.txt'
   else
+    # merge_group measures the batch checkout: its base stays what the resolver supplied.
+    git checkout --quiet --detach "$merge_head"
     BASE=$fork
     expected_head=$merge_head
+    expected_base=$fork
     expected_paths=$(printf 'main-only.txt\ntopic.txt')
   fi
   for GATE_EXIT in 0 1 3; do
     expected_exit=$GATE_EXIT
     [ "$GATE_EXIT" -ne 3 ] || expected_exit=0
-    run_step "$expected_exit" "$expected_head" "$fork" "$expected_paths"
+    run_step "$expected_exit" "$expected_head" "$expected_base" "$expected_paths"
     if [ "$GATE_EXIT" -eq 3 ]; then
       [ -s summary ] || { echo inconclusive-was-hidden; exit 1; }
     else
@@ -258,6 +282,7 @@ for EVENT in pull_request push merge_group; do
     fi
   done
 done
+git checkout --quiet --detach "$merge_head"
 
 # PR causality derives its own fork even if ordinary classification had no usable base.
 EVENT=pull_request
@@ -288,10 +313,18 @@ run_step 1 not-called '' ''
 printf root > common.txt
 git add common.txt
 
-# The existing empty-base policy remains unchanged for non-PR events.
-for EVENT in push merge_group; do
-  run_step 0 not-called '' ''
-done
+# A push HEAD with any parent count but 1 fails open (empty base), like merge_group, rather
+# than guessing an ancestor - here at the two-parent merge head, with a base the resolver
+# DID supply, so the gate is skipped by the arm and not by an empty input.
+EVENT=push
+BASE=$fork
+git checkout --quiet --detach "$merge_head"
+run_step 0 not-called '' ''
+
+# The existing empty-base policy remains unchanged for merge_group.
+EVENT=merge_group
+BASE=
+run_step 0 not-called '' ''
 "#;
     }
 

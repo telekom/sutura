@@ -20,8 +20,8 @@
 //!
 //! `Deadline::remaining_at` returning `None` when expired is read as *stop now*, never as *wait
 //! forever*: [`refuse_if_spent`] refuses locally before a request is ever sent, and
-//! [`max_execution_time_seconds`] answers `None` (which `crate::transport::Http::run` reads as
-//! *do not send the setting at all*) only after [`refuse_if_spent`] has already refused a spent
+//! [`max_execution_time_seconds`] answers `None` (which `crate::transport::request_settings` reads
+//! as *do not send the setting at all*) only after [`refuse_if_spent`] has already refused a spent
 //! deadline - there is no path where `None` reaches the wire as *no limit*. A `0` is never sent
 //! either: `ClickHouse` reads `max_execution_time = 0` as *no limit*, the same "zero reads as
 //! unbounded" trap `sutura_exec_postgres::deadline` documents for `statement_timeout`. The
@@ -32,6 +32,13 @@
 //! [`max_execution_time_seconds`] is therefore a dead defensive bound - kept because a future
 //! caller that bypassed [`refuse_if_spent`] should still never send a `0`, but unreachable on
 //! every path that goes through the transport.
+//!
+//! **The server's job is bounded; the client's wait is not.** `max_execution_time` bounds what the
+//! SERVER spends executing. `crate::transport::Http`'s `ureq` agent sets no timeout, and `ureq`'s
+//! defaults are `None` for every wait but `await_100`, so a server that accepts the connection and
+//! then stalls holds the calling blocking-pool thread past an expired [`Deadline`] - nothing reads
+//! the deadline on the client side of the wire. *Stop now* above is a statement about what is sent,
+//! not about how long `run` can block.
 
 use std::time::Instant;
 

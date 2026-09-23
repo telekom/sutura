@@ -114,6 +114,11 @@ mod remedies;
 // `reverted` sits after `remedies` alphabetically and after `regions` conceptually: it reads the
 // same post-image regions, and it is the last question asked before a green run becomes a verdict.
 mod reverted;
+// `pub(crate)` rather than private, like `attributes` and `regions` above and for the same
+// reason: `task_table` registers its two gates directly by fn pointer, and a second copy of "which
+// committed patch names which cell" inside `task_table` would be a second thing to keep in step
+// with `claim::MUTATIONS_DIR` - `github.com/telekom/sutura#950`.
+pub(crate) mod rot;
 mod runner;
 mod scoped;
 mod stack;
@@ -574,7 +579,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             if let Some(ref declared) = claim
                 && let Scan::Runnable(scoped) = Scan::of(&files, &inseparable, &working_tree)
             {
-                return claim::run(&root, &scoped, &inseparable, declared);
+                return claim::run(&root, &scoped, &inseparable, declared, claim::Caller::TEST_CAUSALITY);
             }
             report_not_separable(
                 &inseparable,
@@ -614,7 +619,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                     // A claim-cell diff is `Relocation::Unclaimed` - the two trailers are mutually
                     // exclusive, and the range reads one carrier.
                     if let Some(claim) = claim::Claim::of(&worktree::messages(&root, &at)) {
-                        return claim::run(&root, &scoped, &separable.test_files, &claim);
+                        return claim::run(&root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
                     }
                     let coverage = Coverage::of(scoped.tests(), &files, &working_tree);
                     // WHAT A GREEN BASE RUN WOULD MEAN, decided from the partition before either

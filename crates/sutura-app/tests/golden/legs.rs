@@ -8,12 +8,17 @@
 //! pinned too, as one snapshot of their serialized form, so a fixture edit is a reviewable diff
 //! rather than a Rust literal nobody reads twice.
 //!
-//! **What no cell here reaches is the leg path a RELEASE executes, and the reason is structural
-//! rather than a gap to fill.** The only leg-executing adapter a published binary links is the
-//! engine, and it builds a logical plan and renders no SQL - so there is no statement for a golden
-//! to pin and there cannot be one. That path's evidence is `sutura-exec-datafusion`'s conformance
-//! binding, which holds a leg to the number the whole-plan case lands on, and the two-engine pass in
-//! `tests/differential/federated.rs`. These five dialects are evidence about the renderer.
+//! **One of these five is now the leg path a RELEASE executes, and that inverts what this header
+//! used to argue.** It said no cell here reaches that path *structurally* - the only leg-executing
+//! adapter a published binary links being the engine, which renders no SQL, so there was no
+//! statement for a golden to pin and there could not be one. `sutura-exec-postgres` declares
+//! `Warehouse::EXECUTES_LEGS` and ships behind a feature `nix/shipped.nix` enables, so the Postgres
+//! statements below ARE the shape a published binary sends. **The limit is now a different one:** a
+//! golden pins text, so these cells still establish nothing a data system said back - the executed
+//! half is `crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against the provisioned
+//! tier, and the engine's own leg path is still evidenced by `sutura-exec-datafusion`'s conformance
+//! binding and the two-engine pass in `tests/differential/federated.rs`. The `BigQuery`,
+//! `ClickHouse` and Oracle statements here remain evidence about the renderer and nothing else.
 //!
 //! **And the limit these fixtures carry about themselves:** nothing holds them against what
 //! `sutura_semantic::plan` actually emits. That is why every reserved label below is taken from
