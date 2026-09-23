@@ -355,6 +355,10 @@ mod agent;
 #[cfg(test)]
 mod bigquery;
 
+// The `clickhouse`-kind cells: the feature-off refusal and, on a build that linked the adapter,
+// the credential step alone and in a mixed registry.
+mod clickhouse;
+
 // The agent-route byte join: `crate::serve::agent::mount` behind the real `establish_asked` + leg 1,
 // over the shipped exchanging broker. Only a composition root links both the MCP transport (the
 // `agent` feature) and the `bigquery` broker, which is why this lives here and not in `sutura-http`

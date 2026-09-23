@@ -180,3 +180,41 @@ fn open_transport(
     })?;
     Ok(Http::connect_secured(Endpoint::tls(host.as_str(), port), auth, tls))
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_config::sources::placement::HostName;
+    use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
+    use sutura_domain::model::SourceName;
+
+    /// **The scheme follows the declaration**, observed on the transport this root built: a source
+    /// declared `verified` is dialled over `https`, and only `plaintext` over `http`. The anchor
+    /// bundle is a freshly issued certificate, so the TLS config really builds rather than the
+    /// cell stopping at an unreadable file.
+    #[test]
+    fn a_source_declared_verified_is_dialled_over_https_and_only_plaintext_over_http() {
+        let directory = std::env::temp_dir().join(format!("sutura-cli-ch-scheme-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a scratch directory is creatable");
+        let bundle = directory.join("anchors.pem");
+        let issued = rcgen::generate_simple_self_signed([String::from("localhost")]).expect("a self-signed pair generates");
+        std::fs::write(&bundle, issued.cert.pem()).expect("a certificate writes");
+
+        let source = SourceName::parse("warehouse").expect("a test source is a source");
+        let host = HostName::parse("ch.example.com").expect("a test host is a host");
+        let verified = SourceTransport::Verified {
+            anchors: TrustAnchors::File(bundle),
+        };
+        let secured = super::open_transport(&source, &host, 8443, None, &verified).expect("the declared bundle is usable");
+        let plain = super::open_transport(&source, &host, 8123, None, &SourceTransport::Plaintext)
+            .expect("a plaintext transport needs no material");
+        let _ignored = std::fs::remove_dir_all(&directory);
+
+        let secured = format!("{secured:?}");
+        assert!(
+            secured.contains("scheme: \"https\""),
+            "a verified source must dial https: {secured}"
+        );
+        let plain = format!("{plain:?}");
+        assert!(plain.contains("scheme: \"http\""), "a plaintext source dials http: {plain}");
+    }
+}

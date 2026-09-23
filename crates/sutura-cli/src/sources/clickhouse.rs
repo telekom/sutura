@@ -79,6 +79,27 @@ mod tests {
         )
     }
 
+    /// A command-line data directory selects nothing on a database, and is refused rather than
+    /// dropped - on every build, because the check runs before the kind's own `open`.
+    #[test]
+    fn a_data_directory_offered_to_a_clickhouse_source_is_refused_as_an_argument_that_selects_nothing() {
+        let error = open_engine(
+            &bundle_naming("warehouse"),
+            &declaring_clickhouse("shared-service-user", ""),
+            runtime(),
+            timeout(),
+            Some(std::path::Path::new("/srv/sutura/data")),
+            None,
+        )
+        .map(|_| ())
+        .expect_err("a data directory for a database source is refused");
+        assert!(error.contains("a database has none"), "{error}");
+        assert!(
+            error.contains("/srv/sutura/data"),
+            "the refusal must name the argument: {error}"
+        );
+    }
+
     /// The refusal half of a default build, exercised the way `just gates` runs the postgres one.
     ///
     /// The `cfg(not(feature = "clickhouse"))` half is compiled by `cargo xtask
