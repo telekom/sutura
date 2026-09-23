@@ -27,15 +27,21 @@ enum LegEvidence {
     /// A venue in this workspace ran a leg on this adapter, in the file named - asserted to EXIST
     /// and to be non-empty, so a moved or emptied venue reddens instead of leaving a citation.
     ///
-    /// **Does not reach whether that venue ran HERE.** `datafusion` and `duckdb` are this file's
-    /// own two passes; `postgres` is a conformance binding in its own crate against the tier
-    /// `nix/postgres-tier.nix` provisions. Nothing here reads the cited file's contents, and
-    /// nothing asserts `DataSystemUnderTest::available()` for this arm - a networked adapter's
-    /// availability is a property of the machine, so asserting it would redden a developer host
-    /// with no tier rather than a defect.
+    /// **`venue` decides whether `DataSystemUnderTest::available()` is asserted too.**
+    /// [`Venue::Provisionable`] does not reach whether that venue ran HERE - `datafusion` and
+    /// `duckdb` are this file's own two passes, `postgres` a conformance binding against the tier
+    /// `nix/postgres-tier.nix` provisions, and asserting `!available()` for either would redden a
+    /// developer host or a CI run the moment its tier comes up, which is not a defect.
+    /// [`Venue::Unreachable`] is for an adapter with no possible venue at all - cloud-only, with
+    /// no tier a gate could honestly provision - whose evidence is a fake transport standing in for
+    /// one; `available()` is asserted `false` there so an adapter that DOES acquire a real venue
+    /// reddens instead of quietly answering `available()` truthfully under an evidence entry that
+    /// never checked.
     Executed {
         /// The file whose cells execute a leg on this adapter.
         at: &'static str,
+        /// Whether this adapter could ever answer `available()` truthfully.
+        venue: Venue,
     },
     /// The declaration is a RENDERING and nothing more: no venue any gate reaches can open this
     /// adapter at all, so `DataSystemUnderTest::available()` is `false` unconditionally.
@@ -49,6 +55,18 @@ enum LegEvidence {
     },
 }
 
+/// Whether an [`LegEvidence::Executed`] entry's adapter could ever answer
+/// `DataSystemUnderTest::available()` truthfully.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Venue {
+    /// A real tier or in-process engine backs this evidence, and may or may not be up on this
+    /// machine - `available()` is not asserted either way.
+    Provisionable,
+    /// No real venue for this adapter can exist here; the evidence is a fake transport standing in
+    /// for one, so `available()` is asserted `false`.
+    Unreachable,
+}
+
 /// Every registered data system that declares [`Warehouse::EXECUTES_LEGS`], and its evidence.
 ///
 /// [`Warehouse::EXECUTES_LEGS`]: sutura_domain::warehouse::Warehouse::EXECUTES_LEGS
@@ -57,18 +75,21 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
         "datafusion",
         LegEvidence::Executed {
             at: "crates/sutura-app/tests/differential/federated.rs",
+            venue: Venue::Provisionable,
         },
     ),
     (
         "duckdb",
         LegEvidence::Executed {
             at: "crates/sutura-app/tests/differential/federated.rs",
+            venue: Venue::Provisionable,
         },
     ),
     (
         "postgres",
         LegEvidence::Executed {
             at: "crates/sutura-exec-postgres/tests/conformance.rs",
+            venue: Venue::Provisionable,
         },
     ),
     (
@@ -81,6 +102,7 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
         "bigquery",
         LegEvidence::Executed {
             at: "crates/sutura-exec-bigquery/tests/conformance.rs",
+            venue: Venue::Unreachable,
         },
     ),
 ];
@@ -97,7 +119,7 @@ fn leg_evidence(name: &str) -> Option<LegEvidence> {
 fn hold(name: &str, evidence: LegEvidence, available: bool) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let (cited, expect_absent_venue) = match evidence {
-        LegEvidence::Executed { at } => (at, false),
+        LegEvidence::Executed { at, venue } => (at, venue == Venue::Unreachable),
         LegEvidence::RenderedOnly { stated_in } => (stated_in, true),
     };
     let path = root.join(cited);
@@ -108,9 +130,10 @@ fn hold(name: &str, evidence: LegEvidence, available: bool) {
     if expect_absent_venue {
         assert!(
             !available,
-            "{name} is declared render-only for a leg, and `DataSystemUnderTest::available()` says a \
-             venue answered: move its `LEG_EXECUTING` entry to `LegEvidence::Executed` and name the \
-             file whose cells run the leg"
+            "{name} is declared to have no possible venue for a leg, and `DataSystemUnderTest::available()` \
+             says one answered: its evidence is no longer a fake standing in for an impossible venue, so \
+             move its `LEG_EXECUTING` entry to `Venue::Provisionable` (or `LegEvidence::RenderedOnly` if \
+             nothing here executes it for real yet)"
         );
     }
 }
