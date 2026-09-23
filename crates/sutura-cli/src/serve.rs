@@ -40,14 +40,12 @@
 //! library crate is flattened with its whole `#[source]` chain on the way out, because the outermost
 //! message is the one that says least.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use sutura_app::surface::Surface;
 use sutura_config::{Settings, Sources, StaticCredentialBroker, TlsMaterial};
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
 use sutura_runtime::{Admission, Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
@@ -67,6 +65,17 @@ mod bigquery;
 
 /// The same, for the `Postgres` connection this root opens and secures.
 mod postgres;
+
+/// The same, for the `ClickHouse` HTTP endpoint this root opens and secures.
+mod clickhouse;
+
+/// The FILES half: the in-process engine over declared directories, and what it attached.
+///
+/// **Its own file for the reason `bigquery`'s and `postgres`' are** - `cargo xtask max-lines` fails
+/// at 1000 lines rather than warning, and this file crossed it when a fourth kind arrived. It is the
+/// module that was missing rather than a new seam: the other openable kinds each had one already,
+/// and the engine's attach loop is the largest of the three.
+mod files;
 
 /// The closed enum over the shipped warehouse KINDS - `github.com/telekom/sutura#112` - so this
 /// root can hold more than one at once. Unconditional, like [`OpenedSources`] itself: a build with
@@ -195,49 +204,25 @@ pub(crate) fn run() -> Result<(), String> {
     // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
     // this crate can promise exists. What that log pipeline retains is the deployment's - sutura
     // writes a record per outcome and keeps nothing.
-    // The credential broker, which is the fourth port and the one that decides what a question
-    // executes as. Which broker this build attaches is decided per ARM below, because an
-    // impersonating source can only be served by a broker that EXCHANGES a subject's credential, and
-    // only a `bigquery` build links one:
+    // The credential broker is the fourth port and the one that decides what a question executes
+    // as, and which one this root attaches is decided per ARM below: an impersonating source can
+    // only be served by a broker that EXCHANGES a subject's credential, and only a `bigquery` build
+    // links one. Every other shape goes through `shared_identity_service`, whose doc carries the
+    // argument once rather than four times - **and in every arm, a subject with no credential at a
+    // source is refused as `credential_unavailable` rather than answered under the deployment's own
+    // identity**, the fallback the port exists to make unrepresentable.
     //
-    // - A deployment with no impersonating source (the `files` arm, and a `bigquery` arm with none)
-    //   is served under `sutura_config::StaticCredentialBroker`, which reads the `sources:` tree this
-    //   root already parsed: every source declared `shared-service-user` is served under the identity
-    //   this process holds, and a source the broker holds nothing for is refused as
-    //   `credential_unavailable` rather than answered as this process.
-    // - A `bigquery` deployment with an impersonating source is served under
-    //   `sutura_exec_bigquery::sts::WorkloadIdentityBroker`, which holds BOTH shapes - a declared
-    //   witness for shared sources and an exchanged per-subject credential for impersonating ones -
-    //   because one plan may read one of each and the broker is per answer, not per source.
-    //
-    // **In every arm, a subject with no credential at a source is refused as `credential_unavailable`
-    // rather than answered under the deployment's own identity** - the fallback the port exists to
-    // make unrepresentable.
-    let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
-    let spend_budget = settings.spend_budget();
-    let row_ceiling = settings.row_ceiling();
-    // **One `Arc<dyn Surface>` out of up to four adapter shapes, and the erasure is where it always
+    // **One `Arc<dyn Surface>` out of up to five adapter shapes, and the erasure is where it always
     // was.** `sutura_app::Warehouses<W>` is generic in ONE adapter, so a single-kind arm still
     // monomorphises `started` over its own concrete type - and `ServiceState` takes
     // `Arc<dyn Surface>`, so every shape meets one line later either way. `telekom/sutura#112`
-    // added the fourth: `kind::AnyWarehouse` IS the closed enum `sutura_app::warehouses` names as
-    // the remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone - the other three
-    // arms stay exactly as generic-free as this comment used to claim of all of them.
+    // added the last: `kind::AnyWarehouse` IS the closed enum `sutura_app::warehouses` names as the
+    // remedy for a heterogeneous set, and it is `W` for the `Mixed` arm alone.
     let (service, attached) = match opened {
-        OpenedSources::Files(files) => {
-            let broker = StaticCredentialBroker::from_registry(settings.sources());
-            (
-                started(
-                    &catalogs,
-                    files.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?,
-                Some(files.attached),
-            )
-        }
+        OpenedSources::Files(files) => (
+            shared_identity_service(&catalogs, files.engines, &settings)?,
+            Some(files.attached),
+        ),
         #[cfg(feature = "bigquery")]
         OpenedSources::BigQuery(engines) => {
             // **The pre-flight, and this line is where its ORDER is decided.** It runs after
@@ -255,60 +240,35 @@ pub(crate) fn run() -> Result<(), String> {
             // `Credential::read`.
             //
             // **The second half is held by `check-boot-order`**, which `just hygiene` runs, and it
-            // is there because this comment used to close by calling the order *a
-            // convention this line keeps* - which is a rule with no mechanism, and `AGENTS.md` does
-            // not accept one. The gate reads the order of three call sites in this file; its own
-            // header states what that is worth and what it cannot see.
+            // is there because this comment used to close by calling the order *a convention this
+            // line keeps* - which is a rule with no mechanism, and `AGENTS.md` does not accept one.
+            // The gate reads the order of three call sites in this file; its own header states what
+            // that is worth and what it cannot see. **It is also why this match stayed in `run`**
+            // when `clippy::too_many_lines` asked for a split: moving it to a function below
+            // `serve_until_stopped(` put this call after the transport's in the text and the gate
+            // went red, correctly - the order it reads is an order a person reads too. What was
+            // extracted instead is the per-shape broker choice.
             boot::refuse_absent_tables(&pinned, &engines)?;
             // The exchanging broker this build is the one that can attach. `StsOverHttp` reuses the
             // same pinned agent and bounds the source composition already declares, so the exchange
             // and the job share one connection pool and one set of pins - see `crate::broker`.
-            let broker = broker::build_broker(
-                settings.sources(),
-                settings.server().request_timeout(),
-                settings.security().credential_cache(),
-                outbound.as_ref(),
-                settings.security().inbound(),
-            )?;
-            (
-                started(
-                    &catalogs,
-                    engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?,
-                None,
-            )
+            let broker = exchanging_broker(&settings, outbound.as_ref())?;
+            (started(&catalogs, engines, broker, &settings)?, None)
         }
         #[cfg(feature = "postgres")]
         OpenedSources::Postgres(engines) => {
-            // A `postgres` source attaches nothing - the tables live in the database - so there is
-            // no attach step whose absence at boot would set the served bundle's tables. Its
-            // `preflight` is `NotReported` by construction, which `refuse_absent_tables` treats as a
-            // WARN rather than a refusal; calling the bigquery-shaped table check would add nothing
-            // but a misleading permission sentence. Verification of a mistyped `table:` therefore
-            // happens on the first question against it, as the port itself documents.
-            //
-            // **The static broker, not the exchanging one.** `PostgresWarehouse` declares
-            // `NoPlaceForASubject` (one connection under the deployment's declared identity), and
-            // `build_postgres` refuses an impersonating source at the posture cross-check - so the
-            // only identity a question is answered under is the one this process holds. The static
-            // broker is exactly that: every declared `shared-service-user` source is served as
-            // itself, and nothing is ever exchanged.
-            let broker = StaticCredentialBroker::from_registry(settings.sources());
-            (
-                started(
-                    &catalogs,
-                    engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?,
-                None,
-            )
+            // No pre-flight, and that is not an omission: a `postgres` source attaches nothing, so
+            // its `preflight` is `NotReported` by construction - which `refuse_absent_tables` treats
+            // as a WARN rather than a refusal, so the call would add a misleading permission
+            // sentence and nothing else. A mistyped `table:` is caught on the first question against
+            // it, as the port itself documents.
+            (shared_identity_service(&catalogs, engines, &settings)?, None)
+        }
+        #[cfg(feature = "clickhouse")]
+        OpenedSources::ClickHouse(engines) => {
+            // No pre-flight, for the `Postgres` arm's reason exactly: `ClickHouseWarehouse` takes
+            // the port's default `preflight`, so there is nothing for the table check to read.
+            (shared_identity_service(&catalogs, engines, &settings)?, None)
         }
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
@@ -322,44 +282,13 @@ pub(crate) fn run() -> Result<(), String> {
             // `BigQuery` source" - never "is this build entirely `BigQuery`".
             #[cfg(feature = "bigquery")]
             let served = if kind::needs_exchanging_broker(&mixed.engines) {
-                let broker = broker::build_broker(
-                    settings.sources(),
-                    settings.server().request_timeout(),
-                    settings.security().credential_cache(),
-                    outbound.as_ref(),
-                    settings.security().inbound(),
-                )?;
-                started(
-                    &catalogs,
-                    mixed.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?
+                let broker = exchanging_broker(&settings, outbound.as_ref())?;
+                started(&catalogs, mixed.engines, broker, &settings)?
             } else {
-                let broker = StaticCredentialBroker::from_registry(settings.sources());
-                started(
-                    &catalogs,
-                    mixed.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?
+                shared_identity_service(&catalogs, mixed.engines, &settings)?
             };
             #[cfg(not(feature = "bigquery"))]
-            let served = {
-                let broker = StaticCredentialBroker::from_registry(settings.sources());
-                started(
-                    &catalogs,
-                    mixed.engines,
-                    broker,
-                    working_set_ceiling_bytes,
-                    spend_budget,
-                    row_ceiling,
-                )?
-            };
+            let served = shared_identity_service(&catalogs, mixed.engines, &settings)?;
             (served, mixed.attached)
         }
     };
@@ -612,16 +541,6 @@ async fn serve_as_configured(
     sutura_http::serve(router, address, stopping).await.map_err(flatten)
 }
 
-/// The open data systems, and the tables they actually hold.
-///
-/// A named pair rather than a tuple: the second field is evidence for a startup refusal and `.1`
-/// would say nothing about which of the two it is. `clippy::type_complexity` asks for the same thing
-/// from the other direction.
-pub(crate) struct Opened {
-    engines: sutura_app::Warehouses<DataFusionWarehouse>,
-    attached: BTreeSet<TableName>,
-}
-
 /// The adapter(s) this process opened its sources with, and everything the next step needs from
 /// them.
 ///
@@ -639,7 +558,7 @@ pub(crate) struct Opened {
 /// both, instead of the startup refusal this comment used to describe.
 pub(crate) enum OpenedSources {
     /// The in-process engine over directories of files.
-    Files(Opened),
+    Files(files::Opened),
     /// A `BigQuery` dataset per source, reached over the wire.
     ///
     /// Nothing is attached, so there is no table set beside it - see the note at the call site of
@@ -653,11 +572,27 @@ pub(crate) enum OpenedSources {
     /// resolved when the engine opens, so a TLS refusal stops the process before the listener binds.
     #[cfg(feature = "postgres")]
     Postgres(sutura_app::Warehouses<PostgresSource>),
+    /// A `ClickHouse` database per source, reached over its HTTP interface.
+    ///
+    /// Nothing is attached - the tables live in the database - so like `Postgres` there is no table
+    /// set beside it. The channel is resolved when the engine opens, so a TLS refusal stops the
+    /// process before the listener binds.
+    #[cfg(feature = "clickhouse")]
+    ClickHouse(sutura_app::Warehouses<ClickHouseSource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
     Mixed(kind::Mixed),
 }
+
+/// A `ClickHouse` source as this binary composes it, re-exported from the ONE place it is named.
+///
+/// `crate::clickhouse` holds the alias and the build, shared with `crate::sources`' own composition
+/// root - so `super::ClickHouseSource` reads the same in this module tree as `PostgresSource` does
+/// while there is still exactly one definition. See that module's header for why the adapter stays
+/// generic over its transport and only this alias pins one.
+#[cfg(feature = "clickhouse")]
+pub(crate) use crate::clickhouse::ClickHouseSource;
 
 /// A `Postgres` source as this binary composes it: one connection under the deployment's declared
 /// identity, secured as the source declares.
@@ -702,9 +637,7 @@ fn started<W, B>(
     catalogs: &catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
-    working_set_bytes: u64,
-    spend_budget: Option<sutura_config::SpendBudget>,
-    row_ceiling: sutura_domain::plan::RowCeiling,
+    settings: &Settings,
 ) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
@@ -712,6 +645,12 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
+    // Read here rather than passed in as three values, which is what collapsed the arms of the
+    // match above to one line each: the three bounds are the SAME three for every shape, so a
+    // caller that had to name them was a caller that could name them differently.
+    let working_set_bytes = settings.runtime().working_set().bytes().get() as u64;
+    let spend_budget = settings.spend_budget();
+    let row_ceiling = settings.row_ceiling();
     match catalogs {
         catalog::OpenedCatalogs::Markdown(catalogs) => {
             LocalService::start_composed(catalogs, engines, TracingAuditSink::new(), broker, working_set_bytes)
@@ -737,6 +676,61 @@ where
                 .map_err(flatten)
         }
     }
+}
+
+/// The service for every shape whose adapter cannot carry a per-subject credential at all.
+///
+/// **One function rather than the same four lines in four arms**, and the argument is one sentence
+/// for all of them: `DataFusionWarehouse`, `PostgresWarehouse` and `ClickHouseWarehouse` each
+/// declare `ImpersonationCapability::NoPlaceForASubject`, each composition root refuses an
+/// `impersonation-at-source` entry at the posture cross-check before opening one, and so the only
+/// identity a question is answered under is the one this process holds.
+/// `sutura_config::StaticCredentialBroker` is exactly that: it reads the `sources:` tree this root
+/// already parsed, every source declared `shared-service-user` is served as itself, nothing is ever
+/// exchanged - and a source the broker holds nothing for is refused as `credential_unavailable`
+/// rather than answered as this process.
+///
+/// The `Mixed` arm reaches it too, for a mix that opened no `BigQuery` source.
+///
+/// # Errors
+///
+/// Whatever [`started`] refuses while loading the catalogs a second time and re-running the anchors.
+fn shared_identity_service<W>(
+    catalogs: &catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<W>,
+    settings: &Settings,
+) -> Result<Serving, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    started(
+        catalogs,
+        engines,
+        StaticCredentialBroker::from_registry(settings.sources()),
+        settings,
+    )
+}
+
+/// The exchanging broker, built from the same five declarations at both of its call sites.
+///
+/// A named call rather than the argument list twice, for [`shared_identity_service`]'s reason one
+/// size smaller: the `BigQuery` arm and the `Mixed` arm must not be able to build it from different
+/// settings, and two spelled-out call sites are two chances to.
+///
+/// # Errors
+///
+/// Whatever `broker::build_broker` refuses: a credential cache window it cannot use, or declared
+/// outbound material it cannot load.
+#[cfg(feature = "bigquery")]
+fn exchanging_broker(settings: &Settings, outbound: Option<&sutura_tls::Declared>) -> Result<broker::ExchangingBroker, String> {
+    broker::build_broker(
+        settings.sources(),
+        settings.server().request_timeout(),
+        settings.security().credential_cache(),
+        outbound,
+        settings.security().inbound(),
+    )
 }
 
 /// The spend ledger this replica answers under: unbounded if `governance.per_replica_spend_ceiling`
@@ -792,76 +786,18 @@ fn open_engine(
         grouped.files.is_empty(),
         grouped.bigquery.is_empty(),
         grouped.postgres.is_empty(),
+        grouped.clickhouse.is_empty(),
     ) {
-        (false, true, true) => open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
-        (true, false, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
-        (true, true, false) => postgres::open_postgres(&grouped.postgres, registry),
+        (false, true, true, true) => files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files),
+        (true, false, true, true) => bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound),
+        (true, true, false, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false) => clickhouse::open_clickhouse(&grouped.clickhouse, registry),
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
-        // one of the three groups, so this arm can only be `(true, true, true)` if nothing ran -
-        // which cannot happen. Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
+        // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
+        // Written as a fallback rather than an unwrap the workspace denies.
+        (true, true, true, true) => Err(String::from("this catalog declares no models, so there is nothing to open")),
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),
     }
-}
-
-/// Opens the in-process engine for every declared `files` source and registers one file per model.
-fn open_files(
-    pinned: &PinnedDefinitions,
-    declared: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<Opened, String> {
-    let mut engines: Option<sutura_app::Warehouses<DataFusionWarehouse>> = None;
-    let mut attached: BTreeSet<TableName> = BTreeSet::new();
-    for source in declared {
-        let configured = configured_source(source, registry)?;
-        let engine = build_engine(source, configured, runtime)?;
-        // Matched rather than read off a `data_dir()` every kind had to have. `build_engine` has
-        // already refused every kind this binary cannot open, so the other arm is unreachable here -
-        // written as a branch rather than an `expect` because the workspace denies both, and because a
-        // second openable kind should arrive as a compile error at this line too.
-        let sutura_config::SourcePlacement::Files { ref data_dir } = *configured.placement() else {
-            return Err(format!(
-                "`sources.{source}` reached the attach step with a placement no linked adapter reads, \
-                 which `build_engine` should have refused first"
-            ));
-        };
-        for model in pinned
-            .definitions()
-            .models()
-            .values()
-            .filter(|model| model.source() == *source)
-        {
-            // Refused at BOOT, which is where it belongs: this binary links the in-process engine
-            // and nothing else, and the engine registers one file per model with no catalog and no
-            // schema above it. So a qualified model is a bundle this deployment cannot serve, and a
-            // deployment that cannot serve its bundle should not start. `DataFusionWarehouse::scan`
-            // refuses the same thing again for a model that could only arrive after this loop.
-            if model.table().qualifier().is_some() {
-                return Err(format!(
-                    "model {} names the table {}, and the in-process engine registers one file per \
-                     model with nothing above it. Refusing to serve a bundle whose questions would \
-                     fail at query time",
-                    model.name(),
-                    model.table()
-                ));
-            }
-            attach(&engine, model.table_name(), data_dir)?;
-            // Collected AFTER the attach, so this set is what the engines hold rather than what was
-            // asked for. `attach` fails the startup on a missing file, so the two cannot diverge
-            // here - and recording it from the successful call rather than from the model list is
-            // what keeps that true if it ever gains a path that can skip one.
-            attached.insert(model.table_name().clone());
-        }
-        engines = Some(match engines {
-            None => sutura_app::Warehouses::of(engine),
-            Some(open) => open.and(engine).map_err(flatten)?,
-        });
-    }
-    // Unreachable: `declared` is non-empty and every iteration assigns, so this is the loop's own
-    // invariant written as a fallback rather than an unwrap the workspace denies.
-    let engines = engines.ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))?;
-    Ok(Opened { engines, attached })
 }
 
 /// The declaration for one source the catalog names, or a refusal saying what is missing.
@@ -890,63 +826,6 @@ fn configured_source<'registry>(
         ));
     }
     Ok(configured)
-}
-
-/// Builds the engine for one declared source, after checking this build can deliver its posture.
-///
-/// **The kind is no longer matched here, and that is a move rather than a removal:** the exhaustive
-/// match lives in [`open_engine`], which is where a declared kind is DISPATCHED to an adapter. It was
-/// here while the second kind's answer was a refusal, because a refusal per source reads the same
-/// wherever it is written; once the answer is a different registry, only the dispatcher can hold it.
-/// Reaching this function is therefore a statement that `one_kind` said `files`.
-///
-/// **The cross-check is here and not in `sutura-config`, and the split follows what each half can
-/// see.** Configuration says which posture the deployment is asking for; whether the LINKED adapter can
-/// carry a per-subject credential at all is a property of the build, and the settings tree cannot see
-/// which adapters were compiled in. So the comparison lives where both are in scope, which is here, and
-/// `SourcePosture::deliverable_by` is the one function that makes it.
-fn build_engine(
-    source: &SourceName,
-    configured: &sutura_config::ConfiguredSource,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<DataFusionWarehouse, String> {
-    let identity = configured
-        .identity()
-        .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
-    identity
-        .posture()
-        .deliverable_by(
-            <DataFusionWarehouse as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
-            source,
-        )
-        .map_err(flatten)?;
-    // `NonZeroUsize::MIN` is unreachable: `EngineWorkers::parse` refuses a zero and resolves an
-    // absent key from the machine, which reports at least one. Written as a fallback rather than an
-    // unwrap because the workspace denies both, and because one worker is the safe direction to fail
-    // in - a narrow engine is slow, and a zero-width runtime does not build.
-    let width = core::num::NonZeroUsize::new(runtime.engine_workers().count()).unwrap_or(core::num::NonZeroUsize::MIN);
-    // The ceiling arrives already parsed - `WorkingSetCeiling::parse` refused a zero and refused a
-    // value above the memory this process can reach - so there is nothing left to check here. The
-    // wrapper exists so a thread count and a quantity of memory cannot be swapped at this call.
-    let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
-    DataFusionWarehouse::with_worker_threads(source.clone(), identity.posture().clone(), width, working_set).map_err(flatten)
-}
-
-/// Registers one model's file, preferring Parquet.
-fn attach(engine: &DataFusionWarehouse, table: &TableName, data: &std::path::Path) -> Result<(), String> {
-    let parquet = data.join(format!("{table}.parquet"));
-    if parquet.is_file() {
-        return engine.attach_parquet(table, &parquet).map_err(flatten);
-    }
-    let csv = data.join(format!("{table}.csv"));
-    if csv.is_file() {
-        return engine.attach_csv(table, &csv).map_err(flatten);
-    }
-    Err(format!(
-        "the model behind table {table} needs {} or {}, and neither is there",
-        csv.display(),
-        parquet.display()
-    ))
 }
 
 /// A typed error and every cause beneath it, one per line.

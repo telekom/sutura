@@ -100,6 +100,13 @@ pub(crate) fn mcp(args: &[String]) -> ExitCode {
                 // arm carries. A mistyped `table:` is caught on the first question against it.
                 serve(&catalog, opened, &settings)
             }
+            #[cfg(feature = "clickhouse")]
+            Opened::ClickHouse(opened) => {
+                // A `clickhouse` source attaches nothing and reports no table inventory, for the
+                // `postgres` arm's reason exactly - `ClickHouseWarehouse` takes the port's default
+                // `preflight`, so `refuse_absent_tables` would have nothing to add.
+                serve(&catalog, opened, &settings)
+            }
         }
     })())
 }
@@ -328,6 +335,8 @@ mod tests {
             crate::sources::Opened::BigQuery(_) => None,
             #[cfg(feature = "postgres")]
             crate::sources::Opened::Postgres(_) => None,
+            #[cfg(feature = "clickhouse")]
+            crate::sources::Opened::ClickHouse(_) => None,
         }
         .expect("the example declares a files source");
         (catalog, opened, settings)

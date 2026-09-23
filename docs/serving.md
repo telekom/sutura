@@ -805,18 +805,18 @@ model's `source:` names.**
 | Key | Default | Notes |
 | --- | ------- | ----- |
 
-| `sources.<alias>.kind` | absent | `files`, or `bigquery`/`postgres` when that default-off feature was built in. Required, with no default |
+| `sources.<alias>.kind` | absent | `files`, or `bigquery`/`postgres`/`clickhouse` when that default-off feature was built in. Required, with no default |
 | `sources.<alias>.data_dir` | absent | Where that source's files are. Required, and absolute |
-| `sources.<alias>.host` | absent | Postgres only. A DNS name or IP address. Exactly one of `host` and `unix_socket` |
-| `sources.<alias>.unix_socket` | absent | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host` |
-| `sources.<alias>.port` | absent | Postgres only. Required; no guessed `5432` |
-| `sources.<alias>.database` | absent | Postgres only. Required |
-| `sources.<alias>.user` | absent | Postgres only. The one role every caller reaches this source as |
-| `sources.<alias>.password_file` | absent | Postgres only. Absolute, read at startup; secret text is refused in the settings tree |
-| `sources.<alias>.transport_mode` | absent | Postgres only. `plaintext`, `verified` or `mutual`; required, with no default |
-| `sources.<alias>.transport_anchors` | absent | Postgres TLS only. `system` as an explicit choice, or an absolute PEM bundle path |
-| `sources.<alias>.client_certificate` | absent | Postgres mutual TLS only. Absolute PEM chain; both client identity halves or neither |
-| `sources.<alias>.client_key` | absent | Postgres mutual TLS only. Absolute PEM private key; both client identity halves or neither |
+| `sources.<alias>.host` | absent | Postgres and ClickHouse. A DNS name or IP address. On Postgres, exactly one of `host` and `unix_socket`; on ClickHouse it is the only dial |
+| `sources.<alias>.unix_socket` | absent | Postgres only. An absolute socket directory. Exactly one of `unix_socket` and `host`. Refused on ClickHouse: its HTTP interface is dialled over TCP |
+| `sources.<alias>.port` | absent | Postgres and ClickHouse. Required; no guessed `5432` and no guessed `8123` |
+| `sources.<alias>.database` | absent | Postgres only. Required. Refused on ClickHouse, which sends no database with its statement - so a key here would be one nothing reads |
+| `sources.<alias>.user` | absent | Postgres and ClickHouse. The one role every caller reaches this source as |
+| `sources.<alias>.password_file` | absent | Postgres and ClickHouse. Absolute, read at startup; secret text is refused in the settings tree |
+| `sources.<alias>.transport_mode` | absent | Postgres and ClickHouse. `plaintext`, `verified` or `mutual`; required, with no default. A non-loopback host declared `plaintext` is refused on both |
+| `sources.<alias>.transport_anchors` | absent | Postgres and ClickHouse TLS. `system` as an explicit choice, or an absolute PEM bundle path |
+| `sources.<alias>.client_certificate` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM chain; both client identity halves or neither |
+| `sources.<alias>.client_key` | absent | Postgres and ClickHouse mutual TLS. Absolute PEM private key; both client identity halves or neither |
 | `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |
 | `sources.<alias>.acknowledged_because` | absent | The operator's reason. Required for a shared source in `multi-user` mode |
 | `sources.<alias>.verification_identity` | absent | The identity that re-runs that source's anchors. Only on an impersonating source |

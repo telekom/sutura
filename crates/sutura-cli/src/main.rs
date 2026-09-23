@@ -81,6 +81,10 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
 // says why the causality gate needs the proof and the fix in two files.
 #[cfg(test)]
 mod audit;
+/// The ONE `ClickHouse` composition, reached by both composition roots below. Gated whole, like
+/// `serve::broker`: a build that links no `sutura-exec-clickhouse` has no adapter type to name.
+#[cfg(feature = "clickhouse")]
+mod clickhouse;
 mod commands;
 mod mcp;
 /// Starts the outbound-material rotation poll - the cli half of `github.com/telekom/sutura#125`'s

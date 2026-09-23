@@ -4204,6 +4204,7 @@ dependencies = [
  "sutura-dev",
  "sutura-domain",
  "sutura-exec-bigquery",
+ "sutura-exec-clickhouse",
  "sutura-exec-datafusion",
  "sutura-exec-postgres",
  "sutura-http",

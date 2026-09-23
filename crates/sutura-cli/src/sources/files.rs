@@ -249,6 +249,8 @@ mod tests {
             Opened::BigQuery(_) => None,
             #[cfg(feature = "postgres")]
             Opened::Postgres(_) => None,
+            #[cfg(feature = "clickhouse")]
+            Opened::ClickHouse(_) => None,
         }
         .expect("this fixture declares a files source")
     }

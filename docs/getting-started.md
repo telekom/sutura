@@ -356,9 +356,12 @@ have nothing to do with the question:
   does not name it. Unset it. It is not the environment or the configuration directory, so the
   remedy printed underneath will not point at it.
 
-`kind: bigquery` and `kind: postgres` are the two network kinds, and the published binary carries
-both, which `checks.shipped-features` reads out of each released binary's embedded dependency list
-rather than out of a manifest. Nothing to build for either. The BigQuery block below is the cloud
+`kind: bigquery` and `kind: postgres` are the network kinds the published binary carries, which
+`checks.shipped-features` reads out of each released binary's embedded dependency list rather than
+out of a manifest. Nothing to build for either. `kind: clickhouse` is a third network kind and is
+**not** in any published binary - it needs a build carrying the `clickhouse` feature, and a build
+without it refuses that kind by name; see [Data sources](integrations.md#data-sources) for what that
+adapter does and does not do yet. The BigQuery block below is the cloud
 variant; the Postgres declaration, verified and mutual TLS modes, and least-authority role grants
 are in [Serving](serving.md#a-postgres-source-least-authority-and-its-channel).
 

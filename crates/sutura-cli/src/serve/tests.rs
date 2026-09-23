@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use sutura_config::EngineWorkers;
 use sutura_domain::model::TableName;
 
-use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine};
+use super::files::Opened;
+use super::{ENGINE_SOURCE, OpenedSources, open_engine};
 
 fn tables(names: &[&str]) -> BTreeSet<TableName> {
     names
@@ -36,7 +37,7 @@ fn data() -> PathBuf {
 /// arrived: `open_engine` needs the ceiling to build the memory pool, and passing the group is
 /// what stops a test choosing a different ceiling from the one a deployment would run with.
 /// Every other value is the embedded default.
-fn one_worker() -> sutura_config::RuntimeSettings {
+pub(super) fn one_worker() -> sutura_config::RuntimeSettings {
     use sutura_config::{AdmissionTimeout, QueryConcurrency, ShutdownGrace, WorkingSetCeiling};
 
     sutura_config::RuntimeSettings::new(
@@ -56,12 +57,12 @@ fn one_worker() -> sutura_config::RuntimeSettings {
 /// set. Dropping the success value here rather than deriving `Debug` on it keeps a test's
 /// convenience out of the composition root's types, and the message the caller passes is what
 /// says which arm was expected to fire.
-fn refusal(opened: Result<OpenedSources, String>, expected: &str) -> String {
+pub(super) fn refusal(opened: Result<OpenedSources, String>, expected: &str) -> String {
     opened.map(drop).expect_err(expected)
 }
 
 /// The request timeout the embedded defaults ship, also what a `BigQuery` job's deadline is filled from.
-fn default_timeout() -> sutura_config::RequestTimeout {
+pub(super) fn default_timeout() -> sutura_config::RequestTimeout {
     sutura_config::RequestTimeout::parse(30).expect("thirty seconds is a request timeout")
 }
 
@@ -77,6 +78,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::BigQuery(_)) => panic!("expected the file engine, got the BigQuery arm"),
         #[cfg(feature = "postgres")]
         Ok(OpenedSources::Postgres(_)) => panic!("expected the file engine, got the Postgres arm"),
+        #[cfg(feature = "clickhouse")]
+        Ok(OpenedSources::ClickHouse(_)) => panic!("expected the file engine, got the ClickHouse arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
@@ -92,7 +95,7 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
 /// The mode is `single-user`, so a shared source needs no per-source acknowledgement here - the
 /// acknowledgement refusal is `sutura-config`'s own test, and repeating it would be asserting the
 /// same mechanism in the wrong crate.
-fn registry(entries: &str) -> sutura_config::SourceRegistry {
+pub(super) fn registry(entries: &str) -> sutura_config::SourceRegistry {
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
              files\"\nsources:\n{entries}"
@@ -110,7 +113,7 @@ fn registry(entries: &str) -> sutura_config::SourceRegistry {
 /// The path is absolute because a relative one is refused at parse - `sutura-config` owns that
 /// refusal and tests it - and because a service's working directory is whatever its supervisor
 /// chose.
-fn entry(alias: &str, posture: &str, extra: &str) -> String {
+pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
     format!(
         "  {alias}:\n    kind: \"files\"\n    data_dir: \"{}\"\n    posture: \"{posture}\"\n{extra}",
         data().display()

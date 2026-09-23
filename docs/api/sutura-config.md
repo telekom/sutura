@@ -1144,8 +1144,9 @@ What kind of data system a source is.
 
 **A closed set of typed declarations rather than something discovered**, which is the whole of
 *pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
-compile error in every place that has to decide about it. Two variants today, and only one of them
-can be OPENED by a shipped binary - `Self::BigQuery` says which and why.
+compile error in every place that has to decide about it. Which of them a given BINARY can open
+is a separate question, answered by that binary's features rather than here - `Self::BigQuery`
+says why the word is in the vocabulary either way.
 
 **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
 rather than the enum. The composition root used to refuse any source not called `local`, on the
@@ -4528,8 +4529,9 @@ What kind of data system a source is.
 
 **A closed set of typed declarations rather than something discovered**, which is the whole of
 *pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
-compile error in every place that has to decide about it. Two variants today, and only one of them
-can be OPENED by a shipped binary - `Self::BigQuery` says which and why.
+compile error in every place that has to decide about it. Which of them a given BINARY can open
+is a separate question, answered by that binary's features rather than here - `Self::BigQuery`
+says why the word is in the vocabulary either way.
 
 **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
 rather than the enum. The composition root used to refuse any source not called `local`, on the
@@ -4567,6 +4569,17 @@ legitimate one.
 
   The static-credential half: one connection under the deployment's declared identity. Per-subject
   Postgres over SASL OAUTHBEARER is `telekom/sutura#126` and is deliberately not this shape.
+- `ClickHouse` - A `ClickHouse` database, queried by rendering the plan into that dialect and pushing it down over its HTTP interface.
+
+  **Declarable, and openable only by a build carrying the `clickhouse` feature** - the same
+  shape `Postgres` above describes, for the same reason: the vocabulary of kinds is the
+  vocabulary of adapters this repository has, and which one a given BUILD linked is a property
+  of its features.
+
+  The static-credential half, and the only half that exists: `sutura_exec_clickhouse`'s
+  `Warehouse::IMPERSONATION` is `NoPlaceForASubject`, so an `impersonation-at-source` entry on
+  this kind is refused at the composition root's own posture cross-check. Per-subject
+  `ClickHouse` identity is wanted and not built.
 
 #### Methods
 
@@ -5093,6 +5106,15 @@ be skipped" look like the same sentence and are not.
   `host` and `port` are the network dial; when the source sits on a unix socket, `unix_socket`
   is written instead. The two cannot both be set, and which one an operator chooses is what
   decides whether a non-loopback host must have TLS declared - see `PostgresDial`.
+- `ClickHouse` - A `ClickHouse` database, reached over its HTTP interface.
+
+  **The static-credential half, and the same shape `Self::Postgres` takes**: one endpoint
+  under the identity the deployment declared, the password read from a FILE at boot and never
+  written in the settings tree. There is no `unix_socket` and no `database` key, and both
+  absences are deliberate rather than pending: `ClickHouse`'s HTTP interface is dialled over
+  TCP only, and `sutura_exec_clickhouse::transport::Http` sends no `database` parameter - so a
+  `database:` here would be a key an operator wrote and the deployment reads past, which is
+  exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
 
 ##### Methods
 
