@@ -418,7 +418,7 @@ docs-list:
 # Named by the UTC second, never the next ordinal, so two branches do not contend for one (#937).
 # A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md, listed under exclude_docs in mkdocs.yml.
 new-adr slug:
-    cargo run -q -p xtask -- new-adr {{ slug }}
+    cargo run -q -p xtask -- new-adr {{ quote(slug) }}
 
 # Nightly on purpose: `--output-format json` is an unstable rustdoc option, and the dev shell's bare
 # cargo IS the nightly pin. The renderer runs in the DEFAULT pixi env, not `docs` - it is a plain

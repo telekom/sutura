@@ -14,7 +14,7 @@
 //!   same venue. The identifier makes a collision improbable, not impossible.
 //! * **When a name was written.** Any real UTC second parses, so a hand-typed or back-dated
 //!   identifier passes. What is held is that the name IS a second and is unique, not a chronology.
-//! * **A slug the mint did not write.** The gate asks only that one exists; [`slug_problem`]'s
+//! * **A slug the mint did not write.** The gate asks only that one exists; [`is_slug`]'s
 //!   character rule is the mint's.
 
 use std::fmt;
@@ -199,23 +199,49 @@ const fn days_in(year: u64, month: u64) -> u64 {
     }
 }
 
-/// Why `slug` cannot name a record, or `None`: lowercase ASCII words joined by single `-`, the way
-/// every record here is named.
-fn slug_problem(slug: &str) -> Option<String> {
-    let fits = slug
-        .split('-')
-        .all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
-    (!fits).then(|| format!("`{slug}` is not a slug - lowercase ASCII words joined by single `-`"))
+/// Why [`mint`] wrote nothing.
+#[derive(Debug)]
+enum MintRefused {
+    /// Not lowercase ASCII words joined by single `-`, the way every record here is named.
+    NotASlug(String),
+    /// A name the gate would refuse - unreachable while [`Minted::at`] and [`Id::of`] agree, and
+    /// checked so that a disagreement refuses here rather than in the merge queue.
+    Name(String, Refused),
+    /// `mkdocs.yml`'s `exclude_docs` block lists no `adr/` record to list this one beside.
+    NoExcludedRecord,
+    /// A read or write failed; the path is repo-relative. An existing record is `AlreadyExists`.
+    Io(String, std::io::Error),
 }
 
-/// `mkdocs.yml`'s text with `  adr/<name>` after the last record `exclude_docs` lists, or `None`
-/// when it lists none to sit beside. Every ADR is excluded from the site by a literal line, and
-/// `check-docs` refuses a page in neither `nav` nor that list.
+impl fmt::Display for MintRefused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotASlug(slug) => write!(f, "`{slug}` is not a slug - lowercase ASCII words joined by single `-`"),
+            Self::Name(name, refused) => write!(f, "{name}: {refused}"),
+            Self::NoExcludedRecord => f.write_str("mkdocs.yml: `exclude_docs` lists no `adr/` record to list this one beside"),
+            Self::Io(rel, why) => write!(f, "{rel}: {why}"),
+        }
+    }
+}
+
+fn is_slug(slug: &str) -> bool {
+    slug.split('-')
+        .all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+}
+
+/// `mkdocs.yml`'s text with `  adr/<name>` after the last record the `exclude_docs` block lists,
+/// or `None` when that block lists none to sit beside. Every ADR is excluded from the site by a
+/// literal line, and `check-docs` refuses a page in neither `nav` nor that list.
 fn excluded(text: &str, name: &str) -> Option<String> {
     let entry = format!("  adr/{name}");
     let mut lines: Vec<&str> = text.lines().collect();
-    let last = lines.iter().rposition(|line| line.starts_with("  adr/"))?;
-    lines.insert(last + 1, &entry);
+    let start = lines.iter().position(|line| line.starts_with("exclude_docs:"))? + 1;
+    let block = lines.iter().skip(start).take_while(|line| line.starts_with("  ")).count();
+    let last = lines
+        .get(start..start + block)?
+        .iter()
+        .rposition(|line| line.starts_with("  adr/"))?;
+    lines.insert(start + last + 1, &entry);
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
         out.push('\n');
@@ -227,16 +253,17 @@ fn excluded(text: &str, name: &str) -> Option<String> {
 ///
 /// The record is created exclusively BEFORE `mkdocs.yml` is touched, so a second mint of one name
 /// refuses without listing anything.
-fn mint(root: &Path, slug: &str, at: Minted) -> Result<String, String> {
-    if let Some(problem) = slug_problem(slug) {
-        return Err(problem);
+fn mint(root: &Path, slug: &str, at: Minted) -> Result<String, MintRefused> {
+    if !is_slug(slug) {
+        return Err(MintRefused::NotASlug(slug.to_owned()));
     }
     let name = format!("{at}-{slug}.md");
-    Id::of(&name).map_err(|refused| format!("{name}: {refused}"))?;
+    if let Err(refused) = Id::of(&name) {
+        return Err(MintRefused::Name(name, refused));
+    }
     let mkdocs = root.join("mkdocs.yml");
-    let text = std::fs::read_to_string(&mkdocs).map_err(|why| format!("mkdocs.yml: {why}"))?;
-    let listed = excluded(&text, &name)
-        .ok_or_else(|| String::from("mkdocs.yml: `exclude_docs` lists no `adr/` record to list this one beside"))?;
+    let text = std::fs::read_to_string(&mkdocs).map_err(|why| MintRefused::Io(String::from("mkdocs.yml"), why))?;
+    let listed = excluded(&text, &name).ok_or(MintRefused::NoExcludedRecord)?;
     let rel = format!("docs/adr/{name}");
     let words = slug.replace('-', " ");
     let mut title = words.get(..1).map_or_else(String::new, str::to_ascii_uppercase);
@@ -245,13 +272,15 @@ fn mint(root: &Path, slug: &str, at: Minted) -> Result<String, String> {
         "---\ntitle: {title}\ndescription: What this decides, and the issue it answers.\n---\n\n# {title}\n\n\
          Status: **proposed**.\n"
     );
-    std::fs::OpenOptions::new()
+    if let Err(why) = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(root.join(&rel))
         .and_then(|mut file| file.write_all(body.as_bytes()))
-        .map_err(|why| format!("{rel}: {why}"))?;
-    std::fs::write(&mkdocs, listed).map_err(|why| format!("mkdocs.yml: {why}"))?;
+    {
+        return Err(MintRefused::Io(rel, why));
+    }
+    std::fs::write(&mkdocs, listed).map_err(|why| MintRefused::Io(String::from("mkdocs.yml"), why))?;
     Ok(rel)
 }
 
@@ -286,7 +315,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
-    use super::{Id, Minted, Refused, mint};
+    use super::{Id, MintRefused, Minted, Refused, mint};
 
     /// Epoch seconds against the second `python3`'s `datetime.fromtimestamp(s, timezone.utc)`
     /// names, including a 29 February and the last second of a year.
@@ -319,10 +348,15 @@ mod tests {
 
     #[test]
     fn mint_writes_the_record_and_lists_it_once() {
+        // Two records, so "after the LAST one" is held, and an `adr/` line outside `exclude_docs`
+        // after the block, so the search is held to that block.
         let tree = crate::scratch_tree::Tree::of(
             "new-adr",
             &[
-                ("mkdocs.yml", b"exclude_docs: |\n  adr/0001-a.md\n  crap.md\n"),
+                (
+                    "mkdocs.yml",
+                    b"exclude_docs: |\n  adr/0001-a.md\n  adr/0002-b.md\n  crap.md\n\nnav:\n  adr/elsewhere.md\n",
+                ),
                 ("docs/adr/0001-a.md", b"x\n"),
             ],
         );
@@ -331,16 +365,20 @@ mod tests {
         assert_eq!(rel, "docs/adr/20260921141320-a-decision.md");
         let record = std::fs::read_to_string(tree.root().join(&rel)).expect("the record");
         assert!(record.contains("# A decision\n"), "{record}");
-        let listed = "exclude_docs: |\n  adr/0001-a.md\n  adr/20260921141320-a-decision.md\n  crap.md\n";
+        let listed = "exclude_docs: |\n  adr/0001-a.md\n  adr/0002-b.md\n  adr/20260921141320-a-decision.md\n  crap.md\n\n\
+                      nav:\n  adr/elsewhere.md\n";
         let mkdocs = || std::fs::read_to_string(tree.root().join("mkdocs.yml")).expect("mkdocs.yml");
         assert_eq!(mkdocs(), listed);
         // The same second again is refused before mkdocs.yml is touched.
         let again = mint(tree.root(), "a-decision", at).unwrap_err();
-        assert!(again.starts_with("docs/adr/20260921141320-a-decision.md: "), "{again}");
+        assert!(
+            matches!(&again, MintRefused::Io(path, why) if *path == rel && why.kind() == std::io::ErrorKind::AlreadyExists),
+            "{again:?}"
+        );
         assert_eq!(mkdocs(), listed);
         for slug in ["", "Upper", "two--dashes", "-leading", "trailing-", "an_underscore"] {
             let refused = mint(tree.root(), slug, at).unwrap_err();
-            assert!(refused.contains("is not a slug"), "{slug:?}: {refused}");
+            assert!(matches!(refused, MintRefused::NotASlug(_)), "{slug:?}: {refused:?}");
         }
     }
 }
