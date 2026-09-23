@@ -49,10 +49,12 @@ committed goldens pin what this renderer emits and nothing a database agreed to.
 
 **ClickHouse is the newest row and the one whose columns need reading together.** It executes: a
 `kind: clickhouse` source is declarable and openable by a build carrying the `clickhouse` feature,
-which is default-off and in no published binary. Two things the `Executes` column does NOT say about
-it: no golden or differential suite runs a corpus question against a real ClickHouse (no
-`clickhouse-tier.nix` exists, so the `data_systems:` axis of the golden matrix has no entry for it
-and `check-conformance-bindings` therefore has nothing to bind), and `Warehouse::EXECUTES_LEGS` is
+which is default-off and in no published binary. The golden and differential suites run the example
+corpus against a real ClickHouse - the server `nix/clickhouse-tier.nix` starts beside the Postgres
+tier - and pin its rows, refusals, error and anchor report. Two things the `Executes` column does
+NOT say about it: the conformance packs are not bound, because that corpus measured two wrong
+answers a fix has to land for first (an `Int64` sum that wraps, a decimal that loses its trailing
+zero - `check-conformance-bindings` carries the declaration), and `Warehouse::EXECUTES_LEGS` is
 absent on the adapter - so a federated question involving a ClickHouse source is still refused by
 the capability gate. Its identity column is the static half and stays there until an adapter change:
 `NoPlaceForASubject`, so an `impersonation-at-source` declaration on this kind is refused at the

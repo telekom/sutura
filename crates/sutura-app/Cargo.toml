@@ -55,6 +55,11 @@ sutura-exec-duckdb = { workspace = true }
 # `fixtures` for `PostgresWarehouse::local_config`, which the adapters harness below opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
+# A fifth DATA SOURCE, over HTTP, and a development dependency for Postgres's reason: it proves the
+# ClickHouse statement we render is accepted by a real ClickHouse and answers the same rows. Its
+# cells run against the worktree's `nix/clickhouse-tier.nix` server and skip where none is up.
+# `fixtures` for the tier's credential, its per-open database and the CSV importer.
+sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 # A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
 # Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
 # reserves its registration point. `available()` answers `false` unconditionally - like BigQuery,

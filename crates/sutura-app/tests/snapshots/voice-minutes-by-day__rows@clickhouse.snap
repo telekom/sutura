@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	voice_minutes
+Text(2026-06-01)	Real(7.577000000000e2)
+Text(2026-06-02)	Real(6.287000000000e2)
+Text(2026-06-03)	Real(7.132000000000e2)
+Text(2026-06-04)	Real(7.942000000000e2)

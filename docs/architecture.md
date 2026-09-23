@@ -531,8 +531,8 @@ that includes one per refusal. Beside them, four checks that are assertions rath
   generator writes `x IS TRUE` without ever consulting its own flag for whether a dialect allows
   that - so a construct like that parses under all three targets whatever a real instance would say.
   Acceptance is vouched for by execution instead: by the anchors, and by one plan run both ways over
-  a real DuckDB and the real engine, rows compared. For Postgres, ClickHouse and Oracle we render
-  and parse-check, and nothing more.
+  a real DuckDB and the real engine, rows compared - and for Postgres and ClickHouse the same, against
+  the server each one's nix tier starts. For Oracle we render and parse-check, and nothing more.
 - **Every declared anchor re-executes and reproduces its number**, and a bundle whose anchors were not
   all checked cannot be served, because there is no constructor that produces one.
 
