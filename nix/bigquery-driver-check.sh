@@ -69,7 +69,6 @@ CASES
     # all: a missing line is fail-closed either way, so only the reported cause can be wrong, and a
     # wrong cause is what sent a reader of #929's first run looking at `doctor`'s shape instead of
     # at a binary that did not start.
-    local said
     while IFS='|' read -r expected status line; do
         [ -n "$expected" ] || continue
         said="$(why_no_line "$status" "$line")"
@@ -82,8 +81,9 @@ CASES
             ;;
         esac
     done <<'REASONS'
-died on signal 11|139|sutura 0.1.0
-died on signal 6|134|
+exited 139, which is signal 11|139|sutura 0.1.0
+exited 134, which is signal 6|134|
+exited 129, which is signal 1|129|
 exited 1|1|sutura 0.1.0
 printed nothing at all|0|
 stopped printing this one|0|sutura 0.1.0
@@ -108,7 +108,9 @@ REASONS
 why_no_line() {
     local status="$1" output="$2"
     if [ "$status" -gt 128 ]; then
-        printf 'it died on signal %s' "$((status - 128))"
+        # A shell reports a signal death as 128 + the signal, and a process may also exit with such
+        # a code on its own - so the number is named as both, and the output below decides.
+        printf 'it exited %s, which is signal %s if a signal ended it' "$status" "$((status - 128))"
     elif [ "$status" -ne 0 ]; then
         printf 'it exited %s' "$status"
     elif [ -z "$output" ]; then
@@ -129,6 +131,8 @@ why_no_line() {
 # output that would have said how far the command got was never held. The requirement is unchanged -
 # `verdict` still decides and a missing line is still fail-closed - but a red now carries what it
 # takes to act on it, and `2>&1` is part of that, because a panic or a runtime abort writes there.
+# That last part is held by review only: `self_check` classifies a status and an output it is given
+# and never runs a binary, so capturing stdout alone would pass it.
 line_for() {
     local binary="$1" output line status=0
     output="$(env -u SUTURA_BIGQUERY_ADBC_DRIVER "$binary" doctor 2>&1)" || status=$?
