@@ -780,9 +780,9 @@ not constants** - `DEFAULT_TIMEOUT_SECONDS` and `DEFAULT_MAX_RESPONSE_BYTES` are
 composition root's settings default to, following `sutura-config`'s own convention of a default
 function per optional key, not a value baked into this type. `read` makes
 up to three requests and shares ONE deadline across them - opened once, and what is left after
-the first two requests is what the third gets - the same shape `sutura-exec-bigquery`'s
-`CallDeadline` holds for a job's token exchange and its query, and for the same reason: a budget
-opened per request lets three independent timeouts sum to three times what a deployment declared.
+the first two requests is what the third gets - the same shape `sutura_domain::warehouse::deadline::Deadline`
+holds for a job's execution, and for the same reason: a budget opened per request lets three
+independent timeouts sum to three times what a deployment declared.
 
 # Auth
 
@@ -869,8 +869,8 @@ pub struct ReadBounds
 What one `HttpAspectReader::read` call may spend: a request timeout and a response-size cap.
 
 A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
-`sutura_exec_bigquery::wire::JobBounds`'s own shape, minus the money bound this read has no use
-for (a metadata read is not billed).
+a request timeout paired with a response-size cap, and no money bound: a metadata read is not
+billed.
 
 #### Methods
 
@@ -933,7 +933,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
 - `DeadlineSpent` - The shared budget was gone before this entity's page could be requested.
 - `Unreachable` - The entity's page was not reached.
 - `Unreadable` - The entity's page was reached and its answer could not be read.
-- `Refused` - `DataHub` refused the request. `Display` renders the status and never `detail` - the same rule `sutura_exec_bigquery::wire::WireError::Refused` holds, and for the same reason: a cause-chain walk that flattens every link with `Display` must not carry endpoint-owned text.
+- `Refused` - `DataHub` refused the request. `Display` renders the status and never `detail`, because a cause-chain walk that flattens every link with `Display` must not carry endpoint-owned text.
 - `TooLarge` - The page was larger than the cap this reader will read.
 - `NotADocument` - The page was not a JSON document.
 - `UnexpectedShape` - One entity's aspect did not carry a field this reader expects, or carried it in a shape it does not recognise.
@@ -1067,10 +1067,9 @@ request timeout in front of it cannot answer inside the budget the caller was pr
 
 The recommended default response-size cap, in bytes, for a composition root's settings default.
 
-One quarter of `sutura_exec_bigquery::wire::MAX_ANSWER_BYTES`: a metadata page is descriptions,
-column names and one metric document, not query rows, and what this defends against is the same
-case that constant does - something that is not the endpoint answering - rather than a
-realistic upper bound on a legitimate page.
+A metadata page is descriptions, column names and one metric document, not query rows, so what
+this defends against is something that is not the endpoint answering at all - a redirect loop,
+a proxy gone wrong - rather than a realistic upper bound on a legitimate page.
 
 ## Module `test_support`
 

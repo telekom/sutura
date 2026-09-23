@@ -122,9 +122,10 @@ pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
 
 /// The `workload_identity` block an `impersonation-at-source` source must now declare.
 ///
-/// Issue 87 made the declaration required (an exchanging broker has to know which provider it hands
-/// a subject's token to), and these fixtures thread it through so the test reaches the refusal it is
-/// actually about rather than stopping at the settings tree.
+/// Issue 87 made the declaration required (the ADBC transport's credential document names the
+/// pool a subject's assertion federates against, and that pool is this key), and these fixtures
+/// thread it through so the test reaches the refusal it is actually about rather than stopping at
+/// the settings tree.
 fn wif() -> &'static str {
     "    workload_identity:\n      audience: \
      \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\

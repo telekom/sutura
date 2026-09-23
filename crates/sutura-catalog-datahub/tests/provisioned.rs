@@ -138,9 +138,8 @@ mod tests {
             .map(ToString::to_string)
     }
 
-    /// Built the way `sutura_exec_bigquery::wire::WireAgent::pinned` builds one, minus `https_only`:
-    /// this is loopback plaintext by construction, because the tier publishes an ephemeral HTTP
-    /// port.
+    /// A plain `ureq::Agent`, with no `https_only`: this is loopback plaintext by construction,
+    /// because the tier publishes an ephemeral HTTP port.
     ///
     /// `status_as_error` is the one knob, and it is a knob because the two cells need opposite
     /// halves of `ureq` 3's default. The reachability probe wants a non-2xx to arrive as an `Err`

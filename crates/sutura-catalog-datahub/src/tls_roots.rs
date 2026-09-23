@@ -22,7 +22,7 @@
 //!
 //! **Why the conversion lives in this crate and not in `sutura-tls`.** `sutura-tls` depends on
 //! `rustls-pki-types` only, never on a network client - `sutura_exec_postgres::tls` folds the same
-//! loaded certificates into a `rustls::RootCertStore` instead, and `sutura_exec_bigquery::wire::tls`
+//! loaded certificates into a `rustls::RootCertStore` instead, and `sutura_exec_clickhouse::tls`
 //! makes the same ureq fold this module does. Sharing stops at "these are the bytes the declaration
 //! named"; which library reads them is each adapter's own decision, stated in `sutura-tls`'s own
 //! module header.
@@ -35,12 +35,14 @@
 //! the one pair of constructors `ureq` actually exposes, which recover the kind from the PEM label
 //! themselves. [`sutura_tls::LoadedIdentity::key_kind`] is what chooses that label.
 //!
-//! > **The fold is nearly verbatim the same as `sutura_exec_bigquery::wire::tls::{root_certs,
-//! > client_cert, pem}`.** `jscpd` does not flag it - both folds sit below its 30-line / 250-token
-//! > floor (`xtask/src/jscpd.rs`), not above an unflagged threshold. The only honest dedupe would
-//! > be a shared leaf that hosts the ureq-specific mapping itself, which cannot live in
-//! > `sutura-tls` without the `ureq -> rustls -> ring` edge `check-boundaries` forbids - declined
-//! > here, the same argument that already declined it for the anchors half.
+//! > **The key half of the fold is the same shape `sutura_exec_clickhouse::tls`'s `owned_key`
+//! > re-armors for** - the same `ureq::tls::KeyKind` limitation this module's own header states -
+//! > though that crate's certificates go through `Certificate::from_der` directly rather than a
+//! > second PEM round trip. `jscpd` does not flag either against the other; both sit below its
+//! > 30-line / 250-token floor (`xtask/src/jscpd.rs`), not above an unflagged threshold. The only
+//! > honest dedupe would be a shared leaf that hosts the ureq-specific mapping itself, which
+//! > cannot live in `sutura-tls` without the `ureq -> rustls -> ring` edge `check-boundaries`
+//! > forbids - declined here, the same argument that already declined it for the anchors half.
 
 use sutura_tls::LoadedAnchors;
 
@@ -64,9 +66,8 @@ pub(super) fn config(anchors: Option<LoadedAnchors>, identity: Option<sutura_tls
 }
 
 /// The one conversion: a loaded client identity's chain and key, each armored as PEM and handed to
-/// `ureq`'s own PEM parser, collected into a [`ureq::tls::ClientCert`] - verbatim
-/// `sutura_exec_bigquery::wire::tls::client_cert`, see this module's own header for why PEM and
-/// why the duplication is declined rather than shared.
+/// `ureq`'s own PEM parser, collected into a [`ureq::tls::ClientCert`] - see this module's own
+/// header for why PEM and for the one other crate whose key half takes the same route.
 #[expect(
     clippy::unreachable,
     reason = "sutura_tls already parsed this identity once; re-armoring its own DER as PEM and \
@@ -97,8 +98,7 @@ fn client_cert(identity: sutura_tls::LoadedIdentity) -> ureq::tls::ClientCert {
     ureq::tls::ClientCert::new_with_certs(&certificates, private_key)
 }
 
-/// Armors raw DER as PEM under `label`, wrapped at 64 base64 columns - verbatim
-/// `sutura_exec_bigquery::wire::tls::pem`.
+/// Armors raw DER as PEM under `label`, wrapped at 64 base64 columns.
 fn pem(label: &str, der: &[u8]) -> String {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(der);

@@ -115,8 +115,8 @@ pub fn config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<ur
 }
 
 /// `sutura_tls::LoadedAnchors`'s `CertificateDer` bytes, each turned into an owned
-/// `ureq::tls::Certificate` - the same conversion `sutura_exec_bigquery::wire::tls` makes for its
-/// own (anchors-only) TLS configuration.
+/// `ureq::tls::Certificate` - the same conversion `sutura_catalog_datahub::tls_roots` makes for
+/// its own `ureq`-backed reader.
 fn owned_certificates(loaded: sutura_tls::LoadedAnchors) -> Vec<ureq::tls::Certificate<'static>> {
     owned_certificates_from(loaded)
 }
