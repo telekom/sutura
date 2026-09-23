@@ -204,7 +204,8 @@ kinds of thing: `sutura-exec-datafusion` is **the engine** - it reads the CSV an
 itself, executes the plan over Arrow and generates no SQL, and it is what the shipped binary links;
 `sutura-exec-duckdb` is a **data source** - it renders the plan into `DuckDB` SQL and pushes the
 statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
-Postgres and ClickHouse are rendered for and parse-checked without either being connected to.
+Postgres and ClickHouse are rendered for and parse-checked, and the golden suite also executes the
+example corpus against each - a server their nix tier starts beside the suite.
 
 A plan resolves to **one** data system per leg. Spanning two is not a bigger version of the same
 problem: it is a second identity to satisfy, and a plan whose legs cannot all run as one subject is

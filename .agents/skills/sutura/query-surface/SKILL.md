@@ -236,19 +236,16 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   rather than off a manifest. The `data_systems:` golden axis therefore gains no entry - that
   registry's rule is that a cell which cannot execute reads as coverage. The DIALECT axis does have
   one.
-- **The ClickHouse adapter is a whole adapter that no composition root links.** Everything above
-  the wire is decided and tested against a fake; the wire exists (`ureq` over HTTP, no feature gate
-  - the crate is not published, so there is no artifact to keep a TLS stack out of); and a real
-  ClickHouse has accepted the rendered statement in a manually-run measurement
-  (`github.com/telekom/sutura#920`/`#919`). **What has not happened: no composition root names a
-  `kind: clickhouse` source, no published artifact links the crate, and no nix-native execution
-  venue exists** - `compose.services.yaml`'s `clickhouse` service is a docker-compose tier a person
-  brings up by hand, and no `clickhouse-tier.nix` provisions one the way `nix/postgres-tier.nix` does,
-  so the nix sandbox `just validate` runs in cannot reach one. The DIALECT golden axis declares an
-  `Evidence::RenderOnly { venue: Venue::ByHandOnly, .. }` arm for this rather than an
-  execution entry, for the same reason - and that arm is CHECKED against the tree: it asserts the
-  adapter crate is present, that `compose.services.yaml` names the service, that no
-  `clickhouse-tier.nix` exists under `nix/` and that no execution golden does either. So a tier arriving
-  reddens the declaration instead of leaving a stale sentence.
+- **The ClickHouse adapter executes the golden corpus, and no release links it.** The golden matrix
+  registers it and runs the example corpus against the server `nix/clickhouse-tier.nix` starts - in
+  `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
+  `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
+  (`github.com/telekom/sutura#920`). **What that does not reach:** one server version, the one the
+  pinned nixpkgs carries; the conformance packs, declared unbound in `xtask/src/conformance/
+  reconcile.rs` because their corpus measured an `Int64` sum that wraps silently and a decimal that
+  loses its trailing zero - wrong answers the golden corpus's small integers and doubles never
+  provoke; and any release, because `sutura-cli`'s `clickhouse` feature is default-off and absent
+  from `nix/shipped.nix`. Both venues - this tier and `compose.services.yaml`'s docker service -
+  publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

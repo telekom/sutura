@@ -829,6 +829,7 @@ jobs:
           TIERS: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' }}
           IDENTITY: ${{ steps.classify.outputs.identity }}
           POSTGRES: ${{ steps.classify.outputs.data_source_postgres }}
+          CLICKHOUSE: ${{ steps.classify.outputs.data_source_clickhouse }}
         with:
           label: test graph
           run: |-
@@ -842,6 +843,9 @@ jobs:
             fi
             if [ "$TIERS" = "true" ] || [ "$POSTGRES" = "true" ]; then
               checks+=(.#checks.x86_64-linux.postgres-tier)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$CLICKHOUSE" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.clickhouse-tier)
             fi
             if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
             if [ "${#checks[@]}" -eq 0 ]; then
@@ -886,6 +890,12 @@ jobs:
       - name: Postgres tier
         if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true'
         run: nix build .#checks.x86_64-linux.postgres-tier -L
+
+      # The ClickHouse tier's state machine, for the Postgres tier's reason and gated the same way
+      # on its own category. The golden cells it serves run in `Tests` above, which starts this tier.
+      - name: ClickHouse tier
+        if: steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true'
+        run: nix build .#checks.x86_64-linux.clickhouse-tier -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.

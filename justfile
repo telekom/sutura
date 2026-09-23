@@ -240,7 +240,7 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier served-proof-tier postgres-tier helm-chart adbc-driver-bigquery; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier served-proof-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -472,6 +472,11 @@ docs-deploy version="local":
 # What is published, per mike.
 docs-list:
     pixi run --frozen -e docs docs-list
+
+# Named by the UTC second, never the next ordinal, so two branches do not contend for one (#937).
+# A new ADR: docs/adr/<YYYYMMDDHHMMSS>-<slug>.md, listed under exclude_docs in mkdocs.yml.
+new-adr slug:
+    cargo run -q -p xtask -- new-adr {{ quote(slug) }}
 
 # Nightly on purpose: `--output-format json` is an unstable rustdoc option, and the dev shell's bare
 # cargo IS the nightly pin. The renderer runs in the DEFAULT pixi env, not `docs` - it is a plain
@@ -731,6 +736,11 @@ keycloak-docker-tier *args:
 # The Postgres tier, by hand: `just postgres-tier start|stop|status|credentials`.
 postgres-tier *args:
     sutura-postgres-tier {{ args }}
+
+# The ClickHouse tier, by hand: `just clickhouse-tier start|stop|status|credentials` - the same
+# script `nix/with-tier.sh` and `checks.nextest` start, on PATH from the dev shell.
+clickhouse-tier *args:
+    sutura-clickhouse-tier {{ args }}
 
 # ------------------------------------------------------- the compose tier ---
 #

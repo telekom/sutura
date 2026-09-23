@@ -763,10 +763,20 @@ mod tests {
         // dropped call does not. Measured before the check moved into `tree_problems`: replacing
         // `problems.extend(refuted)` in `run` left 1023 tests green and the gate at exit 0 over a
         // planted refutation, byte-identical to a clean run.
-        let files = vec![rel];
+        // THE ADR HALF (`github.com/telekom/sutura#937`): a record named by a new ordinal. Empty, so
+        // it adds a page and nothing else; dropping `adr_number_problems` from `page_problems` left
+        // every test green until this.
+        let record = String::from("docs/adr/0041-x.md");
+        std::fs::create_dir_all(dir.join("docs/adr")).expect("the fixture's docs/adr");
+        std::fs::write(dir.join(&record), "").expect("the fixture record");
+        let files = vec![rel, record];
         let (problems, counts, read, scan) = super::tree_problems(&dir, &files, &files);
         std::fs::remove_dir_all(&dir).unwrap_or_default();
-        assert_eq!(counts.read, 1, "the fixture page was lexed");
+        assert_eq!(counts.read, 2, "the fixture page and record were lexed");
+        assert!(
+            problems.iter().any(|p| p.contains("0041 is a new ordinal")),
+            "the ADR name rule must reach the run: {problems:#?}"
+        );
         assert!(
             problems.iter().any(|p| p.contains("reads as the fourth amendment")),
             "the sequence rule must reach the run: {problems:#?}"

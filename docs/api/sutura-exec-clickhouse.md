@@ -30,15 +30,12 @@ no C TLS library, and this crate's own `tls` module (over `sutura-tls`) is what 
 
 `transport::ClickHouseTransport` is the port this adapter's own port methods call through -
 `transport::Http` for a real connection, and a canned implementor for the
-crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does: no
-venue that runs `just validate` can reach a live `ClickHouse` (`compose.services.yaml`'s
-`clickhouse` service is a docker-compose tier; the nix sandbox has no docker socket and no
-`clickhouse-tier.nix` exists), so a binding that dialled out would either panic in every
-such venue or have to declare itself absent - and `sutura_conformance::venue::
-refuse_a_declared_absence` fires against an absent fixture whenever `SUTURA_DEV_REQUIRE_TIER`
-is set, which it is inside `checks.nextest` because the Postgres tier is up there, a fact
-about THAT tier and not about this one. A canned transport sidesteps the question entirely:
-Nothing here claims to be a live endpoint.
+crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does:
+the port's decisions - rendering, the refusals, the decode - are held by cells that need no
+server, so they run on every build. What a SERVER answers is held elsewhere: the golden matrix in
+`sutura-app`'s tests loads the example corpus into the server `nix/clickhouse-tier.nix` starts
+(through `fixture`, behind the default-off `fixtures` feature) and pins the rows, refusals,
+error and anchor report it answers - in `checks.nextest` and under `just test`.
 
 `Warehouse::Error` for this adapter is `ClickHouseError`, generic over `T::Error` - the same
 shape `sutura_exec_bigquery::BigQueryError<E>`
@@ -67,17 +64,18 @@ answers the column type's default - `''` for a `String` - where the SQL standard
 Measured by hand against the pinned compose server over the example corpus: 6 of the 23
 questions with a committed `@duckdb` row golden disagreed without it, 0 with it, under a
 non-`Nullable` schema; under `Nullable` columns the setting changes nothing, so a fixture
-importer's type choice decides whether the defect shows. `timeout_overflow_mode=throw`: `break`
-answers a spent `max_execution_time` with HTTP 200 and the rows read so far. No leg of `just
-validate` reaches a `ClickHouse`, so a unit cell holds what is sent, not what a server answers.
+importer's type choice decides whether the defect shows - `fixture` declares no column
+`Nullable` for that reason. `output_format_json_quote_denormals=1`: under the default `0` an
+infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `break` answers a spent
+`max_execution_time` with HTTP 200 and the rows read so far. A unit cell holds what is sent; the
+executed goldens hold what the first two settings make the server answer, and nothing executed
+holds the third.
 
 # What is NOT here
 
-**No composition root links this crate.** Nothing in `sutura-cli`'s `sources.rs` or `serve`
-module names a `kind: clickhouse`, so no served deployment can reach a `ClickHouse` source
-today. `crate-map`'s rule is a default-off feature on whichever composition root wants to
-serve one, and none does yet. Wiring that in is a `sutura-cli` change, out of this crate's
-own scope.
+**No release links this crate.** `sutura-cli` opens a `kind: clickhouse` source behind its
+default-off `clickhouse` feature, which `nix/shipped.nix` does not enable - see that feature's
+own manifest entry for why.
 
 **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default)
 and **no leg execution** (`Warehouse::EXECUTES_LEGS` stays at its `false` default, so
@@ -133,6 +131,26 @@ canned implementor with no live endpoint; see this crate's own header.
 ### Methods
 
 ```rust
+pub fn connect_in_database(source: SourceName, posture: SourcePosture, endpoint: Endpoint, auth: BasicAuth, database: &str) -> Result<Self, FixtureError>
+```
+
+Opens the adapter over `endpoint`, resolving every unqualified table name in `database`.
+
+The database is created here if absent, so several opens can share one server without
+clobbering each other's tables. `sutura_exec_postgres::PostgresWarehouse::connect_in_schema`'s
+shape, over a database because that is `ClickHouse`'s namespace for a table.
+
+```rust
+pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
+```
+
+Exposes a fixture CSV as a table.
+
+Columns are typed by `csv::infer` (see the module header for the one deliberate
+departure), the table is recreated, then the file is sent as the body of an
+`INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
+
+```rust
 pub const fn of(source: SourceName, posture: SourcePosture, transport: T) -> Self
 ```
 
@@ -142,6 +160,106 @@ connection, and a fake for the conformance pack.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## Module `fixture`
+
+The fixture tier: its credential, a private database per open, and a corpus CSV as a table.
+
+Behind the default-off `fixtures` feature, like `sutura_exec_postgres::fixture`, and for its
+reason: nothing here belongs in a composition root, and `--all-features` compiles, lints and
+tests it on every run.
+
+# The credential is configured or refused by name
+
+`nix/clickhouse-tier.nix` generates a password per start and prints the two exports from
+`sutura-clickhouse-tier credentials`; `nix/with-tier.sh` and `checks.nextest` evaluate them where
+they export `SUTURA_DEV_REQUIRE_TIER`. Nothing here defaults a value - the shape
+`sutura_exec_postgres::fixture` records the defect of - so an unset or blank variable is a
+`UnconfiguredFixture` naming it.
+
+# Column types: the golden matrix's, not the conformance path's
+
+`sutura_domain::warehouse::csv::infer` classifies each column. Its `Decimal` is attached as
+`Float64` HERE, deliberately: the matrix's other adapters attach a fractional column as a
+double (`DuckDB`'s `read_csv_auto`, `sutura_exec_postgres`'s `load_csv`, the engine's Arrow
+inference), so a `Decimal` column here would answer the same question as text rather than as a
+real and differ from all three for a reason that is the importer's, not the server's.
+
+**No column is `Nullable`, and an empty cell is refused.** `transport`'s `JOIN_USE_NULLS` is
+measured to matter only over a non-`Nullable` schema, so a nullable importer would make the
+executed goldens blind to that setting. And a non-`Nullable` column reads an empty CSV cell as
+the type's default - `0`, `''` - where every other adapter reads `NULL`: a silently different
+fixture. No committed fixture has one; a future one is refused rather than rewritten.
+
+### `enum FixtureVariable`
+
+```rust
+pub enum FixtureVariable
+```
+
+One of the two values the `ClickHouse` fixture tier publishes into the environment.
+
+#### Variants
+
+- `User` - The user the tier's `users.xml` declares.
+- `Password` - That user's password, generated per start by `nix/clickhouse-tier.nix`.
+
+#### Methods
+
+```rust
+pub const fn name(self) -> &'static str
+```
+
+The environment variable's name, spelled once.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Hash`, `PartialEq`
+
+### `enum UnconfiguredFixture`
+
+```rust
+pub enum UnconfiguredFixture
+```
+
+Why there is no fixture credential to connect with. No variant carries a substitute.
+
+#### Variants
+
+- `Unset`
+- `Blank`
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum FixtureError`
+
+```rust
+pub enum FixtureError
+```
+
+Why the fixture tier could not be given a table.
+
+#### Variants
+
+- `InvalidDatabaseName` - A database name reaches `CREATE DATABASE` as an identifier, so it has to be a word.
+- `Read`
+- `Schema`
+- `EmptyCell` - See the module header: a non-`Nullable` column would read this cell as a type default.
+- `Server`
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `fn credential_from_env`
+
+```rust
+pub fn credential_from_env() -> Result<crate::transport::BasicAuth, UnconfiguredFixture>
+```
+
+This process's fixture credential, as the tier exported it.
 
 ## Module `tls`
 
@@ -252,9 +370,8 @@ The seam this adapter's `execute`/`verify_anchor`/`declared_key` call through.
 
 `Http` is the one implementor a real connection uses, and the crate's own unit tests bind
 the port to a CANNED implementor instead, over the exact same trait - the shape
-`sutura-exec-bigquery`'s `JobTransport` already established for the identical reason (no live
-server this repository can reach in every venue that runs the suite; see this crate's own
-`lib.rs` header).
+`sutura-exec-bigquery`'s `JobTransport` already established; see this crate's own `lib.rs`
+header for where `Http` itself is executed.
 
 `ClickHouseTransport::run` takes the RENDERED statement and its bound `ParamValue`s
 untouched - never a rewritten string - so what each implementor does with them is its own

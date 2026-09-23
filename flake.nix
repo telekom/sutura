@@ -250,6 +250,9 @@
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+        # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
+        # start the same script, so the golden matrix's `clickhouse` cells execute in both.
+        clickhouseTier = import ./nix/clickhouse-tier.nix { inherit pkgs; };
 
         # The identity provider's CI venue, on the same pattern and from the same one file the
         # `keycloak-tier` app runs, so the sandbox and a developer's shell cannot drift.
@@ -620,7 +623,7 @@
             # binding out of it the same way. A claim cell over that lexed text would only prove
             # the declaration still names `git`, not that the 23 test cells above still need it -
             # not done here, so what is left is this comment: recall, not a mechanism.
-            nativeCheckInputs = [ postgresTier.tier pkgs.git pkgs.python3 ];
+            nativeCheckInputs = [ postgresTier.tier clickhouseTier.tier pkgs.git pkgs.python3 ];
             # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
             # the postgres corpus and differential cells run HERE (in this single sandboxed test
             # pass) rather than in a separate `nix develop` job. `ciArtifacts` - the expensive
@@ -633,8 +636,11 @@
             # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` just as `nix/with-tier.sh`
             # carries them into `just test`. `runHook preCheck` evaluates in the phase shell, so
             # exports there reach the tests.
-            preCheck = "${pkgs.python3}/bin/python3 -m unittest demo.test_behavior -v && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\"";
-            postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
+            # The ClickHouse tier beside it, started and credentialed the same way: the requirement
+            # below is one flag for every tier, so a tier this sandbox did not start would fail its
+            # cells closed rather than skip them.
+            preCheck = "${pkgs.python3}/bin/python3 -m unittest demo.test_behavior -v && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
           });
 
@@ -656,6 +662,11 @@
           # `nix/postgres-tier.nix` beside the script it drives - the declaration stays here,
           # because two xtask gates read this block textually.
           postgres-tier = postgresTier.check;
+
+          # The ClickHouse tier's state machine, for the same reason as Postgres's: `checks.nextest`
+          # starts and stops it, which says a server came up and nothing more. Body in
+          # `nix/clickhouse-tier.nix`.
+          clickhouse-tier = clickhouseTier.check;
 
           # The two release-only assertions about a SHIPPED ARTEFACT - one executable per
           # package, and which features it links - are in `nix/shipped.nix`, beside the list

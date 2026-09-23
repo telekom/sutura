@@ -9,6 +9,7 @@
 //! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
 mod action_shell;
+mod adr;
 mod answer_path_cache;
 mod api_docs;
 mod api_links;

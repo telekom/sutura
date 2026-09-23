@@ -319,9 +319,11 @@ where
             rendered.contains("division by zero"),
             "postgres neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
         ),
-        // The engine and DuckDB divide with IEEE semantics and receive a non-finite value, which
-        // the adapter refuses NAMING THE COLUMN - the strong assertion kept for the adapters that
-        // can make it.
+        // The engine, DuckDB and ClickHouse divide with IEEE semantics and receive a non-finite
+        // value, which the adapter refuses NAMING THE COLUMN - the strong assertion kept for the
+        // adapters that can make it. ClickHouse reaches it only because it asks for the value as
+        // text: its default answers an infinite float as the JSON `null` (`transport`'s
+        // `JSON_QUOTE_DENORMALS` in `sutura-exec-clickhouse`).
         adapter => {
             let expected = format!("column {}", january.metric());
             assert!(

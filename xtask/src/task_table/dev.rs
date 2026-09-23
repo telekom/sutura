@@ -6,7 +6,7 @@
 
 use crate::registry::{Falsifier, Kind, Reads, Task};
 use crate::run_hygiene;
-use crate::{causality, compose, fmt, fuzz};
+use crate::{adr, causality, compose, fmt, fuzz};
 
 /// The falsifier seed for `check-claim-mutations` (`github.com/telekom/sutura#950`): a committed
 /// patch that is not a `git apply`-able diff at all, so the gate's own rule - not an absent
@@ -65,6 +65,15 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: compose::run_endpoint,
+    },
+    Task {
+        // It WRITES the record and its `exclude_docs` line, so it is an action, not a gate. The
+        // rule it serves is `check-guidance`'s, which reads the same `adr::Id` parse.
+        name: "new-adr",
+        description: "mint docs/adr/<UTC second>-<slug>.md and list it in mkdocs.yml; <slug>",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: adr::run,
     },
     Task {
         name: "fmt",

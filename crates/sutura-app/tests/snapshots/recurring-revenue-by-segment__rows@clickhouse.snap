@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+segment	period	recurring_revenue
+Text(business)	Text(2026-06-01)	Integer(66630)
+Text(consumer)	Text(2026-06-01)	Integer(123119)
+Text(wholesale)	Text(2026-06-01)	Integer(7373)
+Null	Text(2026-06-01)	Integer(4999)

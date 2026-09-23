@@ -872,7 +872,9 @@ panic-free.
   that directory beside a `0037-a-real-record.md` read as *not judged* and the sweep printed `ok`
   over a real collision, measured on `d5d0448e`. The name is refused now. A reserved-number comment
   is not a mechanism - it cannot see an unpushed branch, and three ordinals were claimed twice while
-  it was the only thing behind them.
+  it was the only thing behind them. So the ordinals are FROZEN (`xtask/src/adr.rs`) and a new
+  record is `just new-adr <slug>`, named by its UTC second; the same rule refuses a new ordinal.
+  **Limit:** two branches minting in one second still collide, and that is still the queue's catch.
 - **`nix` is the only pin for a tool whose version changes what it reports.** `check-pins` fails if
   a tool appears in both nix and pixi, because two pins are one pin nobody trusts.
 - **`check-gate-classification` holds an argument, and stops short of the inputs it argues about.**

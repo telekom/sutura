@@ -104,6 +104,9 @@
 #
 # Exports `SUTURA_DEV_REQUIRE_TIER=1` exactly when a tier is up afterwards.
 sutura_tier_up() {
+    # What the EXIT trap tears down, grown by each tier this shell starts - one trap, because a
+    # second `trap ... EXIT` would replace the first rather than add to it.
+    sutura_tier_teardown=''
     if ! command -v sutura-postgres-tier >/dev/null 2>&1; then
         echo "with-tier: no sutura-postgres-tier on PATH - the postgres cells will be vacuous."
         echo "           They run in \`checks.nextest\` and in the dev shell; CI is authoritative."
@@ -160,8 +163,8 @@ sutura_tier_up() {
             ;;
         *)
             sutura-postgres-tier start
-            # Single quotes on purpose: the trap body is evaluated at exit and takes nothing from
-            # here that could go stale.
+            # A literal teardown, and a trap that reads it only at exit - so a later tier that
+            # prepends its own stop (`sutura_clickhouse_tier_up`) is in the one trap that runs.
             #
             # **`|| true` is the load-bearing token here, and the sentence it replaced was false.**
             # That sentence said an EXIT trap cannot change the exit status of a shell that is
@@ -188,9 +191,11 @@ sutura_tier_up() {
             # `checks.postgres-tier` drives a failed stop THROUGH this trap and asserts the
             # subshell keeps the status its body chose, so this is held rather than remembered -
             # delete the `|| true` and that arm goes red.
-            trap 'sutura-postgres-tier stop || true' EXIT
+            sutura_tier_teardown='sutura-postgres-tier stop || true'
+            trap 'eval "$sutura_tier_teardown"' EXIT
             ;;
     esac
+    sutura_clickhouse_tier_up || return 1
     export SUTURA_DEV_REQUIRE_TIER=1
     # AND THE CREDENTIAL, for the reason the line above exists: the adapter cannot default one any
     # more (`github.com/telekom/sutura#455` - it used to substitute `sutura`/`sutura`/`sutura` from a
@@ -216,4 +221,50 @@ sutura_tier_up() {
     # file has no business deriving the path a second time.
     eval "$published"
     export SUTURA_POSTGRES_TIER_USER SUTURA_POSTGRES_TIER_PASSWORD SUTURA_POSTGRES_TIER_DB
+}
+
+# The ClickHouse tier, beside the Postgres one and under the same rules: read its three-answer
+# `status`, start only what the suite would not find, tear down only what this shell started, and
+# export the credential it published. Called from `sutura_tier_up`, before the requirement is
+# exported, because that flag is ONE flag for every tier - so with it set, a `clickhouse` cell over
+# a tier nothing started fails closed rather than skipping.
+#
+# **A missing `sutura-clickhouse-tier` is not a wall here, and it is not a skip either.** Only a dev
+# shell entered before the tier existed lacks it; this prints the fix and carries on, and the
+# `clickhouse` cells then fail closed under the requirement the Postgres tier exports - loud, and
+# naming the absent service. `checks.postgres-tier` sources this file with no ClickHouse tier on
+# PATH, which is the arm that has to stay quiet enough not to fail that check.
+#
+# **Every step that can fail says `|| return 1` itself**, because the caller's `|| return 1` puts
+# this whole body in a context where bash suspends errexit - a failed `start` would otherwise run
+# on, export the credential and leave the cells to discover the absence one by one.
+sutura_clickhouse_tier_up() {
+    if ! command -v sutura-clickhouse-tier >/dev/null 2>&1; then
+        echo "with-tier: no sutura-clickhouse-tier on PATH - re-enter the dev shell. The clickhouse"
+        echo "           cells are required wherever the Postgres tier is up, so they will fail."
+        return 0
+    fi
+    local state=0
+    sutura-clickhouse-tier status >/dev/null 2>&1 || state=$?
+    case "$state" in
+        0)
+            echo "with-tier: the ClickHouse tier is already up - leaving it to whoever started it."
+            ;;
+        3)
+            echo "with-tier: a ClickHouse server is up with no endpoint entry - republishing it."
+            sutura-clickhouse-tier start || return 1
+            ;;
+        *)
+            sutura-clickhouse-tier start || return 1
+            sutura_tier_teardown="sutura-clickhouse-tier stop || true${sutura_tier_teardown:+; $sutura_tier_teardown}"
+            trap 'eval "$sutura_tier_teardown"' EXIT
+            ;;
+    esac
+    local published
+    if ! published="$(sutura-clickhouse-tier credentials)"; then
+        echo "with-tier: the ClickHouse tier published no credential, so its cells would refuse."
+        return 1
+    fi
+    eval "$published"
+    export SUTURA_CLICKHOUSE_TIER_USER SUTURA_CLICKHOUSE_TIER_PASSWORD
 }
