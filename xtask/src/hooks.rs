@@ -74,9 +74,14 @@
 //! `CONTRIBUTING.md` names, in both directions.
 //!
 //! **This is the declared set, not the installed one, and the gap between them is not this
-//! gate's to close.** There is no `.git` in the nix sandbox this gate runs in (`flake.nix:551`),
-//! so a text scan of the declared config is the only hermetically possible shape - reading
-//! `.git/hooks/` is not on the table. `telekom/sutura#660`'s actual defect is that
+//! gate's to close.** There is no `.git` in the nix sandbox this gate runs in - every `checks.*`
+//! derivation in `flake.nix` builds from a git-derived source tree with `.git` filtered out - so
+//! a text scan of the declared config is the only hermetically possible shape - reading
+//! `.git/hooks/` is not on the table. A `:line` suffix is deliberately not cited here:
+//! `guidance::citations::dead_paths` skips non-`.md` files and strips any `:line`/`:start-end`
+//! suffix before checking existence, by design, so no gate anywhere checks a cited line number -
+//! only the path, which a rename would still catch and a line shift would not.
+//! `telekom/sutura#660`'s actual defect is that
 //! `pre-merge-commit` is not INSTALLED on a real checkout; a gate over the declared set cannot
 //! see that a `prek install` was never run, or ran against a config this one already holds
 //! correct. That residue stays open on a real checkout and is not narrowed by anything below.
