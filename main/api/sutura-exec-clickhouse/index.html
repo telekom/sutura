@@ -1864,6 +1864,15 @@ separate <code>param_pN</code> field, which the SERVER binds by the declared typ
 from what the port's <code>sutura_domain::warehouse::deadline::Deadline</code> has left. <code>deadline</code>'s
 module header states what was measured about that setting's semantics and its limit, mirroring
 <code>sutura_exec_postgres::deadline</code>'s own record for <code>SET LOCAL statement_timeout</code>.</p>
+<h1 id="every-request-pins-the-server-settings-that-decide-what-the-rows-say">Every request pins the server settings that decide what the rows say<a class="headerlink" href="#every-request-pins-the-server-settings-that-decide-what-the-rows-say" title="Permanent link">&para;</a></h1>
+<p><code>join_use_nulls=1</code>: under <code>ClickHouse</code>'s default <code>0</code>, the unmatched side of an outer join
+answers the column type's default - <code>''</code> for a <code>String</code> - where the SQL standard answers <code>NULL</code>.
+Measured by hand against the pinned compose server over the example corpus: 6 of the 23
+questions with a committed <code>@duckdb</code> row golden disagreed without it, 0 with it, under a
+non-<code>Nullable</code> schema; under <code>Nullable</code> columns the setting changes nothing, so a fixture
+importer's type choice decides whether the defect shows. <code>timeout_overflow_mode=throw</code>: <code>break</code>
+answers a spent <code>max_execution_time</code> with HTTP 200 and the rows read so far. No leg of <code>just
+validate</code> reaches a <code>ClickHouse</code>, so a unit cell holds what is sent, not what a server answers.</p>
 <h1 id="what-is-not-here">What is NOT here<a class="headerlink" href="#what-is-not-here" title="Permanent link">&para;</a></h1>
 <p><strong>No composition root links this crate.</strong> Nothing in <code>sutura-cli</code>'s <code>sources.rs</code> or <code>serve</code>
 module names a <code>kind: clickhouse</code>, so no served deployment can reach a <code>ClickHouse</code> source
