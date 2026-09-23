@@ -526,18 +526,36 @@ macro_rules! registered {
         name == IDENTITY || name.starts_with("data_source_") || name.starts_with("catalog_")
     }
 
-    /// The category names the `ci` JOB re-publishes as its own outputs, which is the only thing a
-    /// downstream job can read. Matched on `<name>: ${{ steps.classify.outputs.<..> }}`, keyed on
-    /// the name the job publishes rather than the one it reads, since those are what
-    /// `needs.ci.outputs.<name>` resolves against.
-    fn categories_the_ci_job_republishes(root: &Path) -> BTreeSet<String> {
+    /// One `ci` job output: the name it publishes, and the classify output its value reads.
+    type JobOutput = (String, Option<String>);
+
+    /// The `ci` JOB's own `outputs:` entries as `(published, read)` pairs: `published` is what
+    /// `needs.ci.outputs.<name>` resolves against, `read` the `steps.classify.outputs.<name>` its
+    /// value names (`None` for any other source). SCOPED to that one block by indentation - the
+    /// job at two spaces, `outputs:` at four, entries at six - because the same
+    /// `<name>: ${{ steps.classify.outputs.<..> }}` shape also appears as a step `env:` entry,
+    /// which publishes nothing and so must not count.
+    fn ci_job_outputs(root: &Path) -> Vec<JobOutput> {
+        const MARKER: &str = "steps.classify.outputs.";
         let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read .github/workflows/ci.yml");
+        let indent = |line: &str| line.chars().take_while(|c| *c == ' ').count();
+        let filler = |line: &str| line.trim().is_empty() || line.trim_start().starts_with('#');
         ci.lines()
+            .skip_while(|line| line.trim_end() != "  ci:")
+            .skip(1)
+            .take_while(|line| filler(line) || indent(line) > 2)
+            .skip_while(|line| line.trim_end() != "    outputs:")
+            .skip(1)
+            .take_while(|line| filler(line) || indent(line) > 4)
+            .filter(|line| !filler(line) && indent(line) == 6)
             .filter_map(|line| line.split_once(':'))
-            .filter(|(_, value)| value.contains("steps.classify.outputs."))
-            .map(|(name, _)| name.trim())
-            .filter(|name| is_category(name))
-            .map(str::to_owned)
+            .map(|(published, value)| {
+                let read = value
+                    .split(MARKER)
+                    .nth(1)
+                    .map(|after| after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect());
+                (published.trim().to_owned(), read)
+            })
             .collect()
     }
 
@@ -550,25 +568,61 @@ macro_rules! registered {
     /// The expectation is NOT this module's own loop: the emitted set is derived from the crate
     /// directories joined with the golden registry, and the subject is a hand-maintained YAML
     /// list. Neither side can witness the other narrowing, which is the drift this asserts over.
+    ///
+    /// Three ways the list can be wrong, each reported by name rather than first-one-wins:
+    /// a category not published at all; one published under its own name but wired to ANOTHER
+    /// category's value (a leg would run on the wrong diff and skip on the right one); and one
+    /// only `select()` can emit. The last is why the expectation includes the crate-directory
+    /// floor: an empty diff emits `declared`, but a diff touching an adapter crate no registry
+    /// arm names still emits that crate's category.
     #[test]
     fn every_emitted_category_is_republished_as_a_ci_job_output() {
         let root = crate::repo::root().expect("the repo root");
-        let republished = categories_the_ci_job_republishes(&root);
+        let outputs = ci_job_outputs(&root);
+        let republished: BTreeSet<&str> = outputs
+            .iter()
+            .map(|(published, _)| published.as_str())
+            .filter(|name| is_category(name))
+            .collect();
         assert!(
             republished.len() > 1,
-            "the oracle matched nothing in ci.yml, so this test would pass over anything: {republished:?}"
+            "the oracle matched no category in the `ci` job's outputs, so this test would pass over anything: {outputs:?}"
         );
-        // An empty diff falls open to `core`, so every declared category is emitted - which is
-        // the set a leg could be gated on.
+        // An empty diff falls open to `core`, so every declared category is emitted; the crate
+        // floor adds whatever `select()` can name from a changed path.
         let cats = derive_from(&[], registry_categories(&root), &root);
         assert!(cats.core, "an empty diff must fall open to core");
-        for name in emitted_names(&cats).iter().filter(|name| is_category(name)) {
-            assert!(
-                republished.contains(name),
-                "`classify` emits `{name}` and the `ci` job does not re-publish it, so \
-                 `needs.ci.outputs.{name}` renders '' and any leg gated on it skips silently"
-            );
-        }
+        let mut floor_reasons = Vec::new();
+        let mut expected = emitted_names(&cats);
+        expected.extend(crate_categories(&root, &mut floor_reasons));
+        assert!(
+            floor_reasons.is_empty(),
+            "the crate floor could not be listed: {floor_reasons:?}"
+        );
+
+        let mut failures: Vec<String> = expected
+            .iter()
+            .filter(|name| is_category(name) && !republished.contains(name.as_str()))
+            .map(|name| {
+                format!(
+                    "`classify` can emit `{name}` and the `ci` job does not re-publish it, so \
+                     `needs.ci.outputs.{name}` renders '' and any leg gated on it skips silently"
+                )
+            })
+            .collect();
+        failures.extend(
+            outputs
+                .iter()
+                .filter(|(published, read)| is_category(published) && read.as_deref() != Some(published.as_str()))
+                .map(|(published, read)| {
+                    format!(
+                        "the `ci` job publishes `{published}` from `steps.classify.outputs.{}`, so \
+                         `needs.ci.outputs.{published}` carries another category's verdict",
+                        read.as_deref().unwrap_or("<not the classify step>")
+                    )
+                }),
+        );
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     /// The names the emission actually writes - parsed back out of the body, so the assertion is
