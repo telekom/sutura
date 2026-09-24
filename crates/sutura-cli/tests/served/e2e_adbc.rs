@@ -19,7 +19,7 @@ mod tests {
 
     use super::datahub_tier::{DatahubTier, FixtureNames};
     use crate::harness::keycloak::KeycloakFixture;
-    use crate::harness::{LOOPBACK, VERSION, config_path, derived_beside, keycloak_settings, start_configured, v1};
+    use crate::harness::{LOOPBACK, VERSION, config_path, derived_beside, keycloak_settings, start_configured_with_driver, v1};
 
     const CASE: &str = "e2e-datahub-adbc-bigquery";
     const CATALOG: &str = "metrics";
@@ -35,6 +35,7 @@ mod tests {
         project: String,
         dataset: String,
         credential_file: PathBuf,
+        driver_location: String,
         warehouse: BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>,
     }
 
@@ -49,8 +50,8 @@ mod tests {
                 .expect("the BigQuery credential names a project_id")
                 .to_owned();
             let dataset = required("SUTURA_BQ_DATASET");
-            let driver = DriverLocation::parse(&required("SUTURA_BIGQUERY_ADBC_DRIVER"))
-                .expect("the BigQuery ADBC driver path is absolute");
+            let driver_location = required("SUTURA_BIGQUERY_ADBC_DRIVER");
+            let driver = DriverLocation::parse(&driver_location).expect("the BigQuery ADBC driver path is absolute");
             let posture = SourcePosture::SharedServiceUser {
                 declared: SharedIdentityDeclared::of(
                     AcknowledgementReason::parse("the hosted acceptance reads BigQuery under one shared CI identity")
@@ -70,6 +71,7 @@ mod tests {
                 project,
                 dataset,
                 credential_file,
+                driver_location,
                 warehouse,
             }
         }
@@ -205,9 +207,10 @@ mod tests {
         tier.provision(&data.token_file(), &names);
         let endpoint = format!("http://{}", tier.endpoint);
         let question = serde_json::json!({"metric": names.metric(), "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}}).to_string();
-        let served = start_configured(
+        let served = start_configured_with_driver(
             CASE,
             &settings(&issuer, &endpoint, &data.token_file(), &bq, 1024 * 1024 * 1024),
+            Some(&bq.driver_location),
         );
         let answer = served.post(
             &v1(sutura_http::constants::base_paths::QUERY),
