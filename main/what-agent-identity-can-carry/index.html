@@ -488,8 +488,6 @@
       
         
       
-        
-      
     
     
     
@@ -662,34 +660,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2015,8 +1985,9 @@ surface there is no basis to claim BigQuery accepts an agent identity.</p>
 <p><strong>2. Is it obtainable in the venues this runs in?</strong> Independently of (1), an agent identity is
 "attested and tied to the lifecycle of the agent" - an agent that lives in a GCP agent runtime.
 This deployment's exchange path runs from a <strong>GitHub Actions OIDC token</strong> on an external runner
-(<code>crates/sutura-exec-bigquery/src/sts.rs</code>'s one hop, <code>.exchange(workload.audience(),
-workload.scope(), assertion)</code>). Nothing in the read documentation describes issuing an agent identity
+(at the time, <code>sts.rs</code>'s one hop, <code>.exchange(workload.audience(), workload.scope(), assertion)</code>;
+that broker is deleted and the ADBC driver federates the assertion itself now - <code>docs/adr/0018</code>'s
+eighth amendment). Nothing in the read documentation describes issuing an agent identity
 to a runner outside Google's agent platform. Even if BigQuery accepted one, obtainability in CI is
 unestablished, and the CI answer is the one the leg-2 harness depends on.</p>
 <h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
@@ -2024,8 +1995,10 @@ unestablished, and the CI answer is the one the leg-2 harness depends on.</p>
 BigQuery credential remains <code>SharedServiceUser</code> over Workload Identity Federation - already keyless,
 no service-account key file. The attestation-and-lifecycle improvement an agent identity would bring
 is not available to this venue on the documented surface, and there is no false claim in the tree to
-correct by shipping one. No code changes. <code>crates/sutura-exec-bigquery/src/sts.rs</code> is untouched, as
-the issue required until step 1 was answered.</p>
+correct by shipping one. No code changes. <code>sts.rs</code> was untouched, as the issue required until step 1 was answered; it has
+since been deleted for an unrelated reason (<code>docs/adr/0018</code>'s eighth amendment), which changes
+nothing about this decision - the deployment's BigQuery credential is still <code>SharedServiceUser</code> over
+federation.</p>
 <p>This does not close the door if Google later documents a BigQuery (or general data-API) acceptance of
 agent identities: the gate is a documented consumer, and the moment one exists this evaluation is
 worth re-reading, with the same two unknowns asked again against that new surface.</p>

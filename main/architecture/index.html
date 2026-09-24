@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2223,8 +2193,10 @@ says why they look the way they do.</p>
 semantic compiler and executor over local files, served over HTTP - behind a token that
 authenticates the DEPLOYMENT, unless the deployment declares <code>security.inbound</code> and verifies a
 caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
-exist now; what does not is an adapter that can carry a per-subject credential, so every question
-still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+exist now; a published build now links an adapter that CAN carry a per-subject credential -
+<code>sutura-exec-bigquery</code>, behind its default-off <code>bigquery</code> feature - but no served binary has
+executed a leg as the calling subject yet (<code>docs/where-identity-is-proven.md</code>), so every
+question there still reads as one identity. No Arrow result envelope. Sections that describe something enforced
 today say so inside the section, and <a href="#what-exists-today">What exists today</a> is the inventory.
 <strong>Do not deep-link a section of this page as evidence that a control is in place.</strong></p>
 </div>
@@ -2365,7 +2337,7 @@ root; within that set, a deployment selects a data system by writing <code>sourc
 <tr>
 <td><code>Warehouse</code></td>
 <td><code>sutura-exec-datafusion</code></td>
-<td>THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL</td>
+<td>THE ENGINE. Reads the Parquet, CSV and NDJSON files itself - text plain or compressed - and executes the plan over Arrow. Generates no SQL</td>
 <td><strong>Yes</strong>, and it is what <code>sutura query</code> runs</td>
 </tr>
 <tr>
@@ -2383,7 +2355,8 @@ root; within that set, a deployment selects a data system by writing <code>sourc
 </tbody>
 </table>
 <p>So the combination a PUBLISHED binary supports is <strong>local markdown with YAML frontmatter for the
-metadata, and the in-process engine over the CSV or Parquet files in a directory</strong>. <code>sutura query
+metadata, and the in-process engine over the Parquet, CSV or NDJSON files in a directory</strong> - each
+text format plain or compressed, per <code>docs/adr/0039</code>. <code>sutura query
 &lt;catalog-dir&gt; &lt;question.yaml&gt; [data-dir]</code> is the whole of it there, and <code>sutura doctor</code> says the same
 thing in one line: <code>data systems : none - this build reads files, and pushes down to nothing</code>. A
 source build carrying <code>--features bigquery</code> supports one more, and the paragraph below says what that
@@ -2399,7 +2372,7 @@ source, is refused as two answers to one question.</p>
 automated test in this repository has ever watched answer.</strong> The furthest any of them reaches is
 reading the credential file, because the transport's host is a compile-time constant with no loopback
 to point at; what a real dataset HAS accepted is the corpus, on the adapter's own suite, through
-<code>just bigquery-acceptance</code>. So this is a composition that is tested and a path that is not - which is
+<code>bigquery-acceptance</code>. So this is a composition that is tested and a path that is not - which is
 what makes "pushes down to nothing" above a statement about the DEFAULT build rather than about the
 code. No published artefact carries the feature: <code>nix/shipped.nix</code> builds the shipped binary with cargo's
 default features, because <code>--features bigquery</code> compiles <code>ring</code> from C and assembly and two of the
@@ -2448,7 +2421,7 @@ composition no automated test has watched answer, is not a registered data syste
 <p><strong>And that leg is a SMOKE test rather than the acceptance leg 0017 specifies</strong>, which is worth knowing
 before reading its green as closing the gap: one hand-built <code>SUM</code> over a two-column table, exercising
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
-shape pointed at a dataset, and <strong>it is built</strong> - <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>, run
+shape pointed at a dataset, and <strong>it is built</strong> - <code>corpus.rs</code>, run
 green against a real dataset, which is where those constructs are covered and where the one divergence
 it found is recorded. <strong>The limit next to that: the three legs in it that reach a real dataset are
 <code>#[ignore]</code>d and outside <code>just validate</code></strong>, because a nix check has no network - they run by binary
@@ -2533,12 +2506,18 @@ arrangement of guards there can be an authority. Two mechanisms now, stated apar
   grain check closed a real gap - a <code>Day</code>-grain plan over the anchor's range used to pass and come
   back as a series rather than the one certified number.</li>
 </ul>
-<p><em>Not built:</em> an adapter that can carry a per-subject credential. Both in this build declare that they
-have nowhere for one to arrive, and the broker that ships mints from configuration. So the identity a
-leg presents is <em>the one this deployment holds for that source</em>, acknowledged by an operator and
-recorded on the answer - which is honest and is not impersonation. Against a local file the property
-is trivially satisfied and buys nothing, since a file has no login. What the port bought is that the
-day a source with grants arrives, there is no path for it to be read as this process through.</p>
+<p><em>Built, behind a feature - not yet proven at a served binary.</em> <code>sutura-exec-bigquery</code> is a published
+build's own adapter (its default-off <code>bigquery</code> feature ships in <code>nix/shipped.nix</code>) and its
+<code>IMPERSONATION</code> is <code>PerSubjectCredential</code>, so it is no longer true that no published build has one.
+Every OTHER adapter a published binary links - <code>sutura-exec-datafusion</code> for <code>files</code>,
+<code>sutura-exec-postgres</code> - still declares <code>NoPlaceForASubject</code>, and the broker that ships mints from
+configuration for those: a <code>files</code> or <code>postgres</code> leg's identity is <em>the one this deployment holds
+for that source</em>, acknowledged by an operator and recorded on the answer - which is honest and is
+not impersonation. Against a local file the property is trivially satisfied and buys nothing, since
+a file has no login. <code>bigquery</code>'s own mechanism resolves per source
+(<code>docs/where-identity-is-proven.md</code>), but no served binary has executed a leg as the calling
+subject yet - so what the port buys for every OTHER source stands unchanged: the day one arrives
+with grants, there is no path for it to be read as this process through.</p>
 <p>What is enforced beside that, and worth stating as such: nothing on the query path can <strong>choose</strong> an
 identity, because <code>SemanticCatalog::load</code> takes no request context and a plan resolves to exactly one
 named source.</p>
@@ -2905,8 +2884,8 @@ driving port a transport consumes; <code>sutura-cli</code> composes them, and li
 holds the repo gates and <code>sutura-dev</code> the local development CLI.</p>
 <p>What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to a plan; the plan renders as one statement in <code>DuckDB</code>, Postgres or <code>ClickHouse</code>
-dialect when somebody asks for SQL, and it <strong>executes through the engine, over the CSV or Parquet
-files in the directory the caller named</strong>. A measure is a single term or a ratio of two, where a term
+dialect when somebody asks for SQL, and it <strong>executes through the engine, over the Parquet, CSV or
+NDJSON files in the directory the caller named</strong>, each text format plain or compressed. A measure is a single term or a ratio of two, where a term
 is an aggregate over a column or a conditional count - so a conditional count can be either a whole
 measure or half of a ratio - and a metric may carry required filters that every question about
 it is answered under. Every metric that declares a certified number re-executes and reproduces it
@@ -2917,19 +2896,23 @@ mints once per answer for every source a plan reads, <code>Warehouse::execute</c
 signature that omits it, and a subject with no credential at a source is refused rather than answered
 under this process's identity. So the <em>fallback</em> is gone: not forbidden by a rule, absent from every
 signature.</p>
-<p><strong>What has not arrived is a data system with grants to run under.</strong> A CSV is a file with no login, so
-"every query runs as the calling principal" is still satisfied here by there being nobody else to be -
-and both adapters in this build declare that they have nowhere for a subject's own credential to
-arrive. The broker that ships mints from configuration and performs no token exchange. That is a true
-statement about a laptop and not about a warehouse, so this remains a compiler with a governed front
-door: what the port bought is that the day a real source arrives, there is no code path for it to be
-read as the process through.</p>
+<p><strong>A data system with grants to run under has now arrived, behind a feature: <code>sutura-exec-bigquery</code>,
+whose <code>IMPERSONATION</code> is <code>PerSubjectCredential</code></strong> - this bullet used to say no such adapter existed
+in a published build, and that changed with <code>telekom/sutura#929</code>. A CSV is still a file with no
+login, so "every query runs as the calling principal" is satisfied there by there being nobody else
+to be, and <code>sutura-exec-datafusion</code>/<code>sutura-exec-postgres</code> still declare <code>NoPlaceForASubject</code> - the
+broker that ships mints from configuration for those and performs no token exchange. <code>bigquery</code>'s
+own exchange resolves per source (<code>docs/where-identity-is-proven.md</code>), but no served binary has
+executed a leg as the calling subject yet: what the port bought for every OTHER source is
+unchanged, and it is that the day one of THOSE arrives with grants, there is no code path for it to
+be read as the process through.</p>
 <p><strong>The HTTP transport is here</strong>: an axum surface with a
 versioned <code>v1</code> tree, a liveness probe, direct-mode protected-resource metadata, a generated interface
 description, rate limiting, a bearer gate and optional in-process TLS. A deployment token authenticates
 the deployment; <code>security.inbound</code> instead establishes the caller in <code>direct</code> or <code>behind-gateway</code>
-mode. Neither makes a data system execute as that caller: leg 2 remains absent from every published
-adapter.</p>
+mode. Neither, on its own, makes a data system execute as that caller: <code>sutura-exec-bigquery</code>'s own
+exchange resolves per source (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed
+leg 2 as the calling subject yet.</p>
 <p>Still absent: Arrow results with provenance in the schema metadata, and a per-caller budget beyond
 the row cap and the ten-year span. The spliced-statement path is designed, documented above, and
 unimplemented. <strong>This bullet used to list the MCP transport, federation, a second catalog adapter

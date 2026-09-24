@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -3933,10 +3903,9 @@ happened.</p>
   signatures - because <code>InconsistentDefinitions</code>'s widest variants carry four name newtypes,
   and a <code>PathBuf</code> plus that plus two discriminants does not fit. The house remedy is to trim
   the variant rather than allow the lint, and there is nothing here to trim: the path is the
-  point of this variant and the cause is a type the domain owns. So it is boxed for the reason
-  <code>sutura_exec_bigquery::wire::WireError</code> boxes <code>ureq::Error</code> - much larger than every other
-  variant, and the alternative was losing information. The typed cause survives, which is what
-  separates this from a <code>Box&lt;dyn Error&gt;</code>.
+  point of this variant and the cause is a type the domain owns. So it is boxed instead - much
+  larger than every other variant, and the alternative was losing information. The typed cause
+  survives, which is what separates this from a <code>Box&lt;dyn Error&gt;</code>.
 - <code>AnchorValue</code> - The anchor's <code>value:</code> is not text a number can be checked against.</p>
 <p>The metric is named here and the character fault is the <code>source</code>, which is the arrangement
   <code>sutura_domain::pinned::NotValidated::AnchorNotExecuted</code> already uses: this variant says

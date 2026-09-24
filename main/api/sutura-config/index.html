@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -1852,7 +1822,7 @@ naming the key, not an override that silently did not happen.</p>
 <h1 id="there-is-no-per-caller-access-and-this-crate-says-so-out-loud">There is no per-caller ACCESS, and this crate says so out loud<a class="headerlink" href="#there-is-no-per-caller-access-and-this-crate-says-so-out-loud" title="Permanent link">&para;</a></h1>
 <p>sutura has a request context and a credential broker now, and a deployment that declares
 <code>security.inbound</code> establishes who is asking - so what is missing is narrower than it was and it is
-the part that matters: <strong>no adapter in this build can carry a per-subject credential.</strong> Every
+the part that matters: <strong>no PUBLISHED adapter can carry a per-subject credential.</strong> Every
 question executes with a credential a broker minted, and what that credential says is <em>the identity
 this process holds for that source</em>. <code>AGENTS.md</code> records which half is mechanised, and
 <code>examples/README.md</code> explains why single-player makes "every query runs as the calling
@@ -2503,7 +2473,7 @@ that each file parsed or contributed a value. Variables and text overlays have n
 <p>Where a load reads from.</p>
 <p>A value rather than a set of arguments, for one reason: the process environment is global, and
 <code>std::env::set_var</code> is <code>unsafe</code> in this edition - so a test that wanted to exercise the variable
-layer by setting variables could not be written under <code>unsafe_code = "forbid"</code>. Supplying the
+layer by setting variables could not be written under this crate's root <code>forbid(unsafe_code)</code>. Supplying the
 variables as a map makes that layer a pure function of its input, and
 <code>Sources::from_process_environment</code> is the one place that reads the real environment.</p>
 <h2 id="use-tokenrequiredby"><code>use TokenRequiredBy</code><a class="headerlink" href="#use-tokenrequiredby" title="Permanent link">&para;</a></h2>
@@ -2886,8 +2856,9 @@ rather than a missing required one</strong> - it selects the reader's own recomm
 (<code>sutura_catalog_datahub::http::{DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES}</code>),
 which this crate does not depend on that adapter crate to name. The composition root is
 where a declared zero is refused - <code>sutura_catalog_datahub::http::ReadBounds::parse</code> is the
-single owner of that range, the same split <code>BytesBilledCeiling::parse</code> holds for <code>BigQuery</code>'s
-ceiling.</p>
+single owner of that range. This used to cite <code>BytesBilledCeiling::parse</code> as the same split
+for <code>BigQuery</code>'s ceiling; that type is deleted and its range is now owned by nobody, so the
+<code>DataHub</code> bounds are the only live example of the split.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_datahub_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">token_file</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">metric_property</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidCatalogSettings</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Adds the three <code>catalog.kind: datahub</code>-only fields to an already-parsed entry.</p>
@@ -4361,8 +4332,14 @@ that is not a gap either.</p>
 <p>The deployment-wide trust anchors a fixed-host outbound client verifies against, if declared.</p>
 <p><code>None</code> means every such client verifies against its own compiled-in roots - see
 <code>OutboundAnchors</code>. A composition root reads this once at boot and hands the resolved
-material to <code>WireAgent::secured</code> (or its equivalent) rather than each call site reading
-settings for itself.</p>
+material to each outbound client rather than letting every call site read settings for
+itself - today that is the <code>DataHub</code> catalog reader's own agent, and nothing else.</p>
+<p><strong>The <code>BigQuery</code> consumer this used to name is gone.</strong> It said the material goes to
+<code>WireAgent::secured</code>; that type went with the HTTP transport (<code>docs/adr/0018</code>, fifth
+amendment), and the ADBC driver verifies its own TLS against roots nothing here reads. So a
+deployment declaring anchors gets them for <code>Postgres</code> and <code>DataHub</code> and <strong>not</strong> for
+<code>BigQuery</code> -
+a narrowing this type cannot refuse, stated here because this doc comment publishes.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-176-1"><a id="__codelineno-176-1" name="__codelineno-176-1" href="#__codelineno-176-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">outbound_identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">OutboundIdentity</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The deployment-wide client identity a fixed-host outbound client presents, if declared.</p>
@@ -4890,7 +4867,7 @@ standing in for. Under the old rule that deployment could not be served at all, 
 legitimate one.</p>
 <h4 id="variants_23">Variants<a class="headerlink" href="#variants_23" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>Files</code> - A directory of CSV or Parquet files, read by the in-process engine.</li>
+<li><code>Files</code> - A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read by the in-process engine.</li>
 <li><code>BigQuery</code> - A <code>BigQuery</code> dataset, queried by rendering the plan into <code>GoogleSQL</code> and pushing it down.</li>
 </ul>
 <p><strong>A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
@@ -5032,9 +5009,22 @@ convenience, and nothing needs to clone a startup refusal.</p>
 - <code>OracleServiceName</code> - A declared Oracle <code>service_name</code> the driver would not read as written.
 - <code>Host</code> - A declared <code>host</code> cannot be dialled at all - a shape refusal, not a reachability one.
 - <code>MissingWorkloadIdentity</code> - An <code>impersonation-at-source</code> source declared no token-exchange setup.</p>
-<p>A source that executes as the asking subject has to say WHICH provider exchanges the subject's
-  token - there is nothing this build could guess, and a per-caller credential has to come out of
-  a declaration rather than a default that pretends one exists.
+<p>A source that executes as the asking subject has to say WHICH account each subject becomes -
+  there is nothing this build could guess, and a per-caller identity has to come out of a
+  declaration rather than a default that pretends one exists.</p>
+<p><strong>Corrected: <code>audience</code> is load-bearing again.</strong> A round of this record said it "is read by
+  no transport in this build", which was true while the shipped mechanism was a principal
+  switch on the deployment's own credentials - and stopped being true when workload-identity
+  federation replaced it. The pool's own exchange needs the audience, and Google's library
+  refuses an empty one outright.</p>
+<p><strong>Corrected twice, and the second correction is narrower than the first.</strong> The same round
+  said <code>audience</code> <em>and</em> <code>scope</code> become the credential document. Only the audience does: the
+  document shape has no <code>scopes</code> member and the driver's own scope option means
+  service-account impersonation, so <code>scope</code> is declared and sent by nothing - measured against
+  the pinned sources at <code>WorkloadIdentity::scope</code>. So of the three keys: <code>audience</code> is read,
+  <code>impersonate</code>'s KEYS decide which callers may be served at all, its VALUES name the account
+  each caller's questions execute as, and <code>scope</code> alone is read by nothing - see
+  <code>sutura_exec_bigquery::DeclaredPrincipals::target</code> for the values.
 - <code>WorkloadIdentityNotImpersonating</code> - A workload-identity block was declared on a source that is not impersonating.</p>
 <p>Refused rather than ignored, for the reason every key a kind has no use for is refused: a
   declaration that does nothing is a configuration nobody can see.
@@ -5284,7 +5274,7 @@ placement in a private field and has no public constructor, so a
 be skipped" look like the same sentence and are not.</p>
 <h5 id="variants_29">Variants<a class="headerlink" href="#variants_29" title="Permanent link">&para;</a></h5>
 <ul>
-<li><code>Files</code> - A directory of CSV or Parquet files, read by the in-process engine.</li>
+<li><code>Files</code> - A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read by the in-process engine.</li>
 <li><code>BigQuery</code> - A <code>BigQuery</code> dataset, plus the project its jobs are billed to.</li>
 </ul>
 <p><strong>The limit, worth stating because the deployment it cannot describe is the one this file's
@@ -5483,21 +5473,33 @@ the serving bind read the other way round; that is the fail-closed direction iss
 on this side: an operator who means a loopback TCP dial writes <code>127.0.0.1</code> or <code>::1</code>.</p>
 <h3 id="module-workload_identity">Module <code>workload_identity</code><a class="headerlink" href="#module-workload_identity" title="Permanent link">&para;</a></h3>
 <p>The token-exchange setup one <code>impersonation-at-source</code> source declares.
-The token-exchange setup one <code>impersonation-at-source</code> source declares.</p>
-<p><strong>This is the tape a subject's own credential is exchanged against</strong> - RFC 8693 handed to a
-Workload Identity Federation provider. A source that executes as the asking subject has to say
-<em>which</em> provider receives the subject's token and <em>what the exchanged credential may do</em>, and
-both are that source's declaration rather than this process's guess. See <code>docs/adr/0008</code> and the
-issue that wired the adapter that presents one.</p>
-<p>The two newtypes are declared here, in the settings tree that owns the value, and the broker that
-performs the exchange holds its own copies in the adapter that links it - the same reason
-<code>BillingProject</code> is checked both here and in the transport that interpolates
-it: an adapter may not depend on the settings tree, so the format is checked where it is declared
-AND where it is sent.</p>
+The Workload Identity Federation setup one <code>impersonation-at-source</code> source declares.</p>
+<p><strong>This process performs no exchange.</strong> <code>audience</code> names the pool a subject's own assertion is
+federated against, and the federating is Google's token service's, driven by the driver from the
+<code>external_account</code> document <code>sutura_exec_bigquery</code>'s ADBC transport builds. A source that
+executes as the asking subject has to say <em>which</em> pool receives that assertion, and that is the
+source's declaration rather than this process's guess. See <code>docs/adr/0008</code> and <code>docs/adr/0018</code>'s
+sixth amendment.</p>
+<p><strong>What each declared value actually reaches.</strong> <code>audience</code> is sent. <code>scope</code> is parsed and sent
+nowhere: the credential document has no <code>scopes</code> member, and the driver's own scope option
+selects the DELETED principal-switch mechanism rather than this one. <code>impersonate</code>'s KEYS decide
+which subjects a source may be served for, and since <code>telekom/sutura#929</code> F3 its VALUES name the
+account each of those subjects executes as - sent as the credential document's
+<code>service_account_impersonation_url</code>, so changing one changes which account a caller's questions
+run as.
+<code>expected_issuer</code>/<code>expected_audience</code> are REFUSED at boot by
+<code>sutura_cli::serve::broker</code> - the RFC 8693 hop that checked them is deleted
+(<code>docs/adr/0034</code>, both amendments), and a declaration nothing reads is a control that reads as
+being in place.</p>
+<p>The two newtypes are declared here, in the settings tree that owns the value, and the adapter
+that sends <code>audience</code> holds its own copy - the same reason <code>BillingProject</code> is checked both
+here and in the transport that interpolates it: an adapter may not depend on the settings tree,
+so the format is checked where it is declared AND where it is sent.</p>
 <h4 id="struct-wifaudience"><code>struct WifAudience</code><a class="headerlink" href="#struct-wifaudience" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-264-1"><a id="__codelineno-264-1" name="__codelineno-264-1" href="#__codelineno-264-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WifAudience</span>
 </span></code></pre></div>
-<p>The audience a subject token is exchanged for: a workload identity provider resource.</p>
+<p>The pool a subject's own assertion is federated against: a workload identity provider
+resource.</p>
 <h5 id="methods_49">Methods<a class="headerlink" href="#methods_49" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-265-1"><a id="__codelineno-265-1" name="__codelineno-265-1" href="#__codelineno-265-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
@@ -5513,7 +5515,8 @@ exist here. Bounded in length, because it is a foreign string heading for a requ
 <h4 id="struct-wifscope"><code>struct WifScope</code><a class="headerlink" href="#struct-wifscope" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-267-1"><a id="__codelineno-267-1" name="__codelineno-267-1" href="#__codelineno-267-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WifScope</span>
 </span></code></pre></div>
-<p>The OAuth scope the exchanged credential is minted for.</p>
+<p>The OAuth scope an operator declares for the federated credential. Sent by nothing - see
+<code>WorkloadIdentityConfig::scope</code>.</p>
 <h5 id="methods_50">Methods<a class="headerlink" href="#methods_50" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-268-1"><a id="__codelineno-268-1" name="__codelineno-268-1" href="#__codelineno-268-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
@@ -5529,36 +5532,37 @@ it belongs in a request and a refusal should never log it raw.</p>
 <h4 id="struct-workloadidentityconfig"><code>struct WorkloadIdentityConfig</code><a class="headerlink" href="#struct-workloadidentityconfig" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-270-1"><a id="__codelineno-270-1" name="__codelineno-270-1" href="#__codelineno-270-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkloadIdentityConfig</span>
 </span></code></pre></div>
-<p>The token-exchange setup a <code>impersonation-at-source</code> source needs.</p>
-<p><strong><code>impersonate</code> is the second hop, telekom/sutura#376's iamcredentials step, and it is additive.</strong>
-An entry with an empty map keeps today's behaviour exactly: a bare RFC 8693 exchange, presented as
-the caller's own federated credential. A subject present as a key is the ONLY way a source ever
-asks Google's <code>iamcredentials.generateAccessToken</code> for anything - there is no fallback to the
-deployment's own identity for a caller absent from the map, because the broker that reads this
-refuses such a caller before any network call rather than answering as the process.</p>
-<p><strong><code>expected_issuer</code> and <code>expected_audience</code> name what the pool itself trusts, and both are the
-missing link telekom/sutura#817 names.</strong> Leg 1 (who is asking) verifies a document against
-<code>security.inbound</code>'s issuer and audience; the exchange hands that <em>same</em> subject token to
-Google STS for this pool. Unless the pool's trusted issuer and its STS audience are the very
-values leg 1 verifies, the two trust roots are unconnected by construction - a document leg 1
-accepts is one the pool declines. Declaring them beside the exchange makes the link mechanical:
-the broker refuses a boot whose leg 1 can never satisfy the stated pool, and a runtime cell
-asserts the asserted document actually carries them before it is offered to a real STS.</p>
-<p><strong>Both are <code>Option</code>, and absent keeps today's deployment exactly.</strong> A source that declares no
-expectation still exchanges as before; the seam only graduates a deployment that writes the two
-roots down. That is deliberate: the pool expectation is a value an operator has to know (it is
-this deployment's own pool configuration), and failing an existing bare-exchange deployment over
-a value it never wrote would be the same over-reach <code>impersonate</code> is careful not to commit.</p>
+<p>The Workload Identity Federation setup a <code>impersonation-at-source</code> source needs.</p>
+<p><strong><code>impersonate</code> decides WHO MAY BE SERVED, and nothing else.</strong> A subject present as a key is the
+only caller a source may be asked as; a caller absent from it is refused by
+<code>sutura_exec_bigquery::DeclaredPrincipalBroker</code> before any network call rather than answered as
+the process. <strong>And the declared account beside each key decides WHO that caller becomes</strong>: it
+is sent as the credential document's <code>service_account_impersonation_url</code>, so the pool resolves
+the subject to its own principal and that principal then impersonates this account
+(<code>telekom/sutura#929</code> F3 - a round of this adapter read the keys and ignored the values). An
+empty map, and an account this adapter cannot name in a request, are both refused where they
+can become a startup failure, by <code>DeclaredPrincipals::parse</code>.</p>
+<p><strong><code>expected_issuer</code> and <code>expected_audience</code> are refused at boot.</strong> They named what the pool
+itself trusts, so that a document leg 1 accepts could not be one the pool declines -
+telekom/sutura#817's seam. The mechanism that compared them was the RFC 8693 hop and its claim
+check, both deleted (<code>docs/adr/0034</code>, both amendments), so <code>sutura_cli::serve::broker</code> refuses a
+source declaring either, naming both keys. They stay parsed and refusable rather than dropped so
+that a deployment which once declared them fails loudly; whether the settings tree should keep
+them at all is an owner decision <code>docs/adr/0034</code> does not take.</p>
+<p><strong>Both are still <code>Option</code> and a PAIR</strong>, refused unless both or neither are present - a lone
+value would be half a comparison even once something compares them again.</p>
 <h5 id="methods_51">Methods<a class="headerlink" href="#methods_51" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-271-1"><a id="__codelineno-271-1" name="__codelineno-271-1" href="#__codelineno-271-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">WifAudience</span>
 </span></code></pre></div>
 <p>The provider audience.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-272-1"><a id="__codelineno-272-1" name="__codelineno-272-1" href="#__codelineno-272-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected_audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">WifAudience</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The audience the pool accepts, if the declaration named one - <code>None</code> keeps the bare exchange.</p>
+<p>The audience the pool accepts, if the declaration named one. <code>Some</code> is refused at boot,
+for <code>WorkloadIdentityConfig::expected_issuer</code>'s reason.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-273-1"><a id="__codelineno-273-1" name="__codelineno-273-1" href="#__codelineno-273-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">expected_issuer</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="k">crate</span><span class="p">::</span><span class="n">IssuerUrl</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The issuer the pool trusts, if the declaration named one - <code>None</code> keeps the bare exchange.</p>
+<p>The issuer the pool trusts, if the declaration named one. <code>Some</code> is refused at boot -
+nothing compares it; see the type's own doc.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-274-1"><a id="__codelineno-274-1" name="__codelineno-274-1" href="#__codelineno-274-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">impersonate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeMap</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">identity</span><span class="p">::</span><span class="n">SubjectKey</span><span class="p">,</span><span class="w"> </span><span class="n">WorkloadIdentitySa</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The declared subject -&gt; service-account map, for the composition root to hand the broker.</p>
@@ -5584,17 +5588,30 @@ the inbound side: the issuer as an absolute <code>https</code> URI (the <code>cr
 the audience as a provider resource (the <code>WifAudience</code> parse).</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-277-1"><a id="__codelineno-277-1" name="__codelineno-277-1" href="#__codelineno-277-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">WifScope</span>
 </span></code></pre></div>
-<p>The scope the exchanged credential carries.</p>
+<p>The scope the exchanged credential would carry, and <strong>no transport in this build sends it.</strong></p>
+<p>Stated here because this is where an operator declares it. The shipped path federates the
+asker's own assertion through an <code>external_account</code> credential document, and the pinned
+driver has nowhere to put a scope: the document shape
+(<code>cloud.google.com/go/auth@v0.23.2</code>'s <code>credsfile::ExternalAccountFile</code>) has no <code>scopes</code>
+member, and the driver's own <code>bigquery.impersonate.scopes</code> option is read as a request for
+service-account impersonation, which replaces the federated credential rather than scoping
+it. The <code>BigQuery</code> client's own default scope applies instead.</p>
+<p><strong>Declared and unread, not declared and ignored</strong> - the distinction is that this is the
+sentence an operator meets, so nobody reads a narrowed scope as a control that is in place.
+Removing the key is a settings break and a follow-up; misreporting it is a defect now.</p>
 <h5 id="implements_83">Implements<a class="headerlink" href="#implements_83" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h4 id="struct-workloadidentitysa"><code>struct WorkloadIdentitySa</code><a class="headerlink" href="#struct-workloadidentitysa" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-278-1"><a id="__codelineno-278-1" name="__codelineno-278-1" href="#__codelineno-278-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkloadIdentitySa</span>
 </span></code></pre></div>
-<p>The service account a declared subject's exchanged credential is impersonated into.</p>
-<p><strong>Checked here, and checked again where it is sent.</strong> The same reason <code>WifAudience</code> gives:
-<code>crates/sutura-exec-bigquery/src/wire/iamcredentials.rs</code> interpolates this value into a request
-path and may not depend on this crate, so the format is validated once at declaration and once at
-the adapter that sends it.</p>
+<p>The service account an operator declares beside a subject in <code>impersonate</code>.</p>
+<p><strong>Parsed here and parsed AGAIN by the crate that sends it.</strong> It is interpolated into one path
+segment of the credential document's <code>service_account_impersonation_url</code>, which decides which
+account the question runs as, so the check belongs where the risk is as well as where the value
+is declared - <code>sutura_exec_bigquery::principal::names_a_service_account</code> applies the same rule at
+parse and at send. That is deliberate duplication, not drift: the domain's
+<code>PrincipalName::parse</code> between them accepts <code>/</code>, <code>:</code> and <code>?</code>, because it is the parser every
+principal identifier shares.</p>
 <h5 id="methods_52">Methods<a class="headerlink" href="#methods_52" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-279-1"><a id="__codelineno-279-1" name="__codelineno-279-1" href="#__codelineno-279-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>

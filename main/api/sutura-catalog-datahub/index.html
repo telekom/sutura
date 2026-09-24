@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2338,9 +2308,9 @@ not constants</strong> - <code>DEFAULT_TIMEOUT_SECONDS</code> and <code>DEFAULT_
 composition root's settings default to, following <code>sutura-config</code>'s own convention of a default
 function per optional key, not a value baked into this type. <code>read</code> makes
 up to three requests and shares ONE deadline across them - opened once, and what is left after
-the first two requests is what the third gets - the same shape <code>sutura-exec-bigquery</code>'s
-<code>CallDeadline</code> holds for a job's token exchange and its query, and for the same reason: a budget
-opened per request lets three independent timeouts sum to three times what a deployment declared.</p>
+the first two requests is what the third gets - the same shape <code>sutura_domain::warehouse::deadline::Deadline</code>
+holds for a job's execution, and for the same reason: a budget opened per request lets three
+independent timeouts sum to three times what a deployment declared.</p>
 <h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
 <p>A personal access token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code> on every
 request. The token is a constructor argument here; a composition root reads it from a settings-
@@ -2406,8 +2376,8 @@ compiled-in roots with its own CA via <code>security.outbound.transport_anchors<
 </span></code></pre></div>
 <p>What one <code>HttpAspectReader::read</code> call may spend: a request timeout and a response-size cap.</p>
 <p>A newtype rather than two loose arguments, so a reader cannot be built with an unchecked pair -
-<code>sutura_exec_bigquery::wire::JobBounds</code>'s own shape, minus the money bound this read has no use
-for (a metadata read is not billed).</p>
+a request timeout paired with a response-size cap, and no money bound: a metadata read is not
+billed.</p>
 <h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_response_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
 </span></code></pre></div>
@@ -2443,7 +2413,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the <cod
 <li><code>DeadlineSpent</code> - The shared budget was gone before this entity's page could be requested.</li>
 <li><code>Unreachable</code> - The entity's page was not reached.</li>
 <li><code>Unreadable</code> - The entity's page was reached and its answer could not be read.</li>
-<li><code>Refused</code> - <code>DataHub</code> refused the request. <code>Display</code> renders the status and never <code>detail</code> - the same rule <code>sutura_exec_bigquery::wire::WireError::Refused</code> holds, and for the same reason: a cause-chain walk that flattens every link with <code>Display</code> must not carry endpoint-owned text.</li>
+<li><code>Refused</code> - <code>DataHub</code> refused the request. <code>Display</code> renders the status and never <code>detail</code>, because a cause-chain walk that flattens every link with <code>Display</code> must not carry endpoint-owned text.</li>
 <li><code>TooLarge</code> - The page was larger than the cap this reader will read.</li>
 <li><code>NotADocument</code> - The page was not a JSON document.</li>
 <li><code>UnexpectedShape</code> - One entity's aspect did not carry a field this reader expects, or carried it in a shape it does not recognise.</li>
@@ -2531,10 +2501,9 @@ request timeout in front of it cannot answer inside the budget the caller was pr
 <code>BigQuery</code>'s ceiling: this crate owns the range, a settings tree owns that the key was written.</p>
 <h3 id="constant-default_max_response_bytes"><code>constant DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#constant-default_max_response_bytes" title="Permanent link">&para;</a></h3>
 <p>The recommended default response-size cap, in bytes, for a composition root's settings default.</p>
-<p>One quarter of <code>sutura_exec_bigquery::wire::MAX_ANSWER_BYTES</code>: a metadata page is descriptions,
-column names and one metric document, not query rows, and what this defends against is the same
-case that constant does - something that is not the endpoint answering - rather than a
-realistic upper bound on a legitimate page.</p>
+<p>A metadata page is descriptions, column names and one metric document, not query rows, so what
+this defends against is something that is not the endpoint answering at all - a redirect loop,
+a proxy gone wrong - rather than a realistic upper bound on a legitimate page.</p>
 <h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
 <p>A real local HTTP server - "ports get fakes, not mocked HTTP" - and the happy-path DataHub wire
 pages this crate's own tests need, made <code>pub</code> so a DIFFERENT crate's integration test can build

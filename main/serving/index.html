@@ -488,8 +488,6 @@
       
         
       
-        
-      
     
     
     
@@ -631,6 +629,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="What it will not start with">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One boot check that is a SIGNAL rather than a refusal, and the limit it leaves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1036,34 +1051,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2196,6 +2183,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What it will not start with">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One boot check that is a SIGNAL rather than a refusal, and the limit it leaves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2545,15 +2549,17 @@ system. That is a single-player deployment, and it is a first-class shape rather
 verifies itself - signature against a pinned asymmetric algorithm, issuer, expiry, and an audience
 matching this deployment's own resource identifier - and the request runs under a verified subject
 that every audit record then names. See <a href="#who-is-asking">who is asking</a> for the two modes and the keys.</p>
-<p><strong>Neither shape makes a data system execute as the asking subject.</strong> That is leg 2, and the part of
-it that is built is worth stating precisely, because the gap left is the one that matters. Built: a
-question cannot execute at all without a credential a broker minted for the source it reads - there is
-no signature that runs as this process - and a subject with no credential at a source is refused as
-<code>credential_unavailable</code> rather than answered under the deployment's identity. Not built: <strong>any adapter
-that can carry a per-subject credential.</strong> The engine that ships is one process reading local files
-under one operating-system identity, so what a broker can mint for it is the deployment's own identity,
-acknowledged by an operator; the shipped broker mints from configuration and performs no token
-exchange.</p>
+<p><strong>Neither shape, on its own, makes a data system execute as the asking subject.</strong> That is leg 2, and
+the part of it that is built is worth stating precisely, because the gap left is the one that
+matters. Built: a question cannot execute at all without a credential a broker minted for the source
+it reads - there is no signature that runs as this process - and a subject with no credential at a
+source is refused as <code>credential_unavailable</code> rather than answered under the deployment's identity.
+Built, behind a feature: <strong>an adapter that can carry a per-subject credential</strong> -
+<code>sutura-exec-bigquery</code>, whose exchange resolves per source, <code>docs/where-identity-is-proven.md</code> - but
+no served binary has executed a leg as the calling subject yet. The engine that ships by default is
+one process reading local files under one operating-system identity, so what a broker can mint for
+IT is the deployment's own identity, acknowledged by an operator; the shipped broker mints from
+configuration and performs no token exchange for that source, or for Postgres.</p>
 <p>So a deployment with leg 1 knows who asked, records the posture each leg ran under, and still reads
 every row as one identity. Believing otherwise - that authentication implies per-user access - is
 precisely the confusion the records warn about.</p>
@@ -2759,6 +2765,33 @@ last, so a check against a file would be checking something the process is not r
 filing: whether the <em>linked adapter</em> can carry a per-subject credential at all is a property of the
 build, and whether the <em>bundle</em> declares an anchor is a property of the catalog. Neither is visible to
 a file, so neither is checked where files are parsed.</p>
+<h3 id="one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves">One boot check that is a SIGNAL rather than a refusal, and the limit it leaves<a class="headerlink" href="#one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves" title="Permanent link">&para;</a></h3>
+<p>Before it opens a transport, a deployment asks each data system whether it holds the tables the
+catalog names. Three of the four answers are startup refusals - a table the data system says it does
+not have, a listing an identity was not allowed to read (fix it by granting that identity
+<code>bigquery.tables.list</code> on the dataset), and a listing that reported a total and then named fewer
+tables than the total claims. The fourth is a <code>WARN</code> and the deployment <strong>serves anyway</strong>: a data
+system that could not be ASKED - unreachable, undecodable, or a dataset that is not there.</p>
+<p><strong>The limit, stated here because it is the one an operator has to plan around.</strong> After that <code>WARN</code>
+nothing has been verified: a mistyped <code>table:</code> fails on the first question against that source, not
+at boot. That is deliberate rather than a gap being worked on. The catalog is <strong>trusted for
+metadata</strong> - a deployment cannot ask a data system about fifty thousand tables at startup, and the
+alternative to the <code>WARN</code> is either refusing to start whenever a data system is briefly unreachable
+or a <code>skip_preflight</code> key set in exactly the deployment that most needs the check. Read the startup
+log: the <code>WARN</code> names the source and the tables it could not account for.</p>
+<p><strong>It is an accepted decision and not an unfinished edge</strong>, and <code>docs/adr/0018</code>'s twelfth amendment
+is the record: what is deferred, why the fifty-thousand-table number is the argument, what an
+operator sees instead, that the failure surfaces on the first question against that source rather
+than at boot or on a readiness probe, what is explicitly not promised, and which of those sentences
+no mechanism holds.</p>
+<p><strong>Two further limits on the three refusing answers.</strong> What a pre-flight establishes is that a table
+EXISTS - not that the model's columns are on it, and not that a question's identity may read it; an
+anchor is what covers both, for the metrics that have one. And exactly one adapter asks at all -
+<code>bigquery</code>. Every other source takes the port's default, which reports <em>not asked</em> and is never a
+refusal: a <code>files</code> deployment is still covered, because attaching a model whose file is missing
+fails the boot on its own, while on a <code>postgres</code> source a table the catalog names is neither
+attached against nor asked about unless it is the target of a declared join key or carries an
+anchored metric.</p>
 <h2 id="who-is-asking">Who is asking<a class="headerlink" href="#who-is-asking" title="Permanent link">&para;</a></h2>
 <p>Leg 1, and it is <strong>opt-in</strong>: a deployment with no <code>security.inbound</code> block has no per-caller identity
 and is unaffected by everything in this section.</p>
@@ -2939,9 +2972,16 @@ scope string in the detail. A scope this surface does not know is ignored rather
 token minted for other resources too is fine.</p>
 <p><strong>What it does not grant, and this is the sentence to keep.</strong> A scope decides which <em>operations</em> a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
-same pinned bundle and every question executes with whatever access the service process already had:
-no adapter in this build can carry a per-subject credential, so no source executes as the asking
-subject. A caller granted <code>sutura:metrics.ask</code> gets exactly the numbers any other caller would.</p>
+same pinned bundle and every question executes with whatever access the service process already had -
+still true for <code>files</code> and <code>postgres</code>, whose adapters declare <code>NoPlaceForASubject</code>, so a source of
+either kind executes as the service's own identity whatever the caller's scope says. <strong>The
+qualifier that used to make this a blanket claim is spent, and it went the other way from "not
+built":</strong> <code>sutura-exec-bigquery</code> DOES carry a per-subject credential and IS in the release -
+<code>nix/shipped.nix</code>'s <code>features</code> list is what the shipped artefact links, not merely what a per-triple
+probe compiles, and <code>bigquery</code> is on it (<code>docs/adr/0017</code>'s Fifteenth amendment: one binary, every
+adapter compiled in). What is still true is that <code>bigquery</code>'s exchange resolves per source
+(<code>docs/where-identity-is-proven.md</code>) and no served binary has executed a leg as the calling subject
+yet. A caller granted <code>sutura:metrics.ask</code> gets exactly the numbers any other caller would.</p>
 <p>The agent surface offers the same two capabilities under the names <code>describe_catalog</code> and <code>ask_metric</code>,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
 standard input and output, where there is no header a token could arrive in, so nothing narrows the set
@@ -2993,8 +3033,10 @@ prefix.</p>
 <code>Asked</code> from the caller leg 1 verified, and <code>AgentSurface::permitted</code> answers <code>tools/list</code> with only
 the tools that caller's <code>scope</code> grants - so two verified callers with different scopes see two
 different tool lists, and an unverified caller is refused with leg 1's <code>401</code> before the transport
-is reached. Leg 2 - a source executing AS the asking subject - still does not exist; every tool
-answers under the deployment's own credential (<code>#376</code>).</p>
+is reached. Leg 2 - a source executing AS the asking subject - resolves per source for <code>bigquery</code>
+(<code>#376</code>, <code>docs/where-identity-is-proven.md</code>), but no served binary has executed it yet: every tool
+answers under the deployment's own credential today, and against <code>files</code> or <code>postgres</code> it still
+would even once one had.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3222,12 +3264,12 @@ depends on why:</p>
 <tr>
 <td><code>legs_decide_identity_differently</code></td>
 <td><code>409</code></td>
-<td>Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. No published build can reach it - every linked adapter serves everyone as one identity</td>
+<td>Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. A published build reaches it: <code>bigquery</code> both carries a per-subject credential and declares <code>EXECUTES_LEGS</code>, so a federated question pairing an <code>impersonation-at-source</code> BigQuery leg with a <code>shared-service-user</code> leg is refused here, before any credential is minted</td>
 </tr>
 <tr>
 <td><code>deadline_exceeded</code></td>
 <td><code>422</code></td>
-<td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - the in-process engine stops at cooperative yield points, the default-off Postgres source uses <code>SET LOCAL statement_timeout</code>, and BigQuery sends what remains as <code>timeoutMs</code>/<code>jobTimeoutMs</code>, with its live stopped-job reply still unmeasured</td>
+<td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - the in-process engine stops at cooperative yield points, the default-off Postgres source uses <code>SET LOCAL statement_timeout</code>, and BigQuery sends what is left of it as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service - a job stopped that way reads as a service error, not this refusal</td>
 </tr>
 </tbody>
 </table>
@@ -3244,8 +3286,12 @@ a scope grants</em>.</p>
 than at this service: the asking subject has no access there, and this deployment will not read that
 source under its own identity instead. It IS a refusal, so it carries <code>outcome</code>, and re-authenticating
 here changes nothing - what is missing is a grant somewhere else. It arrives with the credential port;
-what can produce it today is a deployment that declares a source <code>impersonation-at-source</code>, because
-the broker that ships mints from configuration and holds no per-subject credential.</p>
+what can produce it today is a <code>bigquery</code> source declared <code>impersonation-at-source</code>, for a caller
+its declared <code>impersonate</code> map does not name - the broker DOES hold a per-subject credential for a
+caller the map covers. A <code>files</code> or <code>postgres</code> source declared <code>impersonation-at-source</code> never
+reaches this refusal at all: the boot check above (<em>a source this build's adapter cannot
+impersonate</em>) refuses it before any caller is involved, because the broker that ships mints from
+configuration for those and holds no per-subject credential for either.</p>
 <p><strong>And one <code>503</code> code is new on the failure side:</strong> <code>identity_unavailable</code>, for the credential broker
 not answering. It shares its status with <code>unavailable</code> and not its code, because an identity provider
 that is down and a data system that is down clear at different times and are diagnosed in different
@@ -3326,16 +3372,18 @@ mechanisms and limits below.</p>
 <p><code>server.request_timeout_seconds</code> bounds the caller's <strong>whole wait</strong>. The same setting, minus a
 one-second reply margin, opens the absolute deadline carried by the <code>Warehouse</code> port. The engine
 returns after that deadline at a cooperative yield and drops its rows future; Postgres sends
-<code>SET LOCAL statement_timeout</code> after acquiring its execution lock. BigQuery sends what remains as
-<code>timeoutMs</code>/<code>jobTimeoutMs</code>; its live stopped-job reply is not measured, and the socket allowance can
-cross the transport's reply margin. The concurrency bound is still necessary: it caps how much work
-can accumulate where cancellation is delayed, cooperative or absent.</p>
+<code>SET LOCAL statement_timeout</code> after acquiring its execution lock. <strong>BigQuery sends what is left of
+the deadline as the job's <code>jobTimeoutMs</code></strong> through the ADBC driver's <code>bigquery.query.job_timeout</code>,
+which the service honours on a best-effort basis; this process cancels nothing itself, and that has
+not yet been measured against the service. The concurrency bound is therefore load-bearing rather
+than belt-and-braces here: it caps how much work can accumulate where cancellation is delayed,
+cooperative, or best-effort.</p>
 <p><code>max_concurrent_queries</code> is that bound. A question holds its slot from the moment it starts until the
 port call returns - <strong>not</strong> merely until the caller is answered. For the engine that is after the
 timer is observed at a cooperative yield; for Postgres it is after the execution-lock wait and the
-statement stop; for BigQuery it is after the service or socket answers. The service is asked to stop
-the job at the deadline, but that live reply is unmeasured. The backlog is therefore bounded even
-when a timed-out caller cannot promptly stop the underlying work.</p>
+statement stop; for BigQuery it is whenever the driver answers, which nothing bounds - no request
+asks the service to stop the job. The backlog is therefore bounded even when a timed-out caller
+cannot stop the underlying work at all.</p>
 <p>A question that cannot get a slot inside <code>admission_timeout_seconds</code> is answered <code>503</code> with
 <code>code: at_capacity</code> and a <code>Retry-After</code> in seconds, rather than being left in a queue. <code>503</code> and not
 <code>429</code> on purpose: a <code>429</code> says "you personally asked too often", which is a claim about the caller
@@ -3463,7 +3511,7 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>server.request_timeout_seconds</code></td>
 <td><code>30</code></td>
-<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points, Postgres after its execution-lock wait, and BigQuery sends what remains as <code>timeoutMs</code>/<code>jobTimeoutMs</code></td>
+<td>At most 300. Bounds a caller's whole wait on <strong>both</strong> surfaces - the <code>408</code> here, and a tool result on the agent surface. Minus a one-second reply margin, it also opens the shared execution deadline: the engine observes it at cooperative yield points and Postgres after its execution-lock wait. <strong>BigQuery is the exception, and it is one an operator has to know:</strong> what is left is sent as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service, and this process cancels nothing itself - the <code>408</code> a caller sees does not by itself stop the work behind it</td>
 </tr>
 <tr>
 <td><code>server.max_body_bytes</code></td>
@@ -3558,22 +3606,22 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>security.credential_cache.enabled</code></td>
 <td><code>false</code></td>
-<td>An exchanged credential (a <code>bigquery</code> source's <code>impersonation-at-source</code> leg) cached per chain, per process. Off because nobody has measured the round trip it saves - see <code>docs/adr/0031-caching-an-exchanged-credential.md</code></td>
+<td><strong>Parsed and read by nothing: there is no cache in this build.</strong> The module that held one was private to the only broker that exchanged a credential, and both are deleted - the BigQuery path hands the asking subject's own assertion to the driver, so no exchanged material exists to hold. <code>true</code> gets no cache and no warning. Removing the three keys is a config-schema change; see <code>docs/adr/0031-caching-an-exchanged-credential.md</code>'s second amendment</td>
 </tr>
 <tr>
 <td><code>security.credential_cache.capacity</code></td>
 <td><code>1024</code></td>
-<td>The most live entries the cache holds at once. Zero is refused</td>
+<td>What the most live entries WOULD be. Zero is still refused at startup, which is the only thing this key does today - see <code>enabled</code> above</td>
 </tr>
 <tr>
 <td><code>security.credential_cache.window_seconds</code></td>
 <td><code>300</code></td>
-<td>The operator's own ceiling on how long an entry is served, on top of the credential's own remaining life and the broker's own expiry floor - whichever of the three is soonest wins. Zero is refused</td>
+<td>What the operator's own ceiling on an entry's life WOULD be. Zero is still refused at startup, and nothing else reads it. <strong>The broker expiry floor this row used to name as one of three bounds is dormant, not a gap</strong>: it was wired only from the deleted broker's own composition, so no deployment ever ran with one, and what still bounds a credential's use is <code>BoundToTheRequest::still_usable_at</code> comparing the assertion's own expiry per request</td>
 </tr>
 <tr>
 <td><code>security.outbound.transport_anchors</code></td>
 <td>absent</td>
-<td>A PEM bundle path, or <code>system</code>. Trust anchors for a FIXED-HOST outbound client - the BigQuery wire, the STS token exchange, and the datahub catalog reader - distinct from a per-source <code>transport_anchors</code>, which only means something when the source's own entry names the host it dials. Absent verifies against the compiled-in roots, unchanged from every prior release; a present <code>security.outbound</code> naming no anchors does not start. See <code>docs/adr/0010</code>'s amendment</td>
+<td>A PEM bundle path, or <code>system</code>. Trust anchors for a FIXED-HOST outbound client, of which <strong>the datahub catalog reader is the only one left</strong> - the BigQuery wire and the STS token exchange are deleted, and the ADBC driver verifies its own TLS against roots nothing in this repository reads, so this key reaches no BigQuery code at all. Distinct from a per-source <code>transport_anchors</code>, which only means something when the source's own entry names the host it dials. Absent verifies against the compiled-in roots, unchanged from every prior release; a present <code>security.outbound</code> naming no anchors does not start. See <code>docs/adr/0010</code>'s fourth amendment</td>
 </tr>
 <tr>
 <td><code>server.tls_certificate</code></td>
@@ -3737,8 +3785,48 @@ model's <code>source:</code> names.</strong></p>
 | <code>runtime.admission_timeout_seconds</code> | <code>5</code> | How long one waits for a slot before it is shed <code>503</code> |
 | <code>runtime.engine_worker_threads</code> | the machine's | How wide the in-process engine runs. Set it under a CPU quota |
 | <code>runtime.shutdown_grace_seconds</code> | <code>15</code> | The budget for the whole of stopping. See <a href="#stopping">Stopping</a> |</p>
-<p>The job's DEADLINE is not a key here: it is filled from <code>server.request_timeout_seconds</code>, because a
-job that outlives the request it is answering is billed for a result nobody is waiting for.</p>
+<p>The job's DEADLINE is not a key here: it is filled from <code>server.request_timeout_seconds</code> - <strong>and it
+reaches the data system for Postgres and the in-process engine, and BigQuery as a best-effort
+<code>jobTimeoutMs</code>.</strong> What is left of it is the ADBC driver's <code>bigquery.query.job_timeout</code>; the service
+stops a job that outlives it on a best-effort basis, and until it does the job is billed for a result
+nobody is waiting for. <code>docs/adr/0029</code>'s third amendment carries the limit.</p>
+<p><strong><code>credential_file</code> and <code>max_bytes_billed</code> are both required for a <code>bigquery</code> source; one of them
+reaches nothing and the other is now the bound on what a question may cost.</strong> The driver
+authenticates itself, so the credential path is checked to be absolute and then passed nowhere.
+<code>max_bytes_billed</code> is parsed at boot and sent on every statement the ADBC transport submits, as that
+driver's <code>bigquery.query.max_bytes_billed</code> option - which is BigQuery's own <code>maximumBytesBilled</code> job
+configuration. So the bound is enforced <strong>by BigQuery and not by a check here</strong>: a job that would
+scan past the ceiling fails and is not charged. It covers every statement, not only a question's own
+legs - a verified anchor, the identity read and a fixture load go through the same call.</p>
+<p><strong>Two values are refused at boot rather than sent</strong>, and this is a refusal and not the <code>WARN</code>
+described in <a href="#one-boot-check-that-is-a-signal-rather-than-a-refusal-and-the-limit-it-leaves">One boot check that is a SIGNAL rather than a
+refusal</a>: that check
+is about what the CATALOG claims, which is trusted for metadata, while this is a number the
+deployment wrote about money, which is not trusted at all and cannot be re-asked later. A <code>0</code> is
+BigQuery's own spelling of <em>no ceiling</em> - it reads the field as unset below one - so a deployment
+that wrote the tightest possible bound would have been given none; and a value above one tebibyte is
+refused because it is indistinguishable from no ceiling in practice. Both name the key and the
+source in the startup failure.</p>
+<p><strong>What that ceiling does NOT bound, and the distinction decides whether it is enough.</strong> It bounds
+BYTES BILLED for ONE JOB. N questions cost N times it. It is not a bound on a deployment's total
+spend, on one subject's spend, or on any window. And on a capacity-priced reservation a job is
+billed for SLOT TIME rather than for bytes scanned, so there the ceiling bounds the scan without
+bounding the bill.</p>
+<p><strong><code>governance.per_replica_spend_ceiling</code> is a different key and it still bounds nothing on a
+<code>bigquery</code> source.</strong> That ceiling is charged from a dry run's ESTIMATE, and the shipped ADBC
+transport has no call that prices a statement - <code>AdbcBigQuery::validate</code> declines, so
+<code>BigQueryWarehouse::dry_run</code> answers <code>PreFlight::NotAsked</code>, and the ledger reads a <code>None</code> estimate as
+<em>not counted</em>, never <em>free</em>: it charges nothing and refuses nothing. <strong>So declaring that ceiling
+beside a <code>bigquery</code> source is refused at startup</strong> (<code>NotFitToServe::UnpricedSourceUnderSpendCeiling</code>)
+rather than served as a control that never moves. The mechanism itself is real and covered by cells - but every one of them runs over a fake or
+a test transport that prices, and no shipped adapter can reach the refusal. The pinned driver does
+carry a <code>bigquery.query.dry_run</code> option, so closing this is possible rather than blocked; what it
+needs is a venue that can observe the estimate the driver returns, and none of the checks here can.
+<strong>For a bound across questions, budget at the source system</strong> too, with a cost control on the billing
+project: that is outside this deployment and
+outside this repository's reach, which is exactly why it is the answer.
+<code>.agents/skills/sutura/invariants</code> carries the same limit beside the mechanism, and
+<code>BigQueryWarehouse::PRICES_DRY_RUN</code> carries it at the declaration.</p>
 <p><strong>Two things about which builds can serve this</strong>, and the first is the one to check before writing
 the block above:</p>
 <ul>
@@ -3757,10 +3845,14 @@ the block above:</p>
   as;</li>
 <li><strong>the adapter declares its CAPABILITY</strong>, in code - whether it can carry a per-subject credential at
   all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
-  subject to appear. <strong>Nor can the <code>BigQuery</code> adapter</strong>, for a different reason worth knowing: a
-  credential file is one service account, and per-subject execution needs a credential minted per
-  question through a token exchange that does not exist here yet. Saying so explicitly is the point of
-  the declaration.</li>
+  subject to appear. <strong>The <code>BigQuery</code> adapter can</strong>, and the mechanism is worth knowing because the
+  exchange is not performed in this process: the transport puts the caller's own verified assertion
+  behind a workload-identity credential document served over a loopback source, Google's token
+  service performs the exchange, and the target the source declares reaches that credential as an
+  impersonation URL. What has NOT been observed is the leg end to end - no served binary has executed
+  as a caller, and <code>docs/where-identity-is-proven.md</code> is the authority for which venue may be cited
+  for which claim. Saying which half is mechanism and which half is unproven is the point of the
+  declaration.</li>
 </ul>
 <p>The boot check compares them. A source configured to impersonate on an adapter that cannot does not
 start, and there is no fallback.</p>
@@ -4115,9 +4207,10 @@ check it - the number that <em>is</em> checked is that it is neither zero nor ab
   process, offering every capability to whoever can launch it, and saying so at startup. What IS new
   is the network-reachable surface: <code>serve</code> now mounts <code>/mcp</code> behind its own leg 1, so a verified
   caller's scope narrows the tool list and an unverified one gets the same <code>401</code> every forgery gets.
-  It is off by default and refused unless <code>security.inbound</code> is declared. What still does not exist
-  there is leg 2 - a source executing AS the asking subject (<code>#376</code>) - so even a verified caller is
-  answered under the deployment's own credential. See
+  It is off by default and refused unless <code>security.inbound</code> is declared. Leg 2 - a source
+  executing AS the asking subject (<code>#376</code>) - resolves per source for <code>bigquery</code>
+  (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed it yet, so even a
+  verified caller is answered under the deployment's own credential today. See
   <a href="#the-agent-surface-over-http">the agent surface over HTTP</a> and
   <code>docs/adr/0014-how-a-caller-proves-who-it-is.md</code>.</li>
 <li><strong>No record STORE.</strong> This bullet said "no audit sink" and that had already stopped being true: there
@@ -4138,10 +4231,13 @@ check it - the number that <em>is</em> checked is that it is neither zero nor ab
   assertion bound to the request (a hash of the method, path and body the component computes) or a
   store of what has been seen, and neither exists. That is why this page calls it an assertion rather
   than a proof of transit, and why the hop from the component is a trusted boundary.</li>
-<li><strong>No source that executes as the asking subject.</strong> Leg 1 establishes who is asking and the
-  credential port makes a question unable to execute without a credential minted for its source - but
-  no adapter in this build can carry a per-subject one, so every question still reads as one identity.
-  See the first section - this is the single most important absence on this page.</li>
+<li><strong>No PROVEN source that executes as the asking subject.</strong> Leg 1 establishes who is asking and the
+  credential port makes a question unable to execute without a credential minted for its source.
+  <code>bigquery</code> is a published adapter that CAN carry a per-subject one, federated per source
+  (<code>docs/where-identity-is-proven.md</code>), but no served binary has executed a leg as the calling
+  subject yet - and <code>files</code>/<code>postgres</code>, which is what a deployment gets without configuring
+  <code>bigquery</code>, still cannot at all. See the first section - this is the single most important
+  absence on this page.</li>
 <li><strong>No request identifier.</strong> It belongs in the failure body and there is nothing to put in it, and a
   field that is always absent is worse than no field.</li>
 <li><strong>No readiness endpoint.</strong> There is nothing it could report that is not already true of a process

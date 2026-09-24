@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -1844,7 +1814,7 @@ and an adapter contributes a constructor.</p>
 <ol>
 <li><strong>The packs live in their own crate</strong>, depending on <code>sutura-domain</code> and on no adapter - so the
    harness is a dependency an adapter's own crate can take rather than a directory another
-   crate's tests reach into sideways. That is what <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>
+   crate's tests reach into sideways. That was what <code>corpus.rs</code>
    could not do and had to hand-write instead.</li>
 <li><strong>Every behaviour keeps its own name per adapter.</strong> A generic function per pack would give one
    test name per adapter, so a failure would say <em>the duckdb pack failed</em> and not which
@@ -2047,7 +2017,15 @@ a corpus of many says which one.</p>
 <li><code>EmptyCorpus</code> - The corpus has no cases, so nothing could be asked.</li>
 </ul>
 <p>Reachable only from a pack that needs a case to establish the adapter is live. <code>census</code>
-  fails on the same condition for every other behaviour.</p>
+  fails on the same condition for every other behaviour.
+- <code>Unreadable</code> - The data system answered, and a column of the answer could not become a domain value.</p>
+<p><strong>Its own fault rather than a content disagreement, and the diagnosis is why.</strong> Since
+  <code>docs/adr/0039</code> step 2 the port's currency is Arrow, so the decode happens above every
+  adapter - and the failure it can produce is <em>this workspace maps no cell of that Arrow type</em>,
+  not <em>this adapter computed the wrong number</em>. Reported as a disagreement it would send a
+  reader to look at the data.</p>
+<p>The variant carries <code>sutura_domain::warehouse::UnreadableCell</code>, which names the column and
+  its Arrow type and never a cell.</p>
 <h3 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-hold"><code>fn hold</code><a class="headerlink" href="#fn-hold" title="Permanent link">&para;</a></h2>

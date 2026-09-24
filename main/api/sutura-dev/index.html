@@ -484,8 +484,6 @@
       
         
       
-        
-      
     
     
     
@@ -658,34 +656,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2732,7 +2702,7 @@ measured load gives the same tree a different verdict on different runs, which i
 flaky cell because it stops being reproducible at all.</p>
 <p><strong>CI wins unconditionally, and everything unrecognised is CI too.</strong> <code>decide</code> checks
 <code>GITHUB_ACTIONS</code> first and returns <code>Tolerance::Strict</code> the moment it reads <code>"true"</code> - the exact
-spelling <code>crates/sutura-exec-bigquery/tests/corpus.rs</code>'s own <code>ci_run_id</code> cell already holds
+spelling <code>corpus.rs</code>'s own <code>ci_run_id</code> cell already holds
 (<code>GITHUB_ACTIONS=false was read as CI</code> is asserted there as a failure, so <code>"true"</code> is the only
 reading, not a truthy list). Only past that check does <code>RELAXED</code> get read, and an absent or
 unrecognised environment - not exactly one of those two branches - falls through to

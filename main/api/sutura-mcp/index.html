@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2231,10 +2201,12 @@ inventing a key of this transport's own is a decision with two arguments:</stron
   and the two transports would then be able to disagree about it while sharing one execution
   bound.</li>
 <li>The number is already load-bearing on this composition. <code>sutura</code>'s <code>mcp</code> command opens the
-  port's own <code>Deadline</code> from it (<code>docs/adr/0029</code>), which a <code>bigquery</code> job derives
-  <code>timeoutMs</code>/<code>jobTimeoutMs</code> from directly - so the engine on this transport already gives up
-  against this key; before this change the <em>peer</em> was the only party in that arithmetic with no
-  deadline at all.</li>
+  port's own <code>Deadline</code> from it (<code>docs/adr/0029</code>), and the in-process engine gives up against
+  that deadline at a cooperative yield - so the engine on this transport already answers to this
+  key; before this change the <em>peer</em> was the only party in that arithmetic with no deadline at
+  all. This bullet used to say a <code>bigquery</code> job derived <code>timeoutMs</code>/<code>jobTimeoutMs</code> from it
+  directly; those were <code>jobs.query</code> request parameters on a transport that is deleted. A
+  <code>BigQuery</code> job over ADBC is sent what is left of the port deadline as its <code>jobTimeoutMs</code>.</li>
 </ul>
 <p>The key's name says <code>server</code> and this transport binds no listener, which is the one argument
 against reusing it. It is a naming cost rather than a behavioural one, and it is cheaper than

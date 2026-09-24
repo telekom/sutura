@@ -623,8 +623,6 @@
       
         
       
-        
-      
     
     
     
@@ -797,34 +795,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2087,7 +2057,7 @@ source build. The unsuffixed image tags at <code>ghcr.io/telekom/sutura</code> a
 <a href="../verifying-a-release/">verifying a release</a> is the tag table, and <a href="../serving/">serving over HTTP</a> is the shape for the server, whose tags are the <code>-serve</code> ones.
 <a href="#building-from-source">Building from source</a> is at the bottom of this page.</p>
 <p><strong>The published binary carries every optional adapter</strong>, since <code>github.com/telekom/sutura#685</code>
-step 5 - <code>sutura doctor</code>'s <code>data systems</code> line reads <code>bigquery, over the wire</code>, and reaching a
+step 5 - <code>sutura doctor</code>'s <code>data systems</code> line reads <code>bigquery, over ADBC</code>, and reaching a
 Postgres or DataHub source needs no separate build either. Nothing below relies on that, though:
 reading local files is enough for every command in this tutorial, up to and including a certified
 answer with its anchors re-executed. <code>just shipped</code> is what asserts what a release carries, out of
@@ -2365,7 +2335,7 @@ you have on its <code>data systems</code> line.</p>
 <p><strong>Two limits worth knowing before you rely on this.</strong> No automated test in this repository has ever
 run a query from this command against a real dataset - the furthest any of them reaches is reading
 the credential file, because the transport's host is a compile-time constant with no loopback to
-point at. What HAS been accepted by a real dataset is the corpus, through <code>just bigquery-acceptance</code>,
+point at. What HAD been accepted by a real dataset is the corpus, through the (since-removed) <code>bigquery-acceptance</code> leg,
 on the adapter's own suite. And the job's deadline comes off <code>server.request_timeout_seconds</code>: the
 default 30 leaves a job <strong>10 seconds</strong> and the maximum 300 leaves it <strong>145</strong>, because an answer makes
 two calls and each pays a connect margin. A slow question is cancelled by that bound with nothing

@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2421,11 +2391,10 @@ This one answers "what calendar day is it", which a monotonic instant cannot say
 here rather than in <code>sutura-domain</code> for the same reason the rest of this crate does: two
 transports need the identical implementation rather than each re-deriving it (see this crate's
 own doc comment).</p>
-<p><code>WallClock</code> is the port, <code>SystemClock</code> its first and only shipping implementor - the same
-shape as <code>sutura_exec_bigquery::sts::UnixClock</code>/<code>SystemClock</code>, for the same reason: everything
-<code>resolve_range</code> decides is exercised against a fixed clock in a test, so an ambient
-<code>SystemTime::now()</code> inside the resolution would make the outcome a function of the day the test
-ran on.</p>
+<p><code>WallClock</code> is the port, <code>SystemClock</code> its first and only shipping implementor, and the
+reason it is a port at all: everything <code>resolve_range</code> decides is exercised against a fixed
+clock in a test, so an ambient <code>SystemTime::now()</code> inside the resolution would make the outcome
+a function of the day the test ran on.</p>
 <p><strong>The limit.</strong> "Last week" resolves against THIS process's calendar date; a caller in another
 timezone gets the server's week, not their own. Nothing here reads a timezone, and nothing asks
 for one yet.</p>

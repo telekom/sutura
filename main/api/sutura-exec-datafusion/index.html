@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -1505,10 +1475,54 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-codec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Codec
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-candidates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use candidates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-workingset" class="md-nav__link">
     <span class="md-ellipsis">
       
         use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-combineerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use CombineError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-datafusioncombiner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use DataFusionCombiner
       
     </span>
   </a>
@@ -2075,10 +2089,54 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-codec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Codec
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-candidates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use candidates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-workingset" class="md-nav__link">
     <span class="md-ellipsis">
       
         use WorkingSet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-combineerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use CombineError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-datafusioncombiner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use DataFusionCombiner
       
     </span>
   </a>
@@ -2227,6 +2285,17 @@ map" send a reader to three different places.</p>
 <p>Separate from <code>Self::Runtime</code>, which is the <em>tokio</em> runtime: one is a thread pool and one is
   the memory bound, and a deployment that cannot start needs to know which. Like <code>Runtime</code> it
   happens once at construction or not at all.
+- <code>UnknownCodec</code> - A path's outermost extension spells a compression codec this build cannot read.</p>
+<p><strong>A parse rather than a fallback, and the failure it replaces is silent.</strong> Handing a
+  compressed file to the engine as plain text does not fail: the schema is inferred from the
+  codec's own header bytes, and the table resolves to columns nobody declared. So an extension
+  that certainly names a codec and is not one this build compiled is refused by name.</p>
+<p><code>crate::attach</code>'s <code>NEAR_MISSES</code> carries why this is a closed list rather than "anything
+  unrecognised": <code>orders.txt</code> is a CSV and must keep reading.
+- <code>UnknownFormat</code> - A path's extension names no format this engine reads.</p>
+<p>Raised by <code>attach_file</code>'s dispatch and by nothing else, so a composition root that offered a
+  candidate name outside <code>crate::attach::candidates</code> gets a refusal rather than a CSV read of
+  a file that is not one.
 - <code>Attach</code>
 - <code>QualifiedTableUnreachable</code> - A model names a table this engine has nowhere to look for.</p>
 <p><strong>This engine registers one file per model in its own table registry - there is no catalog and
@@ -2243,22 +2312,20 @@ map" send a reader to three different places.</p>
 <p>A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
 - <code>Analyze</code> - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
 - <code>Execute</code>
-- <code>UnsupportedType</code> - A column came back as a type this adapter does not map.</p>
-<p>An error rather than a stringified fallback, for the reason the <code>DuckDB</code> adapter gives: a
-  nested type rendered with <code>Debug</code> would flow into an answer looking like data, and an anchor
-  comparison against it would pass or fail for reasons nobody could read.
-- <code>Downcast</code> - The schema said one Arrow type and the array was another.</p>
-<p>Unreachable through the engine, and reported rather than skipped anyway: the alternative is
-  substituting a null for a value that exists.
-- <code>NotFinite</code> - A floating-point column came back as a value that is not a number.</p>
-<p><strong>What <code>zero_denominator: fails</code> actually produces.</strong> A ratio measure choosing that word is
-  translated as an unguarded division with the numerator cast to <code>Float64</code>, so the division is
-  IEEE float division: dividing by zero answers <code>inf</code> here rather than failing, and zero divided
-  by zero answers <code>NaN</code>. <code>Real</code> refuses all three, which is what makes the word <code>fails</code> true of
-  the metric that chose it instead of the string <code>inf</code> arriving under a certified name.</p>
-<p>The cause names which of the three it was; this variant names the column.
-- <code>NotADate</code> - A day number came back that is not a date this build can represent.
-- <code>Shape</code>
+- <code>Unreadable</code> - A result column could not be read as a domain value.</p>
+<p><strong>Wrapped rather than restated, and that is <code>docs/adr/0039</code>'s point.</strong> The mapping from an
+  Arrow array to a <code>Value</code> is <code>sutura_domain::warehouse::arrow</code>'s, shared with every adapter
+  whose driver speaks Arrow, so the five variants this replaces - an unmapped type, a failed
+  downcast, a non-finite double, a day count that is not a date, a result that is not
+  rectangular - are one cause with one set of messages instead of one copy per adapter.</p>
+<p>The <code>#[source]</code> chain is what keeps the detail reachable: <code>sutura-app</code>'s bounds suite matches
+  <code>UnreadableCell::NotFinite</code>'s own column through it, which is what
+  <code>zero_denominator: fails</code> actually produces.
+- <code>Unannounced</code> - A result batch did not carry the fields the schema it arrived under announced.</p>
+<p>Unreachable through this engine - it produces its own batches from its own plan - and kept
+  because the check is the shared one: <code>Accumulating</code> is the same guard a foreign ADBC driver's
+  stream goes through, and one path through it is what stops the engine's own collection being
+  the lenient copy.
 - <code>SchemaMismatch</code> - The result schema is not the one the plan's labels describe.</p>
 <p>Checked rather than papered over. <code>QueryPlan::result_labels</code> is the one definition both
   adapters build from, so a disagreement here means the projection is not what we think it is,
@@ -2308,18 +2375,37 @@ map" send a reader to three different places.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Exposes a CSV file as a table. <code>DataFusion</code> handles inference.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<p>Exposes a CSV file as a table, compressed or not. <code>DataFusion</code> handles inference.</p>
+<p>The codec comes from the path - see <code>Codec::of_path</code> - so <code>orders.csv</code> and <code>orders.csv.gz</code>
+are one call.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_file</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes whichever format a path's extensions name, compressed or not.</p>
+<p>The one entry point a composition root needs: it pairs with <code>candidates</code>, so the set of
+names a deployment looks for and the set this dispatch accepts are the same list. An
+extension naming no format this engine reads is <code>DataFusionError::UnknownFormat</code> rather
+than a guess at CSV - inferring a schema from a file of the wrong shape is how a table
+resolves to columns nobody declared.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_fixture_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Exposes a deliberately simple conformance fixture CSV with exact shared types.</p>
 <p>Available only with the default-off <code>fixtures</code> feature.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_parquet</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_json</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a newline-delimited JSON file as a table, compressed or not.</p>
+<p>The CSV affordance's twin for the other plain-text format, and the second half of what
+<code>datafusion/compression</code> buys. NDJSON rather than a JSON array: the engine reads one record
+per line, which is what streams and what a schema can be inferred from without holding the
+document.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_parquet</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Exposes a Parquet file as a table.</p>
-<p>The CSV affordance's twin, and why the <code>parquet</code> feature is on. Neither <code>compression</code> nor
-<code>avro</code> is: each reintroduces a licence the supply-chain gate does not allow, and the
-manifest's comment records which.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<p><strong>No codec argument, and that is the point rather than an omission.</strong> A Parquet file records
+its own compression per column chunk and the <code>parquet</code> feature's codecs read it, so there is
+nothing for <code>Codec</code> to decide - and an outer <code>.gz</code> around a Parquet file is
+<code>DataFusionError::UnknownCodec</code> through <code>Codec::of_path</code>, which is the honest answer to a
+file that should not have been written that way. The module header carries the distinction.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds an adapter with nothing registered.</p>
 <p>There is no file to open, which is the difference from the <code>DuckDB</code> adapter: the engine is
@@ -2331,7 +2417,7 @@ place the whole control could be forgotten. <code>sutura_config::WorkingSetCeili
 is what a caller with no settings to read uses.
 <strong>It also takes the posture, and that is not optional either</strong>, for the reason the ceiling is
 not: a defaulted posture would be a claim about who a query runs as that nobody made.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same adapter, <code>workers</code> threads wide.</p>
 <p><strong>What <code>Self::new</code> costs when several threads call it at once, measured rather than
@@ -2387,11 +2473,24 @@ otherwise build sixteen-way plans and execute them two at a time. Pinning it is 
 widths above are <em>ahead</em> of the baseline rather than level with it.</p>
 <p><code>Self::new</code> is deliberately left alone: the command-line tool answers one question and
 exits, and it is also the caller with no settings to read a width from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
 <p>The configured pool ceiling; <code>MemoryPool::memory_limit</code> can report <code>Unknown</code> instead.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Drop</code>, <code>Warehouse</code></p>
+<h2 id="use-codec"><code>use Codec</code><a class="headerlink" href="#use-codec" title="Permanent link">&para;</a></h2>
+<p>The outer codec a text file is wrapped in.</p>
+<p>A closed enum over what <code>datafusion/compression</code> compiles rather than a re-export of
+<code>FileCompressionType</code>: that type also has variants for codecs this build does not have, so
+matching on it would mean an arm nothing can produce. Converted at the one call site.</p>
+<h2 id="use-candidates"><code>use candidates</code><a class="headerlink" href="#use-candidates" title="Permanent link">&para;</a></h2>
+<p>Every file name one model's table could arrive under, in the order to prefer them.</p>
+<p><strong>The engine owns this list, not a composition root</strong>, and that is what stops a deployment
+offering a candidate <code>DataFusionWarehouse::attach_file</code> then refuses - or missing one it
+reads. Parquet first, because it carries its own schema and its own codecs; then the two
+plain-text formats, each uncompressed and then once per codec.</p>
+<p>The names are relative: a caller joins each onto its data directory and takes the first that is
+a file. <code>sutura_cli</code>'s two file-source searches are the callers.</p>
 <h2 id="use-workingset"><code>use WorkingSet</code><a class="headerlink" href="#use-workingset" title="Permanent link">&para;</a></h2>
 <p>How many bytes the engine's operators may reserve at once.</p>
 <p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
@@ -2403,6 +2502,24 @@ compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
 parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
+<h2 id="use-combineerror"><code>use CombineError</code><a class="headerlink" href="#use-combineerror" title="Permanent link">&para;</a></h2>
+<p>Why a combine could not be assembled.</p>
+<p>Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
+engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
+driver's metadata and a label the splitter assigned - and never a cell.</p>
+<h2 id="use-datafusioncombiner"><code>use DataFusionCombiner</code><a class="headerlink" href="#use-datafusioncombiner" title="Permanent link">&para;</a></h2>
+<p>The combiner: a tokio runtime, and a bounded session built per combine.</p>
+<p><strong>It holds no session, and that is the whole reason the ceiling is a real bound.</strong> A
+<code>GreedyMemoryPool</code> is installed on a <code>RuntimeEnv</code> and a <code>RuntimeEnv</code> is installed on a
+<code>SessionContext</code>, so a combiner that kept one session would have to fix the ceiling at
+construction - and the ceiling is what a deployment configures per question. One session per
+combine also means a combine's registered tables cannot outlive it, which is what keeps one
+caller's leg results out of another's session.</p>
+<p><strong>What it does NOT hold is an identity, and that is not an omission.</strong> <code>crate::pool</code>'s process
+is one operating-system identity, so a combine runs as the deployment. What the combiner carries
+per subject instead is a <code>ComputeContext</code> - see
+<code>Self::for_subject</code>.</p>
 <h2 id="module-measurement">Module <code>measurement</code><a class="headerlink" href="#module-measurement" title="Permanent link">&para;</a></h2>
 <p>Opt-in peak recording for measurement-only children, excluded from default builds.
 Opt-in measurement construction for bounded DataFusion execution.</p>
@@ -2411,25 +2528,25 @@ path. It keeps a bounded recording pool beside a fresh adapter so a child can re
 operators' reservation peak. It does not measure driver buffering, collected batches, domain-row
 conversion, or the process resident set.</p>
 <h3 id="struct-measuredwarehouse"><code>struct MeasuredWarehouse</code><a class="headerlink" href="#struct-measuredwarehouse" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MeasuredWarehouse</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MeasuredWarehouse</span>
 </span></code></pre></div>
 <p>A measured warehouse and its persistent operator-reservation observer.</p>
 <p>It delegates the execution port unchanged. Ordinary <code>DataFusionWarehouse</code> construction retains
 its direct <code>GreedyMemoryPool</code>, so recording
 costs nothing outside an explicit measurement child.</p>
 <h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Attaches one CSV table to the measured child.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">posture</span><span class="p">:</span><span class="w"> </span><span class="nc">SourcePosture</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The persistent operator reservation peak in bytes.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_reserved</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pool_reserved</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The reservation at the end of the observation window.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reset_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reset_peak</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Starts a new pool observation window.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
@@ -2450,13 +2567,22 @@ caller in flight. A bounded pool turns that into a reservation that fails, which
 <code>sutura_app::answer</code> turns into <code>RefusalReason::ResourcesExhausted</code>.</p>
 <h1 id="what-the-pool-counts-and-what-it-does-not">What the pool counts, and what it does not<a class="headerlink" href="#what-the-pool-counts-and-what-it-does-not" title="Permanent link">&para;</a></h1>
 <p>It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
-sort. <strong>It counts nothing else.</strong> Not what a driver buffers, not <code>collect()</code> materialising every
-batch into memory at once, not the <code>Vec&lt;Vec&lt;Value&gt;&gt;</code> built while a result is converted into domain
-rows - all three of which are on the path a question takes through this crate. So this is not a
-bound on the process's memory and must not be alerted on as one: a question large enough to end
-the process on one of those paths still ends it. <code>docs/adr/0009</code> puts the bound that reaches them
-- a byte budget applied as rows are converted - with the execution boundary rather than here, and
-says so rather than letting this one be read as wider than it is.</p>
+sort. <strong>It counts nothing else.</strong> Not what a driver buffers, not the batches a result is held as,
+not the <code>Vec&lt;Vec&lt;Value&gt;&gt;</code> built while a result is converted into domain rows.</p>
+<p><strong>Two of those three are now bounded, by a different mechanism, and this is where the boundary
+between them is stated.</strong> <code>docs/adr/0009</code> puts a byte budget at the execution boundary rather
+than here, and it is built: <code>WorkingSet::result_budget</code> converts this ceiling into a
+<code>ResultBudget</code> that
+<code>sutura_domain::warehouse::Accumulating::push</code> spends as each batch arrives, charging both the
+batches held and the row conversion to come. So a result wide enough to end the process is
+refused rather than materialised, and <code>collect()</code> is gone from this crate - the engine's own
+output is streamed into that guard.</p>
+<p><strong>What is still not bounded, so this pool is still not a bound on the process's memory:</strong> a
+driver's own buffering, which is a foreign adapter's business rather than this engine's, and the
+per-batch peak - one batch arrives whole before it can be charged, so the budget is exceeded
+transiently by whatever the engine's largest single batch costs. And the two are separate
+budgets sized from one number, so the two together reach twice the configured ceiling rather
+than once. Neither is alertable as process memory.</p>
 <h1 id="greedy-and-never-spilling">Greedy, and never spilling<a class="headerlink" href="#greedy-and-never-spilling" title="Permanent link">&para;</a></h1>
 <p><code>GreedyMemoryPool</code> rather than
 <code>FairSpillPool</code>: first come, first served, and a reservation over the ceiling fails immediately.
@@ -2478,7 +2604,7 @@ operator-reservation reading is narrower than process memory. The opt-in measure
 a gauge whose absence it currently specifies for production: it observes a separate recording
 pool in fresh test children and exposes no accessor on the ordinary adapter.</p>
 <h3 id="struct-workingset"><code>struct WorkingSet</code><a class="headerlink" href="#struct-workingset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
 </span></code></pre></div>
 <p>How many bytes the engine's operators may reserve at once.</p>
 <p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
@@ -2491,14 +2617,26 @@ parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memor
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>The ceiling, for whatever sizes the pool.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The ceiling, in bytes.</p>
 <p>The one constructor, named for the unit so a call site reads as bytes at the point of the call
 rather than at the declaration it came from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">result_budget</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">ResultBudget</span>
+</span></code></pre></div>
+<p>The same number, as the budget one result's materialisation is charged against.</p>
+<p><strong>The configured ceiling and not a second key</strong>, which is the decision and it is sized by
+what a wrong value costs. <code>runtime.working_set_max_bytes</code> is already mandatory and already
+checked at boot against the memory this process can reach, so deriving from it cannot be
+unset, cannot default to unlimited, and cannot disagree with the number an operator tuned. A
+second key could be all three.</p>
+<p><strong>The limit, next to the claim:</strong> two budgets sized from one number are still two budgets.
+The operators may reserve up to the ceiling and one result may cost up to the ceiling, so a
+query's worst case is twice it - not once, which is what a reader of one number would assume.
+<code>docs/adr/0009</code>'s amendment carries the arithmetic.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 

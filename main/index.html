@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -1880,7 +1850,7 @@ half is the one that matters.</strong> A request context, a credential broker po
 an MCP surface all exist, and a deployment that declares <code>security.inbound</code> verifies a caller's
 own token - so who is asking can be known, no question can execute without a credential minted
 for the source it reads, and every outcome is recorded. What is absent is <strong>a data system that
-evaluates the asking subject</strong>: no adapter in this build can carry a per-subject credential, so
+evaluates the asking subject</strong>: no published adapter can carry a per-subject credential, so
 every question still reads as one identity. No Arrow result envelope either. Every claim on this
 site is marked <em>enforced today</em> or <em>design target</em> at the point it is made.</p>
 </div>
@@ -1989,8 +1959,8 @@ is the table, and it is the section to read before assuming otherwise.</p>
 is now one specific thing rather than four. There <em>is</em> a request context, a credential broker port
 with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
 declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere
-for a per-subject credential to arrive, both declare so, and the broker mints what an operator
+operations that caller may invoke. What is absent is <strong>leg 2</strong>: no published adapter has anywhere
+for a per-subject credential to arrive, both published adapters declare so, and the broker mints what an operator
 configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
 a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
 and still read every row as one identity. Arrow results are also still ahead. Federation is not:

@@ -486,8 +486,6 @@
       
         
       
-        
-      
     
     
     
@@ -660,34 +658,6 @@
     
   
     Where each identity claim is proven
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../showcase-datahub-bigquery/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The wave-one E2E showcase
   
 
     
@@ -2283,7 +2253,8 @@ call.</p>
 <p>The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
   set by its rarest variant makes every refusal carry the cost of an answer.
 - <code>Federated</code> - The question resolved to two data systems, split into a fact leg and a lookup leg.</p>
-<p>The two legs execute against their own sources and <code>FederatedPlan::combine</code> turns the rows
+<p>The two legs execute against their own sources and the combiner behind
+  <code>FederationCombiner</code> turns the batches
   back into one answer above them.
 - <code>Refused</code> - The question was refused, and this is why.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
