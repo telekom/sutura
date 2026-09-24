@@ -381,16 +381,11 @@ token minted for other resources too is fine.
 
 **What it does not grant, and this is the sentence to keep.** A scope decides which *operations* a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
-same pinned bundle and every question executes with whatever access the service process already had -
-still true for `files` and `postgres`, whose adapters declare `NoPlaceForASubject`, so a source of
-either kind executes as the service's own identity whatever the caller's scope says. **The
-qualifier that used to make this a blanket claim is spent, and it went the other way from "not
-built":** `sutura-exec-bigquery` DOES carry a per-subject credential and IS in the release -
-`nix/shipped.nix`'s `features` list is what the shipped artefact links, not merely what a per-triple
-probe compiles, and `bigquery` is on it (`docs/adr/0017`'s Fifteenth amendment: one binary, every
-adapter compiled in). What is still true is that `bigquery`'s exchange resolves per source
-(`docs/where-identity-is-proven.md`) and no served binary has executed a leg as the calling subject
-yet. A caller granted `sutura:metrics.ask` gets exactly the numbers any other caller would.
+same pinned bundle. `files` and `postgres` execute under their declared shared identity regardless
+of the caller's scope. The shipped BigQuery adapter can carry a verified caller's assertion through
+its declared per-subject account map, but no served run has proven source acceptance of that path.
+The scope grants permission to ask; the source's declared posture determines whose access governs
+the rows.
 
 The agent surface offers the same two capabilities under the names `describe_catalog` and `ask_metric`,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
