@@ -27,7 +27,7 @@ pub mod frontmatter;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use sutura_domain::capabilities::MetadataCapabilities;
+use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
     Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
@@ -42,7 +42,7 @@ use sutura_domain::pinned::{
 };
 
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
-use crate::document::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
+use crate::document::{DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
 use crate::frontmatter::{MalformedDocument, Split};
 
 /// The extension a catalog document has to have.
@@ -148,6 +148,13 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidMetricDocument,
+    },
+    /// A model's own column or its `primary_key:` is not usable.
+    #[error("{path} is not a usable model")]
+    Model {
+        path: PathBuf,
+        #[source]
+        cause: InvalidModelDocument,
     },
     /// The prose of a definition document is not a usable description.
     ///
@@ -490,7 +497,11 @@ impl Collected {
         match kind {
             DocumentKind::Model => {
                 let doc: ModelDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
-                self.models.push(doc.into_domain(description));
+                self.models
+                    .push(doc.into_domain(description).map_err(|cause| LocalCatalogError::Model {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
             }
             DocumentKind::Relationship => {
                 let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
@@ -585,25 +596,45 @@ impl SemanticCatalog for LocalCatalog {
     /// of it - which is what the golden adapters' agreement-with-the-oracle assertion is for.
     const KIND: CatalogKind = CatalogKind::Golden;
 
-    /// **Everything, and that is a statement about the ADAPTER rather than about the directory it
-    /// read.** The markdown format is defined in this repository and grows with the domain, so this
-    /// adapter supplies whatever kinds exist - a tenth definition kind or a fifth knowledge
-    /// capability gets a document shape and needs no edit on this line. That is what makes this the
-    /// reference adapter, and it is the same argument [`KnowledgeCapabilities::all`] carries in
+    /// **Everything, and that is a statement about the FORMAT rather than about one directory.**
+    /// The markdown format is defined in this repository and grows with the domain, so this adapter
+    /// supplies whatever kinds exist - a tenth definition kind or a fifth knowledge capability gets
+    /// a document shape and needs no edit on this line. That is what makes this the reference
+    /// adapter, and it is the same argument [`KnowledgeCapabilities::all`] carries in
     /// [`Self::read_all`]'s doc comment, generalised to the other half of the bundle by
     /// `docs/adr/0016-what-datahub-can-carry.md`.
     ///
-    /// An adapter mapping a fixed external schema gets the opposite treatment -
+    /// **`ColumnTypes` and `ColumnDescriptions` are the one exception, and review is why: they are
+    /// declared-and-may-provide here, not unconditional.** Every OTHER kind this format can express
+    /// is expressed by SOME document in any catalog with a model, a relationship or a metric at
+    /// all - a model document always names its table, a metric document always names its measure.
+    /// A column's long form is optional per column, by design (`ColumnEntryDoc`'s own doc): an
+    /// author writes it only for a column with something to say, and the format is exactly as
+    /// complete without a single typed or described column anywhere as with one. Declaring these
+    /// two unconditionally made composing ANY served markdown catalogue with no typed, described
+    /// column a boot refusal - `Composition { cause: Unfaithful { .. Unprovided { kind:
+    /// Definition(ColumnTypes) } } }` from `sutura_app::assemble`, which every composition root
+    /// runs - which is a breaking change to every existing deployment for a kind this issue added.
+    /// `and_may_provide` is 0011's declared-and-empty state: a bundle with none of either is still
+    /// faithful, and one that HAS either is still checked against the declared half.
+    ///
+    /// An adapter mapping a fixed external schema gets the opposite treatment for everything -
     /// `MetadataCapabilities::of` with two explicit lists, so a new kind leaves its declaration
     /// alone rather than silently widening it.
     ///
-    /// **The limit, next to the claim.** Declaring every kind says nothing about the directory: a
-    /// tree with no relationships in it produces a bundle with none, and this declaration is what
-    /// tells a reader that the emptiness is the corpus's rather than the format's.
-    /// `sutura-app`'s golden suite checks the pair over the example catalog, which does carry every
-    /// kind - so a claim wider than what this adapter can actually read fails there.
+    /// **The limit, next to the claim.** Declaring every kind unconditionally (all but the two
+    /// above) says nothing about the directory: a tree with no relationships in it produces a
+    /// bundle with none, and this declaration is what tells a reader that the emptiness is the
+    /// corpus's rather than the format's. `sutura-app`'s golden suite checks the pair over the
+    /// example catalog, which carries every kind including the two conditional ones - so a claim
+    /// wider than what this adapter can actually read still fails there, and the two examples this
+    /// issue's own corpus edits carry a typed, described column specifically so that check keeps
+    /// proving something.
     fn capabilities() -> MetadataCapabilities {
-        MetadataCapabilities::everything()
+        MetadataCapabilities::of(
+            DefinitionCapabilities::all().and_may_provide([DefinitionKind::ColumnTypes, DefinitionKind::ColumnDescriptions]),
+            KnowledgeCapabilities::all(),
+        )
     }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {

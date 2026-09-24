@@ -277,16 +277,9 @@ impl Definitions {
                 return Err(InconsistentDefinitions::DuplicateModel { model: existing.name });
             }
         }
-        for model in model_map.values() {
-            for column in &model.primary_key {
-                if !model.has_column(column) {
-                    return Err(InconsistentDefinitions::UnknownPrimaryKeyColumn {
-                        model: model.name.clone(),
-                        column: column.clone(),
-                    });
-                }
-            }
-        }
+        // No primary-key cross-check here: `Model::with_primary_key` already refused a dangling
+        // key at construction, against the same model's own columns, so every `Model` this map
+        // holds already has one that exists - unrepresentable rather than checked twice.
 
         let mut relationship_map: BTreeMap<RelationshipName, Relationship> = BTreeMap::new();
         for relationship in relationships {

@@ -48,9 +48,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{
-    Column, ColumnType, Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidDimensionValue, Model,
-};
+use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
@@ -191,34 +189,23 @@ impl OkfCatalog {
                 });
             }
             // `type` is the field's logical data type (`string`, `integer`, `number`, …) - descriptive
-            // text quoted into `Column::data_type`, never a measure and never a cast.
-            let data_type = field
-                .r#type
-                .map(|raw| {
-                    ColumnType::parse(&raw).map_err(|cause| OkfCatalogError::InvalidColumnType {
-                        path: path.to_path_buf(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?;
+            // text quoted into `Column::data_type`, never a measure. A type this adapter cannot
+            // represent is dropped rather than refused - `Column::from_metadata`'s own doc.
+            //
             // `description`, falling back to `title` the same way the model's own does - a field may
             // carry either or neither, and this adapter has no third source of column prose.
             let field_description = field
                 .description
                 .or(field.title)
                 .map(|text| text.trim().to_owned())
-                .filter(|text| !text.is_empty())
-                .map(|text| {
-                    Description::parse(text).map_err(|cause| OkfCatalogError::InvalidColumnDescription {
-                        path: path.to_path_buf(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?
-                .unwrap_or_default();
-            columns.push(Column::new(column_name, data_type, field_description, None));
+                .filter(|text| !text.is_empty());
+            let column = Column::from_metadata(column_name.clone(), field.r#type.as_deref(), field_description.as_deref(), None)
+                .map_err(|cause| OkfCatalogError::InvalidColumnDescription {
+                    path: path.to_path_buf(),
+                    column: column_name.clone(),
+                    cause,
+                })?;
+            columns.push(column);
         }
         // A model without a title or description would make the declared `Descriptions` unproduced,
         // so it is refused rather than defaulted.
@@ -242,7 +229,7 @@ impl OkfCatalog {
                 path: path.to_path_buf(),
                 cause,
             })?;
-        Ok(model.with_primary_key(primary_key))
+        model.with_primary_key(primary_key).map_err(|cause| OkfCatalogError::Inconsistent { cause })
     }
 
     /// Reads every descriptor and assembles the bundle.
@@ -308,13 +295,6 @@ pub enum OkfCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidDescription,
-    },
-    #[error("the type of column {column} in {path} is not usable")]
-    InvalidColumnType {
-        path: PathBuf,
-        column: ColumnName,
-        #[source]
-        cause: InvalidDimensionValue,
     },
     #[error("the description of column {column} in {path} is not usable")]
     InvalidColumnDescription {

@@ -116,6 +116,37 @@ fn a_field_s_type_and_description_arrive_on_the_model_s_column() {
     assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([id]));
 }
 
+/// A field's `title` describes it when there is no `description` - the same fallback the model's
+/// own description already had, extended to the field level.
+#[test]
+fn a_field_s_title_describes_it_when_there_is_no_description() {
+    let yaml = "description: Orders, one row per order.\nfields:\n  - name: id\n    title: The order's unique identifier.\n";
+    let pinned = outcome_of("field-title-fallback", &[("orders.yaml", yaml)]).expect("a title-only field loads");
+    let orders_name = sutura_domain::model::ModelName::parse("orders").expect("a fixture name is a name");
+    let orders = pinned.definitions().models().get(&orders_name).expect("orders is a model");
+    let id = sutura_domain::model::ColumnName::parse("id").expect("a fixture column is a column");
+    assert_eq!(orders.column(&id).expect("id is declared").description(), "The order's unique identifier.");
+}
+
+/// A type this crate cannot represent - here, one over `MAX_COLUMN_TYPE_CHARS` - is dropped, not
+/// refused: the load still succeeds and the column simply carries no type. `ColumnType`'s own doc
+/// carries the argument; this is the load-level proof that a whole catalog does not go down for
+/// one long type spelling, the defect found in review over a real `DataHub` field.
+#[test]
+fn a_column_type_this_crate_cannot_represent_is_dropped_rather_than_refusing_the_load() {
+    let long_type = "STRUCT<".to_owned() + &"field STRING, ".repeat(80) + "last STRING>";
+    assert!(
+        long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS,
+        "the fixture must actually exceed the bound to prove anything"
+    );
+    let yaml = format!("description: Orders, one row per order.\nfields:\n  - name: id\n    type: \"{long_type}\"\n");
+    let pinned = outcome_of("long-column-type", &[("orders.yaml", &yaml)]).expect("a long column type still loads");
+    let orders_name = sutura_domain::model::ModelName::parse("orders").expect("a fixture name is a name");
+    let orders = pinned.definitions().models().get(&orders_name).expect("orders is a model");
+    let id = sutura_domain::model::ColumnName::parse("id").expect("a fixture column is a column");
+    assert_eq!(orders.column(&id).expect("id is declared").data_type(), None);
+}
+
 #[test]
 fn a_primary_key_naming_an_undeclared_column_fails_the_load() {
     let err = error_for(

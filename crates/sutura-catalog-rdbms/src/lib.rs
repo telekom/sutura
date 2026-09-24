@@ -48,14 +48,23 @@
 //!    it from the constraint itself.
 //!
 //! **Update, 2026-09-24 (#966).** The measurement above counted TABLE comments; a real dictionary's
-//! `information_schema.columns` / `pg_catalog` also carries a `data_type` per column and, through
-//! `col_description`, a per-COLUMN comment - dropped at this port until now. [`Table`] carries both
-//! as [`ColumnMetadata`], attached with [`Table::with_column_metadata`], and a table's own primary
-//! or unique key as [`Table::with_primary_key`] - both additive rather than [`Table::new`]
-//! parameters, so every existing reader and every test fixture here keeps compiling. Neither
-//! licenses anything a cardinality or a measure would: a type is descriptive text
+//! `information_schema.columns` / `pg_catalog` COULD also supply a `data_type` per column, a
+//! per-COLUMN comment through `col_description`, and its own primary/unique key - a real reader
+//! could read all three the same way it reads the rest of the dictionary, and none of it existed
+//! at this port before this issue. [`Table`] now CAN carry a type and a comment per column, as
+//! [`ColumnMetadata`] attached with [`Table::with_column_metadata`], and a key as
+//! [`Table::with_primary_key`] - both additive rather than [`Table::new`] parameters, so every
+//! existing reader and every test fixture here keeps compiling. Neither licenses anything a
+//! cardinality or a measure would: a type is descriptive text
 //! ([`sutura_domain::catalog::ColumnType`]) and a primary key is evidence
 //! ([`sutura_domain::catalog::Model::with_primary_key`]).
+//!
+//! **What this update does NOT do: read any of it from a real database.** The only
+//! [`DictionaryReader`] this crate has is [`fixture::FixtureReader`], serving a recorded corpus -
+//! see "What is built here, and what is NOT" below, unchanged by this update. The fixture now
+//! carries a type, a comment and a key for two columns, so the conversion, the declaration and the
+//! byte accounting are exercised the same way the rest of this adapter always has been - against a
+//! recording, not a socket.
 //!
 //! # The declaration, and what it means for the bundle
 //!
@@ -87,7 +96,7 @@ pub mod fixture;
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, ColumnType, Definitions, Description, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{Column, Definitions, Description, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -205,14 +214,6 @@ pub enum RdbmsError {
         #[source]
         cause: sutura_domain::catalog::InvalidDescription,
     },
-    /// A column's declared data type did not pass the authored-scalar rule.
-    #[error("the type of column {column} on table {table} is not usable: {cause}")]
-    ColumnType {
-        table: String,
-        column: ColumnName,
-        #[source]
-        cause: sutura_domain::catalog::InvalidDimensionValue,
-    },
     /// A column comment did not pass the authored-prose rule.
     #[error("the comment on column {column} of table {table} is not usable: {cause}")]
     ColumnDescription {
@@ -305,28 +306,18 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     cause,
                 })?;
             let metadata = table.column_metadata(column);
-            let data_type = metadata
-                .and_then(ColumnMetadata::data_type)
-                .map(|raw| {
-                    ColumnType::parse(raw).map_err(|cause| RdbmsError::ColumnType {
-                        table: physical_table.to_string(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?;
-            let column_description = metadata
-                .and_then(ColumnMetadata::description)
-                .map(|raw| {
-                    Description::parse(raw).map_err(|cause| RdbmsError::ColumnDescription {
-                        table: physical_table.to_string(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?
-                .unwrap_or_default();
-            columns.push(Column::new(column_name, data_type, column_description, None));
+            let column = Column::from_metadata(
+                column_name.clone(),
+                metadata.and_then(ColumnMetadata::data_type),
+                metadata.and_then(ColumnMetadata::description),
+                None,
+            )
+            .map_err(|cause| RdbmsError::ColumnDescription {
+                table: physical_table.to_string(),
+                column: column_name.clone(),
+                cause,
+            })?;
+            columns.push(column);
         }
         let description = table
             .description()
@@ -351,8 +342,9 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let model =
-            Model::new(name, self.name.clone(), physical_table.clone(), columns, description).with_primary_key(primary_key);
+        let model = Model::new(name, self.name.clone(), physical_table.clone(), columns, description)
+            .with_primary_key(primary_key)
+            .map_err(|cause| RdbmsError::Inconsistent { cause })?;
         Ok((physical_table, model))
     }
 
@@ -681,6 +673,15 @@ impl Table {
     /// Declares which of this table's columns the dictionary's own primary or unique-key constraint
     /// names - evidence only, the same as [`sutura_domain::catalog::Model::with_primary_key`], which
     /// is where this arrives once converted.
+    ///
+    /// **Uncorrelated with [`SingleColumnTargetUniqueness`], and that is stated rather than
+    /// reconciled.** A [`Relationship`]'s target-uniqueness evidence licenses one specific foreign
+    /// key's `ManyToOne` direction; this evidence describes the table's OWN key, independent of
+    /// whether anything references it. Nothing here checks the two against each other - a column
+    /// this method names could be the primary key, a unique key that is not the primary one, or
+    /// (a reader's bug) neither, and this type cannot tell which from the name alone. A reader is
+    /// the only thing that could keep them consistent, because only a reader sees the dictionary's
+    /// own labelling of which constraint is which.
     #[must_use]
     pub fn with_primary_key(mut self, primary_key: Vec<String>) -> Self {
         self.primary_key = primary_key;

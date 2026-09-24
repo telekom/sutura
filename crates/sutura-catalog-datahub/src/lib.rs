@@ -99,8 +99,7 @@ use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Audience, Column, ColumnType, Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidDimensionValue,
-    Metric, Model, Relationship,
+    Audience, Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
@@ -190,14 +189,6 @@ pub enum DataHubError {
         on: String,
         #[source]
         cause: InvalidDescription,
-    },
-    /// A column's `nativeDataType` did not pass the authored-scalar rule.
-    #[error("the type of column {column} on {on} is not usable")]
-    ColumnType {
-        on: String,
-        column: ColumnName,
-        #[source]
-        cause: InvalidDimensionValue,
     },
     /// A column's own description did not pass the authored-prose rule.
     #[error("the description of column {column} on {on} is not usable")]
@@ -317,28 +308,18 @@ impl<R: AspectReader> DataHubCatalog<R> {
         for column in dataset.columns() {
             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name())?;
             let metadata = dataset.column_metadata(column);
-            let data_type = metadata
-                .and_then(document::ColumnMetadata::data_type)
-                .map(|raw| {
-                    ColumnType::parse(raw).map_err(|cause| DataHubError::ColumnType {
-                        on: dataset.name().to_owned(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?;
-            let column_description = metadata
-                .and_then(document::ColumnMetadata::description)
-                .map(|raw| {
-                    Description::parse(raw).map_err(|cause| DataHubError::ColumnDescription {
-                        on: dataset.name().to_owned(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?
-                .unwrap_or_default();
-            columns.push(Column::new(column_name, data_type, column_description, None));
+            let column = Column::from_metadata(
+                column_name.clone(),
+                metadata.and_then(document::ColumnMetadata::data_type),
+                metadata.and_then(document::ColumnMetadata::description),
+                None,
+            )
+            .map_err(|cause| DataHubError::ColumnDescription {
+                on: dataset.name().to_owned(),
+                column: column_name.clone(),
+                cause,
+            })?;
+            columns.push(column);
         }
         let description = Description::parse(dataset.description()).map_err(|cause| DataHubError::Description {
             on: dataset.name().to_owned(),
@@ -349,7 +330,9 @@ impl<R: AspectReader> DataHubCatalog<R> {
             .iter()
             .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", dataset.name()))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Model::new(name, source, table, columns, description).with_primary_key(primary_key))
+        Model::new(name, source, table, columns, description)
+            .with_primary_key(primary_key)
+            .map_err(|cause| DataHubError::Inconsistent { cause })
     }
 
     /// One `SemanticModelRelationship` into a [`Relationship`].

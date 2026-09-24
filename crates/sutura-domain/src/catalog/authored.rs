@@ -24,15 +24,19 @@
 //! [`Anchor`](super::Anchor)'s value was a fourth, `pub const fn new(range, value: String)` straight
 //! from both adapters. A field counted as covered by the type it does not use is the failure mode a
 //! header sentence has, and the remedy is that the types are what is enumerated here. The fourth
-//! type, [`ColumnType`], is [`super::Column::data_type`] - the same rule, a third caller rather than
-//! a second field this time.
+//! type, [`ColumnType`], is [`super::Column::data_type`].
 //!
-//! **One character rule, one implementation.** `authored_scalar` is it, and
-//! [`DimensionValue::parse`], [`AnchorValue::parse`] and [`ColumnType::parse`] are each a call to it
-//! plus their own storage. A second copy of a rule is how two copies come to disagree - which is the
-//! shape of the defect [`super::Metric`] carried in the other direction, one content read into two
-//! different [`Definitions`](super::Definitions) - so the rule is a function and not a paragraph
-//! asking the next author to keep three parsers in step.
+//! **One character rule, and [`ColumnType`] is deliberately NOT the third caller of it.**
+//! `authored_scalar` is what [`DimensionValue::parse`] and [`AnchorValue::parse`] both call, and a
+//! third field sharing it was tried and found wrong in review: a type is not a value a caller
+//! filters on or compares byte for byte against a data system, so the rule that bounds it - how
+//! long, and whether a line break is content or formatting - is not the same rule. [`ColumnType`]
+//! has its own bound and its own refusal for that reason, and it is the one place in this file that
+//! normalises rather than only refuses. A second copy of the SHARED rule is still how two copies
+//! come to disagree, which is the shape of the defect [`super::Metric`] carried in the other
+//! direction, one content read into two different [`Definitions`](super::Definitions) - so
+//! `DimensionValue` and `AnchorValue` still share one function rather than a paragraph asking the
+//! next author to keep two parsers in step.
 //!
 //! # Why a separate file
 //!
@@ -272,29 +276,88 @@ impl TryFrom<String> for AnchorValue {
     }
 }
 
+/// The longest declared column type, in characters, once collapsed to one line.
+///
+/// **Generous, and NOT tied to [`MAX_DIMENSION_VALUE_CHARS`] - that sharing was this type's own
+/// defect, found in review.** A real composite type - a `STRUCT` or `ARRAY` with several nested
+/// fields - routinely runs past a dimension value's 64 characters: a `DataHub` field measured in
+/// review, `STRUCT<street STRING, city STRING, postal_code STRING, country STRING>`, is 70. Reusing
+/// the dimension bound meant that one legal type spelling refused the WHOLE catalog load, for text
+/// nothing in this crate branches on. 512 is deliberately far past the 70 observed rather than tight
+/// around it: unlike a dimension value, nothing renders a column type into a document a person or an
+/// agent reads today (`super::Column`'s own doc states that), so generosity here costs
+/// store-and-forget bytes rather than prompt real estate.
+pub const MAX_COLUMN_TYPE_CHARS: usize = 512;
+
 /// A [`super::Column`]'s data type, as a source's own dictionary spells it: `"STRING"`,
 /// `"character varying"`, `"NUMERIC(38,9)"`.
 ///
-/// **Descriptive text, never a cast.** Nothing in this crate branches on it - `sutura_sql` has its
-/// own closed vocabulary for what a statement may execute, and this is a quote for a person reading
-/// the catalog.
+/// **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** Nothing in this crate branches
+/// on it, and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that
+/// is an absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
+/// treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
+/// rather than asserted, per this repository's own rule that an overstated control is itself the
+/// defect.
 ///
-/// **The third caller of [`authored_scalar`], sharing [`MAX_DIMENSION_VALUE_CHARS`] rather than a
-/// bound of its own.** A type name is shorter than the longest word this repository's example
-/// catalog writes, and giving it a second constant identical in every other respect would be a
-/// number to keep in step rather than a fact this type needed. The refusal is
-/// [`InvalidDimensionValue`] for the same reason [`AnchorValue`]'s is: a second name for the same
-/// five faults would say nothing the shared rule does not.
+/// **Normalised, unlike [`DimensionValue`] or [`AnchorValue`], and that is a deliberate departure.**
+/// A run of whitespace - including a newline, however the source pretty-printed a nested type -
+/// collapses to one plain space before anything else is checked. Two spellings that differ only in
+/// that whitespace are the same type, and a source's own formatting choice must not move the digest.
+/// This is safe here specifically because there is no rendering surface for it to disagree with:
+/// [`Description`]'s "refuse at load, never alter at render" rule exists because a renderer and a
+/// digest could see two different texts; a value nothing renders cannot have that defect, so
+/// normalising it is not the mistake normalising a description would be.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct ColumnType(String);
 
+/// Why a column type could not be read.
+///
+/// Its own type rather than [`InvalidDimensionValue`] - the earlier choice, which left every
+/// message reading "a dimension value" for a field that is not one, confusing an operator reading a
+/// refusal about a type. No `Spacing` variant: normalisation is what [`ColumnType::parse`] does
+/// with unreadable spacing instead of refusing it.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidColumnType {
+    #[error("a column type must not be empty")]
+    Empty,
+    #[error("a column type may not contain the control character {code:#06x}: {value:?}")]
+    ControlCharacter { value: String, code: u32 },
+    #[error("a column type may not contain the invisible or direction-changing character {code:#06x}: {value:?}")]
+    InvisibleCharacter { value: String, code: u32 },
+    #[error("a column type may be at most {limit} characters, {value:?} has {len}")]
+    TooLong { value: String, len: usize, limit: usize },
+}
+
 impl ColumnType {
-    /// Parses a column type, refusing text that could not be quoted back at a reader unaltered.
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDimensionValue> {
-        let raw = raw.as_ref();
-        authored_scalar(raw)?;
-        Ok(Self(String::from(raw)))
+    /// Parses a column type: normalises its whitespace to single spaces on one line, then refuses
+    /// what is left over - nothing, a control character, an invisible one, or too much of it.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidColumnType> {
+        let normalized = normalize_to_one_line(raw.as_ref());
+        if normalized.is_empty() {
+            return Err(InvalidColumnType::Empty);
+        }
+        if let Some(offending) = normalized.chars().find(|character| character.is_control()) {
+            return Err(InvalidColumnType::ControlCharacter {
+                value: normalized,
+                code: u32::from(offending),
+            });
+        }
+        if let Some(offending) = first_invisible(&normalized) {
+            return Err(InvalidColumnType::InvisibleCharacter {
+                value: normalized,
+                code: u32::from(offending),
+            });
+        }
+        let len = normalized.chars().count();
+        if len > MAX_COLUMN_TYPE_CHARS {
+            return Err(InvalidColumnType::TooLong {
+                value: normalized,
+                len,
+                limit: MAX_COLUMN_TYPE_CHARS,
+            });
+        }
+        Ok(Self(normalized))
     }
 
     #[inline]
@@ -303,8 +366,14 @@ impl ColumnType {
     }
 }
 
+/// Collapses every run of whitespace - a newline included - to one plain space, and trims the
+/// ends. What [`ColumnType::parse`] normalises before checking anything else.
+fn normalize_to_one_line(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 impl TryFrom<String> for ColumnType {
-    type Error = InvalidDimensionValue;
+    type Error = InvalidColumnType;
 
     fn try_from(raw: String) -> Result<Self, Self::Error> {
         Self::parse(raw)

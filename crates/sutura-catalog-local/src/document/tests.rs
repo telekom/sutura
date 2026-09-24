@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+use super::{Description, DocumentKind, InvalidMetricDocument, InvalidModelDocument, KindProbe, MetricDoc, ModelDoc};
 use sutura_domain::catalog::{
     Audience, AudienceGrant, DimensionValue, InconsistentDefinitions, InvalidDimensionValue, InvalidViaChain,
 };
@@ -163,7 +163,8 @@ columns: [amount_cents]
     for path in ["orders", "sales.orders", "analytics-prod.sales.orders"] {
         let model = doc(path)
             .unwrap_or_else(|e| panic!("{path} is a table a document may name: {e}"))
-            .into_domain(description("Orders."));
+            .into_domain(description("Orders."))
+            .expect("no primary key here to be inconsistent");
         assert_eq!(model.table().to_string(), path);
         assert_eq!(
             model.table_name().as_str(),
@@ -195,7 +196,8 @@ primary_key: [order_date]
 ";
     let model = serde_norway::from_str::<ModelDoc>(yaml)
         .expect("a mixed short/long column list parses")
-        .into_domain(description("Orders."));
+        .into_domain(description("Orders."))
+        .expect("order_date is one of the declared columns");
     let amount = model.column(&column("amount_cents")).expect("amount_cents is declared");
     assert_eq!(
         amount.data_type().map(sutura_domain::catalog::ColumnType::as_str),
@@ -209,6 +211,30 @@ primary_key: [order_date]
     assert_eq!(date.description(), "");
     assert_eq!(date.nullable(), None);
     assert_eq!(model.primary_key(), &BTreeSet::from([column("order_date")]));
+}
+
+/// A `type:` this crate cannot represent - here, over `MAX_COLUMN_TYPE_CHARS` - is dropped, not
+/// refused: the document still loads and the column carries no type.
+#[test]
+fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
+    let long_type = "STRUCT<".to_owned() + &"a STRING, ".repeat(80) + "z STRING>";
+    assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+    let yaml = format!(
+        "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    type: \"{long_type}\"
+"
+    );
+    let model = serde_norway::from_str::<ModelDoc>(&yaml)
+        .expect("a long type still parses as text")
+        .into_domain(description("Orders."))
+        .expect("dropping an unrepresentable type is not a refusal");
+    assert_eq!(model.column(&column("amount_cents")).expect("amount_cents is declared").data_type(), None);
 }
 
 #[test]
@@ -227,6 +253,31 @@ columns:
     typo: NUMERIC
 ";
     drop(serde_norway::from_str::<ModelDoc>(yaml).expect_err("a misspelled long-form key matches no column shape"));
+}
+
+#[test]
+fn a_primary_key_naming_a_column_the_model_does_not_declare_is_refused() {
+    // Checked at construction (`Model::with_primary_key`), against this model's own columns only -
+    // there is no map of models here for a key to be checked against the wrong one of.
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns: [amount_cents]
+primary_key: [order_id]
+";
+    let doc = serde_norway::from_str::<ModelDoc>(yaml).expect("the document itself parses");
+    let err = doc
+        .into_domain(description("Orders."))
+        .expect_err("order_id is not one of the declared columns");
+    assert_eq!(
+        err,
+        InvalidModelDocument::PrimaryKey(sutura_domain::catalog::InconsistentDefinitions::UnknownPrimaryKeyColumn {
+            model: sutura_domain::model::ModelName::parse("orders").expect("a test model is a model"),
+            column: column("order_id"),
+        })
+    );
 }
 
 #[test]

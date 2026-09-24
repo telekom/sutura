@@ -22,7 +22,7 @@ mod tests {
 
     use sutura_catalog_datahub::http::{Endpoint, HttpAspectReader, HttpReaderError, InvalidEndpoint, ReadBounds};
     use sutura_catalog_datahub::test_support::{
-        DEPLOYMENT_PROPERTY, FakeServer, Scripted, dataset_page, happy_path_answers, relationship_page,
+        DEPLOYMENT_PROPERTY, FakeServer, Scripted, dataset_page, happy_path_answers, metric_page, relationship_page,
     };
     use sutura_catalog_datahub::{AspectReader as _, DataHubCatalog, DataHubError};
     use sutura_domain::identity::Secret;
@@ -200,6 +200,128 @@ mod tests {
             Some(content.measure()),
             "the certified measure read over HTTP is the one the recorded fixture carries"
         );
+    }
+
+    /// **A schema field's `nativeDataType`/`description`/`isPartOfKey` map into the model's own
+    /// column - over the REAL reader, not the fixture.** A review found this had no test: every
+    /// existing `dataset_page()`-based cell served fields with `fieldPath` alone, so a mutation
+    /// dropping `harvest_dataset`'s new column-metadata block entirely stayed green.
+    ///
+    /// RED/GREEN mutation: in `harvest_dataset`, replace the `for field in fields` loop's body with
+    /// nothing (never populate `column_metadata`/`primary_key`) - this test's three assertions go
+    /// red one at a time as each is removed.
+    #[test]
+    fn a_schema_fields_type_description_and_key_flag_map_into_the_model_over_http() {
+        let mut dataset = dataset_page();
+        dataset["entities"][0]["schemaMetadata"]["value"]["fields"][0] = serde_json::json!({
+            "fieldPath": "order_id",
+            "nativeDataType": "BIGINT",
+            "description": "The order's own identifier.",
+            "isPartOfKey": true,
+        });
+        let server = FakeServer::start(vec![
+            Scripted::ok(&dataset),
+            Scripted::ok(&relationship_page()),
+            Scripted::ok(&metric_page()),
+        ]);
+        let mut sources = std::collections::BTreeMap::new();
+        drop(sources.insert(String::from("bigquery"), source_name()));
+        let bundle = DataHubCatalog::new(source_name(), version(), sources, reader(&server, 10, GENEROUS_CAP))
+            .load()
+            .expect("a schema field carrying the new keys still loads");
+        drop(server.finish());
+
+        let orders = bundle
+            .definitions()
+            .models()
+            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .expect("orders is a model");
+        let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a fixture column is a column");
+        let column = orders.column(&order_id).expect("order_id is declared");
+        assert_eq!(
+            column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+            Some("BIGINT")
+        );
+        assert_eq!(column.description(), "The order's own identifier.");
+        assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([order_id]));
+    }
+
+    /// **The finding this PR was built to close: the real, nested `nativeDataType` a review measured
+    /// against a live-shaped page must not refuse the whole load.** At base, `harvest_dataset` read
+    /// only `fieldPath`, so this page loaded; before `ColumnType` had its own bound (review, over
+    /// the shared 64-character dimension bound), this exact 70-character type refused the WHOLE
+    /// catalog with "a dimension value may be at most 64 characters". `MAX_COLUMN_TYPE_CHARS` is
+    /// generous enough that this legal type is carried, not dropped.
+    #[test]
+    fn a_real_nested_native_data_type_over_http_is_carried_not_refused() {
+        let long_type = "STRUCT<street STRING, city STRING, postal_code STRING, country STRING>";
+        assert!(
+            long_type.len() <= sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS,
+            "the reviewed example must fit inside the bound, or this proves nothing about it"
+        );
+        let mut dataset = dataset_page();
+        dataset["entities"][0]["schemaMetadata"]["value"]["fields"][2] = serde_json::json!({
+            "fieldPath": "amount_cents",
+            "nativeDataType": long_type,
+        });
+        let server = FakeServer::start(vec![
+            Scripted::ok(&dataset),
+            Scripted::ok(&relationship_page()),
+            Scripted::ok(&metric_page()),
+        ]);
+        let mut sources = std::collections::BTreeMap::new();
+        drop(sources.insert(String::from("bigquery"), source_name()));
+        let bundle = DataHubCatalog::new(source_name(), version(), sources, reader(&server, 10, GENEROUS_CAP))
+            .load()
+            .expect("the reviewed real-world nested type must not refuse the whole catalog");
+        drop(server.finish());
+        let orders = bundle
+            .definitions()
+            .models()
+            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .expect("orders is a model");
+        let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
+        assert_eq!(
+            orders
+                .column(&amount_cents)
+                .expect("amount_cents is declared")
+                .data_type()
+                .map(sutura_domain::catalog::ColumnType::as_str),
+            Some(long_type)
+        );
+    }
+
+    /// **A type past even the generous bound is dropped, not fatal - the escape hatch behind the
+    /// bound.** Nothing observed in review is this long; this is the pathological case the bound
+    /// itself exists to bound, proved over the real HTTP reader rather than only at the domain
+    /// layer.
+    #[test]
+    fn a_native_data_type_past_even_the_generous_bound_is_dropped_rather_than_refusing_the_load() {
+        let long_type = "STRUCT<".to_owned() + &"field STRING, ".repeat(80) + "last STRING>";
+        assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+        let mut dataset = dataset_page();
+        dataset["entities"][0]["schemaMetadata"]["value"]["fields"][2] = serde_json::json!({
+            "fieldPath": "amount_cents",
+            "nativeDataType": long_type,
+        });
+        let server = FakeServer::start(vec![
+            Scripted::ok(&dataset),
+            Scripted::ok(&relationship_page()),
+            Scripted::ok(&metric_page()),
+        ]);
+        let mut sources = std::collections::BTreeMap::new();
+        drop(sources.insert(String::from("bigquery"), source_name()));
+        let bundle = DataHubCatalog::new(source_name(), version(), sources, reader(&server, 10, GENEROUS_CAP))
+            .load()
+            .expect("a type past even the generous bound must not refuse the whole catalog");
+        drop(server.finish());
+        let orders = bundle
+            .definitions()
+            .models()
+            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .expect("orders is a model");
+        let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
+        assert_eq!(orders.column(&amount_cents).expect("amount_cents is declared").data_type(), None);
     }
 
     /// **One shared deadline across the (up to) three requests, not one per request.**

@@ -26,8 +26,8 @@ mod consistency;
 
 pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
 pub use authored::{
-    AnchorValue, ColumnType, Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES,
-    MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
+    AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
+    MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 pub use consistency::{Definitions, InconsistentDefinitions};
 
@@ -86,12 +86,14 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 /// **Measured before it was chosen, and re-measured for issue #966's column type and column
 /// description, which this bound did not cover before either existed.** This repository's shipped
 /// `single-player` catalog - the larger of the two example catalogs - is the reference: its widest
-/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter,
-/// and its columns, required filters and dimension values together sum under 2 KiB - one column
-/// (`subscriptions.mrr_cents`) now carries a declared type and a description, which is what moved
-/// this half at all. Descriptions are the rest of it, at about 22.5 KiB across eleven metrics and
-/// five models - each individually inside [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was
-/// uncapped. `Definitions::authored_bytes` over the loaded corpus reads 24975 bytes, ~24.4 KiB.
+/// model (`subscriptions`) declares 8 columns, no metric declares more than one required filter, and
+/// its columns (now including one declared type), required filters and dimension values together
+/// sum to 922 bytes - one column (`subscriptions.mrr_cents`) carries a declared type and a
+/// description, and that is what moved this half from the earlier column-blind measurement's
+/// under-1-KiB figure at all, not past any round number. Descriptions are the rest of it, at 24053
+/// bytes (~23.5 KiB) across eleven metrics and five models - each individually inside
+/// [`MAX_DESCRIPTION_BYTES`], and it is their COUNT that was uncapped. `Definitions::authored_bytes`
+/// over the loaded corpus reads 24975 bytes, ~24.4 KiB in total.
 ///
 /// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 5.25 times that reference catalog's ~24.4 KiB, less
 /// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
@@ -109,10 +111,12 @@ pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 /// field and describe none. `nullable` is likewise a source's own claim, read and stored, never
 /// derived from anything else here.
 ///
-/// **`data_type` is descriptive text, never a cast.** It is a quote of what the source called the
-/// column - `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog.
-/// Nothing in this crate branches on it, and `sutura_sql` has its own closed vocabulary for what a
-/// statement may execute.
+/// **`data_type` is descriptive text.** It is a quote of what the source called the column -
+/// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. At HEAD
+/// nothing branches on it - `sutura_sql` has its own closed vocabulary for what a statement may
+/// execute - but that is an absence rather than a mechanism: [`ColumnType`]'s own doc names review
+/// as what holds "never a cast", not the type system, because nothing here stops a future reader of
+/// [`Self::data_type`] from treating it as one.
 ///
 /// **Column prose is parsed and pinned, and reaches no rendering surface today.** No composition
 /// root's prompt, tool result or HTTP body names a column - `sutura_app::prompt`'s own header states
@@ -155,6 +159,35 @@ impl Column {
     #[inline]
     pub const fn nullable(&self) -> Option<bool> {
         self.nullable
+    }
+
+    /// Builds a column from raw type/description text an adapter read off its own source, so the
+    /// "a type is dropped rather than refused, a description still refuses" rule lives once rather
+    /// than once per catalog adapter.
+    ///
+    /// **The two fields are held to different rules on purpose, and this is where that shows.** A
+    /// type that fails [`ColumnType::parse`] is dropped - `data_type` becomes `None`, the load
+    /// continues - per that type's own doc: nothing renders it, so refusing the whole catalog over
+    /// text nothing reads would cost more than it protects. A description that fails
+    /// [`Description::parse`] still refuses: it is prose a person or an agent may eventually read,
+    /// held to the same rule every other quoted description in this crate is.
+    ///
+    /// `nullable` is carried through unchanged - there is nothing to parse or drop, only
+    /// `sutura-catalog-local`'s long column form has a source for it, and every other caller passes
+    /// `None`.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidDescription`], if `description` is `Some` and not usable.
+    pub fn from_metadata(
+        name: ColumnName,
+        data_type: Option<&str>,
+        description: Option<&str>,
+        nullable: Option<bool>,
+    ) -> Result<Self, InvalidDescription> {
+        let data_type = data_type.and_then(|raw| ColumnType::parse(raw).ok());
+        let description = description.map(Description::parse).transpose()?.unwrap_or_default();
+        Ok(Self::new(name, data_type, description, nullable))
     }
 }
 
@@ -228,12 +261,34 @@ impl Model {
 
     /// Declares which of this model's columns a source's own dictionary marks as its primary key.
     ///
-    /// Evidence only, per the type's own doc. [`Definitions::assemble`] refuses a key naming a
-    /// column this model does not declare.
-    #[must_use]
-    pub fn with_primary_key(mut self, primary_key: impl IntoIterator<Item = ColumnName>) -> Self {
-        self.primary_key = primary_key.into_iter().collect();
-        self
+    /// Evidence only, per the type's own doc: refused if it names a column this model does not
+    /// declare, checked here rather than later in [`Definitions::assemble`] so a `Model` with a
+    /// dangling key cannot be built at all - the same "unrepresentable over checked" argument
+    /// [`Metric::new`]'s own duplicate-dimension check makes, applied one level down.
+    ///
+    /// **What this does NOT check: that the key is actually unique in the source's data.** A
+    /// database dictionary's own constraint is checked by the database; an author writing this by
+    /// hand in a markdown document is not, and never was - a key can name real columns and still be
+    /// wrong about which of them are unique together. `crates/sutura-domain` opens no data system
+    /// and reads no rows, so there is nothing here that could check that, and stating so is the
+    /// whole of what this note can do about it.
+    ///
+    /// # Errors
+    ///
+    /// [`InconsistentDefinitions::UnknownPrimaryKeyColumn`], naming the first column that is not
+    /// one of this model's own.
+    pub fn with_primary_key(mut self, primary_key: impl IntoIterator<Item = ColumnName>) -> Result<Self, InconsistentDefinitions> {
+        let primary_key: BTreeSet<ColumnName> = primary_key.into_iter().collect();
+        for column in &primary_key {
+            if !self.has_column(column) {
+                return Err(InconsistentDefinitions::UnknownPrimaryKeyColumn {
+                    model: self.name.clone(),
+                    column: column.clone(),
+                });
+            }
+        }
+        self.primary_key = primary_key;
+        Ok(self)
     }
 
     #[inline]

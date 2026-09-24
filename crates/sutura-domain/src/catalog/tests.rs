@@ -217,9 +217,13 @@ fn a_bare_column_name_still_constructs_a_model_with_no_type_or_description() {
 
 #[test]
 fn a_primary_key_naming_a_column_the_model_does_not_have_is_refused() {
-    let orders = model("orders", "local", &["amount_cents", "order_date"]).with_primary_key([column("order_id")]);
+    // Checked at construction (`Model::with_primary_key`), not later in `Definitions::assemble` -
+    // a `Model` with a dangling key cannot be built at all.
+    let err = model("orders", "local", &["amount_cents", "order_date"])
+        .with_primary_key([column("order_id")])
+        .unwrap_err();
     assert_eq!(
-        Definitions::assemble(vec![orders], vec![], vec![]).unwrap_err(),
+        err,
         InconsistentDefinitions::UnknownPrimaryKeyColumn {
             model: model_name("orders"),
             column: column("order_id"),
@@ -231,7 +235,9 @@ fn a_primary_key_naming_a_column_the_model_does_not_have_is_refused() {
 fn a_primary_key_naming_a_real_column_is_evidence_and_licenses_nothing_else() {
     // "Evidence only": a bundle with a primary key still assembles with no relationship at all, and
     // nothing here reads it to decide a `JoinType`.
-    let orders = model("orders", "local", &["amount_cents", "order_date"]).with_primary_key([column("order_date")]);
+    let orders = model("orders", "local", &["amount_cents", "order_date"])
+        .with_primary_key([column("order_date")])
+        .expect("order_date is one of orders' own columns");
     let definitions = Definitions::assemble(vec![orders], vec![], vec![]).expect("a real primary key column assembles");
     let orders = definitions.model(&model_name("orders")).expect("orders was assembled");
     assert_eq!(orders.primary_key(), &BTreeSet::from([column("order_date")]));

@@ -70,8 +70,11 @@ impl Snapshot {
     }
 }
 
-/// What `OpenMetadata`'s `Column` schema says about one column beyond its name: its `dataType`,
-/// its own `description`, and whether its `constraint` is `PRIMARY_KEY`.
+/// What `OpenMetadata`'s `Column` schema COULD supply a reader beyond a column's name: its
+/// `dataType`, its own `description`, and (via [`Table::primary_key`]) whether its `constraint` is
+/// `PRIMARY_KEY`. This adapter's own canonical shape for it - no [`SnapshotReader`] but the fixture
+/// and a test stub exists today, so nothing yet maps a real `constraint` value into
+/// [`Table::primary_key`]; see the crate header's "What is built here, and what is NOT".
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ColumnMetadata {
@@ -118,7 +121,8 @@ pub struct Table {
     /// Per-column `dataType`/`description`, keyed by column name.
     #[serde(default)]
     column_metadata: BTreeMap<String, ColumnMetadata>,
-    /// Columns whose `constraint` is `PRIMARY_KEY` - evidence only.
+    /// Columns a reader found with `constraint: PRIMARY_KEY` - evidence only, and, as of this
+    /// writing, populated by nothing but the recorded fixture and a test stub.
     #[serde(default)]
     primary_key: Vec<String>,
 }

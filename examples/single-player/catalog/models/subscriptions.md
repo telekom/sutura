@@ -15,7 +15,7 @@ columns:
     nullable: false
   - churned_in_month
   - contract_term
-primary_key: [subscription_key]
+primary_key: [subscription_key, month]
 ---
 One row per subscription per month: what that subscription was worth in the month, and
 what state it was in at the end of it.

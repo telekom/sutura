@@ -159,6 +159,30 @@ fn a_column_s_type_comment_and_primary_key_evidence_arrive() {
     assert_eq!(status.description(), "");
 }
 
+/// A column type longer than `ColumnType` can represent is dropped, not refused: the load still
+/// succeeds and the column carries no type, per that type's own doc.
+#[test]
+fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
+    let long_type = "character varying".to_owned() + &"(".repeat(sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+    let dictionary = Dictionary::new(
+        vec![
+            table("orders", vec!["order_id".to_owned()], None)
+                .with_column_metadata([("order_id".to_owned(), crate::ColumnMetadata::new(Some(long_type), None))]),
+        ],
+        Vec::new(),
+    );
+    let pinned = RdbmsCatalog::new(name(), version(), SparseReader(dictionary))
+        .load()
+        .expect("a long column type still loads");
+    let orders = pinned
+        .definitions()
+        .models()
+        .get(&ModelName::parse("orders").expect("a test model is a model"))
+        .expect("orders is a model");
+    let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a test column is a column");
+    assert_eq!(orders.column(&order_id).expect("order_id is declared").data_type(), None);
+}
+
 /// A dictionary's own primary key can only ever name a column it also lists - a reader that got
 /// the two out of step is refused rather than certifying a key on a column that is not there.
 #[test]

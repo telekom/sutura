@@ -148,6 +148,34 @@ fn a_column_s_type_description_and_primary_key_evidence_arrive() {
     assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([order_id]));
 }
 
+/// A column type longer than `ColumnType` can represent is dropped, not refused: the load still
+/// succeeds and the column carries no type.
+#[test]
+fn a_column_type_too_long_to_represent_is_dropped_rather_than_refusing_the_load() {
+    let long_type = "STRUCT<".to_owned() + &"a INT, ".repeat(100) + "z INT>";
+    assert!(long_type.len() > sutura_domain::catalog::MAX_COLUMN_TYPE_CHARS);
+    let snapshot: Snapshot = serde_json::from_value(serde_json::json!({
+        "tables": [{
+            "service": "warehouse",
+            "name": "orders",
+            "columns": ["order_id"],
+            "description": "One row per order.",
+            "column_metadata": {"order_id": {"data_type": long_type}},
+        }],
+        "relationships": {},
+        "metrics": [],
+    }))
+    .expect("the snapshot is well-formed");
+    let pinned = over(snapshot).load().expect("a long column type still loads");
+    let orders = pinned
+        .definitions()
+        .models()
+        .get(&sutura_domain::model::ModelName::parse("orders").expect("a test model is a model"))
+        .expect("orders is a model");
+    let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a test column is a column");
+    assert_eq!(orders.column(&order_id).expect("order_id is declared").data_type(), None);
+}
+
 /// A metric whose measure is an expression string is READ and never DEFINED.
 ///
 /// `metricType` is decidable but the bound column is not resolvable from a foreign-dialect

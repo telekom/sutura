@@ -311,6 +311,26 @@ columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_m
 One row per subscription per month. Money in minor units, so a total is exact.
 ```
 
+Each entry in `columns:` may be the bare name above, or a mapping when a column has something more
+to say - a type, a description or whether it may hold null. Both forms may mix in one list, and
+plainly naming a column is always enough:
+
+```yaml
+columns:
+  - month
+  - name: mrr_cents
+    type: NUMERIC
+    description: Recurring revenue for the month, in minor units.
+    nullable: false
+primary_key: [subscription_key, month]
+```
+
+A type is text quoted from wherever the model's own source spells it - never a cast, and nothing
+here checks it against a data system. `primary_key:` is the same: evidence a source's own dictionary
+(or, here, an author) supplied, never checked against the data itself - a real primary key is
+whichever columns are actually unique together in the rows, and this repository has no way to
+check that from a catalogue alone.
+
 `source:` is the data system this model's table lives in, and `local` above is not a keyword - it is
 the name of the one data system the `sutura` command declares for itself: a directory of CSV or
 Parquet files, the one you pass as the last argument, read as whoever ran the command. **Any other

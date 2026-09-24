@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Column, ColumnType, Description, Dimension, DimensionValue, InconsistentDefinitions,
+    Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidDescription,
     InvalidDimensionValue, InvalidViaChain, Metric, Model, Relationship, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
@@ -161,6 +161,14 @@ impl AnchorLiteral {
 /// misspelled key inside the long form is refused, but `untagged` cannot say which variant a
 /// mapping was attempting or which key was wrong - the message names neither.
 ///
+/// **`type` and `description` are read as bare text, not as [`ColumnType`](sutura_domain::catalog::ColumnType)/[`Description`]
+/// directly, and that is deliberate.** `serde(try_from)` has no escape hatch: a `ColumnType` that
+/// failed to parse would refuse the WHOLE document, for text nothing renders - the same defect
+/// found in review over `DataHub`'s HTTP reader, and [`ColumnType`](sutura_domain::catalog::ColumnType)'s own doc argues why a type
+/// this crate cannot represent should be dropped instead. Reading the raw text here and converting
+/// through [`Column::from_metadata`] in [`Self::into_domain`] is what gives this format the same
+/// "a type is dropped, a description still refuses" rule every other catalog adapter now has.
+///
 /// **What this does not check: two entries naming one column.** [`Model::new`] collects columns
 /// into a map keyed by name, so a repeated name keeps whichever entry was last in the list rather
 /// than refusing - the same silent collapse a `BTreeSet<ColumnName>` already gave every identical
@@ -176,24 +184,35 @@ pub enum ColumnEntryDoc {
     Long {
         name: ColumnName,
         #[serde(default)]
-        r#type: Option<ColumnType>,
+        r#type: Option<String>,
         #[serde(default)]
-        description: Option<Description>,
+        description: Option<String>,
         #[serde(default)]
         nullable: Option<bool>,
     },
 }
 
 impl ColumnEntryDoc {
-    fn into_domain(self) -> Column {
+    /// The column's own name, either form.
+    fn name(&self) -> &ColumnName {
         match self {
-            Self::Short(name) => Column::from(name),
+            Self::Short(name) | Self::Long { name, .. } => name,
+        }
+    }
+
+    /// # Errors
+    ///
+    /// [`InvalidDescription`], if the long form's `description:` is present and not usable. A
+    /// `type:` that is not usable is dropped rather than refused - see this type's own doc.
+    fn into_domain(self) -> Result<Column, InvalidDescription> {
+        match self {
+            Self::Short(name) => Ok(Column::from(name)),
             Self::Long {
                 name,
                 r#type,
                 description,
                 nullable,
-            } => Column::new(name, r#type, description.unwrap_or_default(), nullable),
+            } => Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable),
         }
     }
 }
@@ -225,10 +244,38 @@ pub struct ModelDoc {
     primary_key: BTreeSet<ColumnName>,
 }
 
+/// Why a model document could not become a domain [`Model`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidModelDocument {
+    /// One column's own `description:` is not usable prose.
+    #[error("column {column}'s description is not usable")]
+    ColumnDescription {
+        column: ColumnName,
+        #[source]
+        cause: InvalidDescription,
+    },
+    /// The model's own `primary_key:` names a column it does not declare.
+    ///
+    /// Transparent, for the reason [`InvalidMetricDocument::Inconsistent`] gives: the domain's own
+    /// message already names the model and the column.
+    #[error(transparent)]
+    PrimaryKey(InconsistentDefinitions),
+}
+
 impl ModelDoc {
-    pub fn into_domain(self, description: Description) -> Model {
-        let columns: Vec<Column> = self.columns.into_iter().map(ColumnEntryDoc::into_domain).collect();
-        Model::new(self.name, self.source, self.table, columns, description).with_primary_key(self.primary_key)
+    pub fn into_domain(self, description: Description) -> Result<Model, InvalidModelDocument> {
+        let mut columns = Vec::with_capacity(self.columns.len());
+        for entry in self.columns {
+            let name = entry.name().clone();
+            columns.push(
+                entry
+                    .into_domain()
+                    .map_err(|cause| InvalidModelDocument::ColumnDescription { column: name, cause })?,
+            );
+        }
+        Model::new(self.name, self.source, self.table, columns, description)
+            .with_primary_key(self.primary_key)
+            .map_err(InvalidModelDocument::PrimaryKey)
     }
 }
 

@@ -58,10 +58,7 @@ pub mod document;
 pub mod fixture;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{
-    Column, ColumnType, Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidDimensionValue, Model,
-    Relationship,
-};
+use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
@@ -111,13 +108,6 @@ pub enum OpenMetadataError {
         on: String,
         #[source]
         cause: InvalidDescription,
-    },
-    #[error("the type of column {column} on {on} is not usable")]
-    ColumnType {
-        on: String,
-        column: ColumnName,
-        #[source]
-        cause: InvalidDimensionValue,
     },
     #[error("the description of column {column} on {on} is not usable")]
     ColumnDescription {
@@ -224,28 +214,18 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
         for column in table.columns() {
             let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name())?;
             let metadata = table.column_metadata(column);
-            let data_type = metadata
-                .and_then(document::ColumnMetadata::data_type)
-                .map(|raw| {
-                    ColumnType::parse(raw).map_err(|cause| OpenMetadataError::ColumnType {
-                        on: table.name().to_owned(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?;
-            let column_description = metadata
-                .and_then(document::ColumnMetadata::description)
-                .map(|raw| {
-                    Description::parse(raw).map_err(|cause| OpenMetadataError::ColumnDescription {
-                        on: table.name().to_owned(),
-                        column: column_name.clone(),
-                        cause,
-                    })
-                })
-                .transpose()?
-                .unwrap_or_default();
-            columns.push(Column::new(column_name, data_type, column_description, None));
+            let column = Column::from_metadata(
+                column_name.clone(),
+                metadata.and_then(document::ColumnMetadata::data_type),
+                metadata.and_then(document::ColumnMetadata::description),
+                None,
+            )
+            .map_err(|cause| OpenMetadataError::ColumnDescription {
+                on: table.name().to_owned(),
+                column: column_name.clone(),
+                cause,
+            })?;
+            columns.push(column);
         }
         // A model's description is supplied (Descriptions is a provided kind); one without a
         // description would leave the declaration unproduced for it. Refuse rather than default.
@@ -265,7 +245,9 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             .iter()
             .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name()))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Model::new(name, source, table_name, columns, description).with_primary_key(primary_key))
+        Model::new(name, source, table_name, columns, description)
+            .with_primary_key(primary_key)
+            .map_err(|cause| OpenMetadataError::Inconsistent { cause })
     }
 
     /// One relationship (a `name` → structural endpoints) into a domain [`Relationship`].

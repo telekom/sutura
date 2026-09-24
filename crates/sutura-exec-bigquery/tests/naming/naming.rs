@@ -121,6 +121,7 @@ pub(crate) fn suffixed_bundle(tokened: &PinnedDefinitions, token: &str, leg: &st
                 Description::parse(model.description()).expect("a loaded description reparses"),
             )
             .with_primary_key(model.primary_key().iter().cloned())
+            .expect("the primary key was already valid on the model this was suffixed from")
         })
         .collect();
     let relationships: Vec<Relationship> = tokened.definitions().relationships().values().cloned().collect();
