@@ -174,12 +174,15 @@ adapter. So the property is a `sutura-domain` type and the call site is
 `crates/sutura-app/src/federated.rs` for the call site, three exhaustive matches (both transports plus
 `sutura_app::prompt::refusal::guide_for`) and the prompt snapshots that list every guide.
 
-**Adds.** `ExecutedAs::uniform`, returning a `UniformlyExecuted` that
-`PinnedDefinitions::provenance` is narrowed to take - so a mixed-posture **answer is unconstructible**
-rather than merely refused - plus `RefusalReason::LegsDecideIdentityDifferently`, carrying the posture
-LABELS and never a `SourcePosture` (that type reaches an operator's acknowledgement prose, and both
-derive `Serialize`). The verdict is asked in `answer_federated` above `broker.mint`, so the legs never
-run and no credential is minted. And three things that MOVED with it rather than after it:
+**Adds - and REVERSED since, which is why the original text stands beside its correction.** This
+added `ExecutedAs::uniform`, returning a `UniformlyExecuted` that `PinnedDefinitions::provenance` was
+narrowed to take, plus `RefusalReason::LegsDecideIdentityDifferently` carrying the posture LABELS and
+never a `SourcePosture`. `docs/adr/0040` deletes all four: only one adapter can carry a per-subject
+credential, so refusing a mixed answer refused every heterogeneous federation, and a cross-posture
+answer is disclosed per leg instead. What survives from this step is `ExecutedAs` itself and the rule
+that only posture LABELS ever leave the process - an operator's acknowledgement prose derives
+`Serialize` and must not reach a caller, a log or an agent's context. And three things that MOVED with
+it rather than after it:
 
 - **The prompt guide for that refusal becomes wrong and is rewritten in the same diff.**
   `PLAN_SPANS_TWO_SOURCES` in `crates/sutura-app/src/prompt.rs` tells an agent that crossing two data

@@ -97,6 +97,10 @@ not decide*.
   unaffected and unexercised by this record: every adapter this workspace ships is either
   `NoPlaceForASubject` or, for `BigQuery`, `PerSubjectCredential` without `EXECUTES_LEGS`, so no
   shipped combination can put two genuinely different postures on the same federated answer yet.
+  **Corrected three times since, in the *Amendment*, the *Second amendment* and the *Third
+  amendment* below**: that build reaches the comparison, `BigQuery` then declares `EXECUTES_LEGS`,
+  and then the comparison itself was deleted - a cross-posture answer is disclosed
+  per leg (`0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md`).
 - **The three type-level consts this enum still lies about the conservative direction on.** A
   mixed build cannot serve the raw-SQL tool against a `Postgres` source it holds
   (`ACCEPTS_RAW_STATEMENTS`), read a real dry-run byte estimate off a `BigQuery` source it holds
@@ -175,8 +179,10 @@ artefact links the adapter (`checks.shipped-features` reads that off the artefac
 impersonating `bigquery` leg is refused as `LegsDecideIdentityDifferently` rather than as
 `FederationNotExecutable`. `ExecutedAs::uniform` is untouched: refusing that mix is correct, because
 adding rows a shared identity may see to rows the asker may see is a total no identity is entitled
-to. And *the three type-level consts this enum still lies about* is unchanged - `executes_legs` was
-already the instance method, which is exactly what lets `AnyWarehouse` answer it per variant.
+to. **The last two sentences are superseded by the *Third amendment* below** - the arithmetic stays
+true and the refusal does not. And *the three type-level consts this enum still lies about* is
+unchanged - `executes_legs` was already the instance method, which is exactly what lets
+`AnyWarehouse` answer it per variant.
 
 **What this amendment may NOT be cited for.** No federated answer has been produced against a real
 `BigQuery` dataset. `crates/sutura-app/tests/golden/dialects.rs` still declares `Dialect::BigQuery`
@@ -191,3 +197,23 @@ which is where the option is set - so what was missing was a leg reaching the tr
 cell that says it does. ADBC prices no dry run, so `docs/adr/0030`'s all-or-nothing charge sums two
 `PreFlight::NotAsked` legs and charges nothing: `governance.per_replica_spend_ceiling` bounds a
 federated `BigQuery` answer exactly as little as it bounds a mono one.
+
+## Third amendment, 2026-09-22: the posture comparison this enum reached is deleted
+
+**The *Amendment* above is corrected in the one place it names a refusal.** A `--features bigquery`
+build putting a `files` leg beside an impersonating `bigquery` leg is **answered**, not refused:
+`ExecutedAs::uniform`, `UniformlyExecuted` and `RefusalReason::LegsDecideIdentityDifferently` are
+deleted, and the answer's `executed_as` carries one entry per source naming that leg's own posture.
+`0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md` is the ruling.
+
+**Why it lands on this record specifically.** The closed enum is what made a heterogeneous adapter
+set expressible at all, and `BigQuery` is the only variant declaring `PerSubjectCredential` - so the
+enum's own reason for existing is exactly what makes every heterogeneous federation cross-posture.
+Refusing the mix refused the enum's point.
+
+**Unchanged, and worth saying because this record's *What this does not decide* is where a reader
+looks for it.** The enum's own `IMPERSONATION` is still fixed at the restrictive
+`NoPlaceForASubject` for every variant, held safe only because nothing generic reads it and
+`deliverable_by` runs against each adapter's own concrete constant before an adapter is wrapped. And
+nothing here makes a mixed answer *shipped*: no published artefact links the impersonating adapter,
+which `checks.shipped-features` reads off the artefact.

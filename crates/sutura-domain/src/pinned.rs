@@ -41,7 +41,7 @@ use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::plan::NotAnAnchorsPlan;
 use crate::query::RefusalReason;
-use crate::source::UniformlyExecuted;
+use crate::source::ExecutedAs;
 use crate::text::first_invisible;
 use crate::warehouse::cardinality::{KeyNotCounted, KeyNotUnique};
 
@@ -164,7 +164,7 @@ impl core::fmt::Display for DefinitionVersion {
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
-    executed_as: UniformlyExecuted,
+    executed_as: ExecutedAs,
 }
 
 impl Provenance {
@@ -176,7 +176,7 @@ impl Provenance {
     /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
     /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
     /// it - so this costs no caller.
-    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: UniformlyExecuted) -> Self {
+    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: ExecutedAs) -> Self {
         Self {
             version,
             digest,
@@ -197,11 +197,11 @@ impl Provenance {
     /// What each leg of this answer ran as.
     ///
     /// Read off the posture the **adapter was handed**, never off a settings tree - see
-    /// [`crate::source`]. Non-empty, because [`crate::source::ExecutedAs`] has no empty form, and
-    /// uniform, because [`UniformlyExecuted`] is the only thing [`PinnedDefinitions::provenance`]
-    /// accepts.
+    /// [`crate::source`]. Non-empty, because [`ExecutedAs`] has no empty form. **Not uniform**: a
+    /// federated answer whose legs decide identity differently is answered and names both postures
+    /// here, one entry per source (`docs/adr/0040`).
     #[inline]
-    pub const fn executed_as(&self) -> &UniformlyExecuted {
+    pub const fn executed_as(&self) -> &ExecutedAs {
         &self.executed_as
     }
 }
@@ -387,17 +387,17 @@ impl PinnedDefinitions {
     /// `Provenance` with an empty execution record would be the one shape this argument exists to
     /// make unrepresentable.
     ///
-    /// # And a MIXED execution record is unrepresentable the same way
+    /// # A MIXED execution record is accepted, and names both postures
     ///
-    /// The argument is [`UniformlyExecuted`] rather than [`crate::source::ExecutedAs`], so an answer
-    /// combining rows read under one posture with rows read under another cannot be built at all -
-    /// not refused at a call site somebody may move, but absent from the type system. A record with
-    /// two legs reaches this only through [`crate::source::ExecutedAs::uniform`], which is where the
-    /// verdict is made.
+    /// The argument is [`ExecutedAs`], so an answer whose legs decided identity differently is
+    /// answered with one entry per source rather than refused - `docs/adr/0040`, taken because
+    /// `BigQuery` is the only impersonating adapter and every heterogeneous federation is therefore
+    /// cross-posture. **The record is not the control:** it travels in the same body as the rows, so
+    /// a caller who reads it already has them. What is load-bearing is the boot acknowledgement each
+    /// source's own entry carries, refused by `sutura_config::Settings::refusals` before a listener
+    /// binds.
     ///
-    /// **A mixed record has no way in:**
-    ///
-    /// ```compile_fail
+    /// ```
     /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
     /// use sutura_domain::source::ExecutedAs;
     ///
@@ -405,22 +405,7 @@ impl PinnedDefinitions {
     ///     pinned.provenance(both_legs)
     /// }
     /// ```
-    ///
-    /// The compiling twin, differing by exactly the one call that makes the verdict - so the block
-    /// above cannot be passing on a typo:
-    ///
-    /// ```
-    /// use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-    /// use sutura_domain::source::{ExecutedAs, LegsDecideIdentityDifferently};
-    ///
-    /// fn _uniform(
-    ///     pinned: &PinnedDefinitions,
-    ///     both_legs: ExecutedAs,
-    /// ) -> Result<Provenance, LegsDecideIdentityDifferently> {
-    ///     Ok(pinned.provenance(both_legs.uniform()?))
-    /// }
-    /// ```
-    pub fn provenance(&self, executed_as: UniformlyExecuted) -> Provenance {
+    pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
         Provenance::new(self.version.clone(), self.digest.clone(), executed_as)
     }
 

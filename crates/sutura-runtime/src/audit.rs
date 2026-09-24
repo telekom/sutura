@@ -231,7 +231,7 @@ mod tests {
         use sutura_domain::knowledge::Knowledge;
         use sutura_domain::model::SourceName;
         use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-        use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture, UniformlyExecuted};
+        use sutura_domain::source::{AcknowledgementReason, ExecutedAs, SharedIdentityDeclared, SourcePosture};
         use sutura_domain::warehouse::{RowSet, Value};
 
         let pinned = PinnedDefinitions::pin(
@@ -244,7 +244,7 @@ mod tests {
             ),
         )
         .expect("the test definitions hash");
-        let ran_as = UniformlyExecuted::of(
+        let ran_as = ExecutedAs::of(
             SourceName::parse("warehouse").expect("a test source is a source"),
             SourcePosture::SharedServiceUser {
                 declared: SharedIdentityDeclared::of(

@@ -832,6 +832,46 @@ mod tests {
     }
 
     #[test]
+    fn a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose() {
+        // **`docs/adr/0040`'s one behavioural break, on the wire.** A shared leg beside an
+        // impersonating one used to leave here as `409 legs_decide_identity_differently`; it is a
+        // `200` whose `executed_as` carries one entry per source with two DIFFERENT posture values.
+        // No schema edit and no golden re-record - the field was already a list. **And this body is
+        // why the disclosure is not a control:** it serializes `executed_as` beside `rows`, so a
+        // caller who reads which leg ran as whom already holds them. The control is the boot-time
+        // acknowledgement on each source's own entry.
+        let rows = sutura_domain::warehouse::RowSet::new(
+            vec![String::from("revenue")],
+            vec![vec![sutura_domain::warehouse::Value::Integer(197_122)]],
+        )
+        .expect("a one-cell result is a result set");
+        let outcome = Outcome::from(&ToolOutcome::Answer {
+            // Derived from the mono fixture, so this cell and the fixtures cannot disagree.
+            provenance: crate::testing::bundle().provenance(
+                crate::testing::ran_shared()
+                    .and(
+                        sutura_domain::model::SourceName::parse("warehouse").expect("a fixture source is a source"),
+                        sutura_domain::source::SourcePosture::ImpersonationAtSource,
+                    )
+                    .expect("two distinct sources are two legs"),
+            ),
+            rows,
+        });
+        assert_eq!(outcome.status(), axum::http::StatusCode::OK);
+        let rendered = serde_json::to_string(outcome.body()).expect("the outcome serializes");
+        assert!(
+            rendered.contains(
+                r#""executed_as":[{"source":"local","posture":"shared-service-user"},{"source":"warehouse","posture":"impersonation-at-source"}]"#
+            ),
+            "{rendered}"
+        );
+        // And the LABELS only. `SourcePosture`'s shared variant carries the operator's own
+        // acknowledgement and derives `Serialize`, so a posture VALUE in this body would publish
+        // that sentence to every caller - which a mixed answer makes more reachable, not less.
+        assert!(!rendered.contains("transport-layer fake"), "{rendered}");
+    }
+
+    #[test]
     fn the_catalog_view_lists_grains_coarsest_first_and_carries_the_digest() {
         let bundle = crate::testing::bundle();
         let body = CatalogBody::of(&ScopedView::everything(&bundle), sutura_config::CatalogProse::Quoted);

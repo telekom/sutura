@@ -448,10 +448,11 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
                   `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
                   two, so the record's shape is settled rather than provisional. A plan names one \
                   data system per LEG and at most two legs - three or more refuse as \
-                  `PlanSpansTooManySources` - and whether the two legs would decide identity the \
-                  same way is not a plan-stage fact at all, since a posture belongs to an opened \
-                  adapter; that is refused above the credential mint. `docs/concepts.md` carries \
-                  the corrected wording and its limits",
+                  `PlanSpansTooManySources` - and whether the two legs decide identity the same \
+                  way is not a plan-stage fact at all, since a posture belongs to an opened \
+                  adapter; it is not refused ANYWHERE since `docs/adr/0040`, and is disclosed per \
+                  leg in the answer instead. `docs/concepts.md` carries the corrected wording and \
+                  its limits",
         only: &[],
         except: &[],
     },
@@ -852,6 +853,50 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         // The Second amendment's deviation 7 is quoted in order to be corrected in place, so this
         // record holds the one copy of the wording no scan may refuse.
         except: &["docs/adr/0015-an-authenticated-metrics-endpoint.md"],
+    },
+    Contradicted {
+        // `docs/adr/0040`. `ExecutedAs::uniform`, `UniformlyExecuted` and
+        // `RefusalReason::LegsDecideIdentityDifferently` are deleted: a federated answer whose legs
+        // decide identity differently is answered with one `executed_as` entry per source. The
+        // correction landed in the domain's own module doc and in that record, and THREE skills plus
+        // two published pages carried the old claim - which is this table's founding shape.
+        //
+        // ONE entry rather than four, because it is one claim: every wording below says a
+        // mixed-posture answer does not happen. The Rust doc comments that said it are DELETED with
+        // the types, and `claims` reads no `.rs` anyway - registering one of those would be a rule
+        // against nothing, which `a_page_a_rule_exempts_holds_a_wording_that_rule_forbids` refuses.
+        name: "a federated answer whose legs decide identity differently is refused",
+        wordings: &[
+            "answer is unconstructible",
+            "refused rather than labelled",
+            "every leg decides identity the SAME way, or the question is refused",
+            "cannot get two genuinely different POSTURES onto one",
+        ],
+        // The signature, not the record's prose: `provenance` taking `ExecutedAs` is exactly what the
+        // deleted newtype existed to prevent, and a reader can resolve it without trusting a page.
+        // Anchored on the parameter rather than on the absent `UniformlyExecuted`, because a gate
+        // that fires on an absence retires itself the moment somebody adds an unrelated type by that
+        // name.
+        evidence: &[Evidence {
+            path: "crates/sutura-domain/src/pinned.rs",
+            holds: "pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance",
+        }],
+        instead: "a federated answer whose legs decide identity differently is ANSWERED, and its \
+                  `executed_as` carries one entry per source naming that leg's own posture - \
+                  `docs/adr/0040`, taken because `sutura-exec-bigquery` is the only adapter \
+                  declaring `PerSubjectCredential`, so refusing the mix refused every heterogeneous \
+                  federation rather than an edge case. The arithmetic the refusal named is \
+                  unchanged: rows a shared identity may see plus rows the asker may see is a total \
+                  no identity is entitled to. What answers for it is the BOOT refusal \
+                  `NotFitToServe::SharedSourceNotAcknowledged`, which fires before a listener \
+                  binds - never the record, which leaves in the same body as the rows",
+        only: &[],
+        // ONE exemption, and it is the record that quotes all four in order to be wrong in one
+        // place - *The sentences this record retires*. Every other page is held to the rule,
+        // including the two ADRs and the two plans this change amends: each of those corrects its
+        // own claim in its own words rather than quoting the sentence, which is what keeps this
+        // exemption down to a single file.
+        except: &["docs/adr/0040-a-cross-posture-federated-answer-is-disclosed-per-leg.md"],
     },
 ];
 

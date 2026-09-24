@@ -85,12 +85,6 @@ pub(super) fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::CredentialUnavailable {
             source: SourceName::parse("warehouse").expect("a test source is a source"),
         },
-        // Both labels, off `SourcePosture::NAMES` rather than spelled here: the closed set is the
-        // whole of what this refusal may carry, and a literal beside it would be a second copy of
-        // it. Never a `SourcePosture` value - that one carries an operator's acknowledgement prose.
-        RefusalReason::LegsDecideIdentityDifferently {
-            postures: sutura_domain::source::SourcePosture::NAMES.iter().copied().collect(),
-        },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
@@ -144,7 +138,6 @@ fn guide_key_carries_every_variant() {
             | RefusalReason::SourceRefused { .. }
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
-            | RefusalReason::LegsDecideIdentityDifferently { .. }
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
             | RefusalReason::TopOverUncertifiedRows { .. } => {}

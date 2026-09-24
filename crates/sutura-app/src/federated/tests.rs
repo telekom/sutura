@@ -600,29 +600,43 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
 }
 
 #[test]
-fn an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting() {
-    // **The refusal this whole change is, and the assertion that matters is the mint count.**
-    // Two leg-executing adapters, one `shared-service-user` and one `impersonation-at-source`,
-    // so combining them would add rows one identity was permitted to see to rows another
-    // identity was permitted to see - a total neither is entitled to, under a certified metric
-    // name and with valid provenance. Refused above the mint, so no credential exists and
-    // neither leg runs.
+fn an_answer_whose_legs_run_under_two_postures_is_answered_and_records_both() {
+    // **`docs/adr/0040`, at the orchestrator: this used to be a `409` above the mint.** Two
+    // leg-executing adapters, one `shared-service-user` and one `impersonation-at-source`. BigQuery
+    // is the only impersonating adapter, so refusing this shape refused every heterogeneous
+    // federation rather than an edge case - which is why the disclosure replaced the refusal.
     //
-    // A registration rather than a new fake: `LegsWarehouse::answering` already takes a posture
-    // per instance, which is the whole of what a mixed deployment is.
+    // **The reasoning the refusal carried is not softened.** Rows a shared identity was permitted to
+    // see, added to rows the asking subject was permitted to see, make a total no identity is
+    // entitled to. What answers for it is that a mixed answer does span two authorization domains,
+    // an operator declared each one in writing on its own entry before this process started, and the
+    // answer names which leg came from which. `executed_as` arrives in the same body as the rows, so
+    // it is that boot-time acknowledgement and never this record that is the control.
+    //
+    // A registration rather than a new fake: `LegsWarehouse::answering` already takes a posture per
+    // instance, which is the whole of what a mixed deployment is.
+    let facts = SourceName::parse("facts").expect("a test source");
+    let geo = SourceName::parse("geo").expect("a test source");
+    let postures = [
+        (facts.clone(), shared()),
+        (geo.clone(), sutura_domain::source::SourcePosture::ImpersonationAtSource),
+    ];
     let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("facts").expect("a test source"),
-        shared(),
+        facts,
+        postures[0].1.clone(),
         federated_fact_rows(),
     ))
     .and(crate::tests_support::LegsWarehouse::answering(
-        SourceName::parse("geo").expect("a test source"),
-        sutura_domain::source::SourcePosture::ImpersonationAtSource,
+        geo,
+        postures[1].1.clone(),
         federated_lookup_rows(),
     ))
     .expect("two sources, one registry");
 
-    let broker = crate::tests_support::CountingBroker::default();
+    // Per-posture legs: the shared source gets its own witness and the impersonating one gets the
+    // asker's own credential, which is what `Presented::agrees_with` accepts for each - asked PER
+    // LEG, and cross-posture is what makes it the check that each leg ran as what the record claims.
+    let broker = crate::tests_support::AcknowledgingBroker::over(&postures);
     let plan = federated_plan();
     let outcome = answer_federated(
         &bundle(),
@@ -636,29 +650,20 @@ fn an_answer_whose_legs_would_run_under_two_postures_is_refused_before_minting()
         &SpendLedger::no_budget(),
         sutura_domain::plan::RowCeiling::DEFAULT,
     )
-    .expect("a refusal is an Ok")
+    .expect("a cross-posture answer is an Ok")
     .into_outcome();
-    let ToolOutcome::Refusal {
-        reason: RefusalReason::LegsDecideIdentityDifferently { postures },
-    } = outcome
-    else {
-        panic!("two postures in one answer is refused, not {outcome:?}");
+    let ToolOutcome::Answer { provenance, .. } = outcome else {
+        panic!("two postures in one answer are disclosed per leg, not refused: {outcome:?}");
     };
     assert_eq!(
-        postures.iter().copied().collect::<Vec<&str>>(),
-        vec!["impersonation-at-source", "shared-service-user"],
-        "the refusal names both postures, by label"
+        provenance
+            .executed_as()
+            .legs()
+            .map(|(source, posture)| (source.as_str(), posture.as_str()))
+            .collect::<Vec<(&str, &str)>>(),
+        vec![("facts", "shared-service-user"), ("geo", "impersonation-at-source")],
+        "the answer names which leg came from which authorization domain, in source order"
     );
-    assert_eq!(
-        broker.asked(),
-        0,
-        "the verdict is above the mint, so no credential is minted for an answer that will not be given"
-    );
-    // And the operator's acknowledgement prose never leaves the deployment. `Debug` is the
-    // rendering that reaches a log by accident; the serialized body is asserted in
-    // `sutura_domain::query`, which has a format parser.
-    let rendered = format!("{:?}", RefusalReason::LegsDecideIdentityDifferently { postures });
-    assert!(!rendered.contains("a directory of CSVs"), "{rendered}");
 }
 
 #[test]
