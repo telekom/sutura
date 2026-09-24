@@ -232,6 +232,14 @@ mod tests {
         assert_eq!(body["outcome"], "answer", "{}", answer.body);
         assert_eq!(body["columns"], serde_json::json!(["period", names.metric()]));
         assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "412345"]]));
+        assert_eq!(body["provenance"]["definition_version"], VERSION);
+        assert!(
+            body["provenance"]["definition_digest"]
+                .as_str()
+                .is_some_and(|digest| !digest.is_empty()),
+            "an answer arrived with no definition digest: {}",
+            answer.body
+        );
         assert_eq!(
             body["executed_as"],
             serde_json::json!([{"source": CATALOG, "posture": "shared-service-user"}])
