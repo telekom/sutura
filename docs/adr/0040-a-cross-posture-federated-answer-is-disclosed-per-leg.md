@@ -16,9 +16,9 @@ record that already shipped beside them is what answers the question now.
 Per-subject identity for Postgres, Oracle and ClickHouse is **deferred, not abandoned** - upstream
 pull requests are open and ClickHouse is wanted. What makes this record necessary rather than an
 enhancement is the arithmetic in between: `sutura-exec-bigquery` is the only adapter declaring
-`ImpersonationCapability::PerSubjectCredential`, so **every heterogeneous federation is cross-posture
-by construction.** Refusing the mix did not refuse an edge case; it refused BigQuery federating with
-anything but another BigQuery.
+`ImpersonationCapability::PerSubjectCredential`, so **every BigQuery federation with a
+leg-executing shared-posture adapter is cross-posture by construction.** Refusing the mix prevented
+BigQuery from federating with those adapters.
 
 **Who decides, restated by the owner on 2026-09-23 in answer to review 5291270117** - which asked that
 the mix be treated as a security exception rather than inferred from the per-leg labels: it is
@@ -88,9 +88,8 @@ signature that refutes it:
 - *one deployment still cannot get two genuinely different POSTURES onto one federated answer* - the
   same skill's four limits.
 
-The first three are false as of this record. The fourth is false for a `--features bigquery` build
-and remains true of every published artefact, for a different reason: no release links the
-impersonating adapter.
+The first three are false as of this record. The fourth is false for a `--features bigquery` build,
+including published artefacts since #929. No served cross-posture run has been observed.
 
 ## The four layers re-measured before anything was deleted
 
@@ -124,8 +123,8 @@ indistinguishable.
   against **one** subject key (`0030-where-a-budget-lives.md`, all-or-nothing) regardless of which leg
   ran as whom. Already the shape before this record; worth stating because a mixed answer is the first
   case where the two halves are not the same principal.
-- **Nothing about a real cross-posture run.** No published artefact links the impersonating adapter,
-  and no served binary has executed as a caller - `where-identity-is-proven.md` is the register for
+- **Nothing about a real cross-posture run.** A published artefact links the impersonating adapter,
+  but no served binary has executed as a caller - `where-identity-is-proven.md` is the register for
   which venue may be cited for which claim, and this record adds no row to it. What is held is that
   the orchestrator answers the mixed shape, the two transports publish both labels on every half, and
   `agrees_with` still refuses a leg presenting the wrong shape.

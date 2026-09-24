@@ -57,7 +57,8 @@ proof of impersonation.
   disclosed rather than refused since `docs/adr/0040`, and that does not make the disclosure a
   control.** The refusal that stood there (`ExecutedAs::uniform` and the `UniformlyExecuted` that
   `PinnedDefinitions::provenance` took) is deleted because BigQuery is the only impersonating adapter,
-  so refusing the mix refused every heterogeneous federation. The arithmetic it named is unchanged -
+  so refusing the mix prevented BigQuery from federating with a shared-posture adapter. The
+  arithmetic it named is unchanged -
   rows a shared identity may see plus rows the asker may see is a total no identity is entitled to -
   and what answers for it is the BOOT acknowledgement each source's own entry carries, refused by
   `Settings::refusals` before a listener binds. Written as: *a mixed answer does span two
@@ -70,7 +71,7 @@ proof of impersonation.
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
   Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
   source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
-  the only federating shape that ships.
+  a valid shared-posture federation.
 - **`docs/adr/0008` part 6's expiry FLOOR is not implemented, and nothing replaces it.** *Is there
   enough life left for what this query may take* lived in `WorkloadIdentityBroker::with_floor`, which
   was deleted with that broker (`docs/adr/0018`, eighth amendment) - and it had **already been

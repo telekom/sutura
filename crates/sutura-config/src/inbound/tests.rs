@@ -308,17 +308,21 @@ fn each_mode_derives_one_requirement_and_they_differ_only_in_where_the_token_is(
 }
 
 #[test]
-fn what_each_mode_says_at_startup_is_read_from_the_type_and_never_claims_leg_two() {
-    // The line an operator reads on every boot. It is a function rather than a comment so the log,
-    // the documentation and this test read one string - which is the mechanism that keeps a
-    // deployment from believing it has per-user access because it has authentication.
+fn what_each_mode_says_at_startup_states_the_unproven_source_limit() {
+    // The line an operator reads on every boot names the built path and its proof limit.
     assert!(direct().who_authenticated().contains("resource server"));
     assert!(behind_gateway().who_authenticated().contains("fronting component"));
     let limit = InboundIdentity::what_it_does_not_do();
-    assert!(limit.contains("leg 2"), "{limit}");
-    assert!(limit.contains("does not"), "{limit}");
-    // The same sentence for both modes, deliberately: the mode changes who authenticates the caller
-    // and changes nothing about leg 2.
+    assert!(
+        limit.contains("BigQuery can carry the caller's verified assertion"),
+        "{limit}"
+    );
+    assert!(limit.contains("no served run has yet shown"), "{limit}");
+    assert!(
+        limit.contains("Other sources execute under their declared shared identity"),
+        "{limit}"
+    );
+    // The inbound mode changes who authenticates the caller, not the source's posture.
     for mode in [direct(), behind_gateway()] {
         assert!(!mode.mode().is_empty(), "each inbound mode names an authenticator");
         assert!(InboundIdentity::MODES.contains(&mode.mode()), "{}", mode.mode());

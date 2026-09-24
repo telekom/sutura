@@ -25,32 +25,29 @@ or both.
 file said the opposite and would have talked a valid report out of being sent.** There are now two
 credentials and they are not the same thing:
 
-- The **shared bearer token** authenticates the *deployment*. Anyone holding it is the same caller as
-  everyone else holding it.
+- The **shared bearer token** authenticates the *deployment*. Without `security.inbound`, everyone
+  holding it is treated as the same caller.
 - Where a deployment declares `security.inbound`, sutura verifies the **caller's own** token - a
   signature against a pinned asymmetric algorithm, an issuer, an audience that is this deployment's
   own resource identifier, an expiry, and a required token class. That establishes *who is asking*,
   and it gates *which operations* they may invoke through OAuth scopes.
 
-**What neither of them does is decide which rows an answer contains.** A credential port exists and
-every execution of a question goes through it - `Warehouse::execute` has no signature that runs
-without a credential a broker minted for that source, and a subject with no credential at a source is
-refused rather than answered as the process. But **no published adapter can carry a per-subject credential**: both
-adapters in a published binary declare that they have nowhere for one to arrive, and the broker that
-ships mints what an operator configured. *Published* rather than *built*, because `bigquery` is a
-default-off feature whose adapter does carry one. So a deployment can know exactly who is asking, record it, and still read
-every row as one identity.
+**Caller authentication alone does not decide which rows an answer contains.** Every question goes
+through a credential broker for its source. The shipped BigQuery adapter can carry the caller's own
+verified assertion through the source's declared per-subject account map; an undeclared subject is
+refused rather than run as the deployment. Its real source-acceptance venue is wired but has no
+observed run, so end-to-end execution as that subject remains unproven. Other sources execute under
+their declared shared identity. A deployment can therefore know who is asking and still read rows
+under a shared identity for those sources.
 
 That makes the scope precise rather than absent:
 
 - A report that a caller can invoke an **operation** they were not granted - past the scope check,
   past the bearer gate, past the token validator - **is a finding, and a high-severity one.**
-- A report that one caller can read another caller's **rows** is *not* a finding on the shipped
-  build, because no per-subject access exists to breach: every question runs with whatever access the
-  process already had, and the startup banner says so beside the mode. **A report that sutura
-  *claims* otherwise - in a log line, an audit record, provenance, a doc page, or this file - is a
-  finding**, because a deployment that believes it impersonates and does not is the failure this
-  distinction exists to prevent.
+- A report that one caller can read another caller's **rows** through a BigQuery source is a finding:
+  the declared subject-to-account mapping must be honored. For a source declared to run under a
+  shared identity, row access follows that identity's grants. **A false claim of impersonation** in
+  a log line, audit record, provenance or documentation is also a finding.
 - A report that the **identity itself** can be forged or confused - a token accepted with the wrong
   class, the wrong audience or an unexpected algorithm; a caller stating its own identity in a header
   or a body; a revoked key that keeps verifying past its bound; an assertion replayed outside the
@@ -89,15 +86,12 @@ And on the identity path, now that one exists:
 - a deployment that declares an inbound identity and serves without one
 - an operation invoked without the scope that governs it, on either transport
 - an outcome returned without a record having been written first
-- a **claim** about identity that the build does not deliver: a record, a provenance value, a log
-  line or a document saying a leg ran as the asking subject when no adapter can carry one
+- a **claim** about identity that the build does not deliver: a record, provenance value, log line or
+  document saying a leg ran as the asking subject when its source used a shared identity
 
-Per-**row** access as the calling subject is still the highest-severity class this project will have,
-and it does not exist yet. The two credentials above are not steps toward it: what it needs is an
-adapter that can carry a per-subject credential, and neither adapter in a published binary can.
-The default-off `bigquery` feature builds one that does, and no run has shown a data system
-applying the row grant of the principal it resolves to - see
-`docs/where-identity-is-proven.md`.
+Per-**row** access as the calling subject is built for BigQuery and remains unproven at the real
+source: no observed served run has shown the source applying the grants of the mapped account. See
+`docs/where-identity-is-proven.md` for the venue and its limit.
 
 ## What we already treat as a defect
 
@@ -123,13 +117,11 @@ These are the design and are **not** enforced, so breaking one is not a vulnerab
 is the state of the repository, recorded in `.agents/skills/sutura/invariants` and in
 [what exists today](https://telekom.github.io/sutura/latest/architecture/#what-exists-today):
 
-- **a query executing as the calling subject.** The port is there and the fallback is not: every
-  question goes through a credential a broker minted, and a subject with no credential at a source is
-  refused rather than downgraded. What is missing is the other end - no adapter in a
-  published binary has anywhere for a per-subject credential to arrive, so a leg runs under the
-  identity the operator configured for that source. The default-off `bigquery` feature builds one
-  that does, unproven against a live pool. A report that this build does not impersonate is the state of the
-  repository; a report that it *says* it does is a finding
+- **a query proven to execute as the calling subject at a real source.** BigQuery's per-subject
+  path is built, but its served identity venue has no observed run. Other sources deliberately use
+  their declared shared identity. A mismatch between a BigQuery subject and the account used to
+  execute its question is a finding; a claim that this live behavior has already been proven is also
+  a finding
 - **`AnchorPlan` is not a barrier, and citing it as one is the mistake this line exists to stop.**
   It parses a plan as one the pinned bundle itself agrees is a declared anchor's own, so it catches a
   boot path that compiled the wrong question - but every value its constructor reads is publicly

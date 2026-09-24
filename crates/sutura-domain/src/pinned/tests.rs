@@ -323,7 +323,7 @@ fn a_provenance_carries_a_mixed_execution_record_and_names_which_leg_ran_as_what
     // **`docs/adr/0040`, at the type that used to make this unrepresentable.** `provenance` took a
     // `UniformlyExecuted`, obtainable only from a verdict that refused two postures, so a shared leg
     // beside an impersonating one had no way to become an answer at all. BigQuery is the only
-    // impersonating adapter, so that refused every heterogeneous federation rather than an edge case.
+    // impersonating adapter, so that prevented BigQuery from federating with a shared-posture adapter.
     //
     // **What this is NOT:** a control. The record reaches a caller in the same body as the rows. The
     // control is the acknowledgement an operator wrote on each source's own entry, which

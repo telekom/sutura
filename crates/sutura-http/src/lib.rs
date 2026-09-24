@@ -28,13 +28,11 @@
 //! [`sutura_domain::identity::Subject::TheDeploymentItself`] and an access token, if one is
 //! configured, proves only that the caller holds a secret an operator distributed.
 //!
-//! **What neither shape does is make a data system execute as the asking subject.** That is leg 2, and
-//! the half of it that is built is the credential port: a question cannot execute without a credential
-//! minted for the source it reads, and a subject with no credential there is refused rather than
-//! answered as this process. What no PUBLISHED adapter can do is CARRY a per-subject credential, so
-//! every question is still answered with whatever access this process already had. The startup log
-//! prints that limit on every boot, and [`inbound`] lists the four things `docs/adr/0014` describes
-//! and this does not build.
+//! **Neither inbound shape alone proves source execution as the asker.** A question cannot execute
+//! without a credential minted for its source, and a subject with none is refused. A published build
+//! links `BigQuery`, wired to carry the verified caller's assertion through a declared per-subject
+//! map; no served run has proven that hop. Other sources still use an acknowledged shared identity.
+//! [`inbound`] lists the limits of caller verification.
 //!
 //! `crate::principal` is the one place a [`sutura_domain::identity::RequestContext`] is constructed,
 //! and there are exactly two ways in: one takes no argument, and the other takes a

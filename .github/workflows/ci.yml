@@ -88,7 +88,7 @@ name: ci
 # survives the list, so a commit touching a README and a metric runs - the metric is the reason
 # CI exists.
 #
-# `ci` IS a required check now - it is the one context in the `main` ruleset's
+# `ci` IS a required check now - one of two contexts in the `main` ruleset's
 # `required_status_checks` - so the sentence this paragraph used to state as a hypothetical is
 # live: a required check that never RUNS blocks the merge rather than failing it. GitHub's own
 # words, checked 2026-08-31: "If a workflow is skipped due to path filtering, branch filtering or
@@ -124,7 +124,7 @@ on:
   # required context pending forever; classification inside the job skips irrelevant work.
   pull_request:
   # THE MERGE QUEUE. A queued pull request gets a ref under
-  # `gh-readonly-queue/<base>/pr-<N>-<sha>` and a `merge_group` event, and `ci` is the one context
+  # `gh-readonly-queue/<base>/pr-<N>-<sha>` and a `merge_group` event, and `ci` is one context
   # the `main` ruleset requires - so with nothing listening the required check never reports, and
   # the queue's own `check_response_timeout_minutes` elapses, at which point GitHub assumes a check
   # that never concluded FAILED and drops the entry. MEASURED rather than reasoned, 2026-08-31:
@@ -158,7 +158,7 @@ on:
   #
   # THE TWO EVENT TESTS ARE RIGHT AS THEY STAND AND ARE LEFT ALONE. `crap-comment` gates on
   # `pull_request`, so a queue entry posts nothing - there is no pull request to comment on.
-  # `bigquery-acceptance` gates on a push or a same-repository pull request, so a queue entry skips
+  # `e2e-datahub-adbc` gates on a push or a same-repository pull request, so a queue entry skips
   # it: it is not a required context, nothing has it in `needs`, and the pull request it came from
   # already ran it. Making a queue entry call a cloud provider would be a decision about cost and
   # about a secret, not a fix, so it is named here rather than taken.
@@ -180,11 +180,11 @@ jobs:
   ci:
     # THE VALIDATION CONCURRENCY GROUP (#561), at the `ci` JOB level rather than the workflow
     # level. A workflow-level `concurrency:` makes every job of run N+1 - pr-cache,
-    # bigquery-acceptance, ci-aggregate included - wait for every job of run N, so the next run's
+    # e2e-datahub-adbc, ci-aggregate included - wait for every job of run N, so the next run's
     # ci sits behind an unrelated predecessor's cross tail (median 79 s, max 1040 s of queue lag
     # measured in #561). Scoping the group to the job that VALIDATES stops that: a later run's ci
     # waits only for the prior run's ci, not its tail; the downstream legs are each own-serialized
-    # (bigquery-acceptance has its own group) or idempotent.
+    # (e2e-datahub-adbc has its own group) or idempotent.
     #
     # Never cancel a run on the default branch, and the correctness that used to rest on that
     # comment is now on the durable marker (#561): the default-branch base is the last fully
@@ -1574,10 +1574,10 @@ jobs:
   # The one cell that needs a REAL identity provider rather than the mock -
   # `crates/sutura-cli/tests/served/keycloak_test.rs`'s `#[ignore]`d
   # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
-  # Its own job for the same reason `bigquery-acceptance` gets one: attributable failure, and the
+  # Its own job for the same reason `e2e-datahub-adbc` gets one: attributable failure, and the
   # rest of CI does not wait on a JVM boot.
   #
-  # **No environment and no secret, unlike `bigquery-acceptance` - and that is the honest
+  # **No environment and no secret, unlike `e2e-datahub-adbc` - and that is the honest
   # difference, not an oversight.** `nix/keycloak-tier.nix` generates every credential it needs at
   # `start`, so there is nothing here for a fork's pull request to be denied: this job runs on every
   # event that selects the identity category, with no repository-membership condition. The COST
@@ -1588,7 +1588,7 @@ jobs:
   # venue proves nothing.
   keycloak-served-test:
     needs: [ci]
-    # No fork/push distinction, unlike bigquery-acceptance: no secret is read below, so there is
+    # No fork/push distinction, unlike e2e-datahub-adbc: no secret is read below, so there is
     # nothing this condition needs to withhold from a fork's pull request.
     if: needs.ci.outputs.identity == 'true'
     runs-on: rust-mcp-16core
@@ -1611,19 +1611,79 @@ jobs:
       # `nix run .#keycloak-served-test` starts the tier, runs the one cell, and stops the tier
       # whatever the cell does - see the app's own header in `flake.nix`. Not a `checks.*`: this
       # job's JVM boot is a cost `just validate`'s sandboxed checks should not pay on every push,
-      # the same reason `bigquery-acceptance` is an app rather than a check.
+      # the same reason `e2e-datahub-adbc` is an app rather than a check.
       - name: Real-issuer leg
         run: |
           set -eu
           nix run .#keycloak-served-test -- --no-capture
 
-  # The wave-one E2E over the REAL docker DataHub tier (`--datahub tier`) - the same one cell
-  # Legs and their categories: `ci` is always required; `bigquery-acceptance` is
-  # `data_source_bigquery`; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
+  # The real DataHub tier supplies the certified metric and the ADBC driver executes it against
+  # fixture tables this run created in BigQuery. The Keycloak tier verifies the caller; the source
+  # deliberately uses the acknowledged shared CI identity. The dataset group serializes writes.
+  # Forks, Dependabot and merge groups cannot receive the bq-test credential; the aggregate below
+  # requires this leg for every selected same-repository pull request and push.
+  e2e-datahub-adbc:
+    needs: [ci]
+    if: (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    environment: bq-test
+    concurrency:
+      group: e2e-datahub-adbc-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Place credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "bq-test has no CI credential" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+      - name: Mask resource names
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
+            2>/dev/null || { echo "the CI credential names no project_id" >&2; exit 1; }
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "bq-test has no SUTURA_BQ_DATASET" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+      - name: Served DataHub and ADBC answer
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: nix run .#e2e-datahub-adbc -- --no-capture
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-key.json"
+
+  # Legs and their categories: `ci` is always required; `e2e-datahub-adbc` is selected by
+  # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`. `core` (a shared or unmapped
   # path) subsumes every category because the category outputs are emitted as `core || selected`,
   # so a `core` diff requires every leg to run and forbids every allowed skip.
   #
-  # One event exception is deliberate and matches `bigquery-acceptance`'s own `if:`: a fork pull
+  # One event exception is deliberate and matches `e2e-datahub-adbc`'s own `if:`: a fork pull
   # request cannot reach the `bq-test` environment secret, and the merge queue never runs it (its
   # trigger excludes `merge_group`); the leg is skipped not by a filter bug but by the event, so the
   # aggregator does not require it there. `keycloak-served-test` reads no secret and carries no such
@@ -1727,7 +1787,7 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, keycloak-served-test, bigquery-driver-check]
+    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
     steps:
@@ -1738,6 +1798,8 @@ jobs:
           KC_SELECTED: ${{ needs.ci.outputs.identity }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
           BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}
+          E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
+          E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -1774,6 +1836,16 @@ jobs:
             case "$BQ_RESULT" in
               skipped|success) ;;
               *) fail "bigquery-driver-check reported '$BQ_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          if [ "$E2E_REQUIRED" = "true" ]; then
+            if [ "$E2E_RESULT" != "success" ]; then
+              fail "e2e-datahub-adbc must run for the selected category and event but reported '$E2E_RESULT'"
+            fi
+          else
+            case "$E2E_RESULT" in
+              skipped|success) ;;
+              *) fail "e2e-datahub-adbc reported '$E2E_RESULT' without an allowed skip" ;;
             esac
           fi
           echo "ci-aggregate: ok - every category-gated leg green"
