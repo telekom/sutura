@@ -335,6 +335,7 @@ fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
 }
 
 /// `ClickHouse`'s native `sum` wraps at 64 bits. Keep the original aggregate for Float and Decimal.
+/// Both aggregate branches evaluate, so the widened cast must tolerate non-integer input.
 fn sum_for_clickhouse(col: &PlanColumn) -> Expr {
     let native = || builder::sum(column(col));
     let integer = builder::func("toTypeName", [native()]).in_list([
@@ -347,7 +348,7 @@ fn sum_for_clickhouse(col: &PlanColumn) -> Expr {
         "tuple",
         [
             builder::lit("Int128"),
-            builder::sum(builder::func("toInt128", [column(col)])).cast("Dynamic"),
+            builder::sum(builder::func("accurateCastOrNull", [column(col), builder::lit("Int128")])).cast("Dynamic"),
         ],
     );
     let original = builder::func("tuple", [builder::func("toTypeName", [native()]), native().cast("Dynamic")]);

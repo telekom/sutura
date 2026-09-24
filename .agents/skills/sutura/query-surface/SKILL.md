@@ -239,10 +239,11 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   `checks.nextest` and under `just test`, like Postgres - so its `rows`/`refused`/`error`/
   `anchor_report` families are EXECUTED goldens and `dialects.rs` declares `Evidence::Executed`
   (`github.com/telekom/sutura#920`). The conformance packs bind through
-  `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` widened 64-bit integer sums
-  and preserved decimal scale. **What that does not reach:** other server versions, sums beyond the
-  widened type, or any release, because `sutura-cli`'s `clickhouse` feature is default-off and absent
-  from `nix/shipped.nix`. Both venues - this tier and `compose.services.yaml`'s docker service -
+  `crates/sutura-exec-clickhouse/tests/conformance.rs` after `#979` measured signed 64-bit overflow
+  and preserved decimal scale. **What that does not reach:** unsigned overflow in the live corpus,
+  other server versions, sums beyond the widened type, or any release, because `sutura-cli`'s
+  `clickhouse` feature is default-off and absent from `nix/shipped.nix`. Both venues - this tier and
+  `compose.services.yaml`'s docker service -
   publish one `clickhouse` discovery entry, so the last one started owns it.
 - **What both acceptance legs say nothing about is identity.** A service-account key is one identity
   for everybody who asks, so what they establish is *accepted, and correct for that identity*.

@@ -26,7 +26,7 @@ fn rendered_bucket(dialect: Dialect) -> String {
 }
 
 #[test]
-fn clickhouse_sum_widens_integer_results_without_casting_float_or_decimal_sums() {
+fn clickhouse_sum_widens_integer_results_without_changing_float_or_decimal_sums() {
     let col = PlanColumn::new(
         TableName::parse("orders").expect("a test table is a table"),
         ColumnName::parse("amount").expect("a test column is a column"),
@@ -40,13 +40,13 @@ fn clickhouse_sum_widens_integer_results_without_casting_float_or_decimal_sums()
         Dialect::ClickHouse,
     )
     .expect("the sum renders for ClickHouse");
-    assert!(clickhouse.contains("toInt128"), "{clickhouse}");
+    assert!(clickhouse.contains("accurateCastOrNull"), "{clickhouse}");
     assert!(clickhouse.contains("toTypeName"), "{clickhouse}");
     assert!(clickhouse.contains("Dynamic"), "{clickhouse}");
     for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::BigQuery, Dialect::Oracle] {
         let rendered =
             render(&super::term_expression(&term, dialect).into_inner(), dialect).expect("the sum renders for this dialect");
-        assert!(!rendered.contains("toInt128"), "{dialect}: {rendered}");
+        assert!(!rendered.contains("accurateCastOrNull"), "{dialect}: {rendered}");
     }
 }
 
