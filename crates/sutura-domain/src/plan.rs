@@ -868,13 +868,18 @@ impl<'bundle> AnchorPlan<'bundle> {
 ///
 /// Resolves one term at a time rather than one shape at a time, which is why a term added to the
 /// vocabulary is one arm here instead of one arm per shape.
+///
+/// `resolve` reads only the column, never the term's `model`: a term naming a model other than the
+/// metric's own is refused before this is called - `sutura_semantic::plan::plan`'s own
+/// `telekom/sutura#780` check - so every column this function resolves belongs to the same table
+/// `resolve`'s caller already qualified everything else by.
 pub fn plan_measure(measure: &Measure, resolve: impl Fn(&ColumnName) -> PlanColumn) -> PlanMeasure {
     let resolve_term = |term: &Term| match *term {
         Term::Aggregate(ref inner) => PlanTerm::Aggregate {
             aggregate: inner.aggregate(),
             column: resolve(inner.column()),
         },
-        Term::CountIf { ref column } => PlanTerm::CountIf { column: resolve(column) },
+        Term::CountIf { ref column, .. } => PlanTerm::CountIf { column: resolve(column) },
     };
     match *measure {
         Measure::Simple(ref term) => PlanMeasure::Simple {

@@ -3923,6 +3923,11 @@ generated count count the thing the model says it counts.
 Carries no `serde` derive. A term's on-disk shape belongs to `TermRepr` and to nothing else, so
 there is exactly one place where the format of `{ aggregate: sum, column: x }` is decided.
 
+**The third field is `telekom/sutura#780`'s vocabulary.** `None` means the metric's own model,
+which is every term written before this field existed; `Some` names a ratio side that reads its
+column from a different fact model. It lives here rather than on `Term` alone so
+`Term::CountIf`'s own column and this one carry the same kind of qualifier.
+
 #### Methods
 
 ```rust
@@ -3934,8 +3939,20 @@ pub const fn column(&self) -> &ColumnName
 ```
 
 ```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+```rust
 pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
 ```
+
+```rust
+pub const fn on_model(aggregate: Aggregate, column: ColumnName, model: ModelName) -> Self
+```
+
+A term whose column is read from `model` rather than from the metric's own.
 
 #### Implements
 
@@ -4001,6 +4018,16 @@ pub const fn kind(&self) -> &'static str
 
 The name of this term, for a refusal or a description.
 
+```rust
+pub const fn model(&self) -> Option<&ModelName>
+```
+
+The model this term's column is read from, `None` for the metric's own model.
+
+Left unresolved rather than defaulted: a term alone has no metric beside it to read "the
+metric's own model" off, so whoever has the metric in hand - the consistency check at load,
+the plan stage at query time - resolves `None` against it.
+
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
@@ -4023,6 +4050,7 @@ line against a grammar.
 - `TwoTerms` - Both terms at once. Refused rather than resolved by precedence: a document that writes both means one of them, and picking one would certify a number the author did not ask for.
 - `NoColumn`
 - `NoAggregate`
+- `ModelWithoutTerm` - A model named beside no term word at all. `model` qualifies a column one of the other two words names, so without either of them there is nothing for it to qualify - the same mistake as `Self::NoColumn`, one field further.
 
 #### Implements
 
@@ -4109,6 +4137,17 @@ Every column this measure reads.
 
 One place, so `crate::catalog::Definitions` can check them all against the model without
 knowing the shapes, and so a shape added here cannot be forgotten there.
+
+```rust
+pub fn models(&self) -> Vec<Option<&ModelName>>
+```
+
+The model each term's column is read from, in the same order as `Self::columns` - `None`
+for the metric's own model.
+
+Positionally paired with `Self::columns` rather than zipped by a caller, so a term whose
+column and model disagreed about which position they report in cannot happen: the consistency
+check walks both lists together to know which model to check a column against.
 
 ```rust
 pub const fn shape(&self) -> &'static str
@@ -6472,6 +6511,11 @@ measure's column comes from.
 
 Resolves one term at a time rather than one shape at a time, which is why a term added to the
 vocabulary is one arm here instead of one arm per shape.
+
+`resolve` reads only the column, never the term's `model`: a term naming a model other than the
+metric's own is refused before this is called - `sutura_semantic::plan::plan`'s own
+`telekom/sutura#780` check - so every column this function resolves belongs to the same table
+`resolve`'s caller already qualified everything else by.
 
 ### `fn plan_required_filter`
 
@@ -9519,6 +9563,27 @@ somebody else's input.
   operator - the one who can raise `crate::plan::RowCeiling`, which is a configured value and
   not `crate::plan::MAX_ROWS` the compiled constant. Naming a compiled constant here would be
   advice nobody addressed could act on.**
+- `CrossModelRatioNotExecutable` - A ratio term names a model other than the metric's own, and this workspace does not yet build the second fact leg such a term needs.
+
+  **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
+  admits the definition - `Definitions::assemble` proves the named model is declared and the
+  term's column exists on it - so a metric with a cross-model ratio loads and is addressable
+  by name. Asking it is refused rather than mis-planned against the metric's own table: the
+  splitter has one plan shape per data system today, `QueryPlan` and
+  `FederatedPlan`, and neither reads a second FACT model's rows,
+  aggregated on its own and joined above - which is what a certified answer over two facts
+  needs, per the issue's own decision record.
+
+  **Distinct from `MeasureDoesNotFederate` and
+  `FederationNotExecutable` on purpose.** Neither reason
+  applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
+  the second leg is a lookup), and a build's adapter capability is not what is missing - the
+  plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
+  variant would misreport why the question is refused.
+
+  A `RefusalReason` and not a wiring defect: a caller who asks the same metric
+  without the cross-model term gets a different, answerable question, so this is narrowable -
+  unlike a wiring defect in this workspace's own splitter.
 
 #### Methods
 

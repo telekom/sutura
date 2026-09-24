@@ -423,7 +423,10 @@ fn a_term_survives_the_on_disk_shape_it_serializes_into() {
     let terms: Vec<Term> = aggregates
         .into_iter()
         .map(|aggregate| Term::Aggregate(AggregatedColumn::new(aggregate, column.clone())))
-        .chain([Term::CountIf { column: column.clone() }])
+        .chain([Term::CountIf {
+            column: column.clone(),
+            model: None,
+        }])
         .collect();
     assert_eq!(terms.len(), 7, "every term this type can hold is in the table");
 

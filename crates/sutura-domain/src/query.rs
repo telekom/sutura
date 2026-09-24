@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -552,6 +552,29 @@ pub enum RefusalReason {
     /// not [`crate::plan::MAX_ROWS`] the compiled constant. Naming a compiled constant here would be
     /// advice nobody addressed could act on.**
     TopOverUncertifiedRows { ceiling: u32 },
+    /// A ratio term names a model other than the metric's own, and this workspace does not yet
+    /// build the second fact leg such a term needs.
+    ///
+    /// **`telekom/sutura#780`'s vocabulary, and the plan half of its first slice.** The catalog
+    /// admits the definition - `Definitions::assemble` proves the named model is declared and the
+    /// term's column exists on it - so a metric with a cross-model ratio loads and is addressable
+    /// by name. Asking it is refused rather than mis-planned against the metric's own table: the
+    /// splitter has one plan shape per data system today, [`QueryPlan`](crate::plan::QueryPlan) and
+    /// [`FederatedPlan`](crate::plan::FederatedPlan), and neither reads a second FACT model's rows,
+    /// aggregated on its own and joined above - which is what a certified answer over two facts
+    /// needs, per the issue's own decision record.
+    ///
+    /// **Distinct from [`MeasureDoesNotFederate`](Self::MeasureDoesNotFederate) and
+    /// [`FederationNotExecutable`](Self::FederationNotExecutable) on purpose.** Neither reason
+    /// applies here: the aggregate is additive (a `sum` or a `count_distinct` federates fine when
+    /// the second leg is a lookup), and a build's adapter capability is not what is missing - the
+    /// plan SHAPE for two aggregated fact legs does not exist yet, on any adapter. Reusing either
+    /// variant would misreport why the question is refused.
+    ///
+    /// A [`RefusalReason`] and not a wiring defect: a caller who asks the same metric
+    /// without the cross-model term gets a different, answerable question, so this is narrowable -
+    /// unlike a wiring defect in this workspace's own splitter.
+    CrossModelRatioNotExecutable { metric: MetricName, model: ModelName },
 }
 
 impl RefusalReason {
@@ -593,6 +616,7 @@ impl RefusalReason {
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",
+            Self::CrossModelRatioNotExecutable { .. } => "cross_model_ratio_not_executable",
         }
     }
 }
@@ -717,7 +741,7 @@ mod tests {
     /// Every variant, so the cross-transport contract is checked over the whole enum and not over
     /// whichever ones somebody remembered.
     fn every_reason() -> Vec<RefusalReason> {
-        use crate::model::{Aggregate, SourceName, TableName};
+        use crate::model::{Aggregate, ModelName, SourceName, TableName};
         vec![
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
@@ -776,6 +800,10 @@ mod tests {
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
+            RefusalReason::CrossModelRatioNotExecutable {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
+                model: ModelName::parse("customers").expect("a test model"),
+            },
         ]
     }
 

@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{DimensionName, MetricName, SourceName, TableName};
+use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, FederatedPlanError, IncoherentBindings, InternalLabel, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
@@ -169,6 +169,17 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             metric: resolution.metric.name().clone(),
         });
     };
+    // `telekom/sutura#780`'s vocabulary, checked before either plan shape is attempted: neither
+    // builds a second FACT leg, so a term naming a model other than the metric's own is refused
+    // here rather than resolved against the metric's own table under a certified name. The catalog
+    // already proved the named model is declared and the column real on it - what is missing is
+    // the plan shape, not the reference.
+    if let Some(model) = cross_model_term(resolution, measure) {
+        return Err(PlanError::Refused(RefusalReason::CrossModelRatioNotExecutable {
+            metric: resolution.metric.name().clone(),
+            model: model.clone(),
+        }));
+    }
     if let Some((dimension, hop)) = chain_leaving_its_source(resolution) {
         return Err(PlanError::ChainLeavesItsSource {
             metric: resolution.metric.name().clone(),
@@ -192,6 +203,16 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             limit: 2,
         })),
     }
+}
+
+/// The first term whose `model` names one other than the metric's own, if the measure has one.
+///
+/// `None` for every measure written before `telekom/sutura#780`'s vocabulary existed, and for a
+/// term that names the metric's own model explicitly - the two are the same question to a plan,
+/// because both resolve their column against the metric's own table.
+fn cross_model_term<'a>(resolution: &Resolution<'a>, measure: &'a Measure) -> Option<&'a ModelName> {
+    let own = resolution.metric.model();
+    measure.models().into_iter().flatten().find(|model| *model != own)
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
@@ -798,6 +819,113 @@ mod tests {
                 PlanError::ChainLeavesItsSource { ref dimension, hop: 2, .. } if *dimension == dimension_name("region")
             ),
             "expected the chain refusal naming hop 2, got {refused:?}"
+        );
+    }
+
+    /// A ratio side naming a model other than the metric's own - `telekom/sutura#780`'s vocabulary -
+    /// is refused before either plan shape is attempted, rather than resolved against the metric's
+    /// own table under a certified name.
+    ///
+    /// Built by hand rather than through `Corpus`, because the check this test provokes reads only
+    /// the term's model against the metric's own - it does not consult a second model at all, so
+    /// none needs to be declared for the refusal to fire.
+    #[test]
+    fn a_ratio_term_naming_another_model_is_refused_before_either_plan_shape_is_tried() {
+        let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
+        let metric = Metric::new(
+            MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
+            ModelName::parse("facts").expect("a test model is a model"),
+            Measure::Ratio {
+                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+                denominator: Term::Aggregate(AggregatedColumn::on_model(
+                    Aggregate::CountDistinct,
+                    column("customer_key"),
+                    ModelName::parse("customers").expect("a test model is a model"),
+                )),
+                zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+            },
+            Vec::new(),
+            column("day"),
+            BTreeSet::from([Grain::Month]),
+            Vec::new(),
+            None,
+            Description::default(),
+            Audience::Open,
+        )
+        .expect("no dimensions to duplicate");
+        let resolution = Resolution {
+            metric: &metric,
+            model: &facts,
+            grain: Grain::Month,
+            range: TimeRange::new(
+                Date::parse("2026-06-01").expect("a test date is a date"),
+                Date::parse("2026-07-01").expect("a test date is a date"),
+            )
+            .expect("June is a range"),
+            keys: Vec::new(),
+            filters: Vec::new(),
+            top: None,
+        };
+        let Err(refused) = plan(&resolution) else {
+            panic!("a ratio term naming another model must be refused");
+        };
+        assert!(
+            matches!(
+                refused,
+                PlanError::Refused(sutura_domain::query::RefusalReason::CrossModelRatioNotExecutable {
+                    ref metric,
+                    ref model,
+                }) if *metric == MetricName::parse("revenue_per_customer").expect("a test metric is a metric")
+                    && *model == ModelName::parse("customers").expect("a test model is a model")
+            ),
+            "expected the cross-model ratio refusal naming `customers`, got {refused:?}"
+        );
+    }
+
+    /// The control for the cell above: a term that names the metric's OWN model explicitly plans
+    /// exactly as one naming none does, because both resolve their column against the metric's own
+    /// table. Without this, the check above could not tell "another model" from "any name at all".
+    #[test]
+    fn a_ratio_term_naming_the_metric_s_own_model_plans_like_one_naming_none() {
+        let facts = model("facts", "local", &["amount_cents", "customer_key", "day"]);
+        let metric = Metric::new(
+            MetricName::parse("revenue_per_customer").expect("a test metric is a metric"),
+            ModelName::parse("facts").expect("a test model is a model"),
+            Measure::Ratio {
+                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+                denominator: Term::Aggregate(AggregatedColumn::on_model(
+                    Aggregate::CountDistinct,
+                    column("customer_key"),
+                    ModelName::parse("facts").expect("a test model is a model"),
+                )),
+                zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+            },
+            Vec::new(),
+            column("day"),
+            BTreeSet::from([Grain::Month]),
+            Vec::new(),
+            None,
+            Description::default(),
+            Audience::Open,
+        )
+        .expect("no dimensions to duplicate");
+        let resolution = Resolution {
+            metric: &metric,
+            model: &facts,
+            grain: Grain::Month,
+            range: TimeRange::new(
+                Date::parse("2026-06-01").expect("a test date is a date"),
+                Date::parse("2026-07-01").expect("a test date is a date"),
+            )
+            .expect("June is a range"),
+            keys: Vec::new(),
+            filters: Vec::new(),
+            top: None,
+        };
+        let planned = mono(&resolution);
+        assert!(
+            matches!(planned.measure(), sutura_domain::plan::PlanMeasure::Ratio { .. }),
+            "a same-model term must still plan the ratio"
         );
     }
 }

@@ -63,6 +63,11 @@ pub enum InconsistentDefinitions {
     DuplicateDimension { metric: MetricName, dimension: DimensionName },
     #[error("metric {metric} names model {model}, which is not declared")]
     UnknownModel { metric: MetricName, model: ModelName },
+    /// A ratio term names a model - `telekom/sutura#780`'s vocabulary - that this catalog does not
+    /// declare at all. The same dangling reference [`Self::UnknownModel`] is for the metric's own
+    /// model, one field further into the measure.
+    #[error("metric {metric} measures a term on model {model}, which is not declared")]
+    UnknownTermModel { metric: MetricName, model: ModelName },
     #[error("metric {metric} measures column {column}, which model {model} does not declare")]
     UnknownMeasureColumn {
         metric: MetricName,
@@ -356,15 +361,24 @@ impl Definitions {
                 metric: metric.name.clone(),
                 model: metric.model.clone(),
             })?;
-        // Every column the measure reads, whichever shape it is. `Measure::columns` is the single
-        // place that knows, so a shape added there cannot be forgotten here - which is the failure
-        // this loop replaces, from when a measure was one column and the check read it directly.
+        // Every term the measure reads, checked against the model THAT TERM names - the metric's own
+        // when a term names none, or a `telekom/sutura#780` ratio side's own model when it does.
+        // `Measure::columns`/`Measure::models` are the two places that know, positionally paired, so
+        // a shape added to either cannot be forgotten here - the failure this loop replaces, from
+        // when a measure was one column and the check read it directly.
         if let Some(measure) = metric.computation.measure() {
-            for column in measure.columns() {
-                if !model.has_column(column) {
+            for (column, term_model) in measure.columns().into_iter().zip(measure.models()) {
+                let owning = match term_model {
+                    None => model,
+                    Some(name) => models.get(name).ok_or_else(|| InconsistentDefinitions::UnknownTermModel {
+                        metric: metric.name.clone(),
+                        model: name.clone(),
+                    })?,
+                };
+                if !owning.has_column(column) {
                     return Err(InconsistentDefinitions::UnknownMeasureColumn {
                         metric: metric.name.clone(),
-                        model: model.name.clone(),
+                        model: owning.name.clone(),
                         column: column.clone(),
                     });
                 }
