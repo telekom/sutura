@@ -42,15 +42,13 @@ the shell are therefore unknown-field errors rather than settings that quietly d
 Every layer is checked with `deny_unknown_fields`, at every depth. A misspelled key is an error
 naming the key, not an override that silently did not happen.
 
-# There is no per-caller ACCESS, and this crate says so out loud
+# Per-caller source access is built and unproven
 
 sutura has a request context and a credential broker now, and a deployment that declares
-`security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
-the part that matters: **no PUBLISHED adapter can carry a per-subject credential.** Every
-question executes with a credential a broker minted, and what that credential says is *the identity
-this process holds for that source*. `AGENTS.md` records which half is mechanised, and
-`examples/README.md` explains why single-player makes "every query runs as the calling
-principal" trivially true and worth nothing.
+`security.inbound` establishes who is asking. A published build links `BigQuery`, whose declared
+per-subject map can carry that caller's assertion to the source; no served run has proven the
+exchange. Other sources use the identity declared for that source. `AGENTS.md` records which
+half is mechanised.
 
 That is a property of the runtime, so it is a property of every deployment this crate
 configures. An `AccessToken` authenticates *the deployment*: a caller
@@ -2036,8 +2034,9 @@ optional. Those are two different absences and the difference matters:
 **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
 It does *not* make a data source execute as that person - that is leg 2, and it needs a credential
 per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
-who is asking and still reads every row as one identity. `InboundIdentity::what_it_does_not_do`
-is that sentence as a value, printed at startup, for the same reason
+who is asking while a shared-identity source still reads rows as one identity. `BigQuery`'s
+per-subject path is built, but no observed served run proves source acceptance.
+`InboundIdentity::what_it_does_not_do` states that limit at startup, for the same reason
 `TlsTermination::cleartext_hop` is one: a log
 line and this documentation read the same string, so neither can drift into claiming per-user
 access because there is authentication.

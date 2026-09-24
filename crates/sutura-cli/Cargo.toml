@@ -24,32 +24,9 @@ path = "src/main.rs"
 # `github.com/telekom/sutura#685` step 2 folded that crate into this one's `serve` module.
 tls = ["sutura-config/tls", "sutura-http/tls"]
 
-# The BigQuery adapter, and with it the outbound HTTP stack its wire needs.
-#
-# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
-# decision every other adapter feature below carries. No published binary links an outbound
-# TLS stack, and `checks.shipped-features` asserts that out of the binary's own embedded dependency
-# list rather than out of this manifest.
-#
-# **The build-cost reason this comment used to give was measured false, and the correction is worth
-# more than the sentence was.** `sutura-exec-bigquery`'s `wire` pulls `ureq` and its rustls closure -
-# `ring` included, which compiles C and assembly - but that dependency is `optional`, so at cargo's
-# default set it contributes nothing. The closure is in all four `sutura-deps-<triple>` derivations
-# regardless: `crane.buildDepsOnly` is deliberately unscoped so the checks can share one dependency
-# derivation, and it builds dev-dependencies, of which `sutura-catalog-datahub` has a NON-optional
-# one on `ureq` for its provisioned-instance probe. Measured with `cargo tree` on 2026-09-04: on
-# `aarch64-unknown-linux-musl` that dev-dependency is the ONLY edge into `ureq` at the default set,
-# and a second host-side copy arrives as a build-dependency of `libduckdb-sys`. So making this
-# feature non-optional would add nothing to any cross dependency derivation - what it would change
-# is what the published binary links. `docs/adr/0017` carries the measurement.
-#
-# So the adapter arrives by asking: `cargo build -p sutura-cli --features bigquery`, or
-# `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
-# registration is compiled, linted and tested on every run, and a bare `cargo build` is unchanged.
-#
-# **WHAT SHIPS is `nix/shipped.nix`'s decision and not this line's**, and it publishes the binary
-# with cargo's DEFAULT features. The gate that holds it is named in the first paragraph;
-# what this one adds is that turning the feature on here would not change what a release contains.
+# BigQuery is default-off for local Cargo builds. Published binaries explicitly enable
+# it and link the ADBC driver in `nix/shipped.nix`. The former HTTP wire and
+# its default-off release rationale were superseded by #929.
 #
 # **Which gate sees the feature OFF, because every other one passes `--all-features`.**
 # `cargo xtask check-default-features`, in `just gates`, derives its package list from
@@ -66,10 +43,8 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
-# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
-# decision `bigquery` above carries. `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls`
-# pulls the rustls closure with `ring` in it; keeping this feature off leaves that out of the
-# published binary until a deployment asks for it.
+# Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
+# `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
 #
 # **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
 # a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
@@ -81,12 +56,9 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 
 # The ClickHouse adapter, over its HTTP interface.
 #
-# **Default-off for the ARTEFACT reason `bigquery` above states**, plus one this feature has on its
-# own: `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` NON-optionally (its own manifest says
-# why - no composition root linked it, so there was no artefact for a feature to keep a TLS stack
-# out of), so the edge into the outbound closure is this line and nothing narrower. `optional` is
-# what makes the dependency ABSENT from the default build rather than merely unused, which is the
-# property the four cross builds need.
+# Default-off and absent from `nix/shipped.nix`'s published feature list.
+# `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
+# keeps the adapter and its transport dependencies absent when the feature is off.
 #
 # **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
 # decision rather than an omission.** Every other adapter feature is in `features` since
@@ -270,8 +242,7 @@ tower = { workspace = true, features = ["util"] }
 # `tests/served.rs`'s harness client, for the one thing `served/harness.rs`'s own hand-rolled
 # plaintext parser does not cover: a request to a REAL server it did not write -
 # `nix/keycloak-tier.nix`'s own Keycloak, over its token endpoint and its JWKS document. Folded in
-# from `sutura-serve`'s manifest: `sutura-exec-bigquery::wire` is this crate's own precedent for
-# the exact shape (`.post(url).send_form(form)`, `.get(url).call()`, `body_mut().read_to_string()`).
+# from `sutura-serve`'s manifest. The harness uses `ureq` for token and JWKS requests.
 ureq = { workspace = true }
 # Decodes a compact JWT's payload segment (base64url, unpadded) to read the `aud` a real issuer
 # minted, rather than assuming one - see `served/harness/keycloak.rs`. Already pinned for

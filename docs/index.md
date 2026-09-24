@@ -16,14 +16,14 @@ becomes decorative.
 
 !!! warning "What is built, and what is a design target"
 
-    sutura today is **a governed single-player semantic compiler and executor over local files.**
-    The half of the design that fixes the *second* failure above is **half built, and the missing
-    half is the one that matters.** A request context, a credential broker port, an audit sink and
+    sutura serves governed questions over local files and declared data sources. The path that
+    executes as a verified caller is **built and unproven**. A request context, a credential broker
+    port, an audit sink and
     an MCP surface all exist, and a deployment that declares `security.inbound` verifies a caller's
     own token - so who is asking can be known, no question can execute without a credential minted
-    for the source it reads, and every outcome is recorded. What is absent is **a data system that
-    evaluates the asking subject**: no published adapter can carry a per-subject credential, so
-    every question still reads as one identity. No Arrow result envelope either. Every claim on this
+    for the source it reads, and every outcome is recorded. A published build links BigQuery's
+    per-subject credential path, but no served run has proven source execution as the asker. Shared
+    sources still read under their declared identity. No Arrow result envelope either. Every claim on this
     site is marked *enforced today* or *design target* at the point it is made.
 
 ## The four properties
@@ -92,17 +92,14 @@ features. A build without one refuses that kind by name rather than silently fal
 [What can be plugged in today](architecture.md#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table, and it is the section to read before assuming otherwise.
 
-What is not built is the part that makes the first sentence of this page true of a warehouse, and it
-is now one specific thing rather than four. There *is* a request context, a credential broker port
+What remains unproven is whether a served BigQuery leg executes as the verified caller. There is a request context, a credential broker port
 with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
 declares `security.inbound` - a caller identity verified from a signature, with scopes deciding which
-operations that caller may invoke. What is absent is **leg 2**: no published adapter has anywhere
-for a per-subject credential to arrive, both published adapters declare so, and the broker mints what an operator
-configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
-a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
-and still read every row as one identity. Arrow results are also still ahead. Federation is not:
-the splitter, two executions and the combiner all run in a published build, because the engine
-declares `Warehouse::EXECUTES_LEGS`. [The HTTP surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
+operations that caller may invoke. Leg 2 is built and unproven: the published BigQuery adapter can
+carry a verified caller's assertion through its declared per-subject map, but no served run has
+shown source execution as that caller. Shared sources still read under their declared identity.
+Arrow results are also still ahead. Federation and [the HTTP surface](serving.md) are built. In
+static access-token mode, the token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Feedback and reporting

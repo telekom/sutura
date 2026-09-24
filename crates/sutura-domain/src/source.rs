@@ -35,8 +35,8 @@
 //! An answer whose legs decide identity differently is **answered**, and [`ExecutedAs`] is what says
 //! so: one entry per source, each carrying that leg's own posture, so a mixed answer names which leg
 //! came from which. `docs/adr/0040` is the record, and `BigQuery` being the only impersonating adapter
-//! is why it had to be: every heterogeneous federation is cross-posture by construction, so refusing
-//! the mix refused federation itself.
+//! is why it had to be: every `BigQuery` federation with a shared-posture adapter is cross-posture
+//! by construction, so refusing the mix prevented that pairing.
 //!
 //! **The reasoning that used to refuse it stays true, and is not what changed.** Rows a shared
 //! identity was permitted to see, added to rows the asking subject was permitted to see, make a total
