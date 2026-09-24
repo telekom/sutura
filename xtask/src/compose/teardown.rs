@@ -133,13 +133,16 @@ pub(crate) fn scoped_down_args<'a>(services: &'a [&'a str]) -> Option<Vec<&'a st
 /// The arguments that start either the active profile or an explicit service selection.
 ///
 /// `--no-deps` is part of the exclusive lifecycle contract: naming `demo` must not silently
-/// widen into a future dependency. Keeping the construction pure makes that contract testable
-/// without a container runtime.
+/// widen into a future dependency. That selection also skips `--remove-orphans`, which would
+/// delete a preexisting service the demo did not start. Keeping the construction pure makes both
+/// limits testable without a container runtime.
 pub(crate) fn up_args(names: Option<&[&'static str]>) -> Vec<&'static str> {
-    let mut args = vec!["up", "--detach", "--remove-orphans"];
+    let mut args = vec!["up", "--detach"];
     if let Some(names) = names {
         args.push("--no-deps");
         args.extend_from_slice(names);
+    } else {
+        args.push("--remove-orphans");
     }
     args
 }
@@ -299,11 +302,12 @@ mod tests {
         );
     }
     #[test]
-    fn an_exclusive_start_has_no_dependencies_and_a_whole_start_does_not() {
+    fn a_whole_start_removes_orphans() {
         assert_eq!(up_args(None), vec!["up", "--detach", "--remove-orphans"]);
-        assert_eq!(
-            up_args(Some(&["demo"])),
-            vec!["up", "--detach", "--remove-orphans", "--no-deps", "demo"]
-        );
+    }
+
+    #[test]
+    fn an_exclusive_start_spares_other_services() {
+        assert_eq!(up_args(Some(&["demo"])), vec!["up", "--detach", "--no-deps", "demo"]);
     }
 }
