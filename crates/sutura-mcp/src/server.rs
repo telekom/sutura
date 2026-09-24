@@ -241,6 +241,18 @@ pub struct AgentSurface<S> {
     /// example the pinned bundle carries - on every call, not only the `initialize` this field
     /// answers. A clone here is a refcount bump, the same reason `admission` is held behind an `Arc`.
     instructions: Arc<str>,
+    /// The operator's own text, before it is folded into the rendered prompt - the value the
+    /// `describe_catalog` tool carries through `tools/call` so a surface that never delivers
+    /// `initialize.instructions` still reaches the operator's rules.
+    ///
+    /// Deliberately the RAW text and not the full rendered [`Self::instructions`]: the catalog tool
+    /// appends it under its own "operator's instructions" heading, exactly as the prompt does, so
+    /// folding the whole prompt here would put a document inside a document.
+    ///
+    /// `Option<Arc<str>>`: an operator may configure no instructions file, and then there is no
+    /// operator text to carry. A `String` would force a bounded empty string into the tuple and the
+    /// struct for the common no-file case.
+    operator_instructions: Option<Arc<str>>,
 }
 
 impl<S> AgentSurface<S> {
@@ -290,6 +302,7 @@ impl<S> AgentSurface<S> {
         admission: Admission,
         reply: RequestTimeout,
         instructions: Arc<str>,
+        operator_instructions: Option<Arc<str>>,
     ) -> Self {
         Self {
             service,
@@ -298,6 +311,7 @@ impl<S> AgentSurface<S> {
             admission,
             reply,
             instructions,
+            operator_instructions,
         }
     }
 
@@ -419,14 +433,17 @@ where
                 // `Subject::TheDeploymentItself`, which reads as the whole bundle, so a stdio operator
                 // sees exactly what they saw before.
                 //
-                // **The limit, stated here rather than discovered later:** this is the CATALOG door
-                // only. On the served agent surface the `initialize.instructions` prompt is rendered
-                // ONCE over the whole bundle (`crates/sutura-cli/src/serve/agent.rs` ->
-                // `sutura_app::prompt::render`) and still names every metric - an audience-restricted
-                // one included - to every verified caller. So issue #148's disclosure is closed at
-                // this door and REMAINS OPEN at the prompt door on the same surface; scoping that
-                // prompt per-caller through the same `ScopedView` is the follow-up.
-                describe(&self.service, asked.context(), self.prose)
+                // **The operator's own text rides the same door.** The `initialize.instructions`
+                // prompt a gateway surfaces (or does not) is rendered once over the whole bundle; the
+                // knowledge sections and the operator's instructions the CATALOG tool returns are
+                // audience-scoped through this caller's own view, so issue #971's gateway reaches the
+                // glossary and the rules through `tools/call` alone.
+                describe(
+                    &self.service,
+                    asked.context(),
+                    self.prose,
+                    self.operator_instructions.as_deref(),
+                )
             }
             Capability::AskMetric => {
                 let query = question(request)?;
@@ -690,6 +707,7 @@ fn describe<S>(
     service: &Arc<S>,
     context: &sutura_domain::identity::RequestContext,
     prose: sutura_app::prompt::CatalogProse,
+    operator_instructions: Option<&str>,
 ) -> CallToolResult
 where
     S: Surface,
@@ -702,7 +720,10 @@ where
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
     let view = sutura_app::scoped_for(service.definitions(), context);
-    let listing = CatalogContent::of(&view, prose);
+    // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
+    // the catalog tool so a gateway that surfaces only tools (and never delivers
+    // `initialize.instructions`) still reaches the operator's rules.
+    let listing = CatalogContent::of(&view, prose, operator_instructions);
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace

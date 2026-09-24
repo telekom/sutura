@@ -511,6 +511,51 @@ impl Knowledge {
             .filter(move |note| note.about().iter().any(|referent| *referent.metric() == metric))
     }
 
+    /// This bundle's knowledge, filtered down to what one caller may see - `docs/adr/0028`.
+    ///
+    /// Knowledge follows its structured referents rather than its prose: a glossary entry follows the
+    /// metric its `Referent` names, a caveat survives only when EVERY metric it refers to is visible,
+    /// and a worked example follows the metric in its `Query`. `visible` is the caller's own view - a
+    /// metric is visible iff it is both declared and granted - so this is metadata access over the
+    /// already-pinned bundle, never a new source of definitions.
+    ///
+    /// **The terms recorded as undefined are the one kind with no metric to inherit from**, and the
+    /// ADR names them separately: an unscoped absence needs an explicit catalog-wide audience and is
+    /// withheld when none is granted. No such declaration exists on the type today, so a caller-scoped
+    /// read drops them entirely rather than guessing at a scope. The deployment's own view retains
+    /// them, which is what keeps the operator-facing surfaces whole.
+    #[must_use]
+    pub fn scoped<F>(&self, visible: F) -> Self
+    where
+        F: Fn(&MetricName) -> bool,
+    {
+        Self {
+            declares: self.declares.clone(),
+            glossary: self
+                .glossary
+                .iter()
+                .filter(|(_, entry)| visible(entry.means().metric()))
+                .map(|(term, entry)| (term.clone(), entry.clone()))
+                .collect(),
+            caveats: self
+                .caveats
+                .iter()
+                .filter(|(_, note)| note.about().iter().all(|referent| visible(referent.metric())))
+                .map(|(name, note)| (name.clone(), note.clone()))
+                .collect(),
+            // Withheld from any caller-scoped view: no catalog-wide audience is declared, and the
+            // ADR withholds an unscoped absence when none is granted. The deployment's own view keeps
+            // them (this method is not called for it).
+            absences: BTreeMap::new(),
+            examples: self
+                .examples
+                .iter()
+                .filter(|(_, note)| visible(note.question().metric()))
+                .map(|(name, note)| (name.clone(), note.clone()))
+                .collect(),
+        }
+    }
+
     /// Checks a set of notes against the definitions they are about.
     ///
     /// **It TAKES the [`Definitions`], so a `Knowledge` that was never checked against a bundle cannot

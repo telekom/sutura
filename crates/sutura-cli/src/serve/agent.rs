@@ -103,6 +103,7 @@ pub(crate) fn mount(
     spend_headroom: SpendHeadroomPush,
 ) -> Result<sutura_http::AgentMount, String> {
     let instructions = crate::commands::agent_instructions(service.definitions(), settings)?;
+    let operator_instructions = crate::commands::operator_instructions(settings)?.map(std::sync::Arc::from);
     let serving = Arc::new(Serving {
         surface: service,
         spend_headroom: spend_headroom.clone(),
@@ -114,6 +115,7 @@ pub(crate) fn mount(
             admission,
             settings.server().request_timeout(),
             Arc::from(instructions),
+            operator_instructions,
         ),
         spend_headroom,
     ))

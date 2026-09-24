@@ -34,12 +34,20 @@ use crate::sources::{Opened, OpenedWith, configured, open_engine};
 use crate::sources::refuse_absent_tables;
 
 /// What serving the surface amounts to: the service, how catalog descriptions are treated, the two
-/// bounds - how many questions may be executing at once, and how long a peer waits for one - and
-/// the rendered document a peer's `initialize` result carries.
+/// bounds - how many questions may be executing at once, and how long a peer waits for one - the
+/// rendered document a peer's `initialize` result carries, and the operator's own text the catalog
+/// tool carries through `tools/call`.
 ///
 /// Named because even with [`Composed`] aliased, the tuple stays over `clippy::type_complexity`
 /// once the alias is expanded.
-type Served<W> = (Composed<W>, CatalogProse, Admission, RequestTimeout, std::sync::Arc<str>);
+type Served<W> = (
+    Composed<W>,
+    CatalogProse,
+    Admission,
+    RequestTimeout,
+    std::sync::Arc<str>,
+    Option<std::sync::Arc<str>>,
+);
 
 /// `mcp <catalog-dir> [data-dir]`: serve the agent surface over standard input and output.
 ///
@@ -125,7 +133,7 @@ where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    let (service, prose, admission, reply, instructions) = mcp_service(catalog, opened, settings)?;
+    let (service, prose, admission, reply, instructions, operator_instructions) = mcp_service(catalog, opened, settings)?;
     // The limit printed beside the mode, the way `banner::announce_token_class` prints the token
     // class: a pipe has no header a token could arrive in, so this surface grants every
     // capability to whoever can reach the process. Stated at startup, not left as a default
@@ -170,6 +178,7 @@ where
             admission,
             reply,
             instructions,
+            operator_instructions,
         ))
         .map_err(|e| render(&e));
     // Bound the teardown the way `crate::serve`'s `stop` does: dropping a runtime with a
@@ -228,6 +237,12 @@ where
     // bundle `Surface::answer` computes against, so what this composes the prompt over cannot drift
     // from what it certifies over - `telekom/sutura#776`.
     let instructions = agent_instructions(service.definitions(), settings)?;
+    // The operator's own text is read a second time at the service level, but from the same
+    // file and settings `agent_instructions` just validated - and validated for the same read
+    // error, because `agent_instructions` is what fails on a missing path first. It is the raw
+    // text the catalog tool carries, never the rendered document: folding the whole prompt into
+    // the tool would put a document inside a document.
+    let operator_instructions = crate::commands::operator_instructions(settings)?.map(std::sync::Arc::from);
     Ok((
         service,
         catalog_prose(settings.prompt().catalog_prose()),
@@ -239,6 +254,7 @@ where
         // the port - it has no layer to hang it on.
         settings.server().request_timeout(),
         std::sync::Arc::from(instructions),
+        operator_instructions,
     ))
 }
 
@@ -274,6 +290,7 @@ mod tests {
         admission: sutura_runtime::Admission,
         reply: sutura_config::RequestTimeout,
         instructions: std::sync::Arc<str>,
+        operator_instructions: Option<std::sync::Arc<str>>,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()>
     where
         S: sutura_app::surface::Surface,
@@ -289,6 +306,7 @@ mod tests {
                 admission,
                 reply,
                 instructions,
+                operator_instructions,
             ),
             server_side,
         );
@@ -364,14 +382,22 @@ mod tests {
     #[test]
     fn the_mcp_composition_serves_every_tool_the_surface_declares() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, prose, admission, reply, instructions) =
+        let (service, prose, admission, reply, instructions, operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply, instructions).await;
+            let client = connected(
+                std::sync::Arc::clone(&service),
+                prose,
+                admission,
+                reply,
+                instructions,
+                operator_instructions,
+            )
+            .await;
 
             // Both tools, in the declared order, over the wire.
             let tools = client.list_all_tools().await.expect("tools/list answers");
@@ -418,13 +444,21 @@ mod tests {
     #[test]
     fn the_mcp_composition_serves_the_rendered_prompt_as_initialize_instructions() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, prose, admission, reply, instructions) =
+        let (service, prose, admission, reply, instructions, operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply, instructions).await;
+            let client = connected(
+                std::sync::Arc::clone(&service),
+                prose,
+                admission,
+                reply,
+                instructions,
+                operator_instructions,
+            )
+            .await;
             let told = client
                 .peer_info()
                 .and_then(|info| info.instructions.clone())
@@ -459,14 +493,22 @@ mod tests {
     #[test]
     fn the_mcp_composition_honours_the_prose_setting_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("prompt:\n  catalog_prose: omitted\n");
-        let (service, prose, admission, reply, instructions) =
+        let (service, prose, admission, reply, instructions, operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
         let service = std::sync::Arc::new(service);
         let runtime = tokio::runtime::Runtime::new().expect("a runtime starts");
 
         runtime.block_on(async {
-            let client = connected(std::sync::Arc::clone(&service), prose, admission, reply, instructions).await;
+            let client = connected(
+                std::sync::Arc::clone(&service),
+                prose,
+                admission,
+                reply,
+                instructions,
+                operator_instructions,
+            )
+            .await;
             let result = client
                 .call_tool(rmcp::model::CallToolRequestParams::new(
                     sutura_app::Capability::DescribeCatalog.id(),
@@ -517,7 +559,7 @@ mod tests {
     #[test]
     fn the_mcp_composition_bounds_execution_with_the_number_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, _prose, admission, _reply, _instructions) =
+        let (service, _prose, admission, _reply, _instructions, _operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(admission.bound(), settings.runtime().max_concurrent_queries().count());
         assert_eq!(admission.wait(), settings.runtime().admission_timeout().duration());
@@ -525,7 +567,7 @@ mod tests {
 
         let (catalog, opened, settings) =
             example_composition("runtime:\n  max_concurrent_queries: 3\n  admission_timeout_seconds: 1\n");
-        let (service, _prose, admission, _reply, _instructions) =
+        let (service, _prose, admission, _reply, _instructions, _operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(admission.bound(), 3, "the configured bound did not reach the surface");
         assert_eq!(admission.wait(), std::time::Duration::from_secs(1));
@@ -554,13 +596,13 @@ mod tests {
     #[test]
     fn the_mcp_composition_bounds_the_reply_with_the_number_it_was_configured_with() {
         let (catalog, opened, settings) = example_composition("");
-        let (service, _prose, _admission, reply, _instructions) =
+        let (service, _prose, _admission, reply, _instructions, _operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(reply, settings.server().request_timeout());
         drop(service);
 
         let (catalog, opened, settings) = example_composition("server:\n  request_timeout_seconds: 7\n");
-        let (service, _prose, _admission, reply, _instructions) =
+        let (service, _prose, _admission, reply, _instructions, _operator_instructions) =
             mcp_service(&catalog, opened, &settings).expect("the example bundle is fit to serve");
         assert_eq!(reply.seconds(), 7, "the configured reply deadline did not reach the surface");
         drop(service);

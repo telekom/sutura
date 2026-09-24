@@ -128,6 +128,7 @@ async fn a_tool_call_with_no_established_caller_is_refused_and_never_answered_as
         super::admission(""),
         super::reply(""),
         testing::instructions(),
+        None,
     );
     let context = hand_built_context(1, a_peer().await, None);
     let error = surface
@@ -167,6 +168,7 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
         super::admission(""),
         super::reply(""),
         testing::instructions(),
+        None,
     );
     let peer = a_peer().await;
 
@@ -240,6 +242,7 @@ async fn run_sql_reaches_the_port_as_the_caller_this_request_named() {
         super::admission(""),
         super::reply(""),
         testing::instructions(),
+        None,
     );
     let peer = a_peer().await;
     // The raw door only exists under a grant that names it - bob is granted every capability, which
@@ -280,6 +283,7 @@ async fn two_verified_callers_get_two_different_catalogs_from_one_bundle() {
         super::admission(""),
         super::reply(""),
         testing::instructions(),
+        None,
     );
     let peer = a_peer().await;
     let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
@@ -336,5 +340,78 @@ async fn two_verified_callers_get_two_different_catalogs_from_one_bundle() {
     assert!(
         finance_json.to_string().contains("\"finance_only\""),
         "a finance-granted caller must see the restricted metric in describe_catalog: {finance_json}"
+    );
+}
+
+/// **Issue #971's acceptance, half two: a caller scoped away from a metric does not receive that
+/// metric's knowledge.**
+///
+/// The glossary entry names the `finance`-restricted `finance_only` metric. An outsider may not see
+/// the metric, so it must not receive the entry's meaning either - the same invisible-at-both-doors
+/// rule `docs/adr/0028` applies to the metric listing, now applied to the knowledge that stays with
+/// it. `RestrictedKnowledgeSurface` keeps `revenue` open and `finance_only` restricted; only the
+/// finance-granted caller's descriptor carries `capital expense`.
+#[tokio::test]
+async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowledge() {
+    let surface = AgentSurface::new(
+        Arc::new(testing::RestrictedKnowledgeSurface::new()),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+        None,
+    );
+    let peer = a_peer().await;
+    let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
+    let finance = sutura_domain::model::AudienceId::parse("finance").expect("a test audience id is one");
+    let outsider = subject_asked("outsider@example.com", catalog.clone());
+    let finance_caller = audience_asked(
+        "finance-caller@example.com",
+        catalog,
+        std::collections::BTreeSet::from([finance]),
+    );
+
+    let seen_by_outsider = surface
+        .call_tool(super::describe(), hand_built_context(1, peer.clone(), Some(outsider)))
+        .await
+        .expect("the catalog tool answers an outsider");
+    let seen_by_finance = surface
+        .call_tool(super::describe(), hand_built_context(2, peer, Some(finance_caller)))
+        .await
+        .expect("the catalog tool answers a finance-granted caller");
+
+    let outsider_result = match seen_by_outsider {
+        rmcp::model::CallToolResponse::Complete(result) => result,
+        other => panic!("a catalog tool call completes, got {other:?}"),
+    };
+    let finance_result = match seen_by_finance {
+        rmcp::model::CallToolResponse::Complete(result) => result,
+        other => panic!("a catalog tool call completes, got {other:?}"),
+    };
+
+    let outsider_json = outsider_result
+        .structured_content
+        .expect("the catalog carries structured content");
+    let finance_json = finance_result
+        .structured_content
+        .expect("the catalog carries structured content");
+
+    let outsider_knowledge = outsider_json
+        .get("knowledge")
+        .and_then(serde_json::Value::as_str)
+        .expect("the catalog carries a knowledge section");
+    let finance_knowledge = finance_json
+        .get("knowledge")
+        .and_then(serde_json::Value::as_str)
+        .expect("the catalog carries a knowledge section");
+
+    assert!(
+        !outsider_knowledge.contains("capital expense"),
+        "an outsider must not receive the restricted metric's glossary meaning: {outsider_knowledge}"
+    );
+    assert!(
+        finance_knowledge.contains("capital expense"),
+        "a finance-granted caller must receive the restricted metric's glossary meaning: {finance_knowledge}"
     );
 }

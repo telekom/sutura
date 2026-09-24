@@ -734,3 +734,49 @@ fn a_caveat_is_found_by_the_metric_it_is_about_however_it_is_scoped() {
     // And a provider with no caveats at all answers nothing rather than failing.
     assert_eq!(Knowledge::none().caveats_about(&metric_name("recurring_revenue")).count(), 0);
 }
+
+#[test]
+fn scoped_withholds_knowledge_whose_metric_is_invisible() {
+    // `docs/adr/0028`: knowledge follows its structured referents. A glossary entry, a caveat and a
+    // worked example that name a metric a caller may not see must disappear from a caller-scoped
+    // read; the terms recorded as undefined have no referent at all and are dropped from every
+    // scoped view. The two open metrics here let the closure stand in for a caller's grant.
+    let knowledge = accepts(KnowledgeInput::new(
+        KnowledgeCapabilities::all(),
+        vec![
+            glossary_entry("turnover", &["Umsatz"], revenue()),
+            glossary_entry(
+                "voice",
+                &[],
+                Referent::Metric {
+                    metric: metric_name("voice_minutes"),
+                },
+            ),
+        ],
+        vec![
+            caveat("about_revenue", vec![revenue()]),
+            caveat(
+                "about_voice",
+                vec![Referent::Metric {
+                    metric: metric_name("voice_minutes"),
+                }],
+            ),
+        ],
+        vec![absence("customer lifetime value", &["CLV"])],
+        vec![example("revenue_example", question(Grain::Month, Vec::new(), Vec::new()))],
+    ));
+
+    // A caller who may see `recurring_revenue` but not `voice_minutes`.
+    let visible = metric_name("recurring_revenue");
+    let scoped = knowledge.scoped(|metric| *metric == visible);
+
+    assert!(scoped.glossary().contains_key(&phrase("turnover")));
+    assert!(!scoped.glossary().contains_key(&phrase("voice")));
+    assert!(scoped.caveats().contains_key(&note_name("about_revenue")));
+    assert!(!scoped.caveats().contains_key(&note_name("about_voice")));
+    // No referent to inherit visibility from, so withheld from every scoped view.
+    assert!(scoped.absences().is_empty(), "{:?}", scoped.absences());
+    assert!(!scoped.examples().is_empty(), "a visible metric's example survives");
+    // The declaration survives so the renderer still knows what this bundle records.
+    assert!(scoped.declares().declares(Capability::Glossary));
+}

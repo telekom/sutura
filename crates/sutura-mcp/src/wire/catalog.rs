@@ -88,6 +88,14 @@ pub struct CatalogContent {
     #[serde(skip)]
     notice: &'static str,
     metrics: Vec<MetricContent>,
+    /// The knowledge sections and the operator's own text, as the prompt carries them - audience-
+    /// scoped through the same `ScopedView` that narrowed the metrics, descriptive only, bounded by
+    /// the bundle's own knowledge cap. `catalog_prose` decides whether note bodies are quoted in it.
+    ///
+    /// A caller that renders only the structured half of the listing still needs the glossary it is
+    /// scoped to read: a phrase-resolution surface has no `initialize.instructions` to deliver this
+    /// through, which is the whole of issue #971.
+    knowledge: String,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -130,15 +138,15 @@ impl CatalogContent {
     /// exists to close.** A caller may see only the metrics its granted audiences name; rendering
     /// from a bare `&PinnedDefinitions` would hand every caller the whole bundle again, which is
     /// the defect this surface shipped until it took the view. `ScopedView` borrows the bundle, so
-    /// this builder cannot reach `SemanticCatalog::load` - a per-caller filter stays off the
-    /// request path as a property of the type, never a call the renderer happens to omit.
+    /// this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
+    /// are filtered by the caller's own grant, never by a call the renderer omits.
     ///
     /// It also asks nothing of the setting itself: [`Carried::under`] and `prose::notice` are the
     /// crate's only two readers of it, so this builder cannot fill a `description` or pick a notice
     /// without the operator's decision, and a third `CatalogProse` spelling is a compile error in
     /// both rather than an `else` arm here.
     #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: CatalogProse) -> Self {
+    pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self {
         let metrics = view
             .metrics()
             .map(|metric| MetricContent {
@@ -165,11 +173,17 @@ impl CatalogContent {
                     .collect(),
             })
             .collect();
+        // The knowledge sections ride the same caller's view as the metrics: a caller that may not
+        // see a metric does not see that metric's glossary entry, caveat or worked example either.
+        // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
+        // a deployment that withholds catalog prose withholds it from the knowledge tool too.
+        let knowledge = sutura_app::prompt::catalog_knowledge(view, prose, instructions);
         Self {
             provenance: bundle_content(view.pinned()),
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,
+            knowledge,
         }
     }
 
@@ -216,6 +230,10 @@ impl CatalogContent {
                     push_prose(&mut out, description, "    description:");
                 }
             }
+        }
+        if !self.knowledge.is_empty() {
+            out.push_str("\n\n");
+            out.push_str(&self.knowledge);
         }
         out.push_str("\ndefinitions: ");
         out.push_str(&self.provenance.definition_version);

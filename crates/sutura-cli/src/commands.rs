@@ -340,6 +340,32 @@ fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPro
     Ok((prose, instructions))
 }
 
+/// The operator's own text, before it is folded into the rendered prompt - the value the
+/// `describe_catalog` tool carries through `tools/call`.
+///
+/// Split out of [`prompt_inputs`] so a composition root can thread the raw operator text to the
+/// catalog tool without re-reading the file (which would be a second read of the same path, able to
+/// disagree with the first) or parsing it back out of [`agent_instructions`]' rendered document
+/// (which would be reverse-engineering text). `None` when no `prompt.instructions_file` is
+/// configured - the same rule `prompt_inputs` applies, and the read error is the same one, since
+/// [`prompt_inputs`] is where the path is validated.
+pub(crate) fn operator_instructions(settings: &sutura_config::Settings) -> Result<Option<String>, String> {
+    settings
+        .prompt()
+        .instructions_file()
+        .map(|configured| {
+            let path = configured.path();
+            std::fs::read_to_string(path).map_err(|e| {
+                format!(
+                    "prompt.instructions_file is {} and it could not be read: {e}\nremove the key to \
+                     render the prompt without an operator section",
+                    path.display()
+                )
+            })
+        })
+        .transpose()
+}
+
 /// The word an operator wrote, as the type that acts on it.
 ///
 /// **The one place the two vocabularies meet, and an exhaustive match rather than a question asked
