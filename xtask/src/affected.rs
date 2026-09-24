@@ -140,7 +140,7 @@ fn derive(paths: &[String]) -> Categories {
 /// module documents is about what a *failed* read emits, and a read that only fails when the
 /// working tree is damaged is a property nothing can assert.
 fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, root: &Path) -> Categories {
-    let (mut core, selected, mut reasons) = select(paths);
+    let (mut core, selected, mut reasons) = select(paths, registry.as_ref().ok());
     let declared = match registry {
         Ok(mut set) => {
             set.insert(String::from(IDENTITY));
@@ -165,7 +165,7 @@ fn derive_from(paths: &[String], registry: Result<BTreeSet<String>, String>, roo
 /// Which categories the changed paths select. `core` is set when any path matches no category, and
 /// subsumes everything; the reasons say exactly which path did it, so a category nobody can see is
 /// reported rather than assumed harmless.
-fn select(paths: &[String]) -> Selection {
+fn select(paths: &[String], declared: Option<&BTreeSet<String>>) -> Selection {
     let mut selected = BTreeSet::new();
     let mut reasons = Vec::new();
     let mut core = paths.is_empty();
@@ -179,12 +179,41 @@ fn select(paths: &[String]) -> Selection {
             selected.insert(format!("data_source_{tail}"));
         } else if let Some(tail) = crate_tail(path, CATALOG_PATH) {
             selected.insert(format!("catalog_{tail}"));
+        } else if let Some(category) = declared.and_then(|declared| derived_category(path, declared)) {
+            selected.insert(category);
         } else {
             core = true;
             reasons.push(format!("{path} matches no category - running every category"));
         }
     }
     (core, selected, reasons)
+}
+
+/// A generated page or snapshot belongs to an adapter only when the registry declares exactly
+/// that category. Unknown names retain the fail-open `core` verdict.
+fn derived_category(path: &str, declared: &BTreeSet<String>) -> Option<String> {
+    if let Some(page) = path.strip_prefix("docs/api/").and_then(|name| name.strip_suffix(".md")) {
+        if page.contains('/') {
+            return None;
+        }
+        return category_from_crate(page).filter(|category| declared.contains(category));
+    }
+
+    let snapshot = path
+        .strip_prefix("crates/sutura-app/tests/snapshots/")?
+        .strip_suffix(".snap")?;
+    if snapshot.contains('/') {
+        return None;
+    }
+    let (_, name) = snapshot.rsplit_once('@')?;
+    let name = if name == "markdown" { "local" } else { name };
+    let data_source = format!("data_source_{name}");
+    let catalog = format!("catalog_{name}");
+    match (declared.contains(&data_source), declared.contains(&catalog)) {
+        (true, false) => Some(data_source),
+        (false, true) => Some(catalog),
+        _ => None,
+    }
 }
 
 /// The adapter crate tail a changed path picks out, if it is under one of the two adapter dirs.
@@ -380,7 +409,6 @@ mod tests {
     /// properties are tested without a filesystem read.
     fn selected(paths: &[&str]) -> Categories {
         let owned: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
-        let (core, selected, reasons) = select(&owned);
         let declared = BTreeSet::from(
             [
                 "data_source_datafusion",
@@ -393,12 +421,7 @@ mod tests {
             ]
             .map(String::from),
         );
-        Categories {
-            core,
-            selected,
-            declared,
-            reasons,
-        }
+        derive_from(&owned, Ok(declared), Path::new("."))
     }
 
     #[test]
@@ -416,6 +439,42 @@ mod tests {
         ] {
             assert!(!cats.needs(other), "{other} must not be selected by a postgres change");
         }
+    }
+
+    #[test]
+    fn an_adapter_and_its_derived_files_do_not_select_another_adapter() {
+        let cats = selected(&[
+            "crates/sutura-catalog-datahub/src/lib.rs",
+            "docs/api/sutura-catalog-datahub.md",
+            "crates/sutura-app/tests/snapshots/catalog_definitions@datahub.snap",
+        ]);
+        assert!(!cats.core, "DataHub's own derived files must not select core: {cats:?}");
+        assert!(cats.needs("catalog_datahub"));
+        assert!(!cats.needs("data_source_bigquery"));
+
+        let bigquery = selected(&["crates/sutura-app/tests/snapshots/recurring-revenue-june__sql@bigquery.snap"]);
+        assert!(!bigquery.core);
+        assert!(bigquery.needs("data_source_bigquery"));
+        assert!(!bigquery.needs("catalog_datahub"));
+
+        let markdown = selected(&["crates/sutura-app/tests/snapshots/example__plan@markdown.snap"]);
+        assert!(!markdown.core);
+        assert!(markdown.needs("catalog_local"));
+
+        for path in [
+            "docs/api/sutura-domain.md",
+            "docs/api/sutura-http.md",
+            "docs/api/sutura-catalog-unknown.md",
+            "docs/api/nested/sutura-catalog-datahub.md",
+            "crates/sutura-app/tests/snapshots/catalog_definitions@unknown.snap",
+            "crates/sutura-app/tests/snapshots/catalog_definitions@snowflake.snap",
+            "crates/sutura-app/tests/snapshots/nested/catalog_definitions@datahub.snap",
+            "Cargo.lock",
+        ] {
+            assert!(selected(&[path]).core, "{path} must still run every category");
+        }
+        let unknown = selected(&["devco/whatever.toml"]);
+        assert!(unknown.reasons.iter().any(|reason| reason.contains("devco/whatever.toml")));
     }
 
     #[test]
@@ -452,13 +511,6 @@ mod tests {
         ] {
             assert!(cats.needs(cat), "{cat} must run when core runs");
         }
-    }
-
-    #[test]
-    fn an_unmapped_path_selects_core() {
-        let (core, _selected, reasons) = select(&["devco/whatever.toml".to_owned()]);
-        assert!(core, "an unmapped path must run every category, not be skipped");
-        assert!(reasons.iter().any(|r| r.contains("devco/whatever.toml")), "{reasons:?}");
     }
 
     #[test]
