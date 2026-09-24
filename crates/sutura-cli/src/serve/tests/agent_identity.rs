@@ -569,8 +569,12 @@ async fn a_served_agent_surface_pushes_spend_headroom_after_a_run_sql_call() {
 /// `/metrics` route serves, not on a registry-internal handle - a push onto a differently-named
 /// series no scrape would show reddens this cell like a stopped one.
 ///
-/// Red against a tree with no series and no push; an `add`-shaped double-counting push reddens it
-/// too, because the reading the push carries already sums every byte admitted so far.
+/// Red against a tree with no series and no push. It makes TWO priced calls on the same fixture
+/// and asserts 500 then 1000, which is what holds `raise_to` at this site: with only ONE priced
+/// call from the zero boot reading, `0 + 500 == max(0, 500)` and an `add`-shaped push would read
+/// the same 500 this cell asserts, indistinguishable from `raise_to`. Two calls make an
+/// `add`-shaped double-counting push read 1500 and redden it, because the reading the push
+/// carries already sums every byte admitted so far.
 #[tokio::test]
 async fn a_served_agent_surface_raises_spend_bytes_total_after_an_answer() {
     fn counter(exposition: &str) -> u64 {
@@ -595,7 +599,7 @@ async fn a_served_agent_surface_raises_spend_bytes_total_after_an_answer() {
 
     // One priced `ask_metric` call admits `PRICE_BYTES`; the push must raise the counter to that
     // reading. A `Serving` whose answer stopped pushing leaves it at zero and reddens this cell.
-    let answered = post(app, &token, ask_metric_call()).await;
+    let answered = post(app.clone(), &token, ask_metric_call()).await;
     assert!(
         answered.get("error").is_none(),
         "the ask_metric call must be answered, not refused: {answered}"
@@ -604,5 +608,21 @@ async fn a_served_agent_surface_raises_spend_bytes_total_after_an_answer() {
         counter(&registry.render()),
         500,
         "the /mcp answer raised the spend total to the post-call reading"
+    );
+
+    // A SECOND priced call, admitted exactly at the 1000 ceiling, is what makes this cell hold
+    // `raise_to` rather than merely "a push happened": one call from the zero boot reading is
+    // indistinguishable between `raise_to` and `add` (`0 + 500 == max(0, 500)`). Two calls pin
+    // the sequence 500 then 1000 - an `add`-shaped push reads 1500 here and reddens this cell,
+    // as does a push that stopped (which would freeze at 500).
+    let answered = post(app, &token, ask_metric_call()).await;
+    assert!(
+        answered.get("error").is_none(),
+        "the second ask_metric call must be answered, not refused: {answered}"
+    );
+    assert_eq!(
+        counter(&registry.render()),
+        1_000,
+        "the second /mcp answer raised the spend total to 1000, not 1500: the push is raise_to, not add"
     );
 }

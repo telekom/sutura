@@ -269,16 +269,51 @@ except the one call site with a real number to put there
 
 ## First amendment, 2026-09-24: the running total is exported as `sutura_spend_bytes_total`
 
-`SpendLedger::spent_bytes_total` is now exported as the metric this record's owner decision
-anticipated when it argued `sum(rate(...))` over a monotonic total is the deployment-wide number a
-per-replica headroom gauge cannot be. `ServiceState::new` (`sutura-http`) registers the counter
-beside `sutura_spend_headroom_bytes`, under the same condition: **only where a ceiling is
-configured** - `spent_bytes_total` returning `Some` is the registration condition, so an
-unconfigured deployment exports neither series. Both transports push it: `POST /v1/query`'s
-post-answer poll raises the counter to the ledger's fresh reading, and the agent surface pushes it
-through the same `SpendHeadroomPush` handle that carries the gauge, so an agent-only deployment
-cannot freeze the total while the ledger drains. Pushed with `raise_to` rather than `add`, because
-the reading already carries every byte admitted so far and an additive push would double-count.
-**Enforcement stays per-replica, unchanged:** this series is an observability surface for the
-monitoring system to aggregate across, never a control - the ceiling is still checked against one
-replica's own windowed map, and no replica reads another's counter.
+**The owner decision this amendment implements** (recorded here on 2026-09-24 from the owner's
+2026-09-18 decision on `github.com/telekom/sutura#139`, which ADR 0030 as written did not contain):
+
+> **Observed globally, enforced per-replica.** The cross-replica story is **aggregation in the
+> monitoring system, never enforcement**. Enforcement stays per-replica - no shared store, no
+> leader, no designated node; this record's declined alternative stands and the second decision
+> hiding inside it (what an unreachable store does to questions that do not need it) is not
+> forced. A global view comes from aggregation: each replica exposes only its own cheap atomic
+> read, so `docs/adr/0015`'s Decision 1 (a scrape must not make the service work) is untouched.
+> The existing `sutura_spend_headroom_bytes` gauge cannot be summed - `sum()` over N replicas is
+> `N × ceiling − total_spend`, it moves whenever N moves, and a restart snaps a replica's gauge
+> back to the full ceiling, indistinguishable from spend being refunded. So the
+> aggregation-friendly shape is a **monotonic counter of bytes spent**, `sutura_spend_bytes_total`,
+> whose `rate()`/`increase()` carry counter-reset detection: `sum(rate(sutura_spend_bytes_total[5m]))`
+> is correct across restarts and across a changing replica count. The gauge is kept unchanged as
+> the per-replica view. Two limits, stated next to the claim: (1) **enforcement is `N × ceiling`
+> in aggregate, and this decision does not change that** - a Prometheus reading is scrape-interval
+> stale, lossy and not transactional, and putting it in the charge path would make monitoring a
+> hard dependency of the certified serving path, strictly worse than the shared store already
+> declined for that class of reason; (2) **the global view is deployment-wide only, never
+> per-subject** - ADR 0015's Decision 5 types metric labels as `&'static str` precisely so
+> request-owned text cannot flow into them, subject identity in a scrape is a disclosure question
+> already decided against, and attribution stays in the audit record. Same absent-rather-than-zero
+> discipline as the gauge. This is an addition to this record, not a reversal: the record declined
+> outsourcing enforcement to the data system, and this decision does not - sutura keeps enforcing
+> per-replica and adds a global *view* that works identically for every adapter.
+
+`SpendLedger::spent_bytes_total` is now exported as that counter. `ServiceState::new`
+(`sutura-http`) registers it beside `sutura_spend_headroom_bytes`, under the same condition:
+**only where a ceiling is configured** - `spent_bytes_total` returning `Some` is the registration
+condition, so an unconfigured deployment exports neither series. Both transports push it:
+`POST /v1/query`'s post-answer poll raises the counter to the ledger's fresh reading, and the
+agent surface pushes it through the same `SpendHeadroomPush` handle that carries the gauge, so an
+agent-only deployment cannot freeze the total while the ledger drains. Pushed with `raise_to`
+rather than `add`, because the reading already carries every byte admitted so far and an additive
+push would double-count. **Enforcement stays per-replica, unchanged:** this series is an
+observability surface for the monitoring system to aggregate across, never a control - the
+ceiling is still checked against one replica's own windowed map, and no replica reads another's
+counter.
+
+**Limit: on every deployment that can boot with a ceiling today, this series reads 0 forever.**
+The ledger charges a `None` estimate nothing, and the adapters that can boot under
+`governance.per_replica_spend_ceiling` cannot price a dry run: a `bigquery` source beside the
+ceiling is refused at boot (`NotFitToServe::UnpricedSourceUnderSpendCeiling`, so no priced adapter
+can be served with one), DuckDB and Postgres answer
+`PreFlight::Accepted { estimated_bytes: None }`, and ClickHouse and Oracle take the port's own
+default `PreFlight::NotAsked`. So `sum(rate(sutura_spend_bytes_total[5m]))` is 0 on all of these
+deployments, and a dashboard cannot tell that apart from "nothing was spent".

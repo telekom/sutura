@@ -204,17 +204,31 @@ impl SpendLedger {
     /// resets to the full ceiling on every restart, and `sum()` over N replicas is `N * ceiling -
     /// total_spend`, a number that moves whenever N does. This total only grows, so
     /// `sum(rate(sutura_spend_bytes_total[5m]))` is correct across a restart (a monitoring
-    /// system's counter-reset handling) and across a changing replica count - `docs/adr/0030`'s
-    /// owner decision, 2026-09-18: aggregation belongs to the monitoring system, never to
-    /// enforcement, which stays per-replica either way.
+    /// system's counter-reset handling) and across a changing replica count - the owner decision
+    /// `docs/adr/0030`'s amendment records, 2026-09-18: aggregation belongs to the monitoring
+    /// system, never to enforcement, which stays per-replica either way.
     ///
-    /// **Exported as `sutura_spend_bytes_total` by both transports.** `sutura_http::ServiceState::new`
-    /// (`sutura-http`) registers the counter beside the `sutura_spend_headroom_bytes` gauge,
-    /// `POST /v1/query`'s post-answer push and the agent surface's `Serving` wrapper raise it to
-    /// this reading through one `SpendHeadroomPush` handle, and the `/metrics` scrape renders it.
+    /// **Exported as `sutura_spend_bytes_total` by both transports, by different routes.**
+    /// `sutura_http::ServiceState::new` (`sutura-http`) registers the counter beside the
+    /// `sutura_spend_headroom_bytes` gauge. `POST /v1/query`'s post-answer poll pushes it through
+    /// the state's own `record_spend_headroom`; the agent surface raises it through the
+    /// `SpendHeadroomPush` handle the composition root hands its `Serving` wrapper - the HTTP
+    /// route never touches that handle. The `/metrics` scrape renders it.
+    ///
     /// **Registered only where a ceiling is configured:** `Some` here is the registration
     /// condition, so an unconfigured deployment exports neither series - absent rather than zero,
     /// the same discipline the gauge applies.
+    ///
+    /// **Limit: on every deployment that can boot with a ceiling today, this series reads 0
+    /// forever.** A ledger charges a `None` estimate nothing, and the adapters that can boot
+    /// under `governance.per_replica_spend_ceiling` cannot price a dry run: a `bigquery` source
+    /// beside the ceiling is refused at boot
+    /// (`NotFitToServe::UnpricedSourceUnderSpendCeiling`), so no
+    /// priced adapter can be served with one; `DuckDB` and Postgres answer
+    /// `PreFlight::Accepted { estimated_bytes: None }`, and `ClickHouse` and Oracle take the port's
+    /// own default `PreFlight::NotAsked`. A dashboard reading `sum(rate(...))` of zero here
+    /// therefore cannot distinguish "nothing was spent" from "no call was ever priced" - see
+    /// `docs/adr/0030`'s amendment for the same sentence.
     #[must_use]
     pub fn spent_bytes_total(&self) -> Option<u64> {
         self.budget?;
