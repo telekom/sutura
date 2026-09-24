@@ -43,10 +43,8 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc"]
 
 # The Postgres adapter, and with it the outbound TLS the source channel verifies against.
 #
-# **Default-off, and the reason is the ARTEFACT rather than the four cross builds** - the same
-# decision `bigquery` above carries. `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls`
-# pulls the rustls closure with `ring` in it; keeping this feature off leaves that out of the
-# published binary until a deployment asks for it.
+# Default-off for local Cargo builds; `nix/shipped.nix` enables it in published binaries.
+# `sutura-exec-postgres` is pure Rust, but `tokio-postgres-rustls` pulls in `ring`.
 #
 # **`dep:tokio-postgres` too, arrived from `sutura-serve`'s own `postgres` feature at the fold -
 # a strict superset of what this crate declared before it.** `tokio_postgres::Config` is used only
@@ -58,12 +56,9 @@ postgres = ["dep:sutura-exec-postgres", "dep:tokio-postgres"]
 
 # The ClickHouse adapter, over its HTTP interface.
 #
-# **Default-off for the ARTEFACT reason `bigquery` above states**, plus one this feature has on its
-# own: `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` NON-optionally (its own manifest says
-# why - no composition root linked it, so there was no artefact for a feature to keep a TLS stack
-# out of), so the edge into the outbound closure is this line and nothing narrower. `optional` is
-# what makes the dependency ABSENT from the default build rather than merely unused, which is the
-# property the four cross builds need.
+# Default-off and absent from `nix/shipped.nix`'s published feature list.
+# `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
+# keeps the adapter and its transport dependencies absent when the feature is off.
 #
 # **It is not in `nix/shipped.nix`'s `features`, `allFeatures` or `probeFeatures`, and that is a
 # decision rather than an omission.** Every other adapter feature is in `features` since
@@ -247,8 +242,7 @@ tower = { workspace = true, features = ["util"] }
 # `tests/served.rs`'s harness client, for the one thing `served/harness.rs`'s own hand-rolled
 # plaintext parser does not cover: a request to a REAL server it did not write -
 # `nix/keycloak-tier.nix`'s own Keycloak, over its token endpoint and its JWKS document. Folded in
-# from `sutura-serve`'s manifest: `sutura-exec-bigquery::wire` is this crate's own precedent for
-# the exact shape (`.post(url).send_form(form)`, `.get(url).call()`, `body_mut().read_to_string()`).
+# from `sutura-serve`'s manifest. The harness uses `ureq` for token and JWKS requests.
 ureq = { workspace = true }
 # Decodes a compact JWT's payload segment (base64url, unpadded) to read the `aud` a real issuer
 # minted, rather than assuming one - see `served/harness/keycloak.rs`. Already pinned for

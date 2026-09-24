@@ -2854,9 +2854,9 @@ repair, which needs one more dependency and belongs in this file.
 # No security scheme is declared, and that is honest
 
 `utoipa` can describe a bearer scheme, and describing one here would put an `Authorize` button
-in the browser UI. It is deliberately absent: a scheme in the document reads as an
-authentication model, and this service has none - the token authenticates the *deployment*, not
-the caller. The `401` on each operation says what actually happens, and
+in the browser UI. It is deliberately absent: a single scheme would not describe the deployment's
+choice between a shared token and verified caller tokens. The `401` on each operation says what
+actually happens, and
 `DESCRIPTION` says what it means.
 
 ### `struct ApiDoc`

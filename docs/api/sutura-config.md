@@ -2034,8 +2034,9 @@ optional. Those are two different absences and the difference matters:
 **What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
 It does *not* make a data source execute as that person - that is leg 2, and it needs a credential
 per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
-who is asking and still reads every row as one identity. `InboundIdentity::what_it_does_not_do`
-is that sentence as a value, printed at startup, for the same reason
+who is asking while a shared-identity source still reads rows as one identity. `BigQuery`'s
+per-subject path is built, but no observed served run proves source acceptance.
+`InboundIdentity::what_it_does_not_do` states that limit at startup, for the same reason
 `TlsTermination::cleartext_hop` is one: a log
 line and this documentation read the same string, so neither can drift into claiming per-user
 access because there is authentication.

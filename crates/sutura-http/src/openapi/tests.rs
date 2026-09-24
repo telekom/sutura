@@ -107,16 +107,19 @@ fn both_transports_describe_the_same_tools() {
 }
 
 #[test]
-fn the_document_tells_a_reader_that_identity_is_not_access() {
+fn the_document_states_the_source_identity_limit() {
     // The one thing somebody integrating reads, and in the document because it is their surface.
-    // The notice is deployment-independent: whichever way a caller is authenticated, no question
-    // runs as the asker.
+    // The notice names both the built BigQuery path and its unproven source acceptance.
     let rendered = document_json(true).expect("the document serializes");
     assert!(
-        rendered.contains("NEITHER IS PER-CALLER ACCESS"),
+        rendered.contains("CALLER IDENTITY DOES NOT BY ITSELF PROVE SOURCE ACCESS"),
         "the description lost the notice"
     );
     assert!(rendered.contains("WHO IS ASKING"), "the description lost the identity notice");
+    assert!(
+        rendered.contains("No served run has yet shown"),
+        "the description lost the venue limit"
+    );
     assert!(
         rendered.contains("refusal is a RESULT"),
         "the description lost the refusal notice"

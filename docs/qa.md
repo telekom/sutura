@@ -131,14 +131,13 @@ question and `sutura query` answers it, over a catalogue of documents in git and
 Parquet files in a directory you name. That is one supported path, served from the command line or
 [over HTTP](serving.md).
 
-Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
-specific than it used to be. There **is** a request context, a credential broker port with a
-static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
-`security.inbound` - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. BigQuery's per-subject path is built and shipped, but no served
-run has proven that it executes as the caller. Other sources use an acknowledged shared identity,
-so a deployment can know who is asking and still read rows under its own source identity. There is
-no Arrow result envelope. The published build opens the in-process engine, Postgres and BigQuery;
+The identity-aware BigQuery path is shipped, but no served run has proven that the source executes
+as the caller. There **is** a request context, a credential broker port, an audit sink, an MCP
+surface, and - where a deployment declares `security.inbound` - a verified caller identity from a
+signature, with OAuth scopes deciding which operations that caller may invoke. Other sources use an
+acknowledged shared identity, so a deployment can know who is asking and still read rows under its
+own source identity. The Arrow result envelope is not built. The published build opens the
+in-process engine, Postgres and BigQuery;
 other adapters require their own features. The pinned bundle and source grants govern which rows
 can be read.
 [What exists today](architecture.md#what-exists-today) is the inventory.
