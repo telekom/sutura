@@ -1,10 +1,10 @@
 //! The ADBC transport: opens the self-built `BigQuery` driver
 //! (`nix/bigquery-adbc.nix`) through `adbc_core` + `adbc_driver_manager` and
-//! decodes its Arrow result sets.
+//! hands its Arrow result sets on unconverted.
 //!
 //! ```text
 //! adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
-//!   → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
+//!   → `BigQuery` → Arrow RecordBatchReader → ResultBatches
 //! ```
 //!
 //! **Two routes to that driver and one type deciding between them** - [`DriverLocation`], resolved
