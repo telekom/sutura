@@ -10,7 +10,8 @@ read** is proved against a real project - a `project.dataset.table` path is reso
 and a wrong dataset in one is refused. **A cross-PROJECT read is not proved**, because the acceptance
 credential's IAM refuses `datasets.create` and there was no second project to read across; *What is
 claimed, and what is not* at the end is the section to read before taking that green for more than it
-is.
+is. **Corrected, 2026-09-24:** by the owner's decision in the second amendment there will not be a
+second project; a cross-project read stays unproved on purpose.
 
 [0017](0017-what-a-bigquery-test-runs-against.md) and
 [0018](0018-what-the-bigquery-wire-is-built-from.md) got a statement of ours accepted by a real
@@ -301,7 +302,7 @@ record's own opening failure, one layer further out.
   and a wrong dataset in it is refused - and what is unproved is a read whose leading part is a
   project the credential does not already bill to. That is an IAM grant rather than a code change;
   the statement is identical in shape either way. It is the one thing to re-run when a second
-  project exists.
+  project exists. (*Superseded by the second amendment: no second project is coming.*)
 - **A cross-project JOIN was not executed.** A cross-DATASET join within one billing project now
   is - recorded on 2026-09-16 by run
   https://github.com/telekom/sutura/actions/runs/35066825062, positive and negative control, PASS -
@@ -358,4 +359,6 @@ decides. The `#[ignore]`d cross-project cell that was waiting on this decision -
 in this adapter's own integration tests - no longer exists: it went with the HTTP wire transport
 (`github.com/telekom/sutura#913`), so the gap is now carried by this paragraph and by nothing
 executable. It waits on the same infrastructure this record already named, and nothing about
-`resolve` changes that.
+`resolve` changes that. **Corrected, 2026-09-24:** it waits on nothing - that infrastructure is not
+coming, and qualification is held hermetically by `resolve`'s own cells and the
+`qualified-cross-project-join` golden.

@@ -8,6 +8,14 @@ description: Optional mutual TLS to a metadata source and to a data source, conf
 Status: **accepted. The configuration half and the Postgres channel are built; rotation and the HTTP
 adapters are not.**
 
+**Corrected, 2026-09-24:** that status line predates its own amendments. What is built now: the
+configuration half, the Postgres channel, the DataHub reader's declared anchors and client identity
+(`github.com/telekom/sutura#911`), and rotation in `sutura-tls` - with the limit the fourth amendment
+states, that no test watches a real handshake adopt a rotated bundle. What is NOT: the BigQuery half.
+Its HTTP wire went with the ADBC adoption, the driver takes neither a bundle nor a client identity,
+and since `github.com/telekom/sutura#961` a declared bundle or identity beside a `bigquery` source is a
+startup refusal rather than a declaration silently not honoured.
+
 Two separate things share this record because they are constantly confused for each other, and the
 confusion is the dangerous part: **mutual TLS authenticates the SERVICE to a source. It does not
 authenticate the subject, and it delivers no part of impersonation.**

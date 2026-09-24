@@ -89,8 +89,8 @@ VARS = {
     "SUTURA_BQ_DATASET": "ci_dataset",
     "SUTURA_BQ_TABLE": "ci_table",
     # The policied dataset `cross_resource.rs`'s live fixture reads alongside `SUTURA_BQ_RLS_PROJECT`
-    # (`crates/sutura-exec-bigquery/tests/cross_resource_fixture/live.rs`) - still live, unrelated to
-    # the two-principal cell.
+    # (`crates/sutura-exec-bigquery/tests/cross_resource_fixture/live.rs`, removed with the HTTP wire
+    # in #929) - read by nothing now; kept only because the stack still provisions it.
     #
     # The policied dataset is NOT the one the acceptance legs run against, and that is an assertion
     # here only because `__main__.py` refuses `dataset == ci_dataset` - it used to be four

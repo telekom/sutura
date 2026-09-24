@@ -220,7 +220,10 @@ each principal's grouping value - were the withdrawn two-principal cell's own (t
 sutura does not re-verify a source's row-level security); nothing reads them now.
 
 The one `SUTURA_BQ_CROSS_*` var is the writable cross-resource venue's own
-(`bigquery-cross-dataset`): the disposable dataset its dimension loads into. It is pushed as a var;
+(`bigquery-cross-dataset`): the disposable dataset its dimension loads into. **That venue's consumers
+are gone** - the cross-resource cell and its CI leg went with the HTTP wire
+(`github.com/telekom/sutura#929`) - so the dataset and var are still provisioned by this stack but read
+by nothing; removing them is a change to the live stack, applied by its owner. It is pushed as a var;
 the project-shaped reads (`SUTURA_BQ_CROSS_DATASET_PROJECT`, `SUTURA_BQ_CROSS_BILLING_PROJECT`,
 `SUTURA_BQ_RLS_PROJECT`) are not. They all take the same value - the project the CI key names (the
 cell's admission requires every destination in the billing project) - and the workflow derives it

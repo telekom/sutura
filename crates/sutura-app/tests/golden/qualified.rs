@@ -494,8 +494,8 @@ fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
 ///
 /// **What this can and cannot show.** It shows that a plan naming two projects is one plan with one
 /// `SourceName`, and that it renders as a single statement with both paths in it and a single `JOIN`.
-/// It does not show that the service performs the join - nothing local can - which is what the
-/// acceptance leg against a real project is for.
+/// It does not show that the service performs the join - nothing local can, and by owner decision
+/// nothing here tries: `docs/adr/0019`'s second amendment holds cross-project access by qualification.
 #[test]
 fn a_cross_project_join_is_one_statement_and_one_source() {
     let (name, plan) = fixtures()
