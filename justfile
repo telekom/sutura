@@ -326,6 +326,25 @@ bigquery-driver-check:
 ship-check:
     devenv shell ship-check
 
+# READ-ONLY, unlike `just api`: regenerates into a temp directory and byte-compares against the
+# committed pages, so a stale page fails here rather than getting silently rewritten. `ship-check`'s
+# own surface task for a Rust diff (#987) - `checks.api-docs` is a required nix check but no commit
+# hook reaches it, which is how 11 of 87 studied red PR/queue runs were a stale API page nobody
+# caught before pushing.
+check-api-docs:
+    cargo run -q -p xtask -- check-api-docs
+
+# The default-feature lane alone, without the rest of `just gates` - `ship-check`'s own surface
+# task for a Rust diff (#987). Every other compiling gate passes `--all-features`; this is the one
+# that compiles AND runs the tests `nix/shipped.nix`'s default set actually ships, and per
+# `AGENTS.md` it is not one of `just validate`'s eleven nix checks either - 7 of 87 studied red
+# PR/queue runs were exactly this failure, uncaught until CI.
+check-default-features:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo run -q -p xtask -- check-default-features
+    cargo run -q -p xtask -- check-default-feature-tests
+
 # Through `nix/run-gate.sh`: local tools when the dev shell is active, the pinned Nix route when not.
 # Every run leaves `target/crap/baseline.json`, which `just crap-delta` compares. Scope, cost and
 # both halves of the ratchet are in docs/crap.md.

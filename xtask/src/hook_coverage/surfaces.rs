@@ -43,6 +43,29 @@ pub(crate) const SURFACES: &[Surface] = &[
         reached_by: "lint",
     },
     Surface {
+        // NO HOOK, deliberately, and a SEPARATE row from "Rust source" above rather than a second
+        // task on it - the table has one `reached_by` per row, and these two gates are the pair
+        // #987 measured against 87 red PR/queue runs: 11 stale-API-page failures and 7
+        // default-feature failures, both legs a Rust diff reaches that no commit hook and no
+        // `SUTURA-#866`-scoped `just gates` run reaches either (`AGENTS.md`'s own line: "It does
+        // not run check-default-features or check-default-feature-tests - just gates does").
+        // Overlapping `*.rs` with the row above is the same all-must-run shape "workflow YAML" and
+        // "text and manifests" already use.
+        label: "Rust source (api-docs and default-feature lanes)",
+        paths: &["*.rs"],
+        hooks: &[],
+        reached_by: "check-api-docs",
+    },
+    Surface {
+        // Same pair, second half - kept as its own row rather than folded into the one above so a
+        // coverage report can name which of the two ran and which did not, instead of one line
+        // standing for both.
+        label: "Rust source (default-feature lane)",
+        paths: &["*.rs"],
+        hooks: &[],
+        reached_by: "check-default-features",
+    },
+    Surface {
         label: "shell script",
         paths: &["*.sh"],
         hooks: &["shellcheck"],
@@ -206,6 +229,49 @@ mod tests {
                 .iter()
                 .any(|surface| !surface.hooks.is_empty() && crate::repo::matches_any(surface.paths, path));
             assert!(reached, "`{path}` is reached by no surface that names a hook");
+        }
+    }
+
+    #[test]
+    fn the_uncovered_rows_are_exactly_this_set() {
+        // MOVED from `hook_coverage::tests::every_surface_the_real_config_claims_still_exists`
+        // (#987 widened the set): a claim about this TABLE belongs beside it, not beside the
+        // reader. The day a hook covers one of these this assertion is what says so - a row
+        // claiming a hook that cannot report a gap is what `github.com/telekom/sutura#402`
+        // measured on `devenv script shell`.
+        let uncovered: Vec<&str> = SURFACES.iter().filter(|s| s.hooks.is_empty()).map(|s| s.label).collect();
+        assert_eq!(
+            uncovered,
+            vec![
+                "Rust source (api-docs and default-feature lanes)",
+                "Rust source (default-feature lane)",
+                "composite-action shell",
+                "devenv script shell",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_rust_diff_surfaces_the_api_docs_and_default_feature_lanes() {
+        // #987: 11 of 87 red PR/queue runs were a stale API page and 7 were a default-feature
+        // failure, and neither leg is reached by a commit hook or by `just gates`'s cheaper
+        // sibling - `ship-check` prints a surface's `reached_by` task only when its `hooks` is
+        // EMPTY, so a Rust diff has to match a no-hook row naming each one, or `--surface-tasks`
+        // stays silent about both and a developer's `ship-check` run is green over the same gap
+        // that turned those 18 runs red.
+        for task in ["check-api-docs", "check-default-features"] {
+            let row = SURFACES
+                .iter()
+                .find(|surface| surface.reached_by == task)
+                .unwrap_or_else(|| panic!("no surface names `{task}` as its `reached_by` task"));
+            assert!(
+                row.hooks.is_empty(),
+                "`{task}`'s row must have no claiming hook, or ship-check never prints it"
+            );
+            assert!(
+                crate::repo::matches_any(row.paths, "crates/sutura-domain/src/lib.rs"),
+                "`{task}`'s row does not match a Rust source path"
+            );
         }
     }
 }
