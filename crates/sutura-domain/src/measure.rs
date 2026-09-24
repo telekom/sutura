@@ -223,7 +223,11 @@ impl TryFrom<TermRepr> for Term {
 
     fn try_from(repr: TermRepr) -> Result<Self, Self::Error> {
         match (repr.aggregate, repr.column, repr.count_if, repr.model) {
-            (Some(aggregate), Some(column), None, model) => Ok(Self::Aggregate(AggregatedColumn { aggregate, column, model })),
+            (Some(aggregate), Some(column), None, model) => Ok(Self::Aggregate(AggregatedColumn {
+                aggregate,
+                column,
+                model,
+            })),
             (None, None, Some(column), model) => Ok(Self::CountIf { column, model }),
             (Some(aggregate), None, None, _) => Err(InvalidTerm::NoColumn { aggregate }),
             (None, Some(column), None, _) => Err(InvalidTerm::NoAggregate { column }),
@@ -242,7 +246,11 @@ impl TryFrom<TermRepr> for Term {
 impl From<Term> for TermRepr {
     fn from(term: Term) -> Self {
         match term {
-            Term::Aggregate(AggregatedColumn { aggregate, column, model }) => Self {
+            Term::Aggregate(AggregatedColumn {
+                aggregate,
+                column,
+                model,
+            }) => Self {
                 aggregate: Some(aggregate),
                 column: Some(column),
                 count_if: None,
@@ -687,7 +695,10 @@ mod tests {
         ));
         assert_eq!(term.model(), Some(&model_name("customers")));
         let written = serde_json::to_string(&term).expect("a term serializes");
-        assert!(written.contains("customers"), "a named model must reach the serialized form: {written}");
+        assert!(
+            written.contains("customers"),
+            "a named model must reach the serialized form: {written}"
+        );
         assert_eq!(serde_json::from_str::<Term>(&written).expect("a term parses"), term);
     }
 

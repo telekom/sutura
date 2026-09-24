@@ -25,8 +25,10 @@ const QUERY: Subject = Subject {
     // `TopOverUncertifiedRows` once the two-case rule made the blanket refusal's arm unreachable -
     // a straight substitution, so the count was unchanged. 22 since `docs/adr/0040` DELETED
     // `LegsDecideIdentityDifferently`: a cross-posture federated answer is disclosed per leg
-    // instead, so there is no question left for that variant to refuse.
-    variants: variants(22),
+    // instead, so there is no question left for that variant to refuse. 23 again since
+    // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
+    // model loads and is refused at plan time rather than mis-planned against the wrong table.
+    variants: variants(23),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
