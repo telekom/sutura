@@ -109,8 +109,8 @@ an attacker can make the agent emit is a different certified question over the s
 definitions - that much is enforced today by the shape of `Query`. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.
 
-The clause "asked as the same caller, against the same authorization" is **half built.** The
-credential broker exists and `Warehouse::execute` has no signature that runs without what it
+The clause "asked as the same caller, against the same authorization" is **not a guarantee for every
+source.** The credential broker exists and `Warehouse::execute` has no signature that runs without what it
 minted, so there is no code path a question reaches a data system through as an unnamed identity.
 The BigQuery adapter can carry the verified caller's assertion to a declared account for that
 subject, but no hosted run has shown the source accepting either identity hop. Other adapters still
