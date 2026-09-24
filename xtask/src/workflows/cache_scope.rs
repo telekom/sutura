@@ -57,6 +57,11 @@ use super::reach::Closure;
 /// The writer-EFFECTIVENESS rule for the daemon-mode cache publisher (issue #560): a
 /// `cachix/cachix-action` step whose job realises nothing after it publishes nothing. Its own file
 /// for the same 1000-line reason.
+/// EXACTLY-ONE-INSTALLER-PER-EVENT (#980): a different question again - `judge` above holds a
+/// writer's own gate, this holds whether a SIBLING installer in the same job can already run for
+/// the event a writer's own gate admits. Its own file for the same 1000-line reason the other two
+/// siblings split off.
+mod installers;
 mod realise;
 mod retired;
 
@@ -150,6 +155,7 @@ const KEY_CHURN: [&str; 3] = ["github.sha", "github.run_id", "github.run_number"
 pub(super) fn problems(root: &Path, closure: &Closure) -> Vec<String> {
     let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
     let mut out = judge(&files);
+    out.extend(installers::problems(&files));
     out.extend(retired::problems(root));
     out
 }

@@ -291,6 +291,9 @@ jobs:
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
       catalog_rdbms: ${{ steps.classify.outputs.catalog_rdbms }}
+      # AREA axis, not category - published only because `pr-cache` (below) needs to know whether
+      # a dependency input moved, to skip its own realise when nothing did (#980).
+      deps: ${{ steps.classify.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,7 +313,14 @@ jobs:
         with:
           minimum-gb: "25"
 
+      # EXACTLY ONE INSTALLER PER EVENT (#980). This step is now gated OFF `pull_request`: run on
+      # both, the PR-gated four-store step below found Nix already installed and exited in 18 ms
+      # with "Aborting: Nix is already installed" - measured on 76/76 PR `ci` logs, 2026-09-16..23
+      # - so the config that names `sutura-prs` was written and never applied, and a PR's own
+      # commits never substituted from their own cache. `cache_scope::installers` refuses two
+      # installers admitting the same event in one job, so removing this `if:` again is red.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        if: github.event_name != 'pull_request'
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
           # absent: with it, a pull request could add a substituter and a trusted key and have
@@ -335,11 +345,13 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # HALF (a): the pull-request path also trusts the PR's OWN additive cache, on top of the
-      # published set above. That list is SELF-CONTAINED on purpose: a second install must not depend
-      # on the first config surviving, so whichever nix.conf wins, a PR run ends trusting all of
-      # them. It is gated to exactly `pull_request`, so a merged main run and a merge-queue entry
-      # read only the published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
+      # HALF (a): the pull-request path also trusts the PR's OWN additive cache. THE ONLY INSTALLER
+      # THAT ACTUALLY RUNS ON `pull_request` NOW (#980) - the step above is gated off this event, so
+      # this one is not "on top of" a prior install any more, it IS the install. Its list is
+      # SELF-CONTAINED regardless: a second install must not depend on a first one's config
+      # surviving, so whichever nix.conf ships, a PR run ends trusting every store named here. It is
+      # gated to exactly `pull_request`, so a merged main run and a merge-queue entry read only the
+      # published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
       # A PR still restores the published closures AND reads its own branch cache: nix verifies a
       # signature against the intersection of signer and trusted keys, so every key must be named.
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
@@ -1394,7 +1406,13 @@ jobs:
     # THE TOKEN ORDER IS LOAD-BEARING: `cache_scope`'s PR-writer pairing reads this job's `if:`
     # with `github.event_name == 'pull_request'` as a pinned PREFIX and refuses the reversed
     # spelling and a `${{ }}` wrapping alike.
-    if: github.event_name == 'pull_request' && !cancelled()
+    #
+    # `&& needs.ci.outputs.deps == 'true'` (#980): the realise below now publishes the dependency
+    # closure ONLY, and only a manifest-changing commit moves it - measured, 28 of 36 studied
+    # pr-cache runs did. A commit that moves nothing on the `deps` axis has nothing this job can
+    # usefully build, so it skips rather than spending a runner on a restore that finds its own
+    # write already there.
+    if: github.event_name == 'pull_request' && !cancelled() && needs.ci.outputs.deps == 'true'
     runs-on: rust-mcp-16core
     environment: cachix-push-pr
     steps:
@@ -1449,20 +1467,17 @@ jobs:
           # Same self-restraint the main publish uses: push what THIS run realised, not the whole store.
           pushFilter: "(-source$|nixpkgs)"
 
-      # Realise and publish the PR's own realised paths. cachix-action's post-build hook publishes
-      # ONLY paths nix BUILDS while its daemon is alive - a job that merely restored scope `ci` and
-      # re-derived it would fire the hook nothing. Scope `ci` is keyed on the lockfiles, which are
-      # unchanged across a PR's commits, but the checks' own outputs are derived from the PR's
-      # source, so this realise RE-COMPILES the workspace crates into fresh store paths for this PR,
-      # the hook fires, and they land in `sutura-prs` for the next commit on this branch to
-      # substitute - the same three-check closure the shared `push` job publishes to `sutura`.
-      - name: Realise and publish this PR's shared closure
+      # #980: PUBLISH THE DEPENDENCY CLOSURE ONLY, NOT THE THREE CHECKS. Measured: 76/76 PR `ci`
+      # logs substituted zero paths from `sutura-prs`, and what this step used to build -
+      # `nextest`/`clippy`/`hygiene` - is keyed on THIS PR's own source, so no later commit on the
+      # same branch can reuse it; only `.#deps` (`ciArtifacts`) is keyed on the lockfiles and
+      # manifests and survives to the next commit. The job's own `if:` above already skipped this
+      # when `deps` did not move, so reaching here means it did - the realise below is genuinely a
+      # cache miss to fill, not a hit to rebuild for no reason.
+      - name: Realise and publish this PR's dependency closure
         run: |
           set -eu
-          nix build --print-build-logs \
-            .#checks.x86_64-linux.nextest \
-            .#checks.x86_64-linux.clippy \
-            .#checks.x86_64-linux.hygiene
+          nix build --print-build-logs .#deps
 
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
@@ -1571,6 +1586,83 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input payload.json > /dev/null
             echo "posted a new comment on pull request $PR_NUMBER"
           fi
+  # #983: THE IDENTITY LEG'S OWN CLASSIFICATION, DECOUPLED FROM `ci`'s FINISH. `needs: [ci]` used
+  # to gate `keycloak-served-test` on the FULL `ci` job's own outputs, which meant the JVM boot
+  # below could not even START until `ci` - the long pole, median ~590s - had entirely finished,
+  # although the leg reads no secret and needs nothing from `ci` but one category flag. Measured
+  # over 112 merge-queue runs: starting the leg alongside `ci` instead of after it moves the
+  # queue's full-signal path from a median of 11.4 to 8.6 minutes (p90 17.9 -> 12.9).
+  #
+  # This job pays the SAME `nix run .#xtask -- classify` cost `ci`'s own "Classify the change"
+  # step does (median 24s, p90 238s over the same window) but in parallel with `ci` rather than
+  # behind it, so it is not a free lunch - it is a second, independent classification, cheap
+  # enough that duplicating it beats waiting for the first one to finish.
+  #
+  # DELIBERATELY NOT A COPY OF `ci`'s OWN base resolution: `ci`'s durable-marker eviction handling
+  # (see its "Resolve the base to compare against" step) exists for `ci`'s OWN concurrency group
+  # and causality gate, neither of which this job has. A push or merge-group event here just diffs
+  # against `origin/main`, which can only be WIDER than `ci`'s own base, never narrower - classify
+  # already fails open to "run everything" on a wide or unmapped diff, so the one-sided risk this
+  # simplification carries is an occasional unneeded JVM boot, not a missed one.
+  #
+  # THE TWO CLASSIFICATIONS CAN DISAGREE, AND THAT IS SAFE BY CONSTRUCTION: `ci-aggregate` reads
+  # `needs.ci.outputs.identity` (unchanged) to decide whether it must see this leg SUCCEED, so this
+  # job's own verdict only ever widens what runs below, never narrows what the aggregate demands.
+  identity-classify:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      identity: ${{ steps.classify.outputs.identity }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Base for this leg's own classification
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            base="$(git merge-base "$PR_BASE" HEAD || true)"
+          else
+            base="$(git merge-base origin/main HEAD || true)"
+          fi
+          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Classify the change
+        id: classify
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -eu
+          if [ -n "$BASE" ]; then
+            nix run .#xtask -- classify --since "$BASE"
+          else
+            nix run .#xtask -- classify
+          fi
+
   # The one cell that needs a REAL identity provider rather than the mock -
   # `crates/sutura-cli/tests/served/keycloak_test.rs`'s `#[ignore]`d
   # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
@@ -1587,10 +1679,10 @@ jobs:
   # the inbound transport) - accepted rather than deferred, because an `#[ignore]`d cell with no
   # venue proves nothing.
   keycloak-served-test:
-    needs: [ci]
-    # No fork/push distinction, unlike bigquery-acceptance: no secret is read below, so there is
-    # nothing this condition needs to withhold from a fork's pull request.
-    if: needs.ci.outputs.identity == 'true'
+    needs: [identity-classify]
+    # `needs: [identity-classify]`, NOT `[ci]` (#983) - see that job's own header for why the two
+    # classifications are independent and why disagreeing between them is safe.
+    if: needs.identity-classify.outputs.identity == 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:

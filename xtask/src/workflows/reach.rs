@@ -320,6 +320,16 @@ impl Closure {
 /// missing manifest a failed `nix build` rather than a green run over nothing.
 const PROBE_MANIFEST: &str = "feature-probes-";
 
+/// The one literal non-`checks.` `nix build` NAME ordinary CI may build directly (#980, #981).
+///
+/// `packages.deps` is `ciArtifacts` (`flake.nix`) - built under `ciArgs`, the CI profile, exactly
+/// like every `checks.*` entry already inherits it. It installs no `bin/` and is not a release
+/// package by the property this heuristic otherwise uses that word for: nothing here ships it.
+/// Naming it lets a cache-only job realise and publish the shared dependency closure without also
+/// compiling a first-party check nobody downstream can reuse - see `pr-cache` in `ci.yml` and
+/// `push` in `cachix-push.yml` (the latter outside this closure, but the SAME name).
+const DEPS_PACKAGE: &str = "deps";
+
 /// What the walk opened, by label, for a verdict to print.
 ///
 /// A verdict that names no set cannot be told from one over a smaller set, which is this gate's own
@@ -369,7 +379,7 @@ fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
             .chars()
             .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
             .collect();
-        if output.is_empty() || output.starts_with(PROBE_MANIFEST) {
+        if output.is_empty() || output.starts_with(PROBE_MANIFEST) || output == DEPS_PACKAGE {
             continue;
         }
         // Anything not a `checks.` output is a release PACKAGE; a `checks.` one is ordinary
@@ -793,6 +803,20 @@ mod tests {
             "          nix build .#feature-probesque -L\n",
         ));
         assert_eq!(found, vec![(3, String::from("feature-probesque"))]);
+    }
+
+    #[test]
+    fn deps_is_the_one_bare_package_ordinary_ci_may_build_and_only_by_its_exact_name() {
+        // #980/#981: `pr-cache` and the main-push writer now build `.#deps` directly to realise
+        // and publish the shared dependency closure, without pulling a first-party check along
+        // with it. It is the CI-profile `ciArtifacts` (`flake.nix`), not a release package, so it
+        // must not trip this refusal - but only under its own exact name; anything merely
+        // beginning with it still does, the same shape `feature-probesque` holds one test up.
+        let found = super::literal_release_builds(concat!(
+            "          nix build --print-build-logs .#deps\n",
+            "          nix build .#deps-extra -L\n",
+        ));
+        assert_eq!(found, vec![(2, String::from("deps-extra"))]);
     }
 
     #[test]

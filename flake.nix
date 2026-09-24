@@ -484,6 +484,13 @@
           # local shell cannot resolve a different engine than the sandbox attests with.
           jscpd = jscpd;
 
+          # `ciArtifacts` on its own, so a job can realise and publish exactly the shared
+          # dependency closure without also compiling a first-party binary (#980, #981): every
+          # other package below INHERITS this same artifact rather than rebuilding it, so building
+          # any of them would realise it as a side effect too, but a caller that wants ONLY this
+          # closure - `pr-cache`'s PR-scoped publish, the main-push writer - names it directly.
+          deps = ciArtifacts;
+
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
           #
