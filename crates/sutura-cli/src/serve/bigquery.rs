@@ -87,8 +87,9 @@ fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
     _request_timeout: sutura_config::RequestTimeout,
-    _outbound: Option<&sutura_tls::Declared>,
+    outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::BigQuerySource, String> {
+    crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
     let sutura_config::SourcePlacement::BigQuery {
         ref billing_project,
         ref dataset,
