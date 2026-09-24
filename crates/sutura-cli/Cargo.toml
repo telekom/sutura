@@ -211,6 +211,9 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# The hosted served acceptance loads its own BigQuery tables through the adapter's fixture-only
+# importer. This feature is absent from the shipped binary.
+sutura-exec-bigquery = { workspace = true, features = ["fixtures"] }
 # The domain's own `fixtures` feature, for `plan::RefusingCombiner` - the fake over
 # `docs/adr/0007`'s second driven port. The served root builds the REAL combiner; this crate's own
 # suite composes services that answer single-source questions, where a combiner that answered would

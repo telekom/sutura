@@ -955,6 +955,41 @@
           '');
         };
 
+        # A hosted app: the test loads its own BigQuery tables through ADBC, then reads the
+        # certified metric from the provisioned DataHub tier through the served binary. The
+        # Keycloak tier verifies the caller; the BigQuery source uses one shared CI identity.
+        apps.e2e-datahub-adbc = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-e2e-datahub-adbc" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${keycloakTier.tier}/bin:${pkgs.git}/bin:$PATH"
+            export SUTURA_BIGQUERY_ADBC_DRIVER="${adbcDrivers."adbc-driver-bigquery-x86_64-unknown-linux-gnu"}/lib/libadbc_driver_bigquery.so"
+            for name in GOOGLE_APPLICATION_CREDENTIALS SUTURA_BQ_DATASET; do
+              if [ -z "$(printenv "$name" || true)" ]; then
+                echo "e2e-datahub-adbc: $name is unset or empty" >&2
+                exit 1
+              fi
+            done
+            test -f "$GOOGLE_APPLICATION_CREDENTIALS"
+            test -f "$SUTURA_BIGQUERY_ADBC_DRIVER"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            cargo run -q -p xtask -- dev-up --with datahub
+            token_file="$(git rev-parse --show-toplevel)/.sutura-dev/datahub-pat"
+            cargo run -q -p sutura-dev --features mock-issuer -- mint-pat "$token_file"
+            export SUTURA_DATAHUB_TOKEN_FILE="$token_file"
+            rc=0
+            sutura-keycloak-tier status >/dev/null 2>&1 || rc=$?
+            if [ "$rc" = 1 ]; then trap 'sutura-keycloak-tier stop' EXIT; fi
+            sutura-keycloak-tier start
+            (
+              exec cargo nextest run --cargo-profile ci -p sutura-cli --all-features \
+                --run-ignored only -E 'test(served_datahub_metric_executes_through_adbc_bigquery)' "$@"
+            )
+          '');
+        };
+
         # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
