@@ -2279,11 +2279,13 @@ configuration or a subject arrives per request.</p>
 <p><strong>Distinct from a per-source <code>transport_anchors</code></strong> (<code>crate::sources::transport::TrustAnchors</code>),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>), and the outbound clients this
-settles - the <code>BigQuery</code> wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry <code>transport_anchors</code> on a <code>bigquery</code> kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+<p><strong>What reads it today is the <code>DataHub</code> reader, and NOT the <code>BigQuery</code> transport.</strong> The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So <code>sutura-cli</code> refuses a declared bundle
+or client identity beside a <code>bigquery</code> source at startup rather than serving that source under a
+declaration it would not honour.</p>
 <p><strong>Anchors are required whenever the block is written; a client identity beside them is
 optional</strong> - <code>github.com/telekom/sutura#911</code>. Every fixed-host client this covers speaks a
 bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer
@@ -4404,11 +4406,13 @@ configuration or a subject arrives per request.</p>
 <p><strong>Distinct from a per-source <code>transport_anchors</code></strong> (<code>crate::sources::transport::TrustAnchors</code>),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>), and the outbound clients this
-settles - the <code>BigQuery</code> wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry <code>transport_anchors</code> on a <code>bigquery</code> kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+<p><strong>What reads it today is the <code>DataHub</code> reader, and NOT the <code>BigQuery</code> transport.</strong> The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So <code>sutura-cli</code> refuses a declared bundle
+or client identity beside a <code>bigquery</code> source at startup rather than serving that source under a
+declaration it would not honour.</p>
 <p><strong>Anchors are required whenever the block is written; a client identity beside them is
 optional</strong> - <code>github.com/telekom/sutura#911</code>. Every fixed-host client this covers speaks a
 bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer
@@ -4545,11 +4549,13 @@ keeps resolving.</p>
 <p><strong>Distinct from a per-source <code>transport_anchors</code></strong> (<code>crate::sources::transport::TrustAnchors</code>),
 and deliberately a second, smaller type rather than the same one reused: a per-source declaration
 is refused when the source's own kind has no dial target the anchor could attach to
-(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>), and the outbound clients this
-settles - the <code>BigQuery</code> wire, the STS token exchange - dial a HOST THAT IS A COMPILE-TIME CONSTANT.
-There is no source entry a per-entry <code>transport_anchors</code> on a <code>bigquery</code> kind could mean anything
-on, which is exactly why #125 keeps that refusal rather than lifting it: a deployment-wide
-declaration is the shape that has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+(<code>crate::sources::refuse_foreign_keys</code> on <code>files</code>/<code>bigquery</code>). A deployment-wide declaration is
+the shape a fixed-host client has something to attach to. See <code>docs/adr/0010</code>'s amendment.</p>
+<p><strong>What reads it today is the <code>DataHub</code> reader, and NOT the <code>BigQuery</code> transport.</strong> The HTTP wire
+and its token exchange that did read it are deleted; the ADBC driver that replaced them dials with
+its own trust store and presents no client certificate. So <code>sutura-cli</code> refuses a declared bundle
+or client identity beside a <code>bigquery</code> source at startup rather than serving that source under a
+declaration it would not honour.</p>
 <p><strong>Anchors are required whenever the block is written; a client identity beside them is
 optional</strong> - <code>github.com/telekom/sutura#911</code>. Every fixed-host client this covers speaks a
 bearer token, so a certificate buys nothing against the ENDPOINT; what it is for is a peer

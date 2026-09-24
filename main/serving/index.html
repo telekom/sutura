@@ -3262,11 +3262,6 @@ depends on why:</p>
 <td>Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system</td>
 </tr>
 <tr>
-<td><code>legs_decide_identity_differently</code></td>
-<td><code>409</code></td>
-<td>Ask the same metric without the dimension on the second data system. The two data systems decide who is asking in two different ways, and a total made of rows read under two identities is a number neither is entitled to. A published build reaches it: <code>bigquery</code> both carries a per-subject credential and declares <code>EXECUTES_LEGS</code>, so a federated question pairing an <code>impersonation-at-source</code> BigQuery leg with a <code>shared-service-user</code> leg is refused here, before any credential is minted</td>
-</tr>
-<tr>
 <td><code>deadline_exceeded</code></td>
 <td><code>422</code></td>
 <td>Narrow the period, group by fewer dimensions or add a filter. This deployment stopped the question after its configured budget (<code>server.request_timeout_seconds</code> minus a one-second margin); the sentence names it. <code>docs/adr/0029</code> records the shape - the in-process engine stops at cooperative yield points, the default-off Postgres source uses <code>SET LOCAL statement_timeout</code>, and BigQuery sends what is left of it as the job's <code>jobTimeoutMs</code>, a best-effort stop at the service - a job stopped that way reads as a service error, not this refusal</td>

@@ -3065,8 +3065,9 @@ of either has been observed.</strong> <code>.github/workflows/bigquery-declared-
 are <code>each_subject_executes_as_its_own_principal_at_the_declared_pool</code> and its control
 <code>the_deployments_own_identity_is_neither_subjects_principal</code>, both <code>#[ignore]</code>d and both panicking
 with the name of any environment value they lack rather than skipping. Until a run is observed and
-reported here this venue may not be cited, and the ADBC adoption's own merge precondition is that
-somebody dispatches it.</p>
+reported here this venue may not be cited. A run of it is outstanding evidence, <strong>not</strong> a merge
+precondition: the owner accepted the ADBC adoption (<code>telekom/sutura#929</code>) with it unrun, on
+2026-09-24.</p>
 <p><strong>What only this venue can answer.</strong> Whether two distinct verified subjects resolve to two distinct
 <code>BigQuery</code> principals at the data system - <strong>and whether Google accepts the assertion at all</strong>,
 which is the half nothing reachable from this repository can show. Each subject's own assertion is
@@ -3090,9 +3091,9 @@ identity happened to be one of the two principals.</p>
 <li><strong>Which ROWS each principal sees.</strong> Both cells read one identity and no data. Two accounts with
    two different dataset grants reading two different row sets is the claim an end-to-end venue
    would add, and nothing here approaches it.</li>
-<li><strong>That the driver ships.</strong> It builds one for the runner's own triple. No release artefact carries
-   a driver and a static musl binary cannot load one at all -
-   <code>just bigquery-driver-check</code> is what holds both halves of that, and it is a different venue
+<li><strong>That the driver ships.</strong> Every release artefact carries it as a linked <code>c-archive</code>, the static
+   musl ones included - <code>just bigquery-driver-check</code> holds that (on the <code>ci</code> profile per pull
+   request, and against the published build in <code>release.yml</code>), and it is a different venue
    answering a different question.</li>
 </ol>
 <h2 id="a-real-enterprise-identity-provider">A real enterprise identity provider<a class="headerlink" href="#a-real-enterprise-identity-provider" title="Permanent link">&para;</a></h2>

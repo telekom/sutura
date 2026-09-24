@@ -2117,9 +2117,9 @@ the same class of defect one level down.</p>
 <h2 id="module-adbc">Module <code>adbc</code><a class="headerlink" href="#module-adbc" title="Permanent link">&para;</a></h2>
 <p>The ADBC transport: opens the self-built <code>BigQuery</code> driver
 (<code>nix/bigquery-adbc.nix</code>) through <code>adbc_core</code> + <code>adbc_driver_manager</code> and
-decodes its Arrow result sets.</p>
+hands its Arrow result sets on unconverted.</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>adbc_core + adbc_driver_manager → C ABI → the `BigQuery` ADBC driver
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  → `BigQuery` → Arrow RecordBatchReader → decode::Decoding → RowSet
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  → `BigQuery` → Arrow RecordBatchReader → ResultBatches
 </span></code></pre></div>
 <p><strong>Two routes to that driver and one type deciding between them</strong> - <code>DriverLocation</code>, resolved
 once at composition. A release artefact carries the driver in its own link (the <code>c-archive</code>
