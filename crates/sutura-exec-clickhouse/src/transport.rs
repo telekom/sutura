@@ -392,6 +392,9 @@ const JSON_QUOTE_DECIMALS: &str = "output_format_json_quote_decimals";
 /// its scale promises `12.4500` - the exact text this adapter keeps in a text cell.
 const DECIMAL_TRAILING_ZEROS: &str = "output_format_decimal_trailing_zeros";
 
+/// The generated sum tuple has one `Dynamic` field with one concrete numeric type per query.
+const ALLOW_DYNAMIC_ORDER_BY: &str = "allow_suspicious_types_in_order_by";
+
 /// The setting that decides what the server does when `max_execution_time` runs out: `throw`
 /// answers `Code: 159`; `break` answers HTTP 200 with the rows read so far - measured, a cleanly
 /// terminated and silently truncated result. The server default is `throw`, but it is an ordinary
@@ -426,6 +429,7 @@ fn request_settings(deadline: Deadline, now: Instant) -> Vec<(&'static str, Stri
         (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
         (JSON_QUOTE_DECIMALS, String::from("1")),
         (DECIMAL_TRAILING_ZEROS, String::from("1")),
+        (ALLOW_DYNAMIC_ORDER_BY, String::from("1")),
         (TIMEOUT_OVERFLOW_MODE, String::from("throw")),
     ];
     if let Some(seconds) = crate::deadline::max_execution_time_seconds(deadline, now) {
@@ -559,6 +563,7 @@ mod tests {
                 (JSON_QUOTE_64BIT_INTEGERS, String::from("1")),
                 (JSON_QUOTE_DECIMALS, String::from("1")),
                 (DECIMAL_TRAILING_ZEROS, String::from("1")),
+                (ALLOW_DYNAMIC_ORDER_BY, String::from("1")),
                 ("timeout_overflow_mode", String::from("throw"))
             ]
         );

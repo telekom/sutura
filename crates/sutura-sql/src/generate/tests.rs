@@ -1,4 +1,5 @@
 use sutura_domain::catalog::{Definitions, Description, Model, Relationship};
+use sutura_domain::model::Aggregate;
 use sutura_domain::model::{ColumnName, Grain, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{PlanBucket, PlanColumn, ResultLabel};
 
@@ -22,6 +23,31 @@ fn bucket(grain: Grain) -> PlanBucket {
 fn rendered_bucket(dialect: Dialect) -> String {
     render(&bucket_expression(&bucket(Grain::Month), dialect).into_inner(), dialect)
         .expect("a bucket renders for every dialect this crate declares")
+}
+
+#[test]
+fn clickhouse_sum_widens_integer_results_without_casting_float_or_decimal_sums() {
+    let col = PlanColumn::new(
+        TableName::parse("orders").expect("a test table is a table"),
+        ColumnName::parse("amount").expect("a test column is a column"),
+    );
+    let term = sutura_domain::plan::PlanTerm::Aggregate {
+        aggregate: Aggregate::Sum,
+        column: col,
+    };
+    let clickhouse = render(
+        &super::term_expression(&term, Dialect::ClickHouse).into_inner(),
+        Dialect::ClickHouse,
+    )
+    .expect("the sum renders for ClickHouse");
+    assert!(clickhouse.contains("toInt128"), "{clickhouse}");
+    assert!(clickhouse.contains("toTypeName"), "{clickhouse}");
+    assert!(clickhouse.contains("Dynamic"), "{clickhouse}");
+    for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::BigQuery, Dialect::Oracle] {
+        let rendered =
+            render(&super::term_expression(&term, dialect).into_inner(), dialect).expect("the sum renders for this dialect");
+        assert!(!rendered.contains("toInt128"), "{dialect}: {rendered}");
+    }
 }
 
 #[test]
