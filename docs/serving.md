@@ -381,16 +381,11 @@ token minted for other resources too is fine.
 
 **What it does not grant, and this is the sentence to keep.** A scope decides which *operations* a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
-same pinned bundle and every question executes with whatever access the service process already had -
-still true for `files` and `postgres`, whose adapters declare `NoPlaceForASubject`, so a source of
-either kind executes as the service's own identity whatever the caller's scope says. **The
-qualifier that used to make this a blanket claim is spent, and it went the other way from "not
-built":** `sutura-exec-bigquery` DOES carry a per-subject credential and IS in the release -
-`nix/shipped.nix`'s `features` list is what the shipped artefact links, not merely what a per-triple
-probe compiles, and `bigquery` is on it (`docs/adr/0017`'s Fifteenth amendment: one binary, every
-adapter compiled in). What is still true is that `bigquery`'s exchange resolves per source
-(`docs/where-identity-is-proven.md`) and no served binary has executed a leg as the calling subject
-yet. A caller granted `sutura:metrics.ask` gets exactly the numbers any other caller would.
+same pinned bundle. `files` and `postgres` execute under their declared shared identity regardless
+of the caller's scope. The shipped BigQuery adapter can carry a verified caller's assertion through
+its declared per-subject account map, but no served run has proven source acceptance of that path.
+The scope grants permission to ask; the source's declared posture determines whose access governs
+the rows.
 
 The agent surface offers the same two capabilities under the names `describe_catalog` and `ask_metric`,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
@@ -1225,8 +1220,8 @@ The serving-side renewal above is the SAME poll the outbound side uses (`github.
 item 3, `docs/adr/0010`'s rule 3): the declared anchor bundle (or host store) and an optional client
 identity are re-read on the same interval, the bytes compared, and a replacement validated before it
 is adopted - the old material kept, with exactly one loud line naming the source class, when a new
-one does not load. A per-request `ureq` agent (the BigQuery wire, the STS exchange, `iamcredentials`
-and the DataHub reader) adopts the new bundle on the NEXT request - there is no drain question, because
+one does not load. The DataHub reader's per-request `ureq` agent adopts the new bundle on the NEXT
+request - there is no drain question, because
 each request makes a fresh resolution. A Postgres source's connection keeps the client pair it was
 established under until it closes - **left until closed, not drained**, because there is no connection
 pool today and nothing to retire a live connection to. The interval is the same constant as the

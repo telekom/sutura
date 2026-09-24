@@ -25,17 +25,18 @@ sutura:
 
 ## Status
 
-A governed single-player semantic compiler and executor is built and served over HTTP, behind a
-token that authenticates the deployment rather than the caller. Per-subject execution - the leg that
-makes multiplayer real rather than a shared identity - is a design target, not built yet.
+A governed semantic compiler and executor is served over HTTP and MCP. A deployment can verify a
+caller's own token or use a shared deployment token. The shipped BigQuery adapter can federate a
+verified caller's assertion through a declared per-subject account map, but no observed served run
+has shown the source accepting that identity. Other data sources use a declared shared identity.
 
 sutura is designed around 2 flavours:
 
-- single player (shared service user) - what ships today, and the only mode any connection runs
-- multiplayer (full E2E impersonation) - the design target above; no published adapter can
-  carry a per-subject credential, so nothing selects it
+- single player (shared source identity) - supported by the file and other shared-identity adapters
+- multiplayer (per-subject source identity) - built for BigQuery, with live source acceptance still
+  unproven; see [where identity is proven](docs/where-identity-is-proven.md)
 
-Once multiplayer ships, the intended shape is a per-connection switch between the two.
+Each source declares its own identity posture; a federated answer names the posture of every leg.
 
 ## Vision
 

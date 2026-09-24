@@ -51,7 +51,12 @@ thiserror = { workspace = true }
 # columns with. Default-off, like `sutura-exec-postgres`'s feature of the same name.
 fixtures = ["sutura-domain/fixtures"]
 
+[[test]]
+name = "conformance"
+required-features = ["fixtures"]
+
 [dev-dependencies]
+sutura-dev = { workspace = true }
 # `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and
 # credential fixture, so `src/tests.rs` drives the port against a real corpus question rather than
 # a hand-built plan nobody reviewed.

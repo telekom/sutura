@@ -117,10 +117,10 @@ Stated here rather than left to a reader, because an overstated control is itsel
 - **A single-user demo proves no caller identity.** The deployment is `single-user` and reads the
   example as one shared service user, acknowledged by you. It neither knows nor shows who is asking,
   and it cannot be captioned as if it did.
-- **It proves no source impersonation.** No adapter this build links can execute as a per-subject
-  credential, so every question reads the example under the same operating-system identity. Leg 1 -
-  the runtime knowing who is asking - is demonstrated elsewhere; leg 2 - a source executing AS them -
-  is not built on anything published.
+- **It proves no source impersonation.** This demo uses a shared identity, so every question reads
+  the example under the same operating-system identity. Leg 1 - the runtime knowing who is asking -
+  is demonstrated elsewhere. The shipped BigQuery adapter has a per-subject path, but no served run
+  has proven its source acceptance.
 - **Development mode defaults rate limiting off.** It keeps the interface description available for
   the chat client's OpenAPI connection. Together with the unauthenticated single-user chat client,
   that makes loopback binding a boundary of this demo, not a pattern for a shared deployment.

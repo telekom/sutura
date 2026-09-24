@@ -587,12 +587,19 @@ pub(crate) fn start(case: &str) -> Served {
 // lives: this function hands the child to a `Served`, and every path out of a `Served` - a clean
 // `terminate` or a panicking assertion - reaps it. Reaping here would mean waiting for the service
 // to exit before asking it anything.
-#[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
 pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
+    start_configured_with_driver(case, settings, None)
+}
+
+/// Restore only the explicitly supplied ADBC driver path after the harness scrubs ambient settings.
+#[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
+pub(crate) fn start_configured_with_driver(case: &str, settings: &str, driver: Option<&str>) -> Served {
     let config_dir = written(case, settings);
-    let mut child = command(&config_dir, Environment::Development)
-        .spawn()
-        .expect("the composed binary starts");
+    let mut command = command(&config_dir, Environment::Development);
+    if let Some(driver) = driver {
+        command.env("SUTURA_BIGQUERY_ADBC_DRIVER", driver);
+    }
+    let mut child = command.spawn().expect("the composed binary starts");
     let stdout = child.stdout.take().expect("standard output was piped");
     let stderr = child.stderr.take().expect("standard error was piped");
     let (sender, lines) = channel();
