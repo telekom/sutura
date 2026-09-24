@@ -320,6 +320,9 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
     Ok(problems)
 }
 
+/// A completed walk: what it found, and the census's own witness sentence for it.
+type Walked = (Scan, String);
+
 /// Every rebuild instruction the census's walk can reach, and how many literals it read.
 ///
 /// `github.com/telekom/sutura#414`: this used to be `into_listing`'s plain `Vec<String>`, held
@@ -333,9 +336,6 @@ fn unresolved(root: &std::path::Path, found: &[Subject]) -> Result<Vec<String>, 
 /// inside one file is still this function's own responsibility, and Rust has no effect system to
 /// hold what a closure does. `classified != total` below is what a review-introduced `break` in
 /// the per-literal loop still has to trip, exactly as it did before this migration.
-/// A completed walk: what it found, and the census's own witness sentence for it.
-type Walked = (Scan, String);
-
 fn walk(census: repo::Census, read: &PostImage<'_>) -> Result<Walked, String> {
     let mut scan = Scan {
         found: Vec::new(),
