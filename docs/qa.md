@@ -112,10 +112,12 @@ manipulated agent is the set of questions its caller could already ask.
 The clause "asked as the same caller, against the same authorization" is **half built.** The
 credential broker exists and `Warehouse::execute` has no signature that runs without what it
 minted, so there is no code path a question reaches a data system through as an unnamed identity.
-What is still absent is an adapter that can carry a per-subject credential, so nothing today makes
-a statement about **whose rows** come back: the bound on a manipulated agent is the tool surface
-plus, where a deployment declares `security.inbound`, the scopes that caller was granted - which
-decide which operations it may invoke and not which rows an answer contains.
+The BigQuery adapter can carry the verified caller's assertion to a declared account for that
+subject, but no hosted run has shown the source accepting either identity hop. Other adapters still
+execute under their source's shared identity. The bound demonstrated today is the tool surface
+plus, where a deployment declares `security.inbound`, the scopes that caller was granted. Those
+scopes decide which operations the caller may invoke, not which rows an answer contains; per-subject
+rows through BigQuery remain unproven ([identity venues](where-identity-is-proven.md)).
 
 ## Why do the musl builds swap the allocator?
 

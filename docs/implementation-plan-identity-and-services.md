@@ -141,9 +141,11 @@ be the guess this step was delayed to avoid; `Minted::Refused` carries a source 
 which belongs with the first adapter able to make the two disagree.
 
 **What this unblocks, and what it does not.** Every row that needed a credential *type* to key on is
-unblocked. What is absent for all of them is **an adapter that can carry a per-subject credential**:
-both shipped ones declare `NoPlaceForASubject`, so the two subject shapes are constructed only by
-tests and the two-subject test at the foot of 0008 remains unwritable.
+unblocked. The published BigQuery adapter now declares `PerSubjectCredential` and carries
+`Presented::SubjectToken` through the declared per-subject account map; the other adapters still
+declare `NoPlaceForASubject`. The two-subject BigQuery cell is written and wired in CI, but no run
+has been observed, so source execution as each subject remains unproven
+([identity venues](where-identity-is-proven.md)).
 
 ## The plan-stage refusal, re-keyed to identity
 
