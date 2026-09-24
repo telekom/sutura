@@ -71,7 +71,7 @@ proof of impersonation.
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
   Same reason: **compare the posture VARIANT and never the value** - the acknowledgement resolves per
   source, so two ordinary shared legs are two unequal values and one posture, and a `!=` would refuse
-  the only federating shape that ships.
+  a valid shared-posture federation.
 - **`docs/adr/0008` part 6's expiry FLOOR is not implemented, and nothing replaces it.** *Is there
   enough life left for what this query may take* lived in `WorkloadIdentityBroker::with_floor`, which
   was deleted with that broker (`docs/adr/0018`, eighth amendment) - and it had **already been

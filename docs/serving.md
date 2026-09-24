@@ -1225,8 +1225,8 @@ The serving-side renewal above is the SAME poll the outbound side uses (`github.
 item 3, `docs/adr/0010`'s rule 3): the declared anchor bundle (or host store) and an optional client
 identity are re-read on the same interval, the bytes compared, and a replacement validated before it
 is adopted - the old material kept, with exactly one loud line naming the source class, when a new
-one does not load. A per-request `ureq` agent (the BigQuery wire, the STS exchange, `iamcredentials`
-and the DataHub reader) adopts the new bundle on the NEXT request - there is no drain question, because
+one does not load. The DataHub reader's per-request `ureq` agent adopts the new bundle on the NEXT
+request - there is no drain question, because
 each request makes a fresh resolution. A Postgres source's connection keeps the client pair it was
 established under until it closes - **left until closed, not drained**, because there is no connection
 pool today and nothing to retire a live connection to. The interval is the same constant as the

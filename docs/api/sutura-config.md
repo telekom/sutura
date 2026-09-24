@@ -42,15 +42,13 @@ the shell are therefore unknown-field errors rather than settings that quietly d
 Every layer is checked with `deny_unknown_fields`, at every depth. A misspelled key is an error
 naming the key, not an override that silently did not happen.
 
-# There is no per-caller ACCESS, and this crate says so out loud
+# Per-caller source access is built and unproven
 
 sutura has a request context and a credential broker now, and a deployment that declares
-`security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
-the part that matters: **no PUBLISHED adapter can carry a per-subject credential.** Every
-question executes with a credential a broker minted, and what that credential says is *the identity
-this process holds for that source*. `AGENTS.md` records which half is mechanised, and
-`examples/README.md` explains why single-player makes "every query runs as the calling
-principal" trivially true and worth nothing.
+`security.inbound` establishes who is asking. A published build links `BigQuery`, whose declared
+per-subject map can carry that caller's assertion to the source; no served run has proven the
+exchange. Other sources use the identity declared for that source. `AGENTS.md` records which
+half is mechanised.
 
 That is a property of the runtime, so it is a property of every deployment this crate
 configures. An `AccessToken` authenticates *the deployment*: a caller

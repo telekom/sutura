@@ -18,16 +18,14 @@ sutura fixes the first by construction today: definitions arrive certified and p
 surface has no field an invented query could arrive in, and every value a question carries binds
 as a parameter rather than reaching the statement as text.
 
-The second is **half built, and the missing half is the one that matters.** "Every query runs as
-the caller" needs a credential minted per request. That now exists: a request context reaches the
+The second is **built and unproven**. "Every query runs as the caller" needs a credential minted
+per request. A request context reaches the
 query path, a credential broker mints once per answer for every source a plan reads, and the
 execution port has no signature that runs without the result - so a subject with no credential at
-a source is refused rather than answered as this process. What is absent is a data system that
-evaluates the asking subject: no published adapter can carry a per-subject credential - `bigquery` is a default-off feature and the adapter behind it does. Against
-a local file the property is trivially true and worth nothing, because a file has no login.
-Against a warehouse it is still a target - what changed is that no *question* has a code path for
-a warehouse to be read as this process through. The boot path does, by design: it re-executes
-every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
+a source is refused rather than answered as this process. The published BigQuery adapter is wired
+to carry the verified caller's assertion through a declared per-subject map, but no served run has
+proven source execution as that caller. Shared sources still use their declared identity. The boot
+path re-executes every anchor before a listener is bound, there is no caller then, and `Warehouse::verify_anchor`
 takes no credential.
 
 **What bounds that path is placement made checkable, not its input type - a correction a second
@@ -130,22 +128,19 @@ single-core run; linking mimalloc brings it to 3.83s.
 
 For single-player work over local files, yes. `sutura compile` renders the statement for a
 question and `sutura query` answers it, over a catalogue of documents in git and the CSV or
-Parquet files in a directory you name. That is the honest description: **a governed single-player
-semantic compiler and executor over local files**, served either from the command line or
+Parquet files in a directory you name. That is one supported path, served from the command line or
 [over HTTP](serving.md).
 
 Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
 specific than it used to be. There **is** a request context, a credential broker port with a
 static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
 `security.inbound` - a verified caller identity from a signature, with OAuth scopes deciding which
-operations that caller may invoke. What there is **not** is leg 2: no published adapter has
-anywhere for a per-subject credential to arrive, both published adapters declare so, and the broker that ships mints
-what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
-subject it holds no credential for - and still read every row as one identity. There is no Arrow
-result envelope. The one data system the shipped binary opens is the in-process engine over those
-files - `sutura-exec-duckdb` renders and pushes down, and is a development dependency rather than
-something the binary links. So the governance that decides **which rows** is still the narrow tool
-surface and the pinned bundle, not identity.
+operations that caller may invoke. BigQuery's per-subject path is built and shipped, but no served
+run has proven that it executes as the caller. Other sources use an acknowledged shared identity,
+so a deployment can know who is asking and still read rows under its own source identity. There is
+no Arrow result envelope. The published build opens the in-process engine, Postgres and BigQuery;
+other adapters require their own features. The pinned bundle and source grants govern which rows
+can be read.
 [What exists today](architecture.md#what-exists-today) is the inventory.
 
 The environment, the gates and the release pipeline do work, because a mechanism is cheaper to

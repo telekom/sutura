@@ -206,7 +206,7 @@ it rather than after it:
   `compile_fail` doctest on `provenance` with its compiling twin.
 - `two_shared_sources_with_different_acknowledgements_are_still_one_posture`, and its orchestrator
   twin - the strand guard. `SourcePosture` derives `PartialEq` and the acknowledgement resolves per
-  source, so a predicate comparing VALUES would refuse the only federating shape that ships. Compare
+  source, so a predicate comparing VALUES would refuse a valid shared-posture federation. Compare
   the variant.
 - `a_mixed_posture_refusal_carries_the_labels_and_no_acknowledgement_text` - on `Debug` and on the
   serialized body.

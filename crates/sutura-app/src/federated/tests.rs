@@ -670,8 +670,7 @@ fn an_answer_whose_legs_run_under_two_postures_is_answered_and_records_both() {
 fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
     // **The strand guard, at the orchestrator.** `SourcePosture` derives `PartialEq` and the
     // acknowledgement is resolved per source, so a predicate comparing VALUES would refuse this
-    // - and this is the only federating shape that ships today, since every adapter a release
-    // links declares it has nowhere for a subject to arrive. The domain's own cell asserts the
+    // even though the two witnesses differ. The domain's own cell asserts the
     // same property one layer down; this one asserts that the answer path still answers.
     let acknowledged = |text: &str| sutura_domain::source::SourcePosture::SharedServiceUser {
         declared: sutura_domain::source::SharedIdentityDeclared::of(

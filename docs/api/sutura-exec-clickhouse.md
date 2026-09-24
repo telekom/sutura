@@ -16,7 +16,7 @@ half, like `sutura_exec_postgres`: no OAuth, no impersonation.
 
 **The port carries no `async fn`, and `ureq` is natively blocking - so this adapter needs no
 `tokio` runtime and no `block_on` at all.** That is not a simplification made for this crate
-alone: `sutura-exec-bigquery`'s own `Cargo.toml` states the reasoning for its `ureq`-based wire
+alone: `sutura-exec-bigquery`'s own `Cargo.toml` states the reasoning for its ADBC driver
 at length, and it transfers unchanged - `Warehouse::execute` reaches this adapter through
 `sutura_runtime::spawn_carrying_span`, on a blocking-pool thread, and starting a runtime
 *there* (which an async driver wrapped the way `sutura_exec_postgres` wraps `tokio-postgres`
