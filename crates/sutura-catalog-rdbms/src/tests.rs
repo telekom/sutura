@@ -119,8 +119,12 @@ fn it_declares_it_provides_no_measures_and_the_bundle_has_none() {
     assert_eq!(
         declaration,
         MetadataCapabilities::of(
-            DefinitionCapabilities::of([DefinitionKind::Structure])
-                .and_may_provide([DefinitionKind::Descriptions, DefinitionKind::Relationships]),
+            DefinitionCapabilities::of([DefinitionKind::Structure]).and_may_provide([
+                DefinitionKind::Descriptions,
+                DefinitionKind::Relationships,
+                DefinitionKind::ColumnTypes,
+                DefinitionKind::ColumnDescriptions,
+            ]),
             KnowledgeCapabilities::none(),
         )
     );
@@ -130,6 +134,62 @@ fn it_declares_it_provides_no_measures_and_the_bundle_has_none() {
     );
     // ...and the bundle carries none.
     assert!(!produced.declares(DeclarableKind::Definition(DefinitionKind::Metrics)));
+}
+
+/// A column's dictionary-declared type and comment arrive on the model's own column, and the
+/// dictionary's primary key arrives as evidence.
+#[test]
+fn a_column_s_type_comment_and_primary_key_evidence_arrive() {
+    let pinned = over().load().expect("the recorded dictionary loads");
+    let orders_name = ModelName::parse("orders").expect("a fixture model is a model");
+    let orders = pinned.definitions().models().get(&orders_name).expect("orders is a model");
+    let amount = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
+    let column = orders.column(&amount).expect("amount_cents is declared");
+    assert_eq!(
+        column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("integer")
+    );
+    assert_eq!(column.description(), "The order total, in minor units.");
+    let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a fixture column is a column");
+    assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([order_id]));
+    // `status` carries neither - a column may have no dictionary type recorded and no comment.
+    let status = sutura_domain::model::ColumnName::parse("status").expect("a fixture column is a column");
+    let status = orders.column(&status).expect("status is declared");
+    assert_eq!(status.data_type(), None);
+    assert_eq!(status.description(), "");
+}
+
+/// A dictionary's own primary key can only ever name a column it also lists - a reader that got
+/// the two out of step is refused rather than certifying a key on a column that is not there.
+#[test]
+fn a_primary_key_naming_an_undeclared_column_is_refused() {
+    let out_of_step = SparseReader(Dictionary::new(
+        vec![table("orders", vec!["order_id".to_owned()], None).with_primary_key(vec!["not_a_column".to_owned()])],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), out_of_step).load(),
+        Err(RdbmsError::Inconsistent {
+            cause: InconsistentDefinitions::UnknownPrimaryKeyColumn { .. }
+        })
+    ));
+}
+
+/// A column comment carrying a control character refuses the load the same way a table comment
+/// does - the renderer's alteration this repository refuses to certify applies at either level.
+#[test]
+fn a_column_comment_carrying_a_control_character_refuses_the_load() {
+    let crlf = SparseReader(Dictionary::new(
+        vec![table("orders", vec!["order_id".to_owned()], None).with_column_metadata([(
+            "order_id".to_owned(),
+            crate::ColumnMetadata::new(None, Some("The order's id.\r\nOne per row.".to_owned())),
+        )])],
+        Vec::new(),
+    ));
+    assert!(matches!(
+        RdbmsCatalog::new(name(), version(), crlf).load(),
+        Err(RdbmsError::ColumnDescription { .. })
+    ));
 }
 
 /// A foreign key licenses no dimension without a declared cardinality.

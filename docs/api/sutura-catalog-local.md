@@ -288,6 +288,40 @@ error in place of a typed cause.
 
 `Clone`, `Debug`, `Deserialize<'de>`
 
+### `enum ColumnEntryDoc`
+
+```rust
+pub enum ColumnEntryDoc
+```
+
+One entry of a model's `columns:` list: a bare name, or a name with a type, a description and
+whether it may hold null.
+
+**Untagged, the same shape `AnchorLiteral` uses and for the same reason: every document
+already on disk writes the short form, so it must keep loading byte for byte.** A document
+writes the long form only for a column it has something more to say about; the two may mix
+freely in one list. The same cost `AnchorLiteral`'s own doc states applies here too: a
+misspelled key inside the long form is refused, but `untagged` cannot say which variant a
+mapping was attempting or which key was wrong - the message names neither.
+
+**What this does not check: two entries naming one column.** `Model::new` collects columns
+into a map keyed by name, so a repeated name keeps whichever entry was last in the list rather
+than refusing - the same silent collapse a `BTreeSet<ColumnName>` already gave every identical
+bare-name repeat before this type existed. Two long-form entries that repeat a name with
+DIFFERENT metadata are now representable and not caught: unlike `super::MetricDoc`'s
+dimensions, which the domain refuses a duplicate of, a model's columns are not checked for one
+here or in `sutura_domain::catalog::Definitions::assemble`. Stated as a limit rather than
+silently accepted.
+
+#### Variants
+
+- `Short`
+- `Long`
+
+#### Implements
+
+`Debug`, `Deserialize<'de>`
+
 ### `struct ModelDoc`
 
 ```rust

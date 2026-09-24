@@ -94,6 +94,52 @@ fn it_declares_what_it_cannot_supply_and_the_bundle_agrees() {
     );
 }
 
+const ORDERS_WITH_COLUMN_METADATA: &str = "description: Orders, one row per order.\nprimaryKey: id\nfields:\n  - name: id\n    type: integer\n    description: The order's unique identifier.\n  - name: total\n    type: number\n";
+
+#[test]
+fn a_field_s_type_and_description_arrive_on_the_model_s_column() {
+    let pinned = outcome_of("column-metadata", &[("orders.yaml", ORDERS_WITH_COLUMN_METADATA)])
+        .expect("a descriptor with typed, described fields loads");
+    let orders_name = sutura_domain::model::ModelName::parse("orders").expect("a fixture name is a name");
+    let orders = pinned.definitions().models().get(&orders_name).expect("orders is a model");
+    let id = sutura_domain::model::ColumnName::parse("id").expect("a fixture column is a column");
+    let column = orders.column(&id).expect("id is a declared column");
+    assert_eq!(
+        column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("integer")
+    );
+    assert_eq!(column.description(), "The order's unique identifier.");
+    // `total` carries a type and no description - the two kinds are independent, over one column.
+    let total = sutura_domain::model::ColumnName::parse("total").expect("a fixture column is a column");
+    assert_eq!(orders.column(&total).expect("total is declared").description(), "");
+    // `primaryKey: id` is evidence only: it arrives on the model and licenses nothing else.
+    assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([id]));
+}
+
+#[test]
+fn a_primary_key_naming_an_undeclared_column_fails_the_load() {
+    let err = error_for(
+        "badkey",
+        "description: A descriptor whose primaryKey is not one of its own fields.\nprimaryKey: nope\nfields:\n  - name: id\n",
+    );
+    assert!(
+        matches!(err, OkfCatalogError::Inconsistent { .. }),
+        "a primaryKey naming an unknown column is a cross-reference failure: {err}"
+    );
+}
+
+#[test]
+fn an_unusable_primary_key_shape_is_refused() {
+    let err = error_for(
+        "listkey",
+        "description: A descriptor whose primaryKey is a number.\nprimaryKey: 1\nfields:\n  - name: id\n",
+    );
+    assert!(
+        matches!(err, OkfCatalogError::InvalidPrimaryKey { .. }),
+        "a primaryKey that is neither a string nor a list of strings is refused: {err}"
+    );
+}
+
 #[test]
 fn a_document_field_it_does_not_declare_fails_the_load() {
     let err = error_for(

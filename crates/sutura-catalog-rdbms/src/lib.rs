@@ -47,11 +47,22 @@
 //!    relationship. The variant records what the reader found; this converter does not re-derive
 //!    it from the constraint itself.
 //!
+//! **Update, 2026-09-24 (#966).** The measurement above counted TABLE comments; a real dictionary's
+//! `information_schema.columns` / `pg_catalog` also carries a `data_type` per column and, through
+//! `col_description`, a per-COLUMN comment - dropped at this port until now. [`Table`] carries both
+//! as [`ColumnMetadata`], attached with [`Table::with_column_metadata`], and a table's own primary
+//! or unique key as [`Table::with_primary_key`] - both additive rather than [`Table::new`]
+//! parameters, so every existing reader and every test fixture here keeps compiling. Neither
+//! licenses anything a cardinality or a measure would: a type is descriptive text
+//! ([`sutura_domain::catalog::ColumnType`]) and a primary key is evidence
+//! ([`sutura_domain::catalog::Model::with_primary_key`]).
+//!
 //! # The declaration, and what it means for the bundle
 //!
-//! [`SemanticCatalog::capabilities`] provides `Structure` and may provide `Descriptions` and
-//! `Relationships`. A sparse dictionary - structure with no comments or foreign keys - is therefore
-//! faithful without making structure optional. What is declared is nothing more: no `Cardinality`
+//! [`SemanticCatalog::capabilities`] provides `Structure` and may provide `Descriptions`,
+//! `Relationships`, `ColumnTypes` and `ColumnDescriptions`. A sparse dictionary - structure with no
+//! comments, foreign keys, column types or column comments - is therefore faithful without making
+//! structure optional. What is declared is nothing more: no `Cardinality`
 //! (a foreign key vouches for no metric fan-out), no `Metrics`, no
 //! `Grains`, no `RequiredFilters`, no `AllowedValues`, no `Anchors`, and an empty knowledge half.
 //! A bundle from this source therefore **loads, pins and validates with zero metrics**, and answers
@@ -73,10 +84,10 @@
 
 pub mod fixture;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{Column, ColumnType, Definitions, Description, Model, Relationship as DomainRelationship};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -194,6 +205,22 @@ pub enum RdbmsError {
         #[source]
         cause: sutura_domain::catalog::InvalidDescription,
     },
+    /// A column's declared data type did not pass the authored-scalar rule.
+    #[error("the type of column {column} on table {table} is not usable: {cause}")]
+    ColumnType {
+        table: String,
+        column: ColumnName,
+        #[source]
+        cause: sutura_domain::catalog::InvalidDimensionValue,
+    },
+    /// A column comment did not pass the authored-prose rule.
+    #[error("the comment on column {column} of table {table} is not usable: {cause}")]
+    ColumnDescription {
+        table: String,
+        column: ColumnName,
+        #[source]
+        cause: sutura_domain::catalog::InvalidDescription,
+    },
     /// The referenced column had no single-column primary or unique-key evidence.
     #[error("referenced column {table}.{column} has no single-column primary or unique-key evidence")]
     TargetUniquenessUnknown { table: String, column: String },
@@ -268,19 +295,39 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             model: table.model().to_owned(),
             cause,
         })?;
-        let columns = table
-            .columns
-            .iter()
-            .map(|column| {
-                exact_physical_identifier(column)
-                    .and_then(ColumnName::parse)
-                    .map_err(|cause| RdbmsError::ColumnName {
+        let mut columns = Vec::with_capacity(table.columns.len());
+        for column in &table.columns {
+            let column_name = exact_physical_identifier(column)
+                .and_then(ColumnName::parse)
+                .map_err(|cause| RdbmsError::ColumnName {
+                    table: physical_table.to_string(),
+                    column: column.clone(),
+                    cause,
+                })?;
+            let metadata = table.column_metadata(column);
+            let data_type = metadata
+                .and_then(ColumnMetadata::data_type)
+                .map(|raw| {
+                    ColumnType::parse(raw).map_err(|cause| RdbmsError::ColumnType {
                         table: physical_table.to_string(),
-                        column: column.clone(),
+                        column: column_name.clone(),
                         cause,
                     })
-            })
-            .collect::<Result<BTreeSet<ColumnName>, _>>()?;
+                })
+                .transpose()?;
+            let column_description = metadata
+                .and_then(ColumnMetadata::description)
+                .map(|raw| {
+                    Description::parse(raw).map_err(|cause| RdbmsError::ColumnDescription {
+                        table: physical_table.to_string(),
+                        column: column_name.clone(),
+                        cause,
+                    })
+                })
+                .transpose()?
+                .unwrap_or_default();
+            columns.push(Column::new(column_name, data_type, column_description, None));
+        }
         let description = table
             .description()
             .map(|raw| {
@@ -291,7 +338,21 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             })
             .transpose()?
             .unwrap_or_default();
-        let model = Model::new(name, self.name.clone(), physical_table.clone(), columns, description);
+        let primary_key = table
+            .primary_key()
+            .iter()
+            .map(|column| {
+                exact_physical_identifier(column)
+                    .and_then(ColumnName::parse)
+                    .map_err(|cause| RdbmsError::ColumnName {
+                        table: physical_table.to_string(),
+                        column: column.clone(),
+                        cause,
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let model =
+            Model::new(name, self.name.clone(), physical_table.clone(), columns, description).with_primary_key(primary_key);
         Ok((physical_table, model))
     }
 
@@ -447,32 +508,41 @@ where
 
     /// A **declaring** adapter, measured against its own declaration rather than the golden oracle.
     const KIND: CatalogKind = CatalogKind::Declaring;
-    /// Provides `Structure`, `Descriptions` and `Relationships` - exactly what a dictionary *can*
-    /// yield - and nothing else.
+    /// Provides `Structure`, `Descriptions`, `Relationships`, `ColumnTypes` and
+    /// `ColumnDescriptions` - exactly what a dictionary *can* yield - and nothing else.
     ///
-    /// `Structure` is unconditional; descriptions and relationships are declared-and-conditional.
-    /// A foreign key whose target lacks single-column primary or unique-key evidence refuses the
-    /// whole load with [`RdbmsError::TargetUniquenessUnknown`] rather than being dropped; a schema
-    /// with no foreign key lawfully carries no relationship. This is the single-column case only -
-    /// a composite (multi-column) foreign key is not representable in [`DomainRelationship`], so a
-    /// [`DictionaryReader`] must drop or refuse it before it ever reaches this conversion.
+    /// `Structure` is unconditional; the other four are declared-and-conditional. A foreign key
+    /// whose target lacks single-column primary or unique-key evidence refuses the whole load with
+    /// [`RdbmsError::TargetUniquenessUnknown`] rather than being dropped; a schema with no foreign
+    /// key lawfully carries no relationship, and one with no column comment or declared type
+    /// lawfully carries neither `ColumnDescriptions` nor `ColumnTypes` - `information_schema`
+    /// carries a `data_type` per column but a comment is optional, same as a table's own. This is
+    /// the single-column case only - a composite (multi-column) foreign key is not representable in
+    /// [`DomainRelationship`], so a [`DictionaryReader`] must drop or refuse it before it ever
+    /// reaches this conversion.
     ///
     /// What is declared is nothing more. No
     /// [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality) - a foreign key
     /// vouches for no fan-out in the dangerous direction, and a dictionary carries no metric for a
     /// dimension to be reached `via` one, so `produced` observes `Cardinality` absent and the
     /// declaration agrees. No `Metrics`, no `Grains`, no `RequiredFilters`, no `AllowedValues`, no
-    /// `Anchors`. **The knowledge half is empty for the same reason `sutura-catalog-datahub`'s
-    /// is**: nothing here reads a glossary-like aspect, so a standalone bundle carries no
-    /// `Knowledge` referent for a phrase or a caveat to attach to.
+    /// `Anchors`. `primary_key` evidence rides under `Structure` rather than its own kind - see
+    /// [`sutura_domain::catalog::Model::with_primary_key`]'s own doc for why it is evidence and not
+    /// a declarable capability. **The knowledge half is empty for the same reason
+    /// `sutura-catalog-datahub`'s is**: nothing here reads a glossary-like aspect, so a standalone
+    /// bundle carries no `Knowledge` referent for a phrase or a caveat to attach to.
     ///
     /// Written as `of([..])` plus `and_may_provide([..])` with two explicit lists, the way an
     /// adapter over a fixed external schema must, so a tenth definition kind or a fifth knowledge
     /// capability leaves this declaration alone rather than silently widening it.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
-            DefinitionCapabilities::of([DefinitionKind::Structure])
-                .and_may_provide([DefinitionKind::Descriptions, DefinitionKind::Relationships]),
+            DefinitionCapabilities::of([DefinitionKind::Structure]).and_may_provide([
+                DefinitionKind::Descriptions,
+                DefinitionKind::Relationships,
+                DefinitionKind::ColumnTypes,
+                DefinitionKind::ColumnDescriptions,
+            ]),
             KnowledgeCapabilities::none(),
         )
     }
@@ -540,13 +610,48 @@ impl core::fmt::Display for TableAddress {
     }
 }
 
+/// What a dictionary's own `information_schema`/catalog view says about one column beyond its
+/// name: its declared data type, and a column comment if a human wrote one.
+///
+/// A separate type from the domain's [`sutura_domain::catalog::Column`] rather than that type
+/// itself, because this crate's own identifiers are still bare dictionary strings at this point -
+/// the same reason [`Table`]'s own fields are `String` rather than [`sutura_domain::model::ColumnName`].
+/// [`RdbmsCatalog::convert_model`] is where the parse happens for all of them together.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ColumnMetadata {
+    data_type: Option<String>,
+    description: Option<String>,
+}
+
+impl ColumnMetadata {
+    pub const fn new(data_type: Option<String>, description: Option<String>) -> Self {
+        Self { data_type, description }
+    }
+
+    #[inline]
+    pub fn data_type(&self) -> Option<&str> {
+        self.data_type.as_deref()
+    }
+
+    #[inline]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+}
+
 /// One semantic model, the physical table it selects, and the prose written against it.
+///
+/// `column_metadata` and `primary_key` are both additive - see [`Self::with_column_metadata`] and
+/// [`Self::with_primary_key`] - rather than [`Self::new`] parameters, so a reader that has neither
+/// (or a test fixture built before either existed) keeps compiling unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Table {
     model: String,
     address: TableAddress,
     columns: Vec<String>,
     description: Option<String>,
+    column_metadata: BTreeMap<String, ColumnMetadata>,
+    primary_key: Vec<String>,
 }
 
 impl Table {
@@ -557,7 +662,29 @@ impl Table {
             address,
             columns,
             description,
+            column_metadata: BTreeMap::new(),
+            primary_key: Vec::new(),
         }
+    }
+
+    /// Attaches per-column type and comment evidence, keyed by the dictionary's own column spelling.
+    ///
+    /// A column named here that is not in [`Self::columns`] is dropped rather than refused: the
+    /// conversion reads metadata only for a column it is already about to declare, and a stray key
+    /// says nothing this crate's error vocabulary is set up to report against a table.
+    #[must_use]
+    pub fn with_column_metadata(mut self, metadata: impl IntoIterator<Item = (String, ColumnMetadata)>) -> Self {
+        self.column_metadata = metadata.into_iter().collect();
+        self
+    }
+
+    /// Declares which of this table's columns the dictionary's own primary or unique-key constraint
+    /// names - evidence only, the same as [`sutura_domain::catalog::Model::with_primary_key`], which
+    /// is where this arrives once converted.
+    #[must_use]
+    pub fn with_primary_key(mut self, primary_key: Vec<String>) -> Self {
+        self.primary_key = primary_key;
+        self
     }
 
     /// The semantic model name assigned to this table.
@@ -582,6 +709,18 @@ impl Table {
     #[inline]
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// One column's type/comment evidence, by the dictionary's own spelling of its name.
+    #[inline]
+    pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata> {
+        self.column_metadata.get(column)
+    }
+
+    /// Which columns the dictionary's own constraint names as this table's primary key.
+    #[inline]
+    pub fn primary_key(&self) -> &[String] {
+        &self.primary_key
     }
 }
 

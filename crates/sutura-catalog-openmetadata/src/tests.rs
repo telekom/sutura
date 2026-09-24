@@ -124,6 +124,30 @@ fn it_declares_what_it_cannot_supply_and_the_bundle_agrees() {
     assert!(!produced.declares(DeclarableKind::Definition(DefinitionKind::Anchors)));
 }
 
+/// A column's `dataType`/`description` evidence arrives on the model's own column, and a
+/// `PRIMARY_KEY` constraint arrives as primary-key evidence - read off the RECORDED fixture corpus
+/// (`fixture::CORPUS`), which is what the golden snapshot pins.
+#[test]
+fn a_column_s_type_description_and_primary_key_evidence_arrive() {
+    let pinned = crate::fixture::over_fixture_source(name(), version())
+        .load()
+        .expect("the recorded fixture corpus loads");
+    let orders = pinned
+        .definitions()
+        .models()
+        .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+        .expect("orders is a model");
+    let amount = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
+    let column = orders.column(&amount).expect("amount_cents is declared");
+    assert_eq!(
+        column.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("BIGINT")
+    );
+    assert_eq!(column.description(), "The order total, in minor units.");
+    let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a fixture column is a column");
+    assert_eq!(orders.primary_key(), &std::collections::BTreeSet::from([order_id]));
+}
+
 /// A metric whose measure is an expression string is READ and never DEFINED.
 ///
 /// `metricType` is decidable but the bound column is not resolvable from a foreign-dialect

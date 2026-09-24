@@ -261,18 +261,14 @@ fn a_key_probe_renders_and_parses_for_every_dialect_it_declares() {
                 ModelName::parse("orders").expect("a test model is a model"),
                 SourceName::parse("local").expect("a test source is a source"),
                 TableName::parse("orders").expect("a test table is a table"),
-                std::iter::once("customer_key")
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                std::iter::once("customer_key").map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
             Model::new(
                 ModelName::parse("customers").expect("a test model is a model"),
                 SourceName::parse("local").expect("a test source is a source"),
                 TableName::parse("dim_customer").expect("a test table is a table"),
-                std::iter::once("customer_key")
-                    .map(|c| ColumnName::parse(c).expect("a test column is a column"))
-                    .collect(),
+                std::iter::once("customer_key").map(|c| ColumnName::parse(c).expect("a test column is a column")),
                 Description::default(),
             ),
         ],

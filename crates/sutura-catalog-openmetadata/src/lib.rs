@@ -58,7 +58,10 @@ pub mod document;
 pub mod fixture;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, Description, InconsistentDefinitions, InvalidDescription, Model, Relationship};
+use sutura_domain::catalog::{
+    Column, ColumnType, Definitions, Description, InconsistentDefinitions, InvalidDescription, InvalidDimensionValue, Model,
+    Relationship,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
@@ -106,6 +109,20 @@ pub enum OpenMetadataError {
     #[error("the description of {on} is not usable")]
     Description {
         on: String,
+        #[source]
+        cause: InvalidDescription,
+    },
+    #[error("the type of column {column} on {on} is not usable")]
+    ColumnType {
+        on: String,
+        column: ColumnName,
+        #[source]
+        cause: InvalidDimensionValue,
+    },
+    #[error("the description of column {column} on {on} is not usable")]
+    ColumnDescription {
+        on: String,
+        column: ColumnName,
         #[source]
         cause: InvalidDescription,
     },
@@ -203,11 +220,33 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             })?;
         let name = Self::identifier(table.name(), |raw| ModelName::parse(raw), "model", "a table")?;
         let table_name = Self::identifier(table.name(), |raw| TableName::parse(raw), "table", table.name())?;
-        let columns = table
-            .columns()
-            .iter()
-            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name()))
-            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        let mut columns = Vec::with_capacity(table.columns().len());
+        for column in table.columns() {
+            let column_name = Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name())?;
+            let metadata = table.column_metadata(column);
+            let data_type = metadata
+                .and_then(document::ColumnMetadata::data_type)
+                .map(|raw| {
+                    ColumnType::parse(raw).map_err(|cause| OpenMetadataError::ColumnType {
+                        on: table.name().to_owned(),
+                        column: column_name.clone(),
+                        cause,
+                    })
+                })
+                .transpose()?;
+            let column_description = metadata
+                .and_then(document::ColumnMetadata::description)
+                .map(|raw| {
+                    Description::parse(raw).map_err(|cause| OpenMetadataError::ColumnDescription {
+                        on: table.name().to_owned(),
+                        column: column_name.clone(),
+                        cause,
+                    })
+                })
+                .transpose()?
+                .unwrap_or_default();
+            columns.push(Column::new(column_name, data_type, column_description, None));
+        }
         // A model's description is supplied (Descriptions is a provided kind); one without a
         // description would leave the declaration unproduced for it. Refuse rather than default.
         let description_text = table
@@ -221,7 +260,12 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             on: table.name().to_owned(),
             cause,
         })?;
-        Ok(Model::new(name, source, table_name, columns, description))
+        let primary_key = table
+            .primary_key()
+            .iter()
+            .map(|column| Self::identifier(column, |raw| ColumnName::parse(raw), "column", table.name()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Model::new(name, source, table_name, columns, description).with_primary_key(primary_key))
     }
 
     /// One relationship (a `name` → structural endpoints) into a domain [`Relationship`].
@@ -313,6 +357,13 @@ where
     /// `checked_against`'s `Unprovided` direction exempts them, so a metric-free deployment is
     /// servable; their presence, the day it resolves, is still covered by the declared half.
     ///
+    /// `ColumnTypes` and `ColumnDescriptions` are may-provide too, and that is the conservative
+    /// choice rather than the exact one: `OpenMetadata`'s own `Column` schema makes `dataType`
+    /// mandatory, so a live source could in principle vouch for it unconditionally the way
+    /// `Structure` is. Nothing here refuses a column with no `column_metadata` entry, so this
+    /// adapter's declaration stays honest about what IT enforces rather than about what the upstream
+    /// schema happens to require.
+    ///
     /// `RequiredFilters`, `AllowedValues` and `Anchors` are deliberately NOT declared: the required
     /// filter is a raw SQL `where` this adapter never parses into `RequiredFilter`, a dimension
     /// carries no allowlist, and none of the entities carries an `Anchor`. The knowledge half is empty
@@ -324,7 +375,13 @@ where
                 DefinitionKind::Descriptions,
                 DefinitionKind::Relationships,
             ])
-            .and_may_provide([DefinitionKind::Metrics, DefinitionKind::Grains, DefinitionKind::Cardinality]),
+            .and_may_provide([
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+                DefinitionKind::Cardinality,
+                DefinitionKind::ColumnTypes,
+                DefinitionKind::ColumnDescriptions,
+            ]),
             KnowledgeCapabilities::none(),
         )
     }

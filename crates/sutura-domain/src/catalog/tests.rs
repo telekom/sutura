@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
     MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL,
     ViaChain,
 };
@@ -48,7 +48,7 @@ fn model(name: &str, source: &str, columns: &[&str]) -> Model {
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -63,7 +63,7 @@ fn model_over(name: &str, source: &str, table_path: &str, columns: &[&str]) -> M
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         QualifiedTable::parse(table_path).expect("a test table path is a path"),
-        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        columns.iter().map(|c| column(c)),
         Description::default(),
     )
 }
@@ -181,6 +181,94 @@ fn a_duplicated_declaration_is_refused_rather_than_letting_the_second_win() {
             model: model_name("orders")
         }
     );
+}
+
+#[test]
+fn a_column_carries_the_type_and_description_it_was_given() {
+    let orders = Model::new(
+        model_name("orders"),
+        SourceName::parse("local").expect("a test source is a source"),
+        TableName::parse("orders").expect("a test table is a table"),
+        vec![Column::new(
+            column("amount_cents"),
+            Some(ColumnType::parse("NUMERIC").expect("a test column type is a column type")),
+            Description::parse("the order total, in minor units").expect("a test description is a description"),
+            Some(false),
+        )],
+        Description::default(),
+    );
+    let carried = orders.column(&column("amount_cents")).expect("the column was declared");
+    assert_eq!(carried.data_type().map(ColumnType::as_str), Some("NUMERIC"));
+    assert_eq!(carried.description(), "the order total, in minor units");
+    assert_eq!(carried.nullable(), Some(false));
+}
+
+#[test]
+fn a_bare_column_name_still_constructs_a_model_with_no_type_or_description() {
+    // What every caller here that has only ever named a column set gets: `From<ColumnName>` for
+    // `Column`. If this stopped compiling, every fixture in the workspace would have to change at
+    // once.
+    let orders = model("orders", "local", &["amount_cents"]);
+    let bare = orders.column(&column("amount_cents")).expect("the column was declared");
+    assert_eq!(bare.data_type(), None);
+    assert_eq!(bare.description(), "");
+    assert_eq!(bare.nullable(), None);
+}
+
+#[test]
+fn a_primary_key_naming_a_column_the_model_does_not_have_is_refused() {
+    let orders = model("orders", "local", &["amount_cents", "order_date"]).with_primary_key([column("order_id")]);
+    assert_eq!(
+        Definitions::assemble(vec![orders], vec![], vec![]).unwrap_err(),
+        InconsistentDefinitions::UnknownPrimaryKeyColumn {
+            model: model_name("orders"),
+            column: column("order_id"),
+        }
+    );
+}
+
+#[test]
+fn a_primary_key_naming_a_real_column_is_evidence_and_licenses_nothing_else() {
+    // "Evidence only": a bundle with a primary key still assembles with no relationship at all, and
+    // nothing here reads it to decide a `JoinType`.
+    let orders = model("orders", "local", &["amount_cents", "order_date"]).with_primary_key([column("order_date")]);
+    let definitions = Definitions::assemble(vec![orders], vec![], vec![]).expect("a real primary key column assembles");
+    let orders = definitions.model(&model_name("orders")).expect("orders was assembled");
+    assert_eq!(orders.primary_key(), &BTreeSet::from([column("order_date")]));
+}
+
+#[test]
+fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
+    // The two fields `MAX_DEFINITIONS_BYTES` did not bound before this type existed. That they move
+    // the DIGEST too is `pinned::tests::a_column_s_type_or_description_arriving_moves_the_digest`;
+    // this asserts the narrower claim, over the byte count `assemble` actually caps.
+    let bare = model("orders", "local", &["amount_cents"]);
+    assert!(
+        Definitions::assemble(vec![bare], vec![], vec![]).is_ok(),
+        "a bare column stays well under the cap"
+    );
+    // One column at the description cap, repeated enough times to cross the aggregate limit -
+    // the same shape `enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load` already
+    // proves for a metric's own description.
+    let mut columns = Vec::new();
+    for index in 0..33_u32 {
+        let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
+        columns.push(Column::new(column(&format!("c{index}")), None, filler, None));
+    }
+    let heavy = Model::new(
+        model_name("orders"),
+        SourceName::parse("local").expect("a test source is a source"),
+        TableName::parse("orders").expect("a test table is a table"),
+        columns,
+        Description::default(),
+    );
+    match Definitions::assemble(vec![heavy], vec![], vec![]).unwrap_err() {
+        InconsistentDefinitions::DefinitionsTooLarge { bytes, limit } => {
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
+        }
+        other => panic!("column description bytes must be what refuses this: {other:?}"),
+    }
 }
 
 #[test]

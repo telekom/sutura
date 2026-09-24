@@ -179,6 +179,57 @@ columns: [amount_cents]
 }
 
 #[test]
+fn a_column_s_long_form_carries_a_type_a_description_and_nullability_and_may_mix_with_the_short_form() {
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    type: NUMERIC
+    description: The order total, in minor units.
+    nullable: false
+  - order_date
+primary_key: [order_date]
+";
+    let model = serde_norway::from_str::<ModelDoc>(yaml)
+        .expect("a mixed short/long column list parses")
+        .into_domain(description("Orders."));
+    let amount = model.column(&column("amount_cents")).expect("amount_cents is declared");
+    assert_eq!(
+        amount.data_type().map(sutura_domain::catalog::ColumnType::as_str),
+        Some("NUMERIC")
+    );
+    assert_eq!(amount.description(), "The order total, in minor units.");
+    assert_eq!(amount.nullable(), Some(false));
+    // The short form still writes a bare column, with none of the three.
+    let date = model.column(&column("order_date")).expect("order_date is declared");
+    assert_eq!(date.data_type(), None);
+    assert_eq!(date.description(), "");
+    assert_eq!(date.nullable(), None);
+    assert_eq!(model.primary_key(), &BTreeSet::from([column("order_date")]));
+}
+
+#[test]
+fn a_column_s_long_form_still_refuses_an_unknown_key() {
+    // `untagged` cannot name WHICH key was wrong - `ColumnEntryDoc`'s own doc names this the same
+    // limit `AnchorLiteral` already states: every variant failed, and the message says only that a
+    // mapping matched neither the bare-name form nor the long form. What matters here is that it
+    // refuses at all rather than silently dropping `typo`.
+    let yaml = "
+kind: model
+name: orders
+source: local
+table: orders
+columns:
+  - name: amount_cents
+    typo: NUMERIC
+";
+    drop(serde_norway::from_str::<ModelDoc>(yaml).expect_err("a misspelled long-form key matches no column shape"));
+}
+
+#[test]
 fn a_misspelled_key_is_an_error_and_not_a_dropped_field() {
     // The bug this prevents, and the reason `deny_unknown_fields` is on every shape here:
     // `colums:` loads a model with no columns at all. It then passes every consistency check

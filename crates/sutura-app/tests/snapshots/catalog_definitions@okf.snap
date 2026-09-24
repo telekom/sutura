@@ -8,18 +8,44 @@ models:
     source: local
     table: customers
     columns:
-      - country
-      - id
-      - name
+      country:
+        name: country
+        data_type: string
+        description: The country the customer is registered in.
+        nullable: ~
+      id:
+        name: id
+        data_type: integer
+        description: "The customer's unique identifier."
+        nullable: ~
+      name:
+        name: name
+        data_type: string
+        description: "The customer's display name."
+        nullable: ~
+    primary_key: []
     description: "The people who place orders, one row per person."
   orders:
     name: orders
     source: local
     table: orders
     columns:
-      - id
-      - region
-      - total
+      id:
+        name: id
+        data_type: integer
+        description: "The order's unique identifier."
+        nullable: ~
+      region:
+        name: region
+        data_type: string
+        description: The region the order was placed in.
+        nullable: ~
+      total:
+        name: total
+        data_type: number
+        description: "The order's total value."
+        nullable: ~
+    primary_key: []
     description: "Orders, one row per placed order."
 relationships: {}
 metrics: {}

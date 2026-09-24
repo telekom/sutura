@@ -709,7 +709,10 @@ impl SemanticCatalog for HandWrittenCatalog {
 ///
 /// The comparison the differential oracle actually makes. Prose lives in the markdown and nowhere
 /// else, so comparing it would be comparing one implementation against a copy of itself. Everything
-/// that decides what executes is compared.
+/// that decides what executes is compared - which is why a column keeps only its NAME here: a
+/// declared type, a column-level description and the primary-key evidence are exactly as
+/// descriptive as a model's own [`Description`] and exactly as inert to what executes, and the
+/// hand-written catalog below states neither.
 fn without_descriptions(definitions: &Definitions) -> Definitions {
     let models = definitions
         .models()
@@ -719,7 +722,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 model.name().clone(),
                 model.source().clone(),
                 model.table().clone(),
-                model.columns().clone(),
+                model.columns().map(|column| column.name().clone()),
                 Description::default(),
             )
         })

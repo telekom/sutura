@@ -602,7 +602,7 @@ mod tests {
             ModelName::parse(name).expect("a test model is a model"),
             SourceName::parse(on).expect("a test source is a source"),
             TableName::parse(format!("dim_{name}")).expect("a test table is a table"),
-            columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+            columns.iter().map(|c| column(c)),
             Description::default(),
         )
     }

@@ -108,6 +108,9 @@ sends a reader to read all of them.
 - `DuplicateColumn`
 - `MissingDescription`
 - `InvalidDescription`
+- `InvalidColumnType`
+- `InvalidColumnDescription`
+- `InvalidPrimaryKey`
 - `Inconsistent`
 - `UncheckableKnowledge`
 - `Empty`
@@ -117,3 +120,20 @@ sends a reader to read all of them.
 ### Implements
 
 `Debug`, `Display`, `Error`
+
+## `enum InvalidPrimaryKeyShape`
+
+```rust
+pub enum InvalidPrimaryKeyShape
+```
+
+Why a `primaryKey` value could not be read as a column name or a list of them.
+
+### Variants
+
+- `NotAStringOrList` - Neither a YAML string nor a sequence of strings - the two shapes the Table Schema specification allows.
+- `Column`
+
+### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`

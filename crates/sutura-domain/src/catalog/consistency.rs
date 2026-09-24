@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{Column, Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
 use crate::model::{ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// Everything a catalog said, with its cross-references checked.
@@ -55,6 +55,9 @@ pub enum InconsistentDefinitions {
     DuplicateMetric { metric: MetricName },
     #[error("relationship {relationship} is declared twice")]
     DuplicateRelationship { relationship: RelationshipName },
+    /// A model's primary-key evidence names a column the model does not declare.
+    #[error("model {model} names {column} in its primary key, which it does not declare as a column")]
+    UnknownPrimaryKeyColumn { model: ModelName, column: ColumnName },
     /// One metric declaring the same dimension twice.
     ///
     /// Raised by [`Metric::new`], which is the only place the pair is still visible; that
@@ -272,6 +275,16 @@ impl Definitions {
         for model in models {
             if let Some(existing) = model_map.insert(model.name.clone(), model) {
                 return Err(InconsistentDefinitions::DuplicateModel { model: existing.name });
+            }
+        }
+        for model in model_map.values() {
+            for column in &model.primary_key {
+                if !model.has_column(column) {
+                    return Err(InconsistentDefinitions::UnknownPrimaryKeyColumn {
+                        model: model.name.clone(),
+                        column: column.clone(),
+                    });
+                }
             }
         }
 
@@ -613,7 +626,18 @@ impl Definitions {
 /// The authored bytes behind one model beyond its own name: every column it declares, and its
 /// description.
 fn model_bytes(model: &Model) -> usize {
-    sum_bytes(model.columns().iter().map(|column| column.as_str().len())).saturating_add(model.description().len())
+    sum_bytes(model.columns().map(column_bytes)).saturating_add(model.description().len())
+}
+
+/// The authored bytes behind one column: its name, its data type if declared, and its description.
+///
+/// The name counted here too, unchanged from before this type existed - a model with many columns
+/// still adds up, whether or not any of them carries a type or a description.
+fn column_bytes(column: &Column) -> usize {
+    let name = column.name().as_str().len();
+    let data_type = column.data_type().map_or(0, |data_type| data_type.as_str().len());
+    let description = column.description().len();
+    name.saturating_add(data_type).saturating_add(description)
 }
 
 /// The authored bytes behind one relationship beyond its own name: the two columns it joins on.

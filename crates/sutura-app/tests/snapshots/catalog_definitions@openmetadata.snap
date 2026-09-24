@@ -8,19 +8,50 @@ models:
     source: local
     table: customers
     columns:
-      - customer_id
-      - segment
+      customer_id:
+        name: customer_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      segment:
+        name: segment
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key: []
     description: The customer dimension.
   orders:
     name: orders
     source: local
     table: orders
     columns:
-      - amount_cents
-      - customer_id
-      - order_date
+      amount_cents:
+        name: amount_cents
+        data_type: BIGINT
+        description: "The order total, in minor units."
+        nullable: ~
+      customer_id:
+        name: customer_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      order_date:
+        name: order_date
+        data_type: ~
+        description: ""
+        nullable: ~
+      order_id:
+        name: order_id
+        data_type: ~
+        description: ""
+        nullable: ~
+      status:
+        name: status
+        data_type: ~
+        description: ""
+        nullable: ~
+    primary_key:
       - order_id
-      - status
     description: "Net revenue orders, in minor units."
 relationships:
   orders_to_customer:

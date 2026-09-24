@@ -17,20 +17,22 @@
 //! this crate is held to - the rule [`crate::text`] owns, that the text a reviewer reads has to be
 //! the text that runs.
 //!
-//! **Three types, four fields**, and the count is worth stating because it has been wrong here
-//! twice. The header used to say "the two authored strings" while a
+//! **Four types, five fields**, and the count is worth stating because it has been wrong here
+//! twice already. The header used to say "the two authored strings" while a
 //! [`RequiredFilter`](crate::measure::RequiredFilter)'s value was a third one with no parse on it;
 //! then it said "two types, three fields" while an
 //! [`Anchor`](super::Anchor)'s value was a fourth, `pub const fn new(range, value: String)` straight
 //! from both adapters. A field counted as covered by the type it does not use is the failure mode a
-//! header sentence has, and the remedy is that the types are what is enumerated here.
+//! header sentence has, and the remedy is that the types are what is enumerated here. The fourth
+//! type, [`ColumnType`], is [`super::Column::data_type`] - the same rule, a third caller rather than
+//! a second field this time.
 //!
 //! **One character rule, one implementation.** `authored_scalar` is it, and
-//! [`DimensionValue::parse`] and [`AnchorValue::parse`] are both a call to it plus their own
-//! storage. A second copy of a rule is how two copies come to disagree - which is the shape of the
-//! defect [`super::Metric`] carried in the other direction, one content read into two different
-//! [`Definitions`](super::Definitions) - so the rule is a function and not a paragraph asking the
-//! next author to keep two parsers in step.
+//! [`DimensionValue::parse`], [`AnchorValue::parse`] and [`ColumnType::parse`] are each a call to it
+//! plus their own storage. A second copy of a rule is how two copies come to disagree - which is the
+//! shape of the defect [`super::Metric`] carried in the other direction, one content read into two
+//! different [`Definitions`](super::Definitions) - so the rule is a function and not a paragraph
+//! asking the next author to keep three parsers in step.
 //!
 //! # Why a separate file
 //!
@@ -267,6 +269,51 @@ impl TryFrom<String> for AnchorValue {
 
     fn try_from(raw: String) -> Result<Self, Self::Error> {
         Self::parse(raw)
+    }
+}
+
+/// A [`super::Column`]'s data type, as a source's own dictionary spells it: `"STRING"`,
+/// `"character varying"`, `"NUMERIC(38,9)"`.
+///
+/// **Descriptive text, never a cast.** Nothing in this crate branches on it - `sutura_sql` has its
+/// own closed vocabulary for what a statement may execute, and this is a quote for a person reading
+/// the catalog.
+///
+/// **The third caller of [`authored_scalar`], sharing [`MAX_DIMENSION_VALUE_CHARS`] rather than a
+/// bound of its own.** A type name is shorter than the longest word this repository's example
+/// catalog writes, and giving it a second constant identical in every other respect would be a
+/// number to keep in step rather than a fact this type needed. The refusal is
+/// [`InvalidDimensionValue`] for the same reason [`AnchorValue`]'s is: a second name for the same
+/// five faults would say nothing the shared rule does not.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub struct ColumnType(String);
+
+impl ColumnType {
+    /// Parses a column type, refusing text that could not be quoted back at a reader unaltered.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDimensionValue> {
+        let raw = raw.as_ref();
+        authored_scalar(raw)?;
+        Ok(Self(String::from(raw)))
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ColumnType {
+    type Error = InvalidDimensionValue;
+
+    fn try_from(raw: String) -> Result<Self, Self::Error> {
+        Self::parse(raw)
+    }
+}
+
+impl core::fmt::Display for ColumnType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

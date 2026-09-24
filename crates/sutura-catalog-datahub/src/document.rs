@@ -28,6 +28,8 @@
 //! not a usable identifier is refused by the conversion's parse) that a `pub` field would let a
 //! struct literal walk past.
 
+use std::collections::BTreeMap;
+
 use serde::ser::SerializeMap as _;
 use serde::{Deserialize, Serialize, ser};
 
@@ -76,8 +78,45 @@ impl Snapshot {
     }
 }
 
+/// What `schemaMetadata.fields[]` says about one column beyond its `fieldPath`: its
+/// `nativeDataType` and its own `description`, both optional per field.
+///
+/// A canonical, flat shape rather than `DataHub`'s own tagged `SchemaFieldDataType` union - the
+/// same simplification [`DatasetAspect`] already makes for the aspect as a whole, and the reason is
+/// the same: a real `nativeDataType` is already the flat string a dictionary's own `data_type`
+/// would be (`"VARCHAR(255)"`, `"BIGINT"`), so nothing here needs the union to read it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColumnMetadata {
+    #[serde(default)]
+    data_type: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+impl ColumnMetadata {
+    pub const fn new(data_type: Option<String>, description: Option<String>) -> Self {
+        Self { data_type, description }
+    }
+
+    #[inline]
+    pub fn data_type(&self) -> Option<&str> {
+        self.data_type.as_deref()
+    }
+
+    #[inline]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+}
+
 /// What a `dataset` entity supplies a model: a table, its columns, the platform it lives on, and a
 /// description.
+///
+/// `column_metadata` and `primary_key` are both additive - see [`Self::with_column_metadata`] and
+/// [`Self::with_primary_key`] - rather than [`Self::new`] parameters, so every existing fixture and
+/// test in this crate keeps compiling. Both are `#[serde(default)]`, so a recorded document that
+/// predates either still deserializes.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatasetAspect {
@@ -86,6 +125,10 @@ pub struct DatasetAspect {
     platform: String,
     columns: Vec<String>,
     description: String,
+    #[serde(default)]
+    column_metadata: BTreeMap<String, ColumnMetadata>,
+    #[serde(default)]
+    primary_key: Vec<String>,
 }
 
 impl DatasetAspect {
@@ -97,7 +140,25 @@ impl DatasetAspect {
             platform,
             columns,
             description,
+            column_metadata: BTreeMap::new(),
+            primary_key: Vec::new(),
         }
+    }
+
+    /// Attaches per-column `nativeDataType`/`description` evidence, keyed by `fieldPath`.
+    #[must_use]
+    pub fn with_column_metadata(mut self, metadata: impl IntoIterator<Item = (String, ColumnMetadata)>) -> Self {
+        self.column_metadata = metadata.into_iter().collect();
+        self
+    }
+
+    /// Declares which fields `schemaMetadata` marks `isPartOfKey` - evidence only, the same as
+    /// [`sutura_domain::catalog::Model::with_primary_key`], which is where this arrives once
+    /// converted.
+    #[must_use]
+    pub fn with_primary_key(mut self, primary_key: Vec<String>) -> Self {
+        self.primary_key = primary_key;
+        self
     }
 
     #[inline]
@@ -123,6 +184,18 @@ impl DatasetAspect {
     #[inline]
     pub fn description(&self) -> &str {
         &self.description
+    }
+
+    /// One column's type/description evidence, by `fieldPath`.
+    #[inline]
+    pub fn column_metadata(&self, column: &str) -> Option<&ColumnMetadata> {
+        self.column_metadata.get(column)
+    }
+
+    /// Which fields `schemaMetadata` marks `isPartOfKey`.
+    #[inline]
+    pub fn primary_key(&self) -> &[String] {
+        &self.primary_key
     }
 }
 

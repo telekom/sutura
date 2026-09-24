@@ -17,7 +17,8 @@ use super::{
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{
-    Anchor, AnchorValue, Audience, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship, ViaChain,
+    Anchor, AnchorValue, Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, Metric, Model,
+    Relationship, ViaChain,
 };
 use crate::knowledge::{Capability, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, Phrase, Referent};
 use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
@@ -43,6 +44,24 @@ fn relationship_name(raw: &str) -> RelationshipName {
 
 fn description(raw: &str) -> Description {
     Description::parse(raw).expect("a test description is a description")
+}
+
+fn column_type(raw: &str) -> ColumnType {
+    ColumnType::parse(raw).expect("a test column type is a column type")
+}
+
+/// A column of `name`, typed and described exactly as much as `carrying` asks for.
+fn model_column(carrying: Carrying<'_>, name: &str, data_type: &str) -> Column {
+    Column::new(
+        column(name),
+        asked_for(carrying, DefinitionKind::ColumnTypes).then(|| column_type(data_type)),
+        if asked_for(carrying, DefinitionKind::ColumnDescriptions) {
+            description("what this column holds")
+        } else {
+            Description::default()
+        },
+        None,
+    )
 }
 
 /// What a bundle in this file is asked to carry, named in the vocabulary under test.
@@ -94,14 +113,21 @@ fn definitions(carrying: Carrying<'_>) -> Definitions {
             model_name("orders"),
             SourceName::parse("local").expect("a test source is a source"),
             TableName::parse("orders").expect("a test table is a table"),
-            BTreeSet::from([column("amount_cents"), column("order_date"), column("customer_id")]),
+            vec![
+                model_column(carrying, "amount_cents", "NUMERIC"),
+                model_column(carrying, "order_date", "DATE"),
+                model_column(carrying, "customer_id", "STRING"),
+            ],
             prose(carrying, "what this holds"),
         ),
         Model::new(
             model_name("customers"),
             SourceName::parse("local").expect("a test source is a source"),
             TableName::parse("customers").expect("a test table is a table"),
-            BTreeSet::from([column("id"), column("region_code")]),
+            vec![
+                model_column(carrying, "id", "STRING"),
+                model_column(carrying, "region_code", "STRING"),
+            ],
             Description::default(),
         ),
     ];
@@ -227,11 +253,11 @@ fn one_glossary_entry(definitions: &Definitions) -> Knowledge {
 
 #[test]
 fn the_walk_reaches_every_kind_there_is() {
-    // Nine, and the number is written down so that adding a variant without extending `next` is a
+    // Eleven, and the number is written down so that adding a variant without extending `next` is a
     // failure here as well as at the exhaustive matches.
-    assert_eq!(DefinitionKind::every().count(), 9);
+    assert_eq!(DefinitionKind::every().count(), 11);
     let walked: BTreeSet<DefinitionKind> = DefinitionKind::every().collect();
-    assert_eq!(walked.len(), 9, "the walk yielded a kind twice");
+    assert_eq!(walked.len(), 11, "the walk yielded a kind twice");
 }
 
 #[test]
@@ -247,7 +273,7 @@ fn next_and_previous_are_inverses_over_the_whole_chain() {
         }
     }
     assert_eq!(DefinitionKind::Structure.previous(), None);
-    assert_eq!(DefinitionKind::Anchors.next(), None);
+    assert_eq!(DefinitionKind::ColumnDescriptions.next(), None);
 }
 
 #[test]
@@ -271,6 +297,36 @@ fn a_kind_is_named_in_words_rather_than_in_a_variant_spelling() {
         "cardinality"
     );
     assert_eq!(DeclarableKind::Knowledge(Capability::Examples).to_string(), "examples");
+}
+
+#[test]
+fn every_kind_names_words_and_not_its_own_variant_spelling() {
+    // Every arm of `DefinitionKind::as_str`, so a tenth-plus kind that forgot a word - or
+    // returned the previous kind's - is caught here rather than only where a fidelity message
+    // happens to render it.
+    let words: std::collections::BTreeMap<DefinitionKind, &str> = [
+        (DefinitionKind::Structure, "structure"),
+        (DefinitionKind::Descriptions, "descriptions"),
+        (DefinitionKind::Relationships, "relationships"),
+        (DefinitionKind::Cardinality, "cardinality"),
+        (DefinitionKind::Metrics, "metrics"),
+        (DefinitionKind::RequiredFilters, "required filters"),
+        (DefinitionKind::Grains, "grains"),
+        (DefinitionKind::AllowedValues, "allowed values"),
+        (DefinitionKind::Anchors, "anchors"),
+        (DefinitionKind::ColumnTypes, "column types"),
+        (DefinitionKind::ColumnDescriptions, "column descriptions"),
+    ]
+    .into_iter()
+    .collect();
+    for kind in DefinitionKind::every() {
+        assert_eq!(kind.to_string(), words[&kind], "{kind:?} named the wrong word");
+    }
+    assert_eq!(
+        words.len(),
+        DefinitionKind::every().count(),
+        "a kind is missing from this table"
+    );
 }
 
 // ------------------------------------------------------------------------ observing what arrived ---
