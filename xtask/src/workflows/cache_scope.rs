@@ -49,6 +49,7 @@
 use std::path::Path;
 
 use super::reach::Closure;
+use crate::changes::DEPS_CLOSURE_INPUTS as KEY_INPUTS;
 
 // IS THE RECORDED ABSENCE STILL ABSENT? A different question from this file's - nothing there
 // counts, gates or anchors a cache write - and its own file because the unexemptable 1000-line cap
@@ -127,15 +128,11 @@ const NO_RESTORE_ONLY: [&str; 1] = ["DeterminateSystems/magic-nix-cache-action"]
 ///
 /// Split by the digest each belongs to only in prose, because the rule is over the whole key: the
 /// first three are the lock generation, the rest are the derivation generation.
-const KEY_INPUTS: [&str; 7] = [
-    "flake.lock",
-    "Cargo.lock",
-    "rust-toolchain.toml",
-    "flake.nix",
-    "nix/**",
-    ".cargo/config.toml",
-    "**/Cargo.toml",
-];
+///
+/// The list itself lives at [`crate::changes::DEPS_CLOSURE_INPUTS`] now (imported above as
+/// `KEY_INPUTS`) - #980 review: `classify`'s `deps_closure` area reads the SAME set, so a job may
+/// skip building `.#deps` only when none of these moved. Two questions ("is the key naming every
+/// input" and "did an input move") sharing one list is what stops them silently disagreeing.
 
 /// Expressions that would move the key on a push that changed no dependency input.
 ///

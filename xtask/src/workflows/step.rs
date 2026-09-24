@@ -123,6 +123,30 @@ pub(crate) fn app_step<'a>(text: &'a str, job_name: &str, app: &str) -> Option<V
     lines.get(start..end).map(<[&str]>::to_vec)
 }
 
+/// The step of `job` named `step_name`, as its own lines - [`app_step`]'s own boundary math,
+/// keyed on the step's `name:` value directly rather than on a flake reference it invokes.
+///
+/// For a step whose body is plain shell over `git`/`bash` rather than a `nix run`/`nix build` -
+/// `app_step`'s own `collect` pass finds nothing to key on there, which is the gap this closes.
+#[cfg(test)]
+pub(crate) fn named_step<'a>(text: &'a str, job_name: &str, step_name: &str) -> Option<Vec<&'a str>> {
+    let lines = job(text, job_name)?;
+    let at = lines
+        .iter()
+        .position(|line| step_key(line).trim_start().starts_with(&format!("name: {step_name}")))?;
+    let start = (0..=at)
+        .rev()
+        .find(|index| lines.get(*index).is_some_and(|line| line.trim_start().starts_with("- ")))?;
+    let depth = indent(lines.get(start)?);
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start.saturating_add(1))
+        .find(|(_, line)| !line.trim().is_empty() && indent(line) <= depth)
+        .map_or(lines.len(), |(index, _)| index);
+    lines.get(start..end).map(<[&str]>::to_vec)
+}
+
 /// How deep a line is indented.
 #[cfg(test)]
 fn indent(line: &str) -> usize {
@@ -326,6 +350,81 @@ EVENT=merge_group
 BASE=
 run_step 0 not-called '' ''
 "#;
+    }
+
+    mod identity_classify_base {
+        //! Execute the real `identity-classify` base-resolution step - #980 review finding 6.
+        //!
+        //! No `origin/main` ref exists in this fixture at all: the OLD push arm's
+        //! `git merge-base origin/main HEAD || true` would therefore fail and the `|| true` would
+        //! swallow it, writing an empty base - "cannot tell, run everything", exactly the bug
+        //! measured on the real tree (every push selected `identity`, `chore(release):` included).
+        //! The fix reads `github.event.before` directly for a push, which needs no such ref.
+
+        use std::process::Command;
+
+        #[test]
+        fn a_push_bases_on_the_actual_previous_tip_not_an_empty_diff() {
+            let root = crate::repo::root().expect("the repository root");
+            let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("the workflow");
+            let step = crate::workflows::step::named_step(
+                &workflow,
+                "identity-classify",
+                "Base for this leg's own classification",
+            )
+            .expect("the live step");
+            let body = crate::workflows::step::shell(&step)
+                .into_iter()
+                .skip(1)
+                .map(str::trim_start)
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let tree = crate::scratch_tree::Tree::of("identity-classify-base", &[]);
+            let scratch = tree.root();
+            let script = format!(
+                "{}\n{body}\ncat \"$GITHUB_OUTPUT\"",
+                concat!(
+                    "set -eu\n",
+                    "git init --quiet --initial-branch=main --template= .\n",
+                    "git config user.name Fixture\n",
+                    "git config user.email user@example.com\n",
+                    "git config commit.gpgsign false\n",
+                    "git config core.hooksPath /dev/null\n",
+                    "printf root > root.txt\n",
+                    "git add root.txt\n",
+                    "git commit --quiet -m root\n",
+                    "export BEFORE=$(git rev-parse HEAD)\n",
+                    "printf pushed > pushed.txt\n",
+                    "git add pushed.txt\n",
+                    "git commit --quiet -m pushed\n",
+                    "export EVENT=push PR_BASE=''\n",
+                    "export GITHUB_OUTPUT=\"$PWD/out\"\n",
+                ),
+            );
+            let output = Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", &script])
+                .current_dir(scratch)
+                .env_remove("BASH_ENV")
+                .output()
+                .expect("the workflow shell executes");
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let printed = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                !printed.trim().ends_with("base="),
+                "an empty base is the old bug - the push arm read origin/main, which equals HEAD \
+                 right after a push: {printed}"
+            );
+            assert!(
+                printed.lines().any(|line| line.starts_with("base=") && line != "base="),
+                "expected a non-empty base= line naming the actual previous tip: {printed}"
+            );
+        }
     }
 
     /// Two jobs naming the same app, a parked reference above the live one, and the next job
